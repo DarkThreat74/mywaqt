@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { ExternalLink, Folder, ChevronLeft, Play, Clock, Headphones, Download } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { ExternalLink, Folder, ChevronLeft, Play, Clock, Headphones, Download, Search, X } from "lucide-react";
 import AdvancedAudioPlayer, { type PlayerTrack } from "@/components/advanced-audio-player";
 
 interface Folder {
   id: string;
   name: string;
   description: string | null;
+  imageKey: string | null;
+  startDate: string | null;
+  endDate: string | null;
   sortOrder: number;
 }
 
@@ -16,8 +19,10 @@ interface Talk {
   title: string;
   speaker: string | null;
   description: string | null;
+  topics: string | null;
   folderId: string | null;
   storageKey: string | null;
+  processedStorageKey: string | null;
   fileSize: number | null;
   duration: number | null;
   externalUrl: string | null;
@@ -55,6 +60,8 @@ export default function TalksClient() {
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null);
   const [currentTalk, setCurrentTalk] = useState<Talk | null>(null);
   const [offlineTalks, setOfflineTalks] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +107,42 @@ export default function TalksClient() {
     talks.filter((t) => t.folderId === folderId), [talks]);
 
   const uncategorized = talksInFolder(null);
+
+  // Debounce search input → searchQuery (200ms)
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput.trim()), 200);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Client-side search across title, speaker, description, and folder name
+  const searchResults = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    if (!q) return null;
+    return talks.filter((t) => {
+      const folder = folders.find((f) => f.id === t.folderId);
+      return (
+        t.title.toLowerCase().includes(q) ||
+        (t.speaker && t.speaker.toLowerCase().includes(q)) ||
+        (t.description && t.description.toLowerCase().includes(q)) ||
+        (t.topics && t.topics.toLowerCase().includes(q)) ||
+        (folder && folder.name.toLowerCase().includes(q)) ||
+        (folder && folder.description && folder.description.toLowerCase().includes(q))
+      );
+    });
+  }, [talks, folders, searchQuery]);
+
+  // Group search results by folder for display
+  const searchResultsByFolder = useMemo(() => {
+    if (!searchResults) return null;
+    const grouped = new Map<string | null, Talk[]>();
+    for (const t of searchResults) {
+      const key = t.folderId;
+      const arr = grouped.get(key) ?? [];
+      arr.push(t);
+      grouped.set(key, arr);
+    }
+    return grouped;
+  }, [searchResults]);
 
   // Build the queue for the current talk (siblings in the same folder, or uncategorized)
   const getCurrentQueue = useCallback((): Talk[] => {
@@ -152,17 +195,26 @@ export default function TalksClient() {
   // ── Folder view (inside a folder) ──
   if (selectedFolder) {
     const folderTalks = talksInFolder(selectedFolder.id);
+    const folderQuery = searchQuery.toLowerCase();
+    const filteredFolderTalks = folderQuery
+      ? folderTalks.filter((t) =>
+          t.title.toLowerCase().includes(folderQuery) ||
+          (t.speaker && t.speaker.toLowerCase().includes(folderQuery)) ||
+          (t.description && t.description.toLowerCase().includes(folderQuery)) ||
+          (t.topics && t.topics.toLowerCase().includes(folderQuery))
+        )
+      : folderTalks;
     return (
       <div className="mx-auto max-w-2xl">
         <button
-          onClick={() => setSelectedFolder(null)}
+          onClick={() => { setSelectedFolder(null); setSearchInput(""); }}
           className="mb-4 flex items-center gap-1.5 text-sm transition-opacity hover:opacity-70"
           style={{ color: "var(--color-ink-muted)" }}
         >
           <ChevronLeft className="h-4 w-4" /> All folders
         </button>
 
-        <div className="mb-6">
+        <div className="mb-5">
           <div className="flex items-center gap-2">
             <Folder className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
             <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{selectedFolder.name}</h1>
@@ -173,13 +225,43 @@ export default function TalksClient() {
           <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>{folderTalks.length} talks</p>
         </div>
 
-        {folderTalks.length === 0 ? (
+        {folderTalks.length > 3 && (
+          <div className="relative mb-5">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--color-ink-muted)" }} />
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search in this folder…"
+              className="w-full rounded-xl border py-2.5 pl-10 pr-9 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
+              style={{
+                borderColor: "var(--color-paper-3)",
+                backgroundColor: "var(--color-paper)",
+                color: "var(--color-ink)",
+              }}
+              aria-label="Search in folder"
+            />
+            {searchInput && (
+              <button
+                onClick={() => setSearchInput("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                aria-label="Clear search"
+              >
+                <X className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
+              </button>
+            )}
+          </div>
+        )}
+
+        {filteredFolderTalks.length === 0 ? (
           <div className="rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-            <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>No talks in this folder yet.</p>
+            <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
+              {folderQuery ? "No talks match your search." : "No talks in this folder yet."}
+            </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {folderTalks.map((talk) => (
+            {filteredFolderTalks.map((talk) => (
               <TalkCard
                 key={talk.id}
                 talk={talk}
@@ -218,14 +300,86 @@ export default function TalksClient() {
   // ── Main view (folder list) ──
   return (
     <div className="mx-auto max-w-2xl">
-      <div className="mb-6">
+      <div className="mb-4">
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Talks Library</h1>
         <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
           Curated lectures and khutbahs from trusted speakers
         </p>
       </div>
 
-      {folders.length === 0 && talks.length === 0 ? (
+      {/* Search bar */}
+      <div className="relative mb-5">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--color-ink-muted)" }} />
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search by title, speaker, or topic…"
+          className="w-full rounded-xl border py-2.5 pl-10 pr-9 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
+          style={{
+            borderColor: "var(--color-paper-3)",
+            backgroundColor: "var(--color-paper)",
+            color: "var(--color-ink)",
+          }}
+          aria-label="Search talks"
+        />
+        {searchInput && (
+          <button
+            onClick={() => setSearchInput("")}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
+          </button>
+        )}
+      </div>
+
+      {/* Search results view */}
+      {searchResults ? (
+        searchResults.length === 0 ? (
+          <div className="rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
+              <Search className="h-6 w-6" style={{ color: "var(--color-ink-muted)" }} />
+            </div>
+            <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>No talks found</p>
+            <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              Try a different search term.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <p className="px-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              {searchResults.length} {searchResults.length === 1 ? "result" : "results"} for &ldquo;{searchQuery}&rdquo;
+            </p>
+            {Array.from(searchResultsByFolder!.entries()).map(([folderId, folderTalks]) => {
+              const folder = folders.find((f) => f.id === folderId);
+              return (
+                <div key={folderId ?? "uncategorized"}>
+                  {folder && (
+                    <div className="mb-2 flex items-center gap-1.5 px-1">
+                      <Folder className="h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />
+                      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>{folder.name}</span>
+                    </div>
+                  )}
+                  {!folder && folderId !== null && (
+                    <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Unknown folder</p>
+                  )}
+                  <div className="space-y-2">
+                    {folderTalks.map((talk) => (
+                      <TalkCard
+                        key={talk.id}
+                        talk={talk}
+                        onPlay={() => setCurrentTalk(talk)}
+                        isOffline={offlineTalks.has(talk.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : folders.length === 0 && talks.length === 0 ? (
         <div className="rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
             <Headphones className="h-6 w-6" style={{ color: "var(--color-ink-muted)" }} />

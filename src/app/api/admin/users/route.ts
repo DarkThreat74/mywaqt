@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { count, eq, desc, sql, inArray } from "drizzle-orm";
+import { count, desc, sql, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { logError } from "@/lib/logError";
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") || String(PAGE_SIZE), 10)));
     const offset = (page - 1) * pageSize;
 
-    // Paginated user query — use eq(role, 'user') instead of ne(role, 'admin') for index usage
+    // Paginated user query — show ALL users including admins
     const users = await db
       .select({
         id: schema.users.id,
@@ -30,16 +30,14 @@ export async function GET(request: NextRequest) {
         role: schema.users.role,
       })
       .from(schema.users)
-      .where(eq(schema.users.role, "user"))
       .orderBy(desc(schema.users.createdAt))
       .limit(pageSize)
       .offset(offset);
 
-    // Get total count for pagination
+    // Get total count for pagination (all users)
     const [{ total }] = await db
       .select({ total: count() })
-      .from(schema.users)
-      .where(eq(schema.users.role, "user"));
+      .from(schema.users);
 
     const userIds = users.map((u) => u.id);
     if (userIds.length === 0) {

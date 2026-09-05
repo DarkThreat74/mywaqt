@@ -319,6 +319,11 @@ export const talkFolders = pgTable('talk_folders', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   description: text('description'),
+  // R2 storage key for folder image (e.g. "folder-images/uuid.jpg")
+  imageKey: text('image_key'),
+  // Optional date range for series/events
+  startDate: date('start_date'),
+  endDate: date('end_date'),
   sortOrder: integer('sort_order').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -329,17 +334,28 @@ export const talks = pgTable('talks', {
   title: text('title').notNull(),
   speaker: text('speaker'),
   description: text('description'),
-  // R2 storage key for self-hosted MP3 (e.g. "talks/folder-name/filename.mp3")
+  // Comma-separated topics for search (e.g. "patience, salah, ramadan")
+  topics: text('topics'),
+  // R2 storage key for the ORIGINAL uploaded MP3
   storageKey: text('storage_key'),
+  // R2 storage key for the PROCESSED MP3 (after silence removal + loudness normalization)
+  processedStorageKey: text('processed_storage_key'),
   // File size in bytes (for display + offline storage management)
   fileSize: integer('file_size'),
   // Duration in seconds
   duration: integer('duration'),
   // External URL fallback (for legacy talks or external links)
   externalUrl: text('external_url'),
+  // Processing pipeline status: pending → processing → ready → published / failed
+  processingStatus: text('processing_status').default('pending').notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true }),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  processingError: text('processing_error'),
   addedAt: timestamp('added_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   folderIdx: index('talks_folder_idx').on(t.folderId),
+  processingStatusIdx: index('talks_processing_status_idx').on(t.processingStatus),
+  publishedIdx: index('talks_published_idx').on(t.publishedAt),
 }));
 
 // ─── Trusted Devices (FingerprintJS) ───

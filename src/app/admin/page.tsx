@@ -1,16 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, RefreshCw, ShieldCheck, Mic, LayoutGrid, Users, ChevronRight, ArrowLeft, Heart, FolderPlus, Upload, Trash2, Folder } from "lucide-react";
+import { LogOut, RefreshCw, ShieldCheck, Mic, LayoutGrid, Users, ChevronRight, ArrowLeft, Heart, FolderPlus, Upload, Trash2, Folder, Settings as SettingsIcon, Sun, Moon, Monitor, Volume2, Save } from "lucide-react";
 
-type Tab = "overview" | "users" | "talks" | "dhikr";
+type Tab = "overview" | "users" | "talks" | "dhikr" | "settings";
 
 const NAV_ITEMS: Array<{ key: Tab; label: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }> }> = [
   { key: "overview", label: "Overview", icon: LayoutGrid },
   { key: "users", label: "Users", icon: Users },
   { key: "talks", label: "Talks", icon: Mic },
   { key: "dhikr", label: "Dhikr", icon: Heart },
+  { key: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
 interface AdminStats {
@@ -209,6 +210,7 @@ export default function AdminPortal() {
               {tab === "users" && !selectedUser && "All registered accounts. Click any user for details."}
               {tab === "talks" && "Upload MP3 talks, organize into folders, and manage the talks library."}
               {tab === "dhikr" && "Curated dhikr sequences for the tasbih counter. Human-curated from authenticated sources only."}
+              {tab === "settings" && "Platform-wide settings: appearance, features, and configuration."}
             </p>
           </div>
 
@@ -220,6 +222,7 @@ export default function AdminPortal() {
             )}
             {tab === "talks" && <TalksManager />}
             {tab === "dhikr" && <DhikrManager />}
+            {tab === "settings" && <AdminSettings />}
           </div>
         </main>
       </div>
@@ -428,11 +431,12 @@ function UserDetail({ user, onBack }: { user: AdminUser; onBack: () => void }) {
 
 // ─── Talks Manager (folders + MP3 upload) ───
 
-interface AdminFolder { id: string; name: string; description: string | null; sortOrder: number; }
+interface AdminFolder { id: string; name: string; description: string | null; imageKey: string | null; startDate: string | null; endDate: string | null; sortOrder: number; }
 interface AdminTalk {
-  id: string; title: string; speaker: string | null; description: string | null;
-  folderId: string | null; storageKey: string | null; fileSize: number | null;
-  duration: number | null; externalUrl: string | null; addedAt: string;
+  id: string; title: string; speaker: string | null; description: string | null; topics: string | null;
+  folderId: string | null; storageKey: string | null; processedStorageKey: string | null; fileSize: number | null;
+  duration: number | null; externalUrl: string | null; processingStatus: string; processingError: string | null;
+  addedAt: string; publishedAt: string | null;
 }
 
 function TalksManager() {
@@ -444,10 +448,13 @@ function TalksManager() {
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folderDesc, setFolderDesc] = useState("");
+  const [folderStartDate, setFolderStartDate] = useState("");
+  const [folderEndDate, setFolderEndDate] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [talkTitle, setTalkTitle] = useState("");
   const [talkSpeaker, setTalkSpeaker] = useState("");
   const [talkDesc, setTalkDesc] = useState("");
+  const [talkTopics, setTalkTopics] = useState("");
   const [talkFile, setTalkFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
@@ -475,10 +482,17 @@ function TalksManager() {
     const res = await fetch("/api/admin/talks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "create-folder", name: folderName, description: folderDesc }),
+      body: JSON.stringify({
+        action: "create-folder",
+        name: folderName,
+        description: folderDesc,
+        startDate: folderStartDate || undefined,
+        endDate: folderEndDate || undefined,
+      }),
     });
     if (res.ok) {
-      setFolderName(""); setFolderDesc(""); setShowFolderForm(false);
+      setFolderName(""); setFolderDesc(""); setFolderStartDate(""); setFolderEndDate("");
+      setShowFolderForm(false);
       await load();
     } else {
       setError("Failed to create folder.");
@@ -504,6 +518,55 @@ function TalksManager() {
     });
     await load();
   }
+
+  async function publishTalk(talkId: string) {
+    const res = await fetch("/api/admin/talks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "publish-talk", talkId }),
+    });
+    if (res.ok) {
+      await load();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Failed to publish talk.");
+    }
+  }
+
+  async function retryProcessing(talkId: string) {
+    await fetch("/api/admin/talks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "retry-processing", talkId }),
+    });
+    await load();
+  }
+
+  async function processTalk(talkId: string) {
+    const res = await fetch("/api/admin/talks/process", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ talkId }),
+    });
+    if (res.ok) {
+      await load();
+      // Poll for status updates every 5 seconds
+      const pollInterval = setInterval(async () => {
+        await load();
+        const talk = talksRef.current.find((t) => t.id === talkId);
+        if (!talk || talk.processingStatus === "ready" || talk.processingStatus === "failed" || talk.processingStatus === "published") {
+          clearInterval(pollInterval);
+        }
+      }, 5000);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Failed to start processing.");
+    }
+  }
+
+  // Keep a ref to talks for polling
+  const talksRef = useRef(talks);
+  useEffect(() => { talksRef.current = talks; }, [talks]);
 
   async function uploadTalk(e: React.FormEvent) {
     e.preventDefault();
@@ -547,7 +610,7 @@ function TalksManager() {
         return;
       }
 
-      // Step 3: Create the talk record in DB
+      // Step 3: Create the talk record in DB (starts as 'pending' processing status)
       setUploadProgress("Saving talk record…");
       const createRes = await fetch("/api/admin/talks", {
         method: "POST",
@@ -557,13 +620,14 @@ function TalksManager() {
           title: talkTitle,
           speaker: talkSpeaker || undefined,
           description: talkDesc || undefined,
+          topics: talkTopics || undefined,
           folderId: selectedFolderId || undefined,
           storageKey,
           fileSize: fileSize || talkFile.size,
         }),
       });
       if (createRes.ok) {
-        setTalkTitle(""); setTalkSpeaker(""); setTalkDesc(""); setTalkFile(null);
+        setTalkTitle(""); setTalkSpeaker(""); setTalkDesc(""); setTalkTopics(""); setTalkFile(null);
         setShowUploadForm(false);
         setUploadProgress("");
         await load();
@@ -621,6 +685,28 @@ function TalksManager() {
           <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Create Folder</h2>
           <Field label="Folder name" value={folderName} onChange={setFolderName} placeholder="e.g. Friday Khutbahs" />
           <Field label="Description (optional)" value={folderDesc} onChange={setFolderDesc} placeholder="What series is this?" textarea />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>Start date (optional)</span>
+              <input
+                type="date"
+                value={folderStartDate}
+                onChange={(e) => setFolderStartDate(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>End date (optional)</span>
+              <input
+                type="date"
+                value={folderEndDate}
+                onChange={(e) => setFolderEndDate(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+              />
+            </label>
+          </div>
           <div className="flex gap-2">
             <button type="submit" className="rounded-md px-4 py-2 text-sm font-medium" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Create</button>
             <button type="button" onClick={() => setShowFolderForm(false)} className="rounded-md border px-4 py-2 text-sm" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Cancel</button>
@@ -649,6 +735,7 @@ function TalksManager() {
           <Field label="Title" value={talkTitle} onChange={setTalkTitle} placeholder="e.g. Patience in Prayer" />
           <Field label="Speaker" value={talkSpeaker} onChange={setTalkSpeaker} placeholder="e.g. Imam Malik" />
           <Field label="Description (optional)" value={talkDesc} onChange={setTalkDesc} placeholder="What is this talk about?" textarea />
+          <Field label="Topics (optional)" value={talkTopics} onChange={setTalkTopics} placeholder="e.g. patience, salah, ramadan" />
           <div>
             <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>MP3 File</label>
             <input
@@ -698,7 +785,7 @@ function TalksManager() {
               {folder.description && <p className="px-5 py-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>{folder.description}</p>}
               <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
                 {talksInFolder(folder.id).map((talk) => (
-                  <TalkRow key={talk.id} talk={talk} onDelete={deleteTalk} />
+                  <TalkRow key={talk.id} talk={talk} onDelete={deleteTalk} onPublish={publishTalk} onRetry={retryProcessing} onProcess={processTalk} />
                 ))}
                 {talksInFolder(folder.id).length === 0 && (
                   <p className="px-5 py-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>No talks in this folder yet.</p>
@@ -716,7 +803,7 @@ function TalksManager() {
               </div>
               <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
                 {talksInFolder(null).map((talk) => (
-                  <TalkRow key={talk.id} talk={talk} onDelete={deleteTalk} />
+                  <TalkRow key={talk.id} talk={talk} onDelete={deleteTalk} onPublish={publishTalk} onRetry={retryProcessing} onProcess={processTalk} />
                 ))}
               </div>
             </div>
@@ -727,7 +814,22 @@ function TalksManager() {
   );
 }
 
-function TalkRow({ talk, onDelete }: { talk: AdminTalk; onDelete: (id: string) => void }) {
+function TalkRow({ talk, onDelete, onPublish, onRetry, onProcess }: { talk: AdminTalk; onDelete: (id: string) => void; onPublish: (id: string) => void; onRetry: (id: string) => void; onProcess: (id: string) => void }) {
+  const status = talk.processingStatus;
+  const statusColors: Record<string, string> = {
+    pending: "var(--color-ink-muted)",
+    processing: "var(--color-accent)",
+    ready: "var(--color-success)",
+    published: "var(--color-success)",
+    failed: "var(--color-error)",
+  };
+  const statusLabels: Record<string, string> = {
+    pending: "Pending",
+    processing: "Processing",
+    ready: "Ready",
+    published: "Published",
+    failed: "Failed",
+  };
   return (
     <div className="flex items-center justify-between gap-3 px-5 py-3">
       <div className="min-w-0 flex-1">
@@ -737,10 +839,61 @@ function TalkRow({ talk, onDelete }: { talk: AdminTalk; onDelete: (id: string) =
           {talk.fileSize ? ` · ${(talk.fileSize / 1024 / 1024).toFixed(1)} MB` : ""}
           {talk.externalUrl ? " · external link" : " · MP3"}
         </p>
+        {talk.topics && (
+          <p className="mt-0.5 truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Topics: {talk.topics}</p>
+        )}
+        {talk.processingError && (
+          <p className="mt-0.5 truncate text-[11px]" style={{ color: "var(--color-error)" }}>Error: {talk.processingError}</p>
+        )}
       </div>
-      <button onClick={() => onDelete(talk.id)} className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Delete talk">
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+      <div className="flex shrink-0 items-center gap-2">
+        {/* Processing status badge */}
+        <span
+          className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{
+            backgroundColor: `color-mix(in oklab, ${statusColors[status] || "var(--color-ink-muted)"} 10%, transparent)`,
+            color: statusColors[status] || "var(--color-ink-muted)",
+          }}
+        >
+          {statusLabels[status] || status}
+        </span>
+        {/* Publish button (only when ready and not published) */}
+        {status === "ready" && (
+          <button
+            onClick={() => onPublish(talk.id)}
+            className="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+            style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)" }}
+            aria-label="Publish talk"
+          >
+            Publish
+          </button>
+        )}
+        {/* Retry button (only when failed) */}
+        {status === "failed" && (
+          <button
+            onClick={() => onRetry(talk.id)}
+            className="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+            aria-label="Retry processing"
+          >
+            Retry
+          </button>
+        )}
+        {/* Process button (only when pending and has a storage key) */}
+        {status === "pending" && talk.storageKey && (
+          <button
+            onClick={() => onProcess(talk.id)}
+            className="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+            style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+            aria-label="Process audio"
+          >
+            Process
+          </button>
+        )}
+        <button onClick={() => onDelete(talk.id)} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Delete talk">
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -895,6 +1048,264 @@ function ItemList<T>({ loading, items, empty, children }: { loading: boolean; it
         </div>
       ))}
     </div>
+  );
+}
+
+// ─── Admin Settings ───
+
+type ThemeMode = "light" | "dark" | "system";
+
+interface AdminFeatures {
+  enableTalks: boolean;
+  enableDhikr: boolean;
+  enableSadaqah: boolean;
+  enableQibla: boolean;
+  enableNames: boolean;
+  enableFriends: boolean;
+  enablePushNotifications: boolean;
+  enableOfflineMode: boolean;
+}
+
+interface AdminAudioSettings {
+  targetLufs: number;
+  silenceThreshold: number;
+  silenceDuration: number;
+  enableNoiseReduction: boolean;
+  enableLoudnessNormalization: boolean;
+}
+
+const DEFAULT_FEATURES: AdminFeatures = {
+  enableTalks: true, enableDhikr: true, enableSadaqah: true, enableQibla: true,
+  enableNames: true, enableFriends: true, enablePushNotifications: true, enableOfflineMode: true,
+};
+
+const DEFAULT_AUDIO_SETTINGS: AdminAudioSettings = {
+  targetLufs: -16, silenceThreshold: -40, silenceDuration: 0.5,
+  enableNoiseReduction: true, enableLoudnessNormalization: true,
+};
+
+function AdminSettings() {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "system";
+    try { return (localStorage.getItem("waqt:admin:theme") as ThemeMode) || "system"; } catch { return "system"; }
+  });
+  const [savedTheme, setSavedTheme] = useState<ThemeMode | null>(null);
+  const [features, setFeatures] = useState<AdminFeatures>(() => {
+    if (typeof window === "undefined") return DEFAULT_FEATURES;
+    try {
+      const f = localStorage.getItem("waqt:admin:features");
+      return f ? { ...DEFAULT_FEATURES, ...JSON.parse(f) } as AdminFeatures : DEFAULT_FEATURES;
+    } catch { return DEFAULT_FEATURES; }
+  });
+  const [audioSettings, setAudioSettings] = useState<AdminAudioSettings>(() => {
+    if (typeof window === "undefined") return DEFAULT_AUDIO_SETTINGS;
+    try {
+      const a = localStorage.getItem("waqt:admin:audio");
+      return a ? { ...DEFAULT_AUDIO_SETTINGS, ...JSON.parse(a) } as AdminAudioSettings : DEFAULT_AUDIO_SETTINGS;
+    } catch { return DEFAULT_AUDIO_SETTINGS; }
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      localStorage.setItem("waqt:admin:theme", theme);
+      localStorage.setItem("waqt:admin:features", JSON.stringify(features));
+      localStorage.setItem("waqt:admin:audio", JSON.stringify(audioSettings));
+      setSavedTheme(theme);
+      setTimeout(() => setSavedTheme(null), 2000);
+    } catch { /* non-critical */ }
+    setSaving(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Appearance */}
+      <SettingsSection title="Appearance" icon={Sun}>
+        <div className="space-y-3">
+          <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            Choose how the admin portal looks. This affects this portal only — users control their own theme in Settings.
+          </p>
+          <div className="flex gap-2">
+            {([
+              { value: "light", label: "Light", icon: Sun },
+              { value: "dark", label: "Dark", icon: Moon },
+              { value: "system", label: "System", icon: Monitor },
+            ] as const).map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                onClick={() => setTheme(value)}
+                className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors"
+                style={{
+                  borderColor: theme === value ? "var(--color-accent)" : "var(--color-paper-3)",
+                  color: theme === value ? "var(--color-accent)" : "var(--color-ink-soft)",
+                  backgroundColor: theme === value ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "transparent",
+                }}
+                aria-pressed={theme === value}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </SettingsSection>
+
+      {/* Feature Toggles */}
+      <SettingsSection title="Feature Toggles" icon={LayoutGrid}>
+        <div className="space-y-2">
+          <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            Enable or disable features across the app. Disabled features are hidden from the tools menu and navigation.
+          </p>
+          {([
+            { key: "enableTalks", label: "Talks Library", desc: "Audio lectures and khutbahs" },
+            { key: "enableDhikr", label: "Dhikr Counter", desc: "Tasbih counter with curated sequences" },
+            { key: "enableSadaqah", label: "Akhirah Card", desc: "Sadaqah tracking and history" },
+            { key: "enableQibla", label: "Qibla Compass", desc: "Direction to the Kaaba" },
+            { key: "enableNames", label: "99 Names", desc: "Names of Allah reference" },
+            { key: "enableFriends", label: "Prayer Friends", desc: "Accountability partners" },
+            { key: "enablePushNotifications", label: "Push Notifications", desc: "Prayer reminders and check-ins" },
+            { key: "enableOfflineMode", label: "Offline Mode", desc: "Allow offline access and editing" },
+          ] as const).map(({ key, label, desc }) => (
+            <ToggleRow
+              key={key}
+              label={label}
+              description={desc}
+              checked={features[key]}
+              onChange={(v) => setFeatures((f) => ({ ...f, [key]: v }))}
+            />
+          ))}
+        </div>
+      </SettingsSection>
+
+      {/* Audio Processing Settings */}
+      <SettingsSection title="Audio Processing" icon={Volume2}>
+        <div className="space-y-4">
+          <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            Default settings for talk audio processing. Applied when talks are uploaded and processed.
+          </p>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <NumberInput
+              label="Target Loudness (LUFS)"
+              description="Industry standard: -16 for web, -23 for broadcast"
+              value={audioSettings.targetLufs}
+              onChange={(v) => setAudioSettings((a) => ({ ...a, targetLufs: v }))}
+              min={-30}
+              max={0}
+              step={1}
+            />
+            <NumberInput
+              label="Silence Threshold (dB)"
+              description="Audio below this level is considered silence"
+              value={audioSettings.silenceThreshold}
+              onChange={(v) => setAudioSettings((a) => ({ ...a, silenceThreshold: v }))}
+              min={-80}
+              max={0}
+              step={1}
+            />
+            <NumberInput
+              label="Min Silence Duration (s)"
+              description="Silence must last this long to be removed"
+              value={audioSettings.silenceDuration}
+              onChange={(v) => setAudioSettings((a) => ({ ...a, silenceDuration: v }))}
+              min={0.1}
+              max={5}
+              step={0.1}
+            />
+          </div>
+
+          <ToggleRow
+            label="Loudness Normalization"
+            description="Normalize all talks to the target LUFS"
+            checked={audioSettings.enableLoudnessNormalization}
+            onChange={(v) => setAudioSettings((a) => ({ ...a, enableLoudnessNormalization: v }))}
+          />
+          <ToggleRow
+            label="Noise Reduction"
+            description="Reduce background noise using FFmpeg afftdn filter"
+            checked={audioSettings.enableNoiseReduction}
+            onChange={(v) => setAudioSettings((a) => ({ ...a, enableNoiseReduction: v }))}
+          />
+        </div>
+      </SettingsSection>
+
+      {/* Save button */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+          style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+        >
+          {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saving ? "Saving..." : "Save Settings"}
+        </button>
+        {savedTheme !== null && (
+          <span className="text-xs font-medium" style={{ color: "var(--color-success)" }}>
+            Settings saved
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsSection({ title, icon: Icon, children }: { title: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; children: React.ReactNode }) {
+  return (
+    <section
+      className="rounded-xl border p-5"
+      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+    >
+      <div className="mb-4 flex items-center gap-2">
+        <Icon className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+        <h3 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{title}</h3>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ToggleRow({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{label}</p>
+        <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{description}</p>
+      </div>
+      <button
+        onClick={() => onChange(!checked)}
+        className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+        style={{ backgroundColor: checked ? "var(--color-accent)" : "var(--color-paper-3)" }}
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+      >
+        <span
+          className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform"
+          style={{ left: "2px", transform: checked ? "translateX(20px)" : "translateX(0)" }}
+        />
+      </button>
+    </div>
+  );
+}
+
+function NumberInput({ label, description, value, onChange, min, max, step }: { label: string; description: string; value: number; onChange: (v: number) => void; min: number; max: number; step: number }) {
+  return (
+    <label className="block">
+      <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{label}</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        min={min}
+        max={max}
+        step={step}
+        className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+      />
+      <span className="mt-0.5 block text-xs" style={{ color: "var(--color-ink-muted)" }}>{description}</span>
+    </label>
   );
 }
 

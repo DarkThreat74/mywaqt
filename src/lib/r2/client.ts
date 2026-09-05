@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '@/lib/env';
+import { Readable } from 'stream';
 
 /**
  * Cloudflare R2 client (S3-compatible API).
@@ -72,4 +73,32 @@ export function makeStorageKey(folderName: string, filename: string): string {
   const safeName = filename.replace(/[^a-z0-9.-]/gi, '-').toLowerCase();
   const ts = Date.now();
   return `talks/${safeFolder}/${ts}-${safeName}`;
+}
+
+/**
+ * Download an object from R2 as a Buffer (used by the audio processing pipeline).
+ */
+export async function downloadObject(storageKey: string): Promise<Buffer> {
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: storageKey });
+  const response = await s3.send(command);
+  if (!response.Body) throw new Error('Empty response body from R2');
+  const stream = response.Body as Readable;
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Upload a Buffer to R2 (used by the audio processing pipeline to store processed audio).
+ */
+export async function uploadBuffer(storageKey: string, body: Buffer, contentType: string = 'audio/mpeg'): Promise<void> {
+  const command = new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: storageKey,
+    Body: body,
+    ContentType: contentType,
+  });
+  await s3.send(command);
 }

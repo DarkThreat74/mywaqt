@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth/session";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
-import { Calendar, Settings, Flame, Sun } from "lucide-react";
+import { Calendar, Settings, Flame, Sun, LogOut } from "lucide-react";
 import ServiceWorkerRegister from "@/components/sw-register";
 import NotificationScheduler from "@/components/notification-scheduler";
 import BiometricGate from "@/components/biometric-gate";
@@ -95,9 +95,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           ))}
         </nav>
 
-        {/* Tools link — opens the tools menu (client component) */}
+        {/* Tools + Logout — pinned to bottom */}
         <div className="px-3 pb-6">
           <ToolsMenu variant="sidebar" />
+          <LogoutButton />
         </div>
       </aside>
 
@@ -194,5 +195,35 @@ function MobileNavItem({ label, href, icon: Icon, alert }: { label: string; href
       </span>
       <span className="truncate">{label}</span>
     </Link>
+  );
+}
+
+function LogoutButton() {
+  "use client";
+  const handleLogout = async () => {
+    try {
+      // Unsubscribe push before logout
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg?.pushManager) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) await sub.unsubscribe();
+      }
+    } catch { /* non-critical */ }
+    try {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    } catch { /* non-critical */ }
+    // Full page reload on logout clears all client state — intentional
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.href = "/login";
+  };
+  return (
+    <button
+      onClick={handleLogout}
+      className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+      style={{ color: "var(--color-ink-soft)" }}
+    >
+      <LogOut className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
+      Log out
+    </button>
   );
 }

@@ -260,7 +260,9 @@ export default function AdvancedAudioPlayer({
       album: "Waqt Talks",
       artwork: [
         { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+        { src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png" },
         { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+        { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png" },
       ],
     });
 
@@ -357,12 +359,36 @@ export default function AdvancedAudioPlayer({
   const handlePlayPause = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    // Declare playback intent — prevents iOS silent/ring switch from muting talks
+    // and improves speaker/Bluetooth routing. Harmless on non-iOS browsers.
+    if ("audioSession" in navigator) {
+      try { (navigator as unknown as { audioSession: { type: string } }).audioSession.type = "playback"; } catch { /* not supported */ }
+    }
+
     if (isPlaying) {
       audio.pause();
     } else {
       setError(null);
       audio.play().catch(() => {
-        setError("Tap play again to start playback.");
+        // iOS may require a user gesture to unlock the audio element.
+        // Attempt a silent unlock then retry.
+        const unlock = audio;
+        unlock.muted = true;
+        unlock.volume = 0;
+        unlock.play().then(() => {
+          unlock.pause();
+          unlock.currentTime = 0;
+          unlock.muted = false;
+          unlock.volume = 1;
+          unlock.play().catch(() => {
+            setError("Tap play again to start playback.");
+          });
+        }).catch(() => {
+          unlock.muted = false;
+          unlock.volume = 1;
+          setError("Tap play again to start playback.");
+        });
       });
     }
   }, [isPlaying]);
@@ -398,6 +424,32 @@ export default function AdvancedAudioPlayer({
     } catch { /* non-critical */ }
     onNext();
   }, [repeatMode, track.id, onNext]);
+
+  // ─── Background track-end fallback ───
+  // iOS throttles the JS thread when backgrounded, so the "ended" event may not fire.
+  // This interval acts as a backup to detect track end and advance the queue.
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      const audio = audioRef.current;
+      if (!audio || audio.paused || !audio.duration || !isFinite(audio.duration)) return;
+      // If we're within 0.5s of the end and the ended event didn't fire, advance
+      if (audio.currentTime >= audio.duration - 0.5) {
+        handleEnded();
+      }
+      // Keep Media Session position state fresh for lock-screen scrubbing
+      if ("mediaSession" in navigator && "setPositionState" in navigator.mediaSession) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: audio.duration,
+            playbackRate: audio.playbackRate,
+            position: Math.min(audio.currentTime, audio.duration),
+          });
+        } catch { /* not supported */ }
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isPlaying, handleEnded]);
 
   // ─── Sleep timer logic (position-based with fade) ───
   useEffect(() => {

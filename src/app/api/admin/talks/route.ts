@@ -47,15 +47,34 @@ export async function POST(request: NextRequest) {
 
     // ── Create folder ──
     if (action === "create-folder") {
-      const { name, description } = body as { name?: string; description?: string };
+      const { name, description, startDate, endDate } = body as { name?: string; description?: string; startDate?: string; endDate?: string };
       if (!name?.trim()) {
         return NextResponse.json({ error: "Folder name is required." }, { status: 400 });
       }
       const [folder] = await db.insert(schema.talkFolders).values({
         name: name.trim().slice(0, 100),
         description: description?.trim().slice(0, 500) || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
       }).returning();
       return NextResponse.json(folder, { status: 201 });
+    }
+
+    // ── Update folder (image, description, dates) ──
+    if (action === "update-folder") {
+      const { folderId, description, imageKey, startDate, endDate } = body as {
+        folderId?: string; description?: string; imageKey?: string; startDate?: string; endDate?: string;
+      };
+      if (!folderId) {
+        return NextResponse.json({ error: "Folder ID is required." }, { status: 400 });
+      }
+      const [updated] = await db.update(schema.talkFolders).set({
+        description: description?.trim().slice(0, 500) || null,
+        imageKey: imageKey || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
+      }).where(eq(schema.talkFolders.id, folderId)).returning();
+      return NextResponse.json(updated);
     }
 
     // ── Delete folder ──
@@ -95,8 +114,8 @@ export async function POST(request: NextRequest) {
 
     // ── Create talk (after upload completes) ──
     if (action === "create-talk") {
-      const { title, speaker, description, folderId, storageKey, fileSize, duration, externalUrl } = body as {
-        title?: string; speaker?: string; description?: string;
+      const { title, speaker, description, topics, folderId, storageKey, fileSize, duration, externalUrl } = body as {
+        title?: string; speaker?: string; description?: string; topics?: string;
         folderId?: string; storageKey?: string; fileSize?: number; duration?: number;
         externalUrl?: string;
       };
@@ -113,18 +132,64 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // External URL talks are immediately published (no processing needed)
+      // Self-hosted talks start as 'pending' and require processing before publishing
+      const isExternal = !!externalUrl;
+      const processingStatus = isExternal ? "published" : "pending";
+
       const [talk] = await db.insert(schema.talks).values({
         title: title.trim().slice(0, 200),
         speaker: speaker?.trim().slice(0, 100) || null,
         description: description?.trim().slice(0, 1000) || null,
+        topics: topics?.trim().slice(0, 500) || null,
         folderId: folderId || null,
         storageKey: storageKey || null,
         fileSize: fileSize || null,
         duration: duration || null,
         externalUrl: externalUrl?.trim() || null,
+        processingStatus,
+        publishedAt: isExternal ? new Date() : null,
       }).returning();
 
       return NextResponse.json(talk, { status: 201 });
+    }
+
+    // ── Publish talk (after processing is complete) ──
+    if (action === "publish-talk") {
+      const { talkId } = body as { talkId?: string };
+      if (!talkId) {
+        return NextResponse.json({ error: "Talk ID is required." }, { status: 400 });
+      }
+
+      const [talk] = await db.select().from(schema.talks).where(eq(schema.talks.id, talkId)).limit(1);
+      if (!talk) {
+        return NextResponse.json({ error: "Talk not found." }, { status: 404 });
+      }
+
+      // Only allow publishing if processing is ready (or it's an external URL talk)
+      if (talk.processingStatus !== "ready" && !talk.externalUrl) {
+        return NextResponse.json({ error: `Cannot publish: processing status is '${talk.processingStatus}'. Talk must be processed first.` }, { status: 400 });
+      }
+
+      const [updated] = await db.update(schema.talks).set({
+        processingStatus: "published",
+        publishedAt: new Date(),
+      }).where(eq(schema.talks.id, talkId)).returning();
+
+      return NextResponse.json(updated);
+    }
+
+    // ── Retry processing ──
+    if (action === "retry-processing") {
+      const { talkId } = body as { talkId?: string };
+      if (!talkId) {
+        return NextResponse.json({ error: "Talk ID is required." }, { status: 400 });
+      }
+      const [updated] = await db.update(schema.talks).set({
+        processingStatus: "pending",
+        processingError: null,
+      }).where(eq(schema.talks.id, talkId)).returning();
+      return NextResponse.json(updated);
     }
 
     // ── Delete talk ──

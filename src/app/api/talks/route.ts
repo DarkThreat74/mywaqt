@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, asc, desc, isNull } from "drizzle-orm";
+import { eq, asc, desc, and } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/talks
- * Returns folders + talks. Self-hosted talks get a presigned stream URL.
+ * Returns folders + published talks only. Self-hosted talks get a presigned stream URL
+ * from the processed audio key (if available), falling back to the original.
  */
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -20,15 +21,19 @@ export async function GET(request: NextRequest) {
   try {
     const [folders, talks] = await Promise.all([
       db.select().from(schema.talkFolders).orderBy(asc(schema.talkFolders.sortOrder), asc(schema.talkFolders.name)),
-      db.select().from(schema.talks).orderBy(desc(schema.talks.addedAt)),
+      db.select().from(schema.talks)
+        .where(eq(schema.talks.processingStatus, "published"))
+        .orderBy(desc(schema.talks.addedAt)),
     ]);
 
     // Generate presigned stream URLs for self-hosted talks
+    // Prefer processed audio, fall back to original
     const talksWithUrls = await Promise.all(
       talks.map(async (talk) => {
-        if (talk.storageKey) {
+        const streamKey = talk.processedStorageKey || talk.storageKey;
+        if (streamKey) {
           try {
-            const streamUrl = await getStreamUrl(talk.storageKey);
+            const streamUrl = await getStreamUrl(streamKey);
             return { ...talk, streamUrl };
           } catch {
             return { ...talk, streamUrl: null };
@@ -49,5 +54,4 @@ export async function GET(request: NextRequest) {
 }
 
 // Avoid unused import warning
-void isNull;
-void eq;
+void and;
