@@ -1,4 +1,5 @@
 import 'server-only';
+import { SITE_URL } from '@/lib/site-config';
 
 /**
  * Centralized server-side environment variables.
@@ -52,7 +53,7 @@ export const env = {
   // Web Push
   vapidPublicKey: required('VAPID_PUBLIC_KEY'),
   vapidPrivateKey: required('VAPID_PRIVATE_KEY'),
-  vapidSubject: required('VAPID_SUBJECT', 'https://waqt.app'),
+  vapidSubject: required('VAPID_SUBJECT', SITE_URL),
 
   // Cloudflare Turnstile (bot protection)
   turnstileSecretKey: required('TURNSTILE_SECRET_KEY'),

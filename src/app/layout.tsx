@@ -3,6 +3,7 @@ import { Spectral, Amiri } from "next/font/google";
 import "./globals.css";
 import { UISFXProvider } from "@/components/uisfx-provider";
 import NativeShellEnhancements from "@/components/native-shell-enhancements";
+import { SITE_URL } from "@/lib/site-config";
 
 const spectral = Spectral({
   variable: "--font-spectral",
@@ -18,7 +19,7 @@ const amiri = Amiri({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://waqt.app"),
+  metadataBase: new URL(SITE_URL),
   title: "Waqt — Prayer-centered life tracker",
   description:
     "A calendar and accountability system where the five daily prayers are the fixed anchor everything else is scheduled around.",

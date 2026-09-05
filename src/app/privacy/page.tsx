@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SUPPORT_EMAIL } from "@/lib/site-config";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Waqt",
@@ -55,7 +56,7 @@ export default function PrivacyPolicyPage() {
           You can delete your account at any time from Settings. This anonymizes all
           personally identifiable information (email, name, phone) and revokes your
           session. Anonymized prayer logs may be retained for aggregate analytics.
-          You can request complete data export by contacting support@waqt.app.
+          You can request complete data export by contacting {SUPPORT_EMAIL}.
         </p>
       </section>
 
@@ -81,7 +82,7 @@ export default function PrivacyPolicyPage() {
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">7. Contact</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          Questions about privacy? Email support@waqt.app.
+          Questions about privacy? Email {SUPPORT_EMAIL}.
         </p>
       </section>
     </article>

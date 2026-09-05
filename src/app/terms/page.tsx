@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SUPPORT_EMAIL } from "@/lib/site-config";
 
 export const metadata: Metadata = {
   title: "Terms of Service — Waqt",
@@ -81,7 +82,7 @@ export default function TermsPage() {
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">8. Contact</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          Questions? Email support@waqt.app.
+          Questions? Email {SUPPORT_EMAIL}.
         </p>
       </section>
     </article>

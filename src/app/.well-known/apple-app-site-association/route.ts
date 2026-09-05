@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { APP_BUNDLE_ID } from "@/lib/site-config";
 
 export const dynamic = "force-static";
 
 /**
  * Apple Universal Links association file.
  * Served at /.well-known/apple-app-site-association
- * Tells iOS to open waqt.app links in the app instead of Safari.
+ * Tells iOS to open ${SITE_DOMAIN} links in the app instead of Safari.
  */
 export async function GET() {
   const data = {
@@ -13,7 +14,7 @@ export async function GET() {
       apps: [],
       details: [
         {
-          appID: "TEAMID.com.waqt.app",
+          appID: `TEAMID.${APP_BUNDLE_ID}`,
           paths: [
             "/prayer*",
             "/calendar*",

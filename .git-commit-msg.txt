@@ -1,44 +1,28 @@
-feat: redesign Akhirah Card, Talks library with R2 audio, fix compass + calendar tint
+feat: advanced media player with 15+ premium features
 
-Bug fixes:
-- Calendar: reduce prayer band opacity from 4% to 2% to eliminate bluish tint
-- Compass: remove 30ms event dedup that skipped valid readings, fix e.absolute
-  check (many Android devices report undefined instead of true), always compute
-  heading from alpha/beta/gamma instead of gating on hasAbsoluteRef
+Replaces the basic audio player with a full-featured player component:
 
-Akhirah Card redesign:
-- Card number now shows actual total amount in cents (16 digits, padded)
-- Cardholder name displays user's displayName from profile
-- Card has a HandHeart icon and improved layout
-- History redesigned as individual cards with category color dots
-- Add button is now a floating FAB with active:scale feedback
-- Add form opens as a bottom sheet on mobile, dialog on desktop
-- Stats row shows entries, total, and average
-- Category breakdown as pills instead of cards
-
-Hijri converter removed:
-- Deleted /hijri route and HijriConverterClient
-- Removed from Tools menu
-- Removed from service worker precache list
-
-Talks library with R2 audio:
-- New talk_folders table for organizing talks into folders
-- Talks table updated: added storageKey, fileSize, duration, description,
-  folderId; externalUrl now nullable for self-hosted talks
-- Cloudflare R2 integration via @aws-sdk/client-s3 for MP3 storage
-- Presigned PUT URLs for direct client-to-R2 upload (no server file handling)
-- Presigned GET URLs for streaming (1 hour expiry)
-- Admin portal: create/delete folders, upload MP3 with metadata (title,
-  speaker, description), delete talks (also removes from R2)
-- User-facing Talks Library redesigned with folder navigation
-- Media player with play/pause, skip 15s, seek bar, auto-advance
-- Media Session API integration for background playback controls
-  (lock screen + notification controls on iOS/Android)
-- Save for Offline Use: caches audio via Cache API (waqt-v31-audio)
-- Offline indicator on talks that are cached
-- Remove offline copy button in player
-
-Migration 0018_talks_folders_r2.sql must be run against Neon.
+- Mini-player bar (bottom) with progress, play/pause, skip 15/30s
+- Full-player bottom sheet with large artwork and all controls
+- Media Session API: full action set (play, pause, stop, seekbackward,
+  seekforward, seekto, previoustrack, nexttrack), position state,
+  artwork, lock screen/notification controls
+- Playback speed control: 0.5x to 2x with preservesPitch
+- Sleep timer: 5min to 1hr, position-based with 30s fade-out
+- Playback resume: saves position every 5s to localStorage, restores
+  on next visit (cleared when track ends)
+- Queue management: view queue, jump to any track, shuffle (Fisher-Yates)
+- Repeat modes: off, all, one (repeat current track)
+- Bookmarks: add/jump/delete, stored per-track in localStorage
+- Volume control: perceptual curve, mute toggle, persisted
+- Keyboard shortcuts: space/k (play), arrows (seek/volume),
+  m (mute), n/p (next/prev), f (fullscreen)
+- Double-tap to skip: tap left/right side of full player for -10/+10s
+- Error handling: exponential backoff retry (3 attempts), error UI
+- Buffering states: loading spinner, buffered progress indicator
+- AirPlay: RemotePlayback API integration (shows button when available)
+- Offline save/remove: Cache API with status indicator
+- Animated equalizer bars in mini and full player when playing
 
 Generated with [Devin](https://devin.ai)
 

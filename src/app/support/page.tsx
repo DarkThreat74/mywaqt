@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SUPPORT_EMAIL } from "@/lib/site-config";
 
 export const metadata: Metadata = {
   title: "Support — Waqt",
@@ -21,11 +22,11 @@ export default function SupportPage() {
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           For support, bug reports, or feature requests, email us at{" "}
           <a
-            href="mailto:support@waqt.app"
+            href={`mailto:${SUPPORT_EMAIL}`}
             className="font-medium underline"
             style={{ color: "var(--color-accent)" }}
           >
-            support@waqt.app
+            {SUPPORT_EMAIL}
           </a>
           . We typically respond within 48 hours.
         </p>

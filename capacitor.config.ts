@@ -1,8 +1,9 @@
 import type { CapacitorConfig } from "@capacitor/cli";
+import { SITE_URL, APP_BUNDLE_ID, APP_NAME } from "./src/lib/site-config";
 
 const config: CapacitorConfig = {
-  appId: "com.waqt.app",
-  appName: "Waqt",
+  appId: APP_BUNDLE_ID,
+  appName: APP_NAME,
   webDir: "out",
 
   // ── Mode B: Remote URL ──
@@ -10,7 +11,7 @@ const config: CapacitorConfig = {
   // middleware, and cron all work normally. Native plugins add the
   // features that pass Apple's 4.2 review (biometric, push, haptics, share).
   server: {
-    url: "https://waqt.app",
+    url: SITE_URL,
     // Land on the prayer dashboard — reviewers see populated content
     appStartPath: "/prayer",
     // Offline fallback (unreliable on iOS but better than blank screen)

@@ -5,6 +5,7 @@ import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLin
 import { clearApiCache } from "@/lib/sw-helpers";
 import { isNativeApp } from "@/lib/native-bridge";
 import { clearOfflineCache } from "@/lib/offline/db";
+import { HTTP_USER_AGENT } from "@/lib/site-config";
 import { clearCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 
 interface PrayerSettings {
@@ -500,7 +501,7 @@ export default function SettingsClient({
     try {
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityQuery)}&limit=1`,
-        { headers: { Accept: "application/json", "User-Agent": "Waqt/1.0 (https://waqt.app)" } },
+        { headers: { Accept: "application/json", "User-Agent": HTTP_USER_AGENT } },
       );
       if (res.ok) {
         const results = await res.json().catch(() => []);
