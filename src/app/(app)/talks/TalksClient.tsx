@@ -10,6 +10,7 @@ interface Folder {
   name: string;
   description: string | null;
   imageKey: string | null;
+  imageUrl: string | null;
   startDate: string | null;
   endDate: string | null;
   sortOrder: number;
@@ -164,14 +165,28 @@ export default function TalksClient() {
         </button>
 
         <div className="mb-5">
-          <div className="flex items-center gap-2">
-            <Folder className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
-            <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{selectedFolder.name}</h1>
+          <div className="flex items-center gap-3">
+            {selectedFolder.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={selectedFolder.imageUrl}
+                alt=""
+                className="h-12 w-12 rounded-xl object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
+                <Folder className="h-6 w-6" style={{ color: "var(--color-accent)" }} />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{selectedFolder.name}</h1>
+              <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>{folderTalks.length} talks</p>
+            </div>
           </div>
           {selectedFolder.description && (
-            <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>{selectedFolder.description}</p>
+            <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>{selectedFolder.description}</p>
           )}
-          <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>{folderTalks.length} talks</p>
         </div>
 
         {folderTalks.length > 3 && (
@@ -328,9 +343,19 @@ export default function TalksClient() {
                 className="flex w-full items-center gap-3.5 rounded-2xl border p-4 text-left transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
               >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
-                  <Folder className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
-                </div>
+                {folder.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={folder.imageUrl}
+                    alt=""
+                    className="h-11 w-11 shrink-0 rounded-xl object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
+                    <Folder className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{folder.name}</p>
                   {folder.description && (

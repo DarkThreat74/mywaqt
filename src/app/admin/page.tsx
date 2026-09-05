@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, RefreshCw, ShieldCheck, Mic, LayoutGrid, Users, ChevronRight, ArrowLeft, Heart, FolderPlus, Upload, Trash2, Folder, Settings as SettingsIcon, Sun, Moon, Monitor, Volume2, Save } from "lucide-react";
+import { LogOut, RefreshCw, ShieldCheck, Mic, LayoutGrid, Users, ChevronRight, ArrowLeft, Heart, FolderPlus, Upload, Trash2, Folder, Settings as SettingsIcon, Sun, Moon, Monitor, Volume2, Save, Pencil, X } from "lucide-react";
 
 type Tab = "overview" | "users" | "talks" | "dhikr" | "settings";
 
@@ -451,6 +451,13 @@ function TalksManager() {
   const [folderStartDate, setFolderStartDate] = useState("");
   const [folderEndDate, setFolderEndDate] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [editingFolder, setEditingFolder] = useState<AdminFolder | null>(null);
+  const [editFolderDesc, setEditFolderDesc] = useState("");
+  const [editFolderStart, setEditFolderStart] = useState("");
+  const [editFolderEnd, setEditFolderEnd] = useState("");
+  const [editFolderImage, setEditFolderImage] = useState<File | null>(null);
+  const [editFolderImageKey, setEditFolderImageKey] = useState<string | null>(null);
+  const [savingFolder, setSavingFolder] = useState(false);
   const [talkTitle, setTalkTitle] = useState("");
   const [talkSpeaker, setTalkSpeaker] = useState("");
   const [talkDesc, setTalkDesc] = useState("");
@@ -507,6 +514,76 @@ function TalksManager() {
       body: JSON.stringify({ action: "delete-folder", folderId }),
     });
     await load();
+  }
+
+  function openEditFolder(folder: AdminFolder) {
+    setEditingFolder(folder);
+    setEditFolderDesc(folder.description || "");
+    setEditFolderStart(folder.startDate || "");
+    setEditFolderEnd(folder.endDate || "");
+    setEditFolderImage(null);
+    setEditFolderImageKey(folder.imageKey);
+  }
+
+  async function saveFolderEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingFolder) return;
+    setSavingFolder(true);
+    setError(null);
+    try {
+      let imageKey = editFolderImageKey;
+      // If a new image was selected, upload it to R2
+      if (editFolderImage) {
+        const presignRes = await fetch("/api/admin/talks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "get-folder-image-url",
+            folderId: editingFolder.id,
+            filename: editFolderImage.name,
+          }),
+        });
+        if (!presignRes.ok) {
+          setError("Failed to get image upload URL.");
+          setSavingFolder(false);
+          return;
+        }
+        const { uploadUrl, imageKey: newKey } = await presignRes.json();
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          body: editFolderImage,
+        });
+        if (!uploadRes.ok) {
+          setError("Failed to upload image.");
+          setSavingFolder(false);
+          return;
+        }
+        imageKey = newKey;
+      }
+
+      const res = await fetch("/api/admin/talks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update-folder",
+          folderId: editingFolder.id,
+          description: editFolderDesc || undefined,
+          imageKey: imageKey || undefined,
+          startDate: editFolderStart || undefined,
+          endDate: editFolderEnd || undefined,
+        }),
+      });
+      if (res.ok) {
+        setEditingFolder(null);
+        await load();
+      } else {
+        setError("Failed to update folder.");
+      }
+    } catch {
+      setError("Folder update failed.");
+    } finally {
+      setSavingFolder(false);
+    }
   }
 
   async function deleteTalk(talkId: string) {
@@ -764,6 +841,65 @@ function TalksManager() {
         </form>
       )}
 
+      {/* Folder edit form */}
+      {editingFolder && (
+        <form onSubmit={saveFolderEdit} className="flex flex-col gap-3 rounded-lg border p-5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Edit Folder — {editingFolder.name}</h2>
+            <button type="button" onClick={() => setEditingFolder(null)} className="rounded-md p-1" style={{ color: "var(--color-ink-muted)" }} aria-label="Close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <Field label="Description" value={editFolderDesc} onChange={setEditFolderDesc} placeholder="What series is this?" textarea />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>Start date (optional)</span>
+              <input
+                type="date"
+                value={editFolderStart}
+                onChange={(e) => setEditFolderStart(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>End date (optional)</span>
+              <input
+                type="date"
+                value={editFolderEnd}
+                onChange={(e) => setEditFolderEnd(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+              />
+            </label>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>Folder image (optional)</label>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={(e) => setEditFolderImage(e.target.files?.[0] || null)}
+              className="w-full text-sm"
+              style={{ color: "var(--color-ink-soft)" }}
+            />
+            {editFolderImage && (
+              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                {editFolderImage.name} ({(editFolderImage.size / 1024).toFixed(0)} KB) — will replace current image
+              </p>
+            )}
+            {editFolderImageKey && !editFolderImage && (
+              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>Image set. Upload a new file to replace.</p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button type="submit" disabled={savingFolder} className="flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+              <Save className="h-3.5 w-3.5" /> {savingFolder ? "Saving…" : "Save"}
+            </button>
+            <button type="button" onClick={() => setEditingFolder(null)} disabled={savingFolder} className="rounded-md border px-4 py-2 text-sm disabled:opacity-50" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Cancel</button>
+          </div>
+        </form>
+      )}
+
       {/* Folders + talks */}
       {folders.length === 0 && talks.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>No folders or talks yet. Create a folder and upload your first talk.</p>
@@ -778,9 +914,14 @@ function TalksManager() {
                   <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{folder.name}</span>
                   <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{talksInFolder(folder.id).length} talks</span>
                 </div>
-                <button onClick={() => deleteFolder(folder.id)} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Delete folder">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => openEditFolder(folder)} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Edit folder">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => deleteFolder(folder.id)} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Delete folder">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
               {folder.description && <p className="px-5 py-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>{folder.description}</p>}
               <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>

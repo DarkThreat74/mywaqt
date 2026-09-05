@@ -26,6 +26,21 @@ export async function GET(request: NextRequest) {
         .orderBy(desc(schema.talks.addedAt)),
     ]);
 
+    // Generate presigned URLs for folder images
+    const foldersWithUrls = await Promise.all(
+      folders.map(async (folder) => {
+        if (folder.imageKey) {
+          try {
+            const imageUrl = await getStreamUrl(folder.imageKey);
+            return { ...folder, imageUrl };
+          } catch {
+            return { ...folder, imageUrl: null };
+          }
+        }
+        return { ...folder, imageUrl: null };
+      }),
+    );
+
     // Generate presigned stream URLs for self-hosted talks
     // Prefer processed audio, fall back to original
     const talksWithUrls = await Promise.all(
@@ -43,7 +58,7 @@ export async function GET(request: NextRequest) {
       }),
     );
 
-    return NextResponse.json({ folders, talks: talksWithUrls });
+    return NextResponse.json({ folders: foldersWithUrls, talks: talksWithUrls });
   } catch (err) {
     logError(err, { route: "talks GET" });
     return NextResponse.json(

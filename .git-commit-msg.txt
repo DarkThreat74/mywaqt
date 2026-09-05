@@ -1,16 +1,15 @@
-feat: global audio player survives route changes + SW audio caching
+feat: folder image upload + display in talks library
 
-- Global audio player: moved from TalksClient to (app) layout via
-  AudioPlayerProvider context. Player now persists across navigation —
-  background playback continues when leaving /talks
-- AudioPlayerContext: manages current track, queue, next/prev, offline status
-- GlobalAudioPlayer: lazy-loads AdvancedAudioPlayer only when a track is active
-- TalksClient simplified: uses context.play() instead of local state + rendering
-- Service worker: now intercepts audio requests from R2 with cache-first
-  strategy, talkId-based matching (presigned URLs change but talkId is stable),
-  background revalidation, and 503 fallback when offline with no cache
-- SW cache version bumped to v32, AUDIO_CACHE added to valid caches list
-- All audio cache references updated from v31 to v32
+- Admin: folder edit form with image upload (JPG/PNG/WebP/GIF)
+  - Pencil button on each folder opens edit form
+  - Edit description, start/end dates, and folder image
+  - Image uploaded directly to R2 via presigned URL
+  - New API action "get-folder-image-url" with extension validation
+- API: user-facing /api/talks now returns presigned imageUrl for folders
+- TalksClient: folder cards show image thumbnail (11x11 rounded)
+  when available, falling back to Folder icon
+- TalksClient: folder detail header shows larger image (12x12)
+  with folder name and talk count
 
 Generated with [Devin](https://devin.ai)
 

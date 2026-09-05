@@ -112,6 +112,30 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // ── Get presigned upload URL for folder image ──
+    if (action === "get-folder-image-url") {
+      const { folderId, filename } = body as { folderId?: string; filename?: string };
+      if (!folderId) {
+        return NextResponse.json({ error: "Folder ID is required." }, { status: 400 });
+      }
+      if (!filename?.trim()) {
+        return NextResponse.json({ error: "Filename is required." }, { status: 400 });
+      }
+
+      // Validate file extension
+      const ext = filename.toLowerCase().split('.').pop();
+      const allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+      if (!ext || !allowed.includes(ext)) {
+        return NextResponse.json({ error: "Image must be JPG, PNG, WebP, or GIF." }, { status: 400 });
+      }
+
+      const contentType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+      const imageKey = `folder-images/${folderId}/${Date.now()}-${filename.replace(/[^a-z0-9.-]/gi, '-').toLowerCase()}`;
+      const uploadUrl = await getUploadUrl(imageKey, contentType);
+
+      return NextResponse.json({ uploadUrl, imageKey });
+    }
+
     // ── Create talk (after upload completes) ──
     if (action === "create-talk") {
       const { title, speaker, description, topics, folderId, storageKey, fileSize, duration, externalUrl } = body as {
