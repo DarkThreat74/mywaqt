@@ -1,22 +1,25 @@
-feat: admin settings, talks search, audio processing pipeline, media player iOS improvements
+feat: professional two-pass audio processing pipeline with speech enhancement
 
-- Admin portal: add Settings tab with theme (light/dark/system), feature toggles,
-  and audio processing configuration
-- Admin users: show all users (not just role=user), fixed pagination bug
-- Desktop sidebar: add Logout button at bottom-left
-- Talks library: add search bar (by title, speaker, topic, description, folder)
-  with debounced client-side filtering, works offline
-- Talks admin: folder metadata (image, description, optional dates), topics field,
-  processing status badges (pending/processing/ready/published/failed)
-- Talks admin: upload → folder → metadata → process → publish workflow
-- Audio processing: FFmpeg pipeline with silence removal, loudness normalization
-  (loudnorm to -16 LUFS), noise reduction (afftdn), dynamic normalization
-- Audio processing: runs in background via after(), maxDuration=300s
-- Media player: iOS audio unlock, navigator.audioSession.type=playback,
-  expanded MediaSession artwork, background track-end fallback interval
-- Schema: migration 0019 adds folder image_key/start_date/end_date,
-  talks processing_status/processed_storage_key/topics/published_at
-- User-facing talks API now only returns published talks, prefers processed audio
+Major upgrade to the audio processing pipeline:
+
+- Two-pass EBU R128 loudness normalization: measures true integrated loudness
+  first, then applies with measured values for broadcast-quality results
+  (single-pass loudnorm was a rough approximation)
+- RMS-based silence removal with padding: more natural than peak detection,
+  preserves short pauses for natural speech flow, removes all silences not
+  just leading silence
+- Low-pass filter (16kHz): removes high-frequency hiss that speech doesn't need
+- De-essing: reduces harsh sibilance (s/sh/ch) around 6kHz
+- Speech EQ: gentle presence boost at 3kHz + warmth at 200Hz for intelligibility
+- Soft limiter (alimiter): prevents digital clipping after normalization
+- Configurable noise reduction strength (0-30) with adaptive FFT denoising
+- Preserves mono source as mono (don't upsample to stereo unnecessarily)
+- Higher default bitrate (160k, was 128k) with configurable quality
+- Processing result metadata: original/final LUFS, size, duration
+- Detailed logging with elapsed time and loudness measurements
+- Admin settings UI: full control over all processing parameters including
+  true peak, silence padding, de-essing, speech EQ, limiter, noise strength,
+  and MP3 bitrate selection
 
 Generated with [Devin](https://devin.ai)
 

@@ -5,7 +5,7 @@ import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { logError } from "@/lib/logError";
 import { downloadObject, uploadBuffer } from "@/lib/r2/client";
-import { processAudio, getAudioDuration, DEFAULT_PROCESSING_OPTIONS } from "@/lib/audio/process";
+import { processAudioWithMetadata, DEFAULT_PROCESSING_OPTIONS } from "@/lib/audio/process";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes — Vercel Pro max for background processing
@@ -17,6 +17,15 @@ export const maxDuration = 300; // 5 minutes — Vercel Pro max for background p
  * The processing runs in the background using `after()` from next/server.
  * This means the response is sent immediately and processing continues
  * within the function invocation lifetime (up to maxDuration seconds).
+ *
+ * Pipeline:
+ *   1. Download original audio from R2
+ *   2. Probe audio metadata (sample rate, channels, duration)
+ *   3. Measure true integrated loudness (Pass 1 of two-pass loudnorm)
+ *   4. Process: silence removal → highpass/lowpass → noise reduction →
+ *      de-essing → speech EQ → two-pass loudnorm → dynaudnorm → soft limiter
+ *   5. Upload processed MP3 to R2
+ *   6. Update talk record with processing metadata
  *
  * For talks that require more than 5 minutes of processing, consider using
  * Trigger.dev or QStash for durable background jobs.
@@ -61,34 +70,42 @@ export async function POST(request: NextRequest) {
     // Process in the background using after()
     // This continues after the response is sent, within the function lifetime
     after(async () => {
+      const startTime = Date.now();
       try {
         // 1. Download original audio from R2
+        console.log(`[talks:process] Talk ${talkId}: downloading original from R2…`);
         const originalBuffer = await downloadObject(talk.storageKey!);
 
-        // 2. Get duration of original
-        const duration = await getAudioDuration(originalBuffer);
+        // 2-4. Full processing pipeline (probe + measure + process)
+        console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalBuffer.length / 1024 / 1024).toFixed(1)} MB)…`);
+        const result = await processAudioWithMetadata(originalBuffer, DEFAULT_PROCESSING_OPTIONS);
 
-        // 3. Process audio (silence removal + loudness normalization + noise reduction)
-        const processedBuffer = await processAudio(originalBuffer, DEFAULT_PROCESSING_OPTIONS);
-
-        // 4. Upload processed audio to R2
+        // 5. Upload processed audio to R2
         const processedKey = talk.storageKey!.replace(/^talks\//, 'talks/processed/');
-        await uploadBuffer(processedKey, processedBuffer);
+        console.log(`[talks:process] Talk ${talkId}: uploading processed audio to R2…`);
+        await uploadBuffer(processedKey, result.buffer);
 
-        // 5. Update talk record
+        // 6. Update talk record with full metadata
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         await db.update(schema.talks).set({
           processingStatus: "ready",
           processedStorageKey: processedKey,
           processedAt: new Date(),
-          duration: duration || talk.duration,
-          fileSize: processedBuffer.length,
+          duration: result.duration || talk.duration,
+          fileSize: result.processedSize,
           processingError: null,
         }).where(eq(schema.talks.id, talkId));
 
-        console.log(`[talks:process] Talk ${talkId} processed successfully`);
+        console.log(
+          `[talks:process] Talk ${talkId} processed successfully in ${elapsed}s — ` +
+          `original: ${(result.originalSize / 1024 / 1024).toFixed(1)} MB → ` +
+          `processed: ${(result.processedSize / 1024 / 1024).toFixed(1)} MB, ` +
+          `LUFS: ${result.originalLufs?.toFixed(1) || 'N/A'} → ${result.finalLufs?.toFixed(1) || 'N/A'}`
+        );
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Unknown processing error";
-        console.error(`[talks:process] Talk ${talkId} processing failed:`, errorMsg);
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.error(`[talks:process] Talk ${talkId} processing failed after ${elapsed}s:`, errorMsg);
         await db.update(schema.talks).set({
           processingStatus: "failed",
           processingError: errorMsg.slice(0, 500),

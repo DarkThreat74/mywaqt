@@ -1068,10 +1068,17 @@ interface AdminFeatures {
 
 interface AdminAudioSettings {
   targetLufs: number;
+  truePeak: number;
   silenceThreshold: number;
   silenceDuration: number;
+  silencePadding: number;
   enableNoiseReduction: boolean;
   enableLoudnessNormalization: boolean;
+  enableDeEssing: boolean;
+  enableSpeechEQ: boolean;
+  enableLimiter: boolean;
+  noiseReductionStrength: number;
+  mp3Bitrate: string;
 }
 
 const DEFAULT_FEATURES: AdminFeatures = {
@@ -1080,8 +1087,11 @@ const DEFAULT_FEATURES: AdminFeatures = {
 };
 
 const DEFAULT_AUDIO_SETTINGS: AdminAudioSettings = {
-  targetLufs: -16, silenceThreshold: -40, silenceDuration: 0.5,
+  targetLufs: -16, truePeak: -1.0,
+  silenceThreshold: -45, silenceDuration: 0.7, silencePadding: 0.15,
   enableNoiseReduction: true, enableLoudnessNormalization: true,
+  enableDeEssing: true, enableSpeechEQ: true, enableLimiter: true,
+  noiseReductionStrength: 12, mp3Bitrate: '160k',
 };
 
 function AdminSettings() {
@@ -1183,50 +1193,141 @@ function AdminSettings() {
         <div className="space-y-4">
           <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
             Default settings for talk audio processing. Applied when talks are uploaded and processed.
+            Uses two-pass EBU R128 loudness normalization for broadcast-quality results.
           </p>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <NumberInput
-              label="Target Loudness (LUFS)"
-              description="Industry standard: -16 for web, -23 for broadcast"
-              value={audioSettings.targetLufs}
-              onChange={(v) => setAudioSettings((a) => ({ ...a, targetLufs: v }))}
-              min={-30}
-              max={0}
-              step={1}
+          {/* Loudness section */}
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Loudness</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <NumberInput
+                label="Target Loudness (LUFS)"
+                description="-16 for web/podcasts, -23 for broadcast TV"
+                value={audioSettings.targetLufs}
+                onChange={(v) => setAudioSettings((a) => ({ ...a, targetLufs: v }))}
+                min={-30}
+                max={0}
+                step={1}
+              />
+              <NumberInput
+                label="True Peak (dBTP)"
+                description="Max peak to prevent clipping. -1.0 is standard"
+                value={audioSettings.truePeak}
+                onChange={(v) => setAudioSettings((a) => ({ ...a, truePeak: v }))}
+                min={-3}
+                max={0}
+                step={0.5}
+              />
+            </div>
+          </div>
+
+          {/* Silence removal section */}
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Silence Removal</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberInput
+                label="Silence Threshold (dB)"
+                description="Below this = silence"
+                value={audioSettings.silenceThreshold}
+                onChange={(v) => setAudioSettings((a) => ({ ...a, silenceThreshold: v }))}
+                min={-80}
+                max={0}
+                step={1}
+              />
+              <NumberInput
+                label="Min Silence (s)"
+                description="Duration to count as silence"
+                value={audioSettings.silenceDuration}
+                onChange={(v) => setAudioSettings((a) => ({ ...a, silenceDuration: v }))}
+                min={0.1}
+                max={5}
+                step={0.1}
+              />
+              <NumberInput
+                label="Padding (s)"
+                description="Keep around speech"
+                value={audioSettings.silencePadding}
+                onChange={(v) => setAudioSettings((a) => ({ ...a, silencePadding: v }))}
+                min={0}
+                max={1}
+                step={0.05}
+              />
+            </div>
+          </div>
+
+          {/* Noise reduction */}
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Noise Reduction</p>
+            <ToggleRow
+              label="Noise Reduction"
+              description="Adaptive FFT denoising (afftdn) — removes background hiss/hum"
+              checked={audioSettings.enableNoiseReduction}
+              onChange={(v) => setAudioSettings((a) => ({ ...a, enableNoiseReduction: v }))}
             />
-            <NumberInput
-              label="Silence Threshold (dB)"
-              description="Audio below this level is considered silence"
-              value={audioSettings.silenceThreshold}
-              onChange={(v) => setAudioSettings((a) => ({ ...a, silenceThreshold: v }))}
-              min={-80}
-              max={0}
-              step={1}
+            {audioSettings.enableNoiseReduction && (
+              <div className="mt-2">
+                <NumberInput
+                  label="Strength (0-30)"
+                  description="Higher = more aggressive. 12 is conservative, 20+ for noisy recordings"
+                  value={audioSettings.noiseReductionStrength}
+                  onChange={(v) => setAudioSettings((a) => ({ ...a, noiseReductionStrength: Math.min(30, Math.max(0, v)) }))}
+                  min={0}
+                  max={30}
+                  step={1}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Enhancement toggles */}
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Enhancement</p>
+            <ToggleRow
+              label="Two-Pass Loudness Normalization"
+              description="True EBU R128 compliance — measures then normalizes for consistent loudness"
+              checked={audioSettings.enableLoudnessNormalization}
+              onChange={(v) => setAudioSettings((a) => ({ ...a, enableLoudnessNormalization: v }))}
             />
-            <NumberInput
-              label="Min Silence Duration (s)"
-              description="Silence must last this long to be removed"
-              value={audioSettings.silenceDuration}
-              onChange={(v) => setAudioSettings((a) => ({ ...a, silenceDuration: v }))}
-              min={0.1}
-              max={5}
-              step={0.1}
+            <ToggleRow
+              label="De-Essing"
+              description="Reduce harsh sibilance (s, sh, ch sounds) around 6kHz"
+              checked={audioSettings.enableDeEssing}
+              onChange={(v) => setAudioSettings((a) => ({ ...a, enableDeEssing: v }))}
+            />
+            <ToggleRow
+              label="Speech EQ"
+              description="Gentle presence boost at 3kHz + warmth at 200Hz for clearer speech"
+              checked={audioSettings.enableSpeechEQ}
+              onChange={(v) => setAudioSettings((a) => ({ ...a, enableSpeechEQ: v }))}
+            />
+            <ToggleRow
+              label="Soft Limiter"
+              description="Prevents digital clipping after normalization"
+              checked={audioSettings.enableLimiter}
+              onChange={(v) => setAudioSettings((a) => ({ ...a, enableLimiter: v }))}
             />
           </div>
 
-          <ToggleRow
-            label="Loudness Normalization"
-            description="Normalize all talks to the target LUFS"
-            checked={audioSettings.enableLoudnessNormalization}
-            onChange={(v) => setAudioSettings((a) => ({ ...a, enableLoudnessNormalization: v }))}
-          />
-          <ToggleRow
-            label="Noise Reduction"
-            description="Reduce background noise using FFmpeg afftdn filter"
-            checked={audioSettings.enableNoiseReduction}
-            onChange={(v) => setAudioSettings((a) => ({ ...a, enableNoiseReduction: v }))}
-          />
+          {/* Output quality */}
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Output</p>
+            <label className="block">
+              <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>MP3 Bitrate</span>
+              <select
+                value={audioSettings.mp3Bitrate}
+                onChange={(e) => setAudioSettings((a) => ({ ...a, mp3Bitrate: e.target.value }))}
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+              >
+                <option value="96k">96 kbps (small file, speech-only)</option>
+                <option value="128k">128 kbps (standard)</option>
+                <option value="160k">160 kbps (recommended)</option>
+                <option value="192k">192 kbps (high quality)</option>
+                <option value="256k">256 kbps (very high quality)</option>
+              </select>
+              <span className="mt-0.5 block text-xs" style={{ color: "var(--color-ink-muted)" }}>Higher = better quality but larger file size</span>
+            </label>
+          </div>
         </div>
       </SettingsSection>
 
