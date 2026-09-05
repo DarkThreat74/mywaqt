@@ -11,6 +11,8 @@ import DeepLinkHandler from "@/components/deep-link-handler";
 import ToolsMenu from "@/components/tools-menu";
 import FunFactPopup from "@/components/fun-fact-popup";
 import OfflineBanner from "@/components/offline-banner";
+import { AudioPlayerProvider } from "@/components/audio-player-context";
+import GlobalAudioPlayer from "@/components/global-audio-player";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
@@ -71,6 +73,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ];
 
   return (
+    <AudioPlayerProvider>
     <div className="flex min-h-dvh w-full overflow-x-hidden" style={{ backgroundColor: "var(--color-paper)" }}>
       {/* ── Skip link for keyboard users (WCAG 2.4.1) ── */}
       <a href="#main-content" className="skip-link">
@@ -148,7 +151,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <NotificationScheduler />
       <DeepLinkHandler />
       <FunFactPopup />
+
+      {/* Global audio player — survives route changes for background playback */}
+      <GlobalAudioPlayer />
     </div>
+    </AudioPlayerProvider>
   );
 }
 

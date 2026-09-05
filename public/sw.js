@@ -20,15 +20,14 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v31";
+const CACHE_VERSION = "waqt-v32";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
 const AUDIO_CACHE = `${CACHE_VERSION}-audio`;
-// AUDIO_CACHE is managed client-side via caches.open() for offline talks.
+// AUDIO_CACHE stores talk MP3s for offline playback.
 // It is intentionally not cleaned on logout (talks are shared content).
-void AUDIO_CACHE;
 
 // App shell — the minimal set of files for offline boot
 const PRECACHE_URLS = [
@@ -248,7 +247,7 @@ if ("navigationPreload" in self.registration) {
 
 // ─── Activate: clear old caches, claim clients ───
 self.addEventListener("activate", (event) => {
-  const validCaches = [STATIC_CACHE, RUNTIME_CACHE, API_CACHE, PAGE_CACHE];
+  const validCaches = [STATIC_CACHE, RUNTIME_CACHE, API_CACHE, PAGE_CACHE, AUDIO_CACHE];
 
   event.waitUntil(
     caches
@@ -685,6 +684,69 @@ self.addEventListener("fetch", (event) => {
           return response;
         } catch {
           return new Response("", { status: 503 });
+        }
+      })()
+    );
+    return;
+  }
+
+  // ── Audio requests from R2 (talks): cache-first with range support ──
+  // R2 presigned URLs are long-lived (1 hour) and unique per talk.
+  // We cache the full response so offline playback + seeking works.
+  // Range requests are handled by returning the cached full response —
+  // the browser's media element handles partial content from a full buffer.
+  if (
+    request.destination === "audio" ||
+    url.hostname.endsWith(".r2.cloudflarestorage.com") ||
+    url.pathname.endsWith(".mp3") ||
+    url.pathname.endsWith(".m4a") ||
+    url.pathname.endsWith(".aac")
+  ) {
+    event.respondWith(
+      (async () => {
+        const audioCache = await caches.open(AUDIO_CACHE);
+
+        // Try exact match first (handles re-requests of the same presigned URL)
+        const exactMatch = await audioCache.match(request, { ignoreVary: true });
+        if (exactMatch) {
+          // Revalidate in background (presigned URLs expire — refresh the cache)
+          event.waitUntil(
+            fetch(request).then(async (response) => {
+              if (response.ok) {
+                await audioCache.put(request, response.clone());
+              }
+            }).catch(() => {})
+          );
+          return exactMatch;
+        }
+
+        // Try matching by talkId query param (presigned URLs change but talkId is stable)
+        const talkId = url.searchParams.get("talkId");
+        if (talkId) {
+          const keys = await audioCache.keys();
+          for (const key of keys) {
+            const keyUrl = new URL(key.url);
+            if (keyUrl.searchParams.get("talkId") === talkId) {
+              const cached = await audioCache.match(key, { ignoreVary: true });
+              if (cached) return cached;
+            }
+          }
+        }
+
+        // No cache — fetch from network and cache
+        try {
+          const response = await fetch(request);
+          if (response.ok && response.status === 200) {
+            // Only cache full responses (not partial 206s — they're incomplete)
+            await audioCache.put(request, response.clone());
+          }
+          return response;
+        } catch {
+          // Offline and no cache — return 503 so the player can show an error
+          return new Response(null, {
+            status: 503,
+            headers: { "Content-Type": "audio/mpeg" },
+          });
         }
       })()
     );

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { ExternalLink, Folder, ChevronLeft, Play, Clock, Headphones, Download, Search, X } from "lucide-react";
-import AdvancedAudioPlayer, { type PlayerTrack } from "@/components/advanced-audio-player";
+import { useAudioPlayer } from "@/components/audio-player-context";
+import type { PlayerTrack } from "@/components/advanced-audio-player";
 
 interface Folder {
   id: string;
@@ -54,12 +55,11 @@ function talkToTrack(talk: Talk): PlayerTrack {
 }
 
 export default function TalksClient() {
+  const { play, offlineStatus } = useAudioPlayer();
   const [folders, setFolders] = useState<Folder[]>([]);
   const [talks, setTalks] = useState<Talk[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null);
-  const [currentTalk, setCurrentTalk] = useState<Talk | null>(null);
-  const [offlineTalks, setOfflineTalks] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
 
@@ -81,26 +81,6 @@ export default function TalksClient() {
       }
     });
     return () => { cancelled = true; };
-  }, []);
-
-  // Check which talks are cached offline
-  useEffect(() => {
-    if (!("caches" in window)) return;
-    (async () => {
-      try {
-        const cache = await caches.open("waqt-v31-audio");
-        const keys = await cache.keys();
-        const offlineIds = new Set<string>();
-        for (const key of keys) {
-          const url = new URL(key.url);
-          const talkId = url.searchParams.get("talkId");
-          if (talkId) offlineIds.add(talkId);
-        }
-        setOfflineTalks(offlineIds);
-      } catch {
-        /* non-critical */
-      }
-    })();
   }, []);
 
   const talksInFolder = useCallback((folderId: string | null) =>
@@ -144,42 +124,11 @@ export default function TalksClient() {
     return grouped;
   }, [searchResults]);
 
-  // Build the queue for the current talk (siblings in the same folder, or uncategorized)
-  const getCurrentQueue = useCallback((): Talk[] => {
-    if (!currentTalk) return [];
-    if (currentTalk.folderId) return talksInFolder(currentTalk.folderId);
-    return uncategorized;
-  }, [currentTalk, talksInFolder, uncategorized]);
-
-  const queue = getCurrentQueue();
-
-  // Get next/prev in queue
-  const getNextTalk = useCallback((talk: Talk): Talk | null => {
+  // Play a talk — builds the queue from siblings and delegates to the global player
+  const playTalk = useCallback((talk: Talk) => {
     const siblings = talk.folderId ? talksInFolder(talk.folderId) : uncategorized;
-    const idx = siblings.findIndex((t) => t.id === talk.id);
-    if (idx >= 0 && idx < siblings.length - 1) return siblings[idx + 1];
-    return null;
-  }, [talksInFolder, uncategorized]);
-
-  const getPrevTalk = useCallback((talk: Talk): Talk | null => {
-    const siblings = talk.folderId ? talksInFolder(talk.folderId) : uncategorized;
-    const idx = siblings.findIndex((t) => t.id === talk.id);
-    if (idx > 0) return siblings[idx - 1];
-    return null;
-  }, [talksInFolder, uncategorized]);
-
-  const handleNext = useCallback(() => {
-    if (!currentTalk) return;
-    const next = getNextTalk(currentTalk);
-    if (next) setCurrentTalk(next);
-  }, [currentTalk, getNextTalk]);
-
-  const handlePrev = useCallback(() => {
-    if (!currentTalk) return;
-    // If more than 3 seconds in, restart current track
-    const prev = getPrevTalk(currentTalk);
-    if (prev) setCurrentTalk(prev);
-  }, [currentTalk, getPrevTalk]);
+    play(talkToTrack(talk), siblings.map(talkToTrack));
+  }, [talksInFolder, uncategorized, play]);
 
   if (loading) {
     return (
@@ -265,33 +214,11 @@ export default function TalksClient() {
               <TalkCard
                 key={talk.id}
                 talk={talk}
-                onPlay={() => setCurrentTalk(talk)}
-                isOffline={offlineTalks.has(talk.id)}
+                onPlay={() => playTalk(talk)}
+                isOffline={!!offlineStatus[talk.id]}
               />
             ))}
           </div>
-        )}
-
-        {currentTalk && (
-          <AdvancedAudioPlayer
-            track={talkToTrack(currentTalk)}
-            queue={queue.map(talkToTrack)}
-            onClose={() => setCurrentTalk(null)}
-            onNext={handleNext}
-            onPrev={handlePrev}
-            onTrackChange={(t) => {
-              const full = talks.find((tk) => tk.id === t.id);
-              if (full) setCurrentTalk(full);
-            }}
-            onOfflineStatusChange={(talkId, isOffline) => {
-              setOfflineTalks((prev) => {
-                const next = new Set(prev);
-                if (isOffline) next.add(talkId);
-                else next.delete(talkId);
-                return next;
-              });
-            }}
-          />
         )}
       </div>
     );
@@ -369,8 +296,8 @@ export default function TalksClient() {
                       <TalkCard
                         key={talk.id}
                         talk={talk}
-                        onPlay={() => setCurrentTalk(talk)}
-                        isOffline={offlineTalks.has(talk.id)}
+                        onPlay={() => playTalk(talk)}
+                        isOffline={!!offlineStatus[talk.id]}
                       />
                     ))}
                   </div>
@@ -427,36 +354,14 @@ export default function TalksClient() {
                   <TalkCard
                     key={talk.id}
                     talk={talk}
-                    onPlay={() => setCurrentTalk(talk)}
-                    isOffline={offlineTalks.has(talk.id)}
+                    onPlay={() => playTalk(talk)}
+                    isOffline={!!offlineStatus[talk.id]}
                   />
                 ))}
               </div>
             </div>
           )}
         </div>
-      )}
-
-      {currentTalk && (
-        <AdvancedAudioPlayer
-          track={talkToTrack(currentTalk)}
-          queue={queue.map(talkToTrack)}
-          onClose={() => setCurrentTalk(null)}
-          onNext={handleNext}
-          onPrev={handlePrev}
-          onTrackChange={(t) => {
-            const full = talks.find((tk) => tk.id === t.id);
-            if (full) setCurrentTalk(full);
-          }}
-          onOfflineStatusChange={(talkId, isOffline) => {
-            setOfflineTalks((prev) => {
-              const next = new Set(prev);
-              if (isOffline) next.add(talkId);
-              else next.delete(talkId);
-              return next;
-            });
-          }}
-        />
       )}
     </div>
   );

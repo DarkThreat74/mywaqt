@@ -186,7 +186,7 @@ export default function AdvancedAudioPlayer({
     let cancelled = false;
     (async () => {
       try {
-        const cache = await caches.open("waqt-v31-audio");
+        const cache = await caches.open("waqt-v32-audio");
         const cached = await cache.match(track.streamUrl!);
         if (!cancelled) Promise.resolve().then(() => setIsOffline(!!cached));
       } catch { /* non-critical */ }
@@ -584,7 +584,7 @@ export default function AdvancedAudioPlayer({
     if (!track.streamUrl || isOffline) return;
     setIsSavingOffline(true);
     try {
-      const cache = await caches.open("waqt-v31-audio");
+      const cache = await caches.open("waqt-v32-audio");
       await cache.add(track.streamUrl);
       setIsOffline(true);
       onOfflineStatusChange(track.id, true);
@@ -598,7 +598,7 @@ export default function AdvancedAudioPlayer({
   const handleRemoveOffline = useCallback(async () => {
     if (!track.streamUrl) return;
     try {
-      const cache = await caches.open("waqt-v31-audio");
+      const cache = await caches.open("waqt-v32-audio");
       await cache.delete(track.streamUrl);
       setIsOffline(false);
       onOfflineStatusChange(track.id, false);
@@ -1198,3 +1198,4 @@ export default function AdvancedAudioPlayer({
     </>
   );
 }
+
