@@ -1,15 +1,16 @@
-feat: folder image upload + display in talks library
+feat: polish talks empty states + remove dhikr admin tab
 
-- Admin: folder edit form with image upload (JPG/PNG/WebP/GIF)
-  - Pencil button on each folder opens edit form
-  - Edit description, start/end dates, and folder image
-  - Image uploaded directly to R2 via presigned URL
-  - New API action "get-folder-image-url" with extension validation
-- API: user-facing /api/talks now returns presigned imageUrl for folders
-- TalksClient: folder cards show image thumbnail (11x11 rounded)
-  when available, falling back to Folder icon
-- TalksClient: folder detail header shows larger image (12x12)
-  with folder name and talk count
+- Talks library empty states redesigned with a shared EmptyState component:
+  - Empty folder: friendly Mic2 icon + clear message
+  - No search results: Search icon + "Clear search" action
+  - No talks at all: Headphones icon + curated-by-hand message
+- Folder cards now show "Empty — no talks yet" for empty folders and a hover
+chevron shift for tactile feedback
+- Removed the Dhikr tab from the admin page navigation (NAV_ITEMS) along with
+the DhikrManager component and unused helper components
+- Restored the shared Field component used by admin forms
+- DB cleanup: deleted logintest@test.com and set umohamm7401@gmail.com
+display_name to 'admin'
 
 Generated with [Devin](https://devin.ai)
 

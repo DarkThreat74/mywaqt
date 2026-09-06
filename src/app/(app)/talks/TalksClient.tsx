@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { ExternalLink, Folder, ChevronLeft, Play, Clock, Headphones, Download, Search, X } from "lucide-react";
+import { ExternalLink, Folder, ChevronLeft, Play, Clock, Headphones, Download, Search, X, Mic2 } from "lucide-react";
 import { useAudioPlayer } from "@/components/audio-player-context";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
 
@@ -218,11 +218,11 @@ export default function TalksClient() {
         )}
 
         {filteredFolderTalks.length === 0 ? (
-          <div className="rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-            <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-              {folderQuery ? "No talks match your search." : "No talks in this folder yet."}
-            </p>
-          </div>
+          <EmptyState
+            icon={folderQuery ? Search : Mic2}
+            title={folderQuery ? "No matches found" : "This folder is empty"}
+            subtitle={folderQuery ? "Try a different search term or clear the search to see all talks." : "Talks added to this folder will appear here. Check back soon."}
+          />
         ) : (
           <div className="space-y-2">
             {filteredFolderTalks.map((talk) => (
@@ -279,15 +279,19 @@ export default function TalksClient() {
       {/* Search results view */}
       {searchResults ? (
         searchResults.length === 0 ? (
-          <div className="rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-              <Search className="h-6 w-6" style={{ color: "var(--color-ink-muted)" }} />
-            </div>
-            <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>No talks found</p>
-            <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-              Try a different search term.
-            </p>
-          </div>
+          <EmptyState
+            icon={Search}
+            title="No talks found"
+            subtitle={`Nothing matches "${searchQuery}". Try searching by title, speaker name, or topic.`}
+          >
+            <button
+              onClick={() => setSearchInput("")}
+              className="mt-4 rounded-lg border px-3.5 py-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+            >
+              Clear search
+            </button>
+          </EmptyState>
         ) : (
           <div className="space-y-5">
             <p className="px-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
@@ -322,15 +326,11 @@ export default function TalksClient() {
           </div>
         )
       ) : folders.length === 0 && talks.length === 0 ? (
-        <div className="rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-            <Headphones className="h-6 w-6" style={{ color: "var(--color-ink-muted)" }} />
-          </div>
-          <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>No talks available yet</p>
-          <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            Lectures from trusted speakers will appear here soon.
-          </p>
-        </div>
+        <EmptyState
+          icon={Headphones}
+          title="No talks available yet"
+          subtitle="Lectures and khutbahs from trusted speakers will appear here. This library is curated by hand, not generated."
+        />
       ) : (
         <div className="space-y-3">
           {/* Folders */}
@@ -340,7 +340,7 @@ export default function TalksClient() {
               <button
                 key={folder.id}
                 onClick={() => setSelectedFolder(folder)}
-                className="flex w-full items-center gap-3.5 rounded-2xl border p-4 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+                className="group flex w-full items-center gap-3.5 rounded-2xl border p-4 text-left transition-all hover:border-[var(--color-paper-3)] hover:shadow-sm"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
               >
                 {folder.imageUrl ? (
@@ -348,11 +348,14 @@ export default function TalksClient() {
                   <img
                     src={folder.imageUrl}
                     alt=""
-                    className="h-11 w-11 shrink-0 rounded-xl object-cover"
+                    className="h-11 w-11 shrink-0 rounded-xl object-cover ring-1 ring-[var(--color-paper-3)]"
                     loading="lazy"
                   />
                 ) : (
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
+                  <div
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors group-hover:scale-[1.03]"
+                    style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}
+                  >
                     <Folder className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
                   </div>
                 )}
@@ -361,9 +364,11 @@ export default function TalksClient() {
                   {folder.description && (
                     <p className="mt-0.5 truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>{folder.description}</p>
                   )}
-                  <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{count} {count === 1 ? "talk" : "talks"}</p>
+                  <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                    {count > 0 ? `${count} ${count === 1 ? "talk" : "talks"}` : "Empty — no talks yet"}
+                  </p>
                 </div>
-                <ChevronLeft className="h-4 w-4 rotate-180 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                <ChevronLeft className="h-4 w-4 rotate-180 shrink-0 transition-transform group-hover:translate-x-0.5" style={{ color: "var(--color-ink-muted)" }} />
               </button>
             );
           })}
@@ -388,6 +393,47 @@ export default function TalksClient() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Empty State ───
+
+function EmptyState({
+  icon: Icon,
+  title,
+  subtitle,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  title: string;
+  subtitle?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center rounded-2xl border px-6 py-14 text-center"
+      style={{
+        borderColor: "var(--color-paper-3)",
+        backgroundColor: "color-mix(in oklab, var(--color-paper) 60%, var(--color-paper-2))",
+      }}
+    >
+      <div
+        className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl"
+        style={{
+          backgroundColor: "color-mix(in oklab, var(--color-accent) 8%, transparent)",
+          border: "1px solid color-mix(in oklab, var(--color-accent) 15%, transparent)",
+        }}
+      >
+        <Icon className="h-7 w-7" style={{ color: "var(--color-accent)" }} />
+      </div>
+      <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{title}</p>
+      {subtitle && (
+        <p className="mt-1.5 max-w-xs text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+          {subtitle}
+        </p>
+      )}
+      {children}
     </div>
   );
 }
