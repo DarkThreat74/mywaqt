@@ -8,6 +8,7 @@ import {
   Gauge, Moon, Bookmark, BookmarkPlus, ListMusic,
   X, AlertCircle, RefreshCw, Airplay,
 } from "lucide-react";
+import { isAudioCached, removeAudioOffline, saveAudioOffline } from "@/components/audio-player-context";
 
 // ─── Types ───
 
@@ -153,8 +154,9 @@ export default function AdvancedAudioPlayer({
   // Refs for retry
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
-  // Sleep timer end position (in playback seconds) — state so it triggers re-render
+  // Sleep timer deadline and remaining seconds
   const [sleepEnd, setSleepEnd] = useState<number | null>(null);
+  const [sleepRemaining, setSleepRemaining] = useState(0);
 
   // ─── Load bookmarks when track changes ───
   useEffect(() => {
@@ -186,9 +188,8 @@ export default function AdvancedAudioPlayer({
     let cancelled = false;
     (async () => {
       try {
-        const cache = await caches.open("waqt-v32-audio");
-        const cached = await cache.match(track.streamUrl!);
-        if (!cancelled) Promise.resolve().then(() => setIsOffline(!!cached));
+        const cached = await isAudioCached(track.streamUrl!);
+        if (!cancelled) Promise.resolve().then(() => setIsOffline(cached));
       } catch { /* non-critical */ }
     })();
     return () => { cancelled = true; };
@@ -231,23 +232,55 @@ export default function AdvancedAudioPlayer({
   }, [track.id, updatePositionState]);
 
   // ─── Save playback position (throttled) ───
-  const saveProgress = useMemo(
-    () => throttle((time: number, id: string) => {
-      try {
-        const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
-        // eslint-disable-next-line react-hooks/purity
-        saved[id] = { time, updatedAt: Date.now() };
-        // Keep only last 50 entries
-        const ids = Object.keys(saved);
-        if (ids.length > 50) {
-          const sorted = ids.sort((a, b) => saved[b].updatedAt - saved[a].updatedAt);
-          for (const oldId of sorted.slice(50)) delete saved[oldId];
-        }
-        localStorage.setItem(PROGRESS_KEY, JSON.stringify(saved));
-      } catch { /* non-critical */ }
-    }, 5000),
-    [],
-  );
+  const persistProgress = useCallback((time: number, id: string) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
+      saved[id] = { time, updatedAt: Date.now() };
+      // Keep only last 50 entries
+      const ids = Object.keys(saved);
+      if (ids.length > 50) {
+        const sorted = ids.sort((a, b) => saved[b].updatedAt - saved[a].updatedAt);
+        for (const oldId of sorted.slice(50)) delete saved[oldId];
+      }
+      localStorage.setItem(PROGRESS_KEY, JSON.stringify(saved));
+    } catch { /* non-critical */ }
+  }, []);
+  const saveProgress = useMemo(() => throttle(persistProgress, 5000), [persistProgress]);
+
+  const [shuffledQueue, setShuffledQueue] = useState<PlayerTrack[]>([]);
+  useEffect(() => {
+    if (!isShuffled) {
+      Promise.resolve().then(() => setShuffledQueue([]));
+      return;
+    }
+    const shuffled = [...queue];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    Promise.resolve().then(() => setShuffledQueue(shuffled));
+  }, [isShuffled, queue]);
+
+  const effectiveQueue = isShuffled && shuffledQueue.length === queue.length ? shuffledQueue : queue;
+  const currentIndex = useMemo(() => effectiveQueue.findIndex((item) => item.id === track.id), [effectiveQueue, track.id]);
+  const goNext = useCallback(() => {
+    if (currentIndex >= 0 && currentIndex < effectiveQueue.length - 1) {
+      onTrackChange(effectiveQueue[currentIndex + 1]);
+    } else if (repeatMode === "all" && effectiveQueue.length > 0) {
+      onTrackChange(effectiveQueue[0]);
+    } else {
+      onNext();
+    }
+  }, [currentIndex, effectiveQueue, onNext, onTrackChange, repeatMode]);
+  const goPrev = useCallback(() => {
+    if (currentIndex > 0) {
+      onTrackChange(effectiveQueue[currentIndex - 1]);
+    } else if (repeatMode === "all" && effectiveQueue.length > 0) {
+      onTrackChange(effectiveQueue[effectiveQueue.length - 1]);
+    } else {
+      onPrev();
+    }
+  }, [currentIndex, effectiveQueue, onPrev, onTrackChange, repeatMode]);
 
   // ─── Media Session API ───
 
@@ -293,8 +326,8 @@ export default function AdvancedAudioPlayer({
         updatePositionState();
       }
     });
-    setAction("previoustrack", () => onPrev());
-    setAction("nexttrack", () => onNext());
+    setAction("previoustrack", goPrev);
+    setAction("nexttrack", goNext);
 
     return () => {
       setAction("play", null);
@@ -306,7 +339,7 @@ export default function AdvancedAudioPlayer({
       setAction("previoustrack", null);
       setAction("nexttrack", null);
     };
-  }, [track, onNext, onPrev, updatePositionState]);
+  }, [track, goNext, goPrev, updatePositionState]);
 
   // ─── AirPlay availability ───
   useEffect(() => {
@@ -374,19 +407,21 @@ export default function AdvancedAudioPlayer({
         // iOS may require a user gesture to unlock the audio element.
         // Attempt a silent unlock then retry.
         const unlock = audio;
+        const resumeAt = unlock.currentTime;
+        const resumeVolume = unlock.volume;
         unlock.muted = true;
         unlock.volume = 0;
         unlock.play().then(() => {
           unlock.pause();
-          unlock.currentTime = 0;
+          unlock.currentTime = resumeAt;
           unlock.muted = false;
-          unlock.volume = 1;
+          unlock.volume = resumeVolume;
           unlock.play().catch(() => {
             setError("Tap play again to start playback.");
           });
         }).catch(() => {
           unlock.muted = false;
-          unlock.volume = 1;
+          unlock.volume = resumeVolume;
           setError("Tap play again to start playback.");
         });
       });
@@ -399,8 +434,9 @@ export default function AdvancedAudioPlayer({
     const time = parseFloat(e.target.value);
     audio.currentTime = time;
     setCurrentTime(time);
+    persistProgress(time, track.id);
     updatePositionState();
-  }, [updatePositionState]);
+  }, [persistProgress, track.id, updatePositionState]);
 
   const skipBy = useCallback((seconds: number) => {
     const audio = audioRef.current;
@@ -422,8 +458,8 @@ export default function AdvancedAudioPlayer({
       delete saved[track.id];
       localStorage.setItem(PROGRESS_KEY, JSON.stringify(saved));
     } catch { /* non-critical */ }
-    onNext();
-  }, [repeatMode, track.id, onNext]);
+    goNext();
+  }, [repeatMode, track.id, goNext]);
 
   // ─── Background track-end fallback ───
   // iOS throttles the JS thread when backgrounded, so the "ended" event may not fire.
@@ -451,21 +487,27 @@ export default function AdvancedAudioPlayer({
     return () => clearInterval(interval);
   }, [isPlaying, handleEnded]);
 
-  // ─── Sleep timer logic (position-based with fade) ───
+  // ─── Sleep timer logic (deadline-based with fade) ───
   useEffect(() => {
-    if (sleepTimer === 0) {
-      Promise.resolve().then(() => setSleepEnd(null));
-      return;
-    }
-    const audio = audioRef.current;
-    if (!audio) return;
-    setSleepEnd(audio.currentTime + sleepTimer);
-    setSleepStartVolume(volume);
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      if (sleepTimer === 0) {
+        setSleepEnd(null);
+        setSleepRemaining(0);
+        return;
+      }
+      setSleepEnd(Date.now() + sleepTimer * 1000);
+      setSleepRemaining(sleepTimer);
+      setSleepStartVolume(volume);
+    });
+    return () => { cancelled = true; };
   }, [sleepTimer]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const checkSleepTimer = useCallback((time: number) => {
+  const checkSleepTimer = useCallback(() => {
     if (sleepEnd === null) return;
-    const remaining = sleepEnd - time;
+    const remaining = (sleepEnd - Date.now()) / 1000;
+    setSleepRemaining(Math.max(0, Math.ceil(remaining)));
     const FADE = 30; // 30 second fade
     if (remaining <= 0) {
       audioRef.current?.pause();
@@ -474,12 +516,16 @@ export default function AdvancedAudioPlayer({
       if (audioRef.current) audioRef.current.volume = sliderToVolume(volume);
       return;
     }
-    if (remaining < FADE) {
-      if (audioRef.current) {
-        audioRef.current.volume = sleepStartVolume * sliderToVolume(volume) * (remaining / FADE);
-      }
+    if (remaining < FADE && audioRef.current) {
+      audioRef.current.volume = sliderToVolume(sleepStartVolume) * (remaining / FADE);
     }
   }, [sleepEnd, sleepStartVolume, volume]);
+
+  useEffect(() => {
+    if (sleepEnd === null) return;
+    const interval = setInterval(checkSleepTimer, 1000);
+    return () => clearInterval(interval);
+  }, [checkSleepTimer, sleepEnd]);
 
   // ─── Keyboard shortcuts ───
   useEffect(() => {
@@ -517,11 +563,11 @@ export default function AdvancedAudioPlayer({
           break;
         case "n":
           e.preventDefault();
-          onNext();
+          goNext();
           break;
         case "p":
           e.preventDefault();
-          onPrev();
+          goPrev();
           break;
         case "f":
           e.preventDefault();
@@ -531,7 +577,7 @@ export default function AdvancedAudioPlayer({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handlePlayPause, skipBy, onNext, onPrev]);
+  }, [handlePlayPause, skipBy, goNext, goPrev]);
 
   // ─── Double-tap to skip (mobile gesture) ───
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
@@ -584,8 +630,7 @@ export default function AdvancedAudioPlayer({
     if (!track.streamUrl || isOffline) return;
     setIsSavingOffline(true);
     try {
-      const cache = await caches.open("waqt-v32-audio");
-      await cache.add(track.streamUrl);
+      await saveAudioOffline(track.streamUrl);
       setIsOffline(true);
       onOfflineStatusChange(track.id, true);
     } catch {
@@ -598,8 +643,7 @@ export default function AdvancedAudioPlayer({
   const handleRemoveOffline = useCallback(async () => {
     if (!track.streamUrl) return;
     try {
-      const cache = await caches.open("waqt-v32-audio");
-      await cache.delete(track.streamUrl);
+      await removeAudioOffline(track.streamUrl);
       setIsOffline(false);
       onOfflineStatusChange(track.id, false);
     } catch { /* non-critical */ }
@@ -613,28 +657,6 @@ export default function AdvancedAudioPlayer({
     }
   }, []);
 
-  // ─── Queue with shuffle ───
-  const [shuffledQueue, setShuffledQueue] = useState<PlayerTrack[]>([]);
-  useEffect(() => {
-    if (!isShuffled) {
-      Promise.resolve().then(() => setShuffledQueue([]));
-      return;
-    }
-    // Fisher-Yates shuffle in an effect (not during render)
-    const shuffled = [...queue];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    Promise.resolve().then(() => setShuffledQueue(shuffled));
-  }, [isShuffled, queue]);
-
-  const effectiveQueue = isShuffled ? shuffledQueue : queue;
-
-  const currentIndex = useMemo(() =>
-    effectiveQueue.findIndex((t) => t.id === track.id),
-  [effectiveQueue, track.id]);
-
   // ─── Cleanup on unmount ───
   useEffect(() => {
     const audio = audioRef.current;
@@ -642,10 +664,10 @@ export default function AdvancedAudioPlayer({
     return () => {
       if (retryTimeout) clearTimeout(retryTimeout);
       if (audio) {
-        saveProgress(audio.currentTime, track.id);
+        persistProgress(audio.currentTime, track.id);
       }
     };
-  }, [saveProgress, track.id]);
+  }, [persistProgress, track.id]);
 
   // ─── Render ───
 
@@ -669,7 +691,6 @@ export default function AdvancedAudioPlayer({
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
-  const sleepRemaining = sleepEnd !== null ? Math.max(0, sleepEnd - currentTime) : 0;
 
   return (
     <>
@@ -682,12 +703,12 @@ export default function AdvancedAudioPlayer({
         playsInline
         {...{ "x-webkit-airplay": "allow" }}
         onPlay={() => { setIsPlaying(true); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing"; }}
-        onPause={() => { setIsPlaying(false); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused"; saveProgress(audioRef.current?.currentTime || 0, track.id); }}
+        onPause={() => { setIsPlaying(false); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused"; persistProgress(audioRef.current?.currentTime || 0, track.id); }}
         onTimeUpdate={(e) => {
           const t = e.currentTarget.currentTime;
           setCurrentTime(t);
           saveProgress(t, track.id);
-          checkSleepTimer(t);
+          checkSleepTimer();
           // Update buffered
           if (e.currentTarget.buffered.length > 0) {
             setBuffered(e.currentTarget.buffered.end(e.currentTarget.buffered.length - 1));
@@ -880,7 +901,7 @@ export default function AdvancedAudioPlayer({
 
                 {/* Previous */}
                 <button
-                  onClick={onPrev}
+                  onClick={goPrev}
                   className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
                   style={{ color: "var(--color-ink-soft)", minHeight: 44, minWidth: 44 }}
                   aria-label="Previous track"
@@ -920,7 +941,7 @@ export default function AdvancedAudioPlayer({
 
                 {/* Next */}
                 <button
-                  onClick={onNext}
+                  onClick={goNext}
                   className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
                   style={{ color: "var(--color-ink-soft)", minHeight: 44, minWidth: 44 }}
                   aria-label="Next track"

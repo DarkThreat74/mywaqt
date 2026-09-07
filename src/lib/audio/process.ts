@@ -1,6 +1,7 @@
 import 'server-only';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
+import { path as ffprobePath } from 'ffprobe-static';
 import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -8,6 +9,9 @@ import { tmpdir } from 'os';
 // Set ffmpeg binary path
 if (ffmpegPath) {
   ffmpeg.setFfmpegPath(ffmpegPath);
+}
+if (ffprobePath) {
+  ffmpeg.setFfprobePath(ffprobePath);
 }
 
 export interface ProcessingOptions {
@@ -62,6 +66,23 @@ export interface AudioProbeInfo {
 /**
  * Probe audio file metadata using FFprobe.
  */
+async function probeAudioPath(filePath: string): Promise<AudioProbeInfo> {
+  return new Promise<AudioProbeInfo>((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, data) => {
+      if (err) { reject(err); return; }
+      const audioStream = data.streams.find((s) => s.codec_type === 'audio');
+      const duration = data.format?.duration;
+      resolve({
+        duration: duration ? Math.round(typeof duration === 'string' ? parseFloat(duration) : duration) : 0,
+        sampleRate: audioStream?.sample_rate || 44100,
+        channels: audioStream?.channels || 1,
+        bitrate: data.format?.bit_rate ? parseInt(String(data.format.bit_rate)) : 0,
+        codec: audioStream?.codec_name || 'unknown',
+      });
+    });
+  });
+}
+
 export async function probeAudio(buffer: Buffer): Promise<AudioProbeInfo> {
   const tmpDir = join(tmpdir(), 'waqt-audio-probe');
   await mkdir(tmpDir, { recursive: true });
@@ -69,20 +90,7 @@ export async function probeAudio(buffer: Buffer): Promise<AudioProbeInfo> {
 
   try {
     await writeFile(tmpPath, buffer);
-    return await new Promise<AudioProbeInfo>((resolve, reject) => {
-      ffmpeg.ffprobe(tmpPath, (err, data) => {
-        if (err) { reject(err); return; }
-        const audioStream = data.streams.find((s) => s.codec_type === 'audio');
-        const duration = data.format?.duration;
-        resolve({
-          duration: duration ? Math.round(typeof duration === 'string' ? parseFloat(duration) : duration) : 0,
-          sampleRate: audioStream?.sample_rate || 44100,
-          channels: audioStream?.channels || 1,
-          bitrate: data.format?.bit_rate ? parseInt(String(data.format.bit_rate)) : 0,
-          codec: audioStream?.codec_name || 'unknown',
-        });
-      });
-    });
+    return await probeAudioPath(tmpPath);
   } finally {
     await unlink(tmpPath).catch(() => {});
   }
@@ -196,7 +204,7 @@ export async function processAudioWithMetadata(
     await writeFile(inputPath, inputBuffer);
 
     // Probe the original audio
-    const probe = await probeAudio(inputBuffer);
+    const probe = await probeAudioPath(inputPath);
 
     // ── Pass 1: Measure loudness (if normalization enabled) ──
     let loudnessMeasurements: Awaited<ReturnType<typeof measureLoudness>> | null = null;
@@ -217,12 +225,12 @@ export async function processAudioWithMetadata(
     //    stop_periods=-1 removes ALL subsequent silences (with padding)
     //    detection=rms is more natural for speech
     //    leave_padding keeps a small gap so speech doesn't feel cut
-    const padMs = Math.round(opts.silencePadding! * 1000);
+    const padding = opts.silencePadding!;
     filters.push(
       `silenceremove=` +
-      `start_periods=1:start_duration=${opts.silenceDuration}:start_threshold=${opts.silenceThreshold}dB:` +
-      `stop_periods=-1:stop_duration=${opts.silenceDuration}:stop_threshold=${opts.silenceThreshold}dB:` +
-      `detection=rms:window=0.02:leave_padding=${padMs}`
+      `start_periods=1:start_duration=${opts.silenceDuration}:start_threshold=${opts.silenceThreshold}dB:start_silence=${padding}:` +
+      `stop_periods=-1:stop_duration=${opts.silenceDuration}:stop_threshold=${opts.silenceThreshold}dB:stop_silence=${padding}:` +
+      `detection=rms:window=0.02`
     );
 
     // 2. High-pass filter — remove low-frequency rumble (HVAC, traffic, mic handling)
@@ -302,7 +310,6 @@ export async function processAudioWithMetadata(
         .outputOptions([
           '-map_metadata -1',           // Strip original metadata
           '-compression_level 0',       // Fastest encoding (quality is set by bitrate)
-          '-q:a 2',                     // High quality VBR mode as a baseline
         ])
         .on('error', (err) => reject(new Error(`FFmpeg processing error: ${err.message}`)))
         .on('end', () => resolve())
@@ -310,11 +317,14 @@ export async function processAudioWithMetadata(
     });
 
     // Read processed output
-    const processedBuffer = await readFile(outputPath);
+    const [processedBuffer, processedProbe] = await Promise.all([
+      readFile(outputPath),
+      probeAudioPath(outputPath),
+    ]);
 
     return {
       buffer: processedBuffer,
-      duration: probe.duration,
+      duration: processedProbe.duration,
       originalLufs: loudnessMeasurements?.measuredI,
       finalLufs: opts.targetLufs,
       originalSize: inputBuffer.length,

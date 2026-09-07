@@ -433,7 +433,7 @@ interface AdminTalk {
   id: string; title: string; speaker: string | null; description: string | null; topics: string | null;
   folderId: string | null; storageKey: string | null; processedStorageKey: string | null; fileSize: number | null;
   duration: number | null; externalUrl: string | null; processingStatus: string; processingError: string | null;
-  addedAt: string; publishedAt: string | null;
+  addedAt: string; publishedAt: string | null; canRetryProcessing: boolean;
 }
 
 function TalksManager() {
@@ -463,15 +463,19 @@ function TalksManager() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<AdminTalk[] | null> => {
     try {
       const res = await fetch("/api/admin/talks");
       const data = await res.json().catch(() => ({}));
-      if (data.folders) setFolders(data.folders);
-      if (data.talks) setTalks(data.talks);
-      if (data.error) setError(data.error);
+      if (!res.ok) throw new Error(data.error || "Failed to load talks.");
+      const loadedTalks = Array.isArray(data.talks) ? data.talks as AdminTalk[] : [];
+      setFolders(Array.isArray(data.folders) ? data.folders : []);
+      setTalks(loadedTalks);
+      setError(null);
+      return loadedTalks;
     } catch {
       setError("Failed to load talks.");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -505,12 +509,13 @@ function TalksManager() {
 
   async function deleteFolder(folderId: string) {
     if (!confirm("Delete this folder? Talks inside will remain but become uncategorized.")) return;
-    await fetch("/api/admin/talks", {
+    const res = await fetch("/api/admin/talks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "delete-folder", folderId }),
     });
-    await load();
+    if (res.ok) await load();
+    else setError("Failed to delete folder.");
   }
 
   function openEditFolder(folder: AdminFolder) {
@@ -522,15 +527,28 @@ function TalksManager() {
     setEditFolderImageKey(folder.imageKey);
   }
 
+  async function cleanupFolderImage(imageKey: string) {
+    await fetch("/api/admin/talks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete-folder-image-upload", imageKey }),
+    }).catch(() => null);
+  }
+
   async function saveFolderEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editingFolder) return;
     setSavingFolder(true);
     setError(null);
+    let uploadedImageKey: string | null = null;
     try {
       let imageKey = editFolderImageKey;
       // If a new image was selected, upload it to R2
       if (editFolderImage) {
+        if (editFolderImage.size > 5 * 1024 * 1024) {
+          setError("Folder images must be 5 MB or smaller.");
+          return;
+        }
         const presignRes = await fetch("/api/admin/talks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -538,6 +556,7 @@ function TalksManager() {
             action: "get-folder-image-url",
             folderId: editingFolder.id,
             filename: editFolderImage.name,
+            fileSize: editFolderImage.size,
           }),
         });
         if (!presignRes.ok) {
@@ -545,9 +564,10 @@ function TalksManager() {
           setSavingFolder(false);
           return;
         }
-        const { uploadUrl, imageKey: newKey } = await presignRes.json();
+        const { uploadUrl, imageKey: newKey, contentType } = await presignRes.json();
         const uploadRes = await fetch(uploadUrl, {
           method: "PUT",
+          headers: { "Content-Type": contentType },
           body: editFolderImage,
         });
         if (!uploadRes.ok) {
@@ -556,6 +576,7 @@ function TalksManager() {
           return;
         }
         imageKey = newKey;
+        uploadedImageKey = newKey;
       }
 
       const res = await fetch("/api/admin/talks", {
@@ -571,12 +592,16 @@ function TalksManager() {
         }),
       });
       if (res.ok) {
+        uploadedImageKey = null;
         setEditingFolder(null);
         await load();
       } else {
+        if (uploadedImageKey) await cleanupFolderImage(uploadedImageKey);
+        uploadedImageKey = null;
         setError("Failed to update folder.");
       }
     } catch {
+      if (uploadedImageKey) await cleanupFolderImage(uploadedImageKey);
       setError("Folder update failed.");
     } finally {
       setSavingFolder(false);
@@ -585,12 +610,13 @@ function TalksManager() {
 
   async function deleteTalk(talkId: string) {
     if (!confirm("Delete this talk? The MP3 file will also be removed from storage.")) return;
-    await fetch("/api/admin/talks", {
+    const res = await fetch("/api/admin/talks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "delete-talk", talkId }),
     });
-    await load();
+    if (res.ok) await load();
+    else setError("Failed to delete talk.");
   }
 
   async function publishTalk(talkId: string) {
@@ -608,39 +634,68 @@ function TalksManager() {
   }
 
   async function retryProcessing(talkId: string) {
-    await fetch("/api/admin/talks", {
+    const res = await fetch("/api/admin/talks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "retry-processing", talkId }),
     });
-    await load();
+    if (res.ok) await processTalk(talkId);
+    else setError("Failed to retry processing.");
   }
 
+  const pollTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
   async function processTalk(talkId: string) {
+    let options: unknown;
+    try {
+      const saved = localStorage.getItem("waqt:admin:audio");
+      options = saved ? JSON.parse(saved) : undefined;
+    } catch { /* use server defaults */ }
     const res = await fetch("/api/admin/talks/process", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ talkId }),
+      body: JSON.stringify({ talkId, options }),
     });
     if (res.ok) {
       await load();
-      // Poll for status updates every 5 seconds
-      const pollInterval = setInterval(async () => {
-        await load();
-        const talk = talksRef.current.find((t) => t.id === talkId);
-        if (!talk || talk.processingStatus === "ready" || talk.processingStatus === "failed" || talk.processingStatus === "published") {
-          clearInterval(pollInterval);
-        }
+      let pollCount = 0;
+      const poll = async () => {
+        pollCount++;
+        const latestTalks = await load();
+        const talk = latestTalks?.find((item) => item.id === talkId);
+        if (!talk || ["ready", "failed", "published"].includes(talk.processingStatus) || pollCount >= 60) return;
+        const timeout = setTimeout(() => {
+          pollTimeoutsRef.current.delete(timeout);
+          void poll();
+        }, 5000);
+        pollTimeoutsRef.current.add(timeout);
+      };
+      const timeout = setTimeout(() => {
+        pollTimeoutsRef.current.delete(timeout);
+        void poll();
       }, 5000);
+      pollTimeoutsRef.current.add(timeout);
     } else {
       const data = await res.json().catch(() => ({}));
       setError(data.error || "Failed to start processing.");
     }
   }
 
-  // Keep a ref to talks for polling
-  const talksRef = useRef(talks);
-  useEffect(() => { talksRef.current = talks; }, [talks]);
+  useEffect(() => {
+    const timeouts = pollTimeoutsRef.current;
+    return () => {
+      timeouts.forEach((timeout) => clearTimeout(timeout));
+      timeouts.clear();
+    };
+  }, []);
+
+  async function cleanupUpload(storageKey: string) {
+    await fetch("/api/admin/talks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete-upload", storageKey }),
+    }).catch(() => null);
+  }
 
   async function uploadTalk(e: React.FormEvent) {
     e.preventDefault();
@@ -649,9 +704,18 @@ function TalksManager() {
       setError("Title and MP3 file are required.");
       return;
     }
+    if (!talkFile.name.toLowerCase().endsWith(".mp3")) {
+      setError("Choose an MP3 file.");
+      return;
+    }
+    if (talkFile.size > 150 * 1024 * 1024) {
+      setError("MP3 files must be 150 MB or smaller.");
+      return;
+    }
 
     setUploading(true);
     setUploadProgress("Preparing upload…");
+    let uploadedStorageKey: string | null = null;
 
     try {
       // Step 1: Get presigned upload URL
@@ -683,6 +747,7 @@ function TalksManager() {
         setError("Failed to upload file to storage.");
         return;
       }
+      uploadedStorageKey = storageKey;
 
       // Step 3: Create the talk record in DB (starts as 'pending' processing status)
       setUploadProgress("Saving talk record…");
@@ -701,14 +766,20 @@ function TalksManager() {
         }),
       });
       if (createRes.ok) {
+        const created = await createRes.json();
+        uploadedStorageKey = null;
         setTalkTitle(""); setTalkSpeaker(""); setTalkDesc(""); setTalkTopics(""); setTalkFile(null);
         setShowUploadForm(false);
-        setUploadProgress("");
-        await load();
+        setUploadProgress("Starting audio processing…");
+        await processTalk(created.id);
       } else {
-        setError("Failed to create talk record.");
+        const data = await createRes.json().catch(() => ({}));
+        await cleanupUpload(storageKey);
+        uploadedStorageKey = null;
+        setError(data.error || "Failed to create talk record.");
       }
     } catch {
+      if (uploadedStorageKey) await cleanupUpload(uploadedStorageKey);
       setError("Upload failed.");
     } finally {
       setUploading(false);
@@ -906,10 +977,10 @@ function TalksManager() {
           {folders.map((folder) => (
             <div key={folder.id} className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
               <div className="flex items-center justify-between border-b px-5 py-3.5" style={{ borderColor: "var(--color-paper-3)" }}>
-                <div className="flex items-center gap-2">
-                  <Folder className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
-                  <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{folder.name}</span>
-                  <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{talksInFolder(folder.id).length} talks</span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <Folder className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+                  <span className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{folder.name}</span>
+                  <span className="shrink-0 text-xs" style={{ color: "var(--color-ink-muted)" }}>{talksInFolder(folder.id).length} talks</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <button onClick={() => openEditFolder(folder)} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Edit folder">
@@ -969,7 +1040,7 @@ function TalkRow({ talk, onDelete, onPublish, onRetry, onProcess }: { talk: Admi
     failed: "Failed",
   };
   return (
-    <div className="flex items-center justify-between gap-3 px-5 py-3">
+    <div className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>{talk.title}</p>
         <p className="mt-0.5 truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
@@ -999,7 +1070,7 @@ function TalkRow({ talk, onDelete, onPublish, onRetry, onProcess }: { talk: Admi
         {status === "ready" && (
           <button
             onClick={() => onPublish(talk.id)}
-            className="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+            className="rounded-md px-3 py-2 text-xs font-medium transition-colors"
             style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)" }}
             aria-label="Publish talk"
           >
@@ -1010,25 +1081,35 @@ function TalkRow({ talk, onDelete, onPublish, onRetry, onProcess }: { talk: Admi
         {status === "failed" && (
           <button
             onClick={() => onRetry(talk.id)}
-            className="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+            className="rounded-md border px-3 py-2 text-xs font-medium transition-colors"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
             aria-label="Retry processing"
           >
             Retry
           </button>
         )}
+        {status === "processing" && talk.canRetryProcessing && (
+          <button
+            onClick={() => onProcess(talk.id)}
+            className="rounded-md border px-3 py-2 text-xs font-medium transition-colors"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+            aria-label="Restart stalled processing"
+          >
+            Restart
+          </button>
+        )}
         {/* Process button (only when pending and has a storage key) */}
         {status === "pending" && talk.storageKey && (
           <button
             onClick={() => onProcess(talk.id)}
-            className="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+            className="rounded-md px-3 py-2 text-xs font-medium transition-colors"
             style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
             aria-label="Process audio"
           >
             Process
           </button>
         )}
-        <button onClick={() => onDelete(talk.id)} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Delete talk">
+        <button onClick={() => onDelete(talk.id)} className="flex h-10 w-10 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Delete talk">
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>

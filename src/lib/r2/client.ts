@@ -8,6 +8,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '@/lib/env';
 import { Readable } from 'stream';
+import { randomUUID } from 'crypto';
 
 /**
  * Cloudflare R2 client (S3-compatible API).
@@ -72,7 +73,7 @@ export function makeStorageKey(folderName: string, filename: string): string {
   const safeFolder = folderName.replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'uncategorized';
   const safeName = filename.replace(/[^a-z0-9.-]/gi, '-').toLowerCase();
   const ts = Date.now();
-  return `talks/${safeFolder}/${ts}-${safeName}`;
+  return `talks/${safeFolder}/${ts}-${randomUUID()}-${safeName}`;
 }
 
 /**

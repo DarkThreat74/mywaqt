@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, asc, desc } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { logError } from "@/lib/logError";
 import { getUploadUrl, deleteObject, makeStorageKey } from "@/lib/r2/client";
+import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
+
+const MAX_AUDIO_BYTES = 150 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function isValidDate(value?: string): boolean {
+  if (!value) return true;
+  const date = new Date(`${value}T00:00:00Z`);
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
 
 // ── Folders ──
 
@@ -16,17 +26,49 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get("type");
 
-    if (type === "folders") {
-      const folders = await db.select().from(schema.talkFolders).orderBy(asc(schema.talkFolders.sortOrder), asc(schema.talkFolders.name));
-      return NextResponse.json({ folders });
-    }
+    const folderQuery = db.select({
+      id: schema.talkFolders.id,
+      name: schema.talkFolders.name,
+      description: schema.talkFolders.description,
+      imageKey: schema.talkFolders.imageKey,
+      startDate: schema.talkFolders.startDate,
+      endDate: schema.talkFolders.endDate,
+      sortOrder: schema.talkFolders.sortOrder,
+    }).from(schema.talkFolders)
+      .orderBy(asc(schema.talkFolders.sortOrder), asc(schema.talkFolders.name))
+      .limit(200);
 
-    // Default: return folders + talks together
+    if (type === "folders") return NextResponse.json({ folders: await folderQuery });
+
     const [folders, talks] = await Promise.all([
-      db.select().from(schema.talkFolders).orderBy(asc(schema.talkFolders.sortOrder), asc(schema.talkFolders.name)),
-      db.select().from(schema.talks).orderBy(desc(schema.talks.addedAt)),
+      folderQuery,
+      db.select({
+        id: schema.talks.id,
+        title: schema.talks.title,
+        speaker: schema.talks.speaker,
+        description: schema.talks.description,
+        topics: schema.talks.topics,
+        folderId: schema.talks.folderId,
+        storageKey: schema.talks.storageKey,
+        processedStorageKey: schema.talks.processedStorageKey,
+        fileSize: schema.talks.fileSize,
+        duration: schema.talks.duration,
+        externalUrl: schema.talks.externalUrl,
+        processingStatus: schema.talks.processingStatus,
+        processingError: schema.talks.processingError,
+        processedAt: schema.talks.processedAt,
+        addedAt: schema.talks.addedAt,
+        publishedAt: schema.talks.publishedAt,
+      }).from(schema.talks).orderBy(desc(schema.talks.addedAt)).limit(500),
     ]);
-    return NextResponse.json({ folders, talks });
+    const staleBefore = Date.now() - 5 * 60 * 1000;
+    return NextResponse.json({
+      folders,
+      talks: talks.map(({ processedAt, ...talk }) => ({
+        ...talk,
+        canRetryProcessing: talk.processingStatus === "processing" && (!processedAt || processedAt.getTime() <= staleBefore),
+      })),
+    });
   } catch (e) {
     if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     logError(e, { route: "admin/talks", method: "GET" });
@@ -42,7 +84,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 
-    const body = await request.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    }
     const { action } = body as { action?: string };
 
     // ── Create folder ──
@@ -50,6 +97,9 @@ export async function POST(request: NextRequest) {
       const { name, description, startDate, endDate } = body as { name?: string; description?: string; startDate?: string; endDate?: string };
       if (!name?.trim()) {
         return NextResponse.json({ error: "Folder name is required." }, { status: 400 });
+      }
+      if (!isValidDate(startDate) || !isValidDate(endDate) || (startDate && endDate && startDate > endDate)) {
+        return NextResponse.json({ error: "Enter a valid folder date range." }, { status: 400 });
       }
       const [folder] = await db.insert(schema.talkFolders).values({
         name: name.trim().slice(0, 100),
@@ -65,41 +115,63 @@ export async function POST(request: NextRequest) {
       const { folderId, description, imageKey, startDate, endDate } = body as {
         folderId?: string; description?: string; imageKey?: string; startDate?: string; endDate?: string;
       };
-      if (!folderId) {
+      if (!folderId || !isValidUUID(folderId)) {
         return NextResponse.json({ error: "Folder ID is required." }, { status: 400 });
       }
+      if (!isValidDate(startDate) || !isValidDate(endDate) || (startDate && endDate && startDate > endDate)) {
+        return NextResponse.json({ error: "Enter a valid folder date range." }, { status: 400 });
+      }
+      const [current] = await db.select({ imageKey: schema.talkFolders.imageKey })
+        .from(schema.talkFolders)
+        .where(eq(schema.talkFolders.id, folderId))
+        .limit(1);
+      if (!current) return NextResponse.json({ error: "Folder not found." }, { status: 404 });
       const [updated] = await db.update(schema.talkFolders).set({
         description: description?.trim().slice(0, 500) || null,
         imageKey: imageKey || null,
         startDate: startDate || null,
         endDate: endDate || null,
       }).where(eq(schema.talkFolders.id, folderId)).returning();
+      if (current.imageKey && current.imageKey !== updated.imageKey) {
+        try { await deleteObject(current.imageKey); } catch { /* best-effort */ }
+      }
       return NextResponse.json(updated);
     }
 
     // ── Delete folder ──
     if (action === "delete-folder") {
       const { folderId } = body as { folderId?: string };
-      if (!folderId) {
+      if (!folderId || !isValidUUID(folderId)) {
         return NextResponse.json({ error: "Folder ID is required." }, { status: 400 });
       }
-      // Talks in this folder will have folderId set to null (ON DELETE SET NULL)
-      await db.delete(schema.talkFolders).where(eq(schema.talkFolders.id, folderId));
+      const [deleted] = await db.delete(schema.talkFolders)
+        .where(eq(schema.talkFolders.id, folderId))
+        .returning({ imageKey: schema.talkFolders.imageKey });
+      if (!deleted) return NextResponse.json({ error: "Folder not found." }, { status: 404 });
+      if (deleted.imageKey) {
+        try { await deleteObject(deleted.imageKey); } catch { /* best-effort */ }
+      }
       return NextResponse.json({ success: true });
     }
 
     // ── Get presigned upload URL ──
     if (action === "get-upload-url") {
       const { folderId, filename, fileSize } = body as { folderId?: string; filename?: string; fileSize?: number };
-      if (!filename?.trim()) {
-        return NextResponse.json({ error: "Filename is required." }, { status: 400 });
+      if (!filename?.trim().toLowerCase().endsWith(".mp3")) {
+        return NextResponse.json({ error: "A valid MP3 filename is required." }, { status: 400 });
+      }
+      if (!Number.isInteger(fileSize) || fileSize! <= 0 || fileSize! > MAX_AUDIO_BYTES) {
+        return NextResponse.json({ error: "MP3 files must be 150 MB or smaller." }, { status: 400 });
+      }
+      if (folderId && !isValidUUID(folderId)) {
+        return NextResponse.json({ error: "Invalid folder ID." }, { status: 400 });
       }
 
-      // Get folder name for the storage key
       let folderName = "uncategorized";
       if (folderId) {
-        const [folder] = await db.select().from(schema.talkFolders).where(eq(schema.talkFolders.id, folderId)).limit(1);
-        if (folder) folderName = folder.name;
+        const [folder] = await db.select({ name: schema.talkFolders.name }).from(schema.talkFolders).where(eq(schema.talkFolders.id, folderId)).limit(1);
+        if (!folder) return NextResponse.json({ error: "Folder not found." }, { status: 404 });
+        folderName = folder.name;
       }
 
       const storageKey = makeStorageKey(folderName, filename);
@@ -114,12 +186,15 @@ export async function POST(request: NextRequest) {
 
     // ── Get presigned upload URL for folder image ──
     if (action === "get-folder-image-url") {
-      const { folderId, filename } = body as { folderId?: string; filename?: string };
-      if (!folderId) {
+      const { folderId, filename, fileSize } = body as { folderId?: string; filename?: string; fileSize?: number };
+      if (!folderId || !isValidUUID(folderId)) {
         return NextResponse.json({ error: "Folder ID is required." }, { status: 400 });
       }
       if (!filename?.trim()) {
         return NextResponse.json({ error: "Filename is required." }, { status: 400 });
+      }
+      if (!Number.isInteger(fileSize) || fileSize! <= 0 || fileSize! > MAX_IMAGE_BYTES) {
+        return NextResponse.json({ error: "Folder images must be 5 MB or smaller." }, { status: 400 });
       }
 
       // Validate file extension
@@ -129,11 +204,45 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Image must be JPG, PNG, WebP, or GIF." }, { status: 400 });
       }
 
+      const [folder] = await db.select({ id: schema.talkFolders.id })
+        .from(schema.talkFolders)
+        .where(eq(schema.talkFolders.id, folderId))
+        .limit(1);
+      if (!folder) return NextResponse.json({ error: "Folder not found." }, { status: 404 });
+
       const contentType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
       const imageKey = `folder-images/${folderId}/${Date.now()}-${filename.replace(/[^a-z0-9.-]/gi, '-').toLowerCase()}`;
       const uploadUrl = await getUploadUrl(imageKey, contentType);
 
-      return NextResponse.json({ uploadUrl, imageKey });
+      return NextResponse.json({ uploadUrl, imageKey, contentType });
+    }
+
+    if (action === "delete-folder-image-upload") {
+      const { imageKey } = body as { imageKey?: string };
+      if (!imageKey || !/^folder-images\/[0-9a-f-]{36}\/\d+-[a-z0-9.-]+$/.test(imageKey)) {
+        return NextResponse.json({ error: "Invalid image key." }, { status: 400 });
+      }
+      const [referenced] = await db.select({ id: schema.talkFolders.id })
+        .from(schema.talkFolders)
+        .where(eq(schema.talkFolders.imageKey, imageKey))
+        .limit(1);
+      if (referenced) return NextResponse.json({ error: "Image is already attached to a folder." }, { status: 409 });
+      await deleteObject(imageKey);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === "delete-upload") {
+      const { storageKey } = body as { storageKey?: string };
+      if (!storageKey || !/^talks\/[a-z0-9-]+\/\d+-[a-z0-9.-]+\.mp3$/.test(storageKey)) {
+        return NextResponse.json({ error: "Invalid storage key." }, { status: 400 });
+      }
+      const [referenced] = await db.select({ id: schema.talks.id })
+        .from(schema.talks)
+        .where(eq(schema.talks.storageKey, storageKey))
+        .limit(1);
+      if (referenced) return NextResponse.json({ error: "Uploaded file is already attached to a talk." }, { status: 409 });
+      await deleteObject(storageKey);
+      return NextResponse.json({ success: true });
     }
 
     // ── Create talk (after upload completes) ──
@@ -147,18 +256,32 @@ export async function POST(request: NextRequest) {
       if (!title?.trim()) {
         return NextResponse.json({ error: "Title is required." }, { status: 400 });
       }
-      if (!storageKey && !externalUrl?.trim()) {
+      const trimmedExternalUrl = externalUrl?.trim();
+      if (!storageKey && !trimmedExternalUrl) {
         return NextResponse.json({ error: "Either an uploaded file or external URL is required." }, { status: 400 });
       }
-      if (externalUrl) {
-        try { new URL(externalUrl); } catch {
-          return NextResponse.json({ error: "External URL must be a valid URL." }, { status: 400 });
+      if (storageKey && trimmedExternalUrl) {
+        return NextResponse.json({ error: "Choose either an uploaded file or an external URL." }, { status: 400 });
+      }
+      if (folderId && !isValidUUID(folderId)) {
+        return NextResponse.json({ error: "Invalid folder ID." }, { status: 400 });
+      }
+      if (storageKey && (!/^talks\/[a-z0-9-]+\/\d+-[a-z0-9.-]+\.mp3$/.test(storageKey) || !Number.isInteger(fileSize) || fileSize! <= 0 || fileSize! > MAX_AUDIO_BYTES)) {
+        return NextResponse.json({ error: "Invalid uploaded MP3." }, { status: 400 });
+      }
+      if (duration !== undefined && (!Number.isInteger(duration) || duration < 0)) {
+        return NextResponse.json({ error: "Invalid audio duration." }, { status: 400 });
+      }
+      if (trimmedExternalUrl) {
+        try {
+          const url = new URL(trimmedExternalUrl);
+          if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error();
+        } catch {
+          return NextResponse.json({ error: "External URL must use HTTP or HTTPS." }, { status: 400 });
         }
       }
 
-      // External URL talks are immediately published (no processing needed)
-      // Self-hosted talks start as 'pending' and require processing before publishing
-      const isExternal = !!externalUrl;
+      const isExternal = !storageKey && !!trimmedExternalUrl;
       const processingStatus = isExternal ? "published" : "pending";
 
       const [talk] = await db.insert(schema.talks).values({
@@ -170,7 +293,7 @@ export async function POST(request: NextRequest) {
         storageKey: storageKey || null,
         fileSize: fileSize || null,
         duration: duration || null,
-        externalUrl: externalUrl?.trim() || null,
+        externalUrl: trimmedExternalUrl || null,
         processingStatus,
         publishedAt: isExternal ? new Date() : null,
       }).returning();
@@ -181,11 +304,14 @@ export async function POST(request: NextRequest) {
     // ── Publish talk (after processing is complete) ──
     if (action === "publish-talk") {
       const { talkId } = body as { talkId?: string };
-      if (!talkId) {
+      if (!talkId || !isValidUUID(talkId)) {
         return NextResponse.json({ error: "Talk ID is required." }, { status: 400 });
       }
 
-      const [talk] = await db.select().from(schema.talks).where(eq(schema.talks.id, talkId)).limit(1);
+      const [talk] = await db.select({
+        processingStatus: schema.talks.processingStatus,
+        externalUrl: schema.talks.externalUrl,
+      }).from(schema.talks).where(eq(schema.talks.id, talkId)).limit(1);
       if (!talk) {
         return NextResponse.json({ error: "Talk not found." }, { status: 404 });
       }
@@ -206,36 +332,42 @@ export async function POST(request: NextRequest) {
     // ── Retry processing ──
     if (action === "retry-processing") {
       const { talkId } = body as { talkId?: string };
-      if (!talkId) {
+      if (!talkId || !isValidUUID(talkId)) {
         return NextResponse.json({ error: "Talk ID is required." }, { status: 400 });
       }
       const [updated] = await db.update(schema.talks).set({
         processingStatus: "pending",
         processingError: null,
-      }).where(eq(schema.talks.id, talkId)).returning();
+        processedAt: null,
+      }).where(and(
+        eq(schema.talks.id, talkId),
+        eq(schema.talks.processingStatus, "failed"),
+      )).returning();
+      if (!updated) return NextResponse.json({ error: "Only failed talks can be retried." }, { status: 409 });
       return NextResponse.json(updated);
     }
 
     // ── Delete talk ──
     if (action === "delete-talk") {
       const { talkId } = body as { talkId?: string };
-      if (!talkId) {
+      if (!talkId || !isValidUUID(talkId)) {
         return NextResponse.json({ error: "Talk ID is required." }, { status: 400 });
       }
 
-      // Get the talk to find its storage key
-      const [talk] = await db.select().from(schema.talks).where(eq(schema.talks.id, talkId)).limit(1);
-      if (!talk) {
-        return NextResponse.json({ error: "Talk not found." }, { status: 404 });
-      }
+      const [deleted] = await db.delete(schema.talks)
+        .where(eq(schema.talks.id, talkId))
+        .returning({
+          storageKey: schema.talks.storageKey,
+          processedStorageKey: schema.talks.processedStorageKey,
+        });
+      if (!deleted) return NextResponse.json({ error: "Talk not found." }, { status: 404 });
 
-      // Delete from R2 if self-hosted
-      if (talk.storageKey) {
-        try { await deleteObject(talk.storageKey); } catch { /* best-effort */ }
+      if (deleted.storageKey) {
+        try { await deleteObject(deleted.storageKey); } catch { /* best-effort */ }
       }
-
-      // Delete from DB
-      await db.delete(schema.talks).where(eq(schema.talks.id, talkId));
+      if (deleted.processedStorageKey && deleted.processedStorageKey !== deleted.storageKey) {
+        try { await deleteObject(deleted.processedStorageKey); } catch { /* best-effort */ }
+      }
       return NextResponse.json({ success: true });
     }
 

@@ -25,7 +25,7 @@ const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
-const AUDIO_CACHE = `${CACHE_VERSION}-audio`;
+const AUDIO_CACHE = "waqt-audio";
 // AUDIO_CACHE stores talk MP3s for offline playback.
 // It is intentionally not cleaned on logout (talks are shared content).
 
@@ -264,13 +264,24 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((cacheNames) =>
-        Promise.all(
+      .then(async (cacheNames) => {
+        const legacyAudioCaches = cacheNames.filter((name) => /^waqt-v\d+-audio$/.test(name));
+        if (legacyAudioCaches.length > 0) {
+          const audioCache = await caches.open(AUDIO_CACHE);
+          for (const cacheName of legacyAudioCaches) {
+            const legacyCache = await caches.open(cacheName);
+            for (const request of await legacyCache.keys()) {
+              const response = await legacyCache.match(request);
+              if (response) await audioCache.put(request, response);
+            }
+          }
+        }
+        await Promise.all(
           cacheNames
             .filter((name) => !validCaches.includes(name))
             .map((name) => caches.delete(name))
-        )
-      )
+        );
+      })
       .then(() => self.clients.claim())
       .then(() => syncOutbox())          // Replay pending offline writes
       .then(() => warmCache().catch(() => {}))  // Warm all app pages for offline
@@ -291,6 +302,27 @@ self.addEventListener("sync", (event) => {
     event.waitUntil(syncOutbox());
   }
 });
+
+async function audioRangeResponse(request, response) {
+  const range = request.headers.get("range");
+  if (!range) return response;
+  const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+  if (!match) return response;
+  const buffer = await response.arrayBuffer();
+  const start = Number(match[1]);
+  const end = Math.min(match[2] ? Number(match[2]) : buffer.byteLength - 1, buffer.byteLength - 1);
+  if (start > end || start >= buffer.byteLength) {
+    return new Response(null, {
+      status: 416,
+      headers: { "Content-Range": `bytes */${buffer.byteLength}` },
+    });
+  }
+  const headers = new Headers(response.headers);
+  headers.set("Accept-Ranges", "bytes");
+  headers.set("Content-Range", `bytes ${start}-${end}/${buffer.byteLength}`);
+  headers.set("Content-Length", String(end - start + 1));
+  return new Response(buffer.slice(start, end + 1), { status: 206, statusText: "Partial Content", headers });
+}
 
 // ─── Fetch: route by request type ───
 self.addEventListener("fetch", (event) => {
@@ -662,7 +694,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // ── API GET requests (events, prayer-times, homework): stale-while-revalidate ──
-  if (url.pathname.startsWith("/api/")) {
+  if (url.pathname.startsWith("/api/") && !(url.pathname === "/api/talks" && url.searchParams.has("stream"))) {
     event.respondWith(
       (async () => {
         const cached = await caches.match(request);
@@ -730,8 +762,7 @@ self.addEventListener("fetch", (event) => {
   // ── Audio requests from R2 (talks): cache-first with range support ──
   // R2 presigned URLs are long-lived (1 hour) and unique per talk.
   // We cache the full response so offline playback + seeking works.
-  // Range requests are handled by returning the cached full response —
-  // the browser's media element handles partial content from a full buffer.
+  // Range requests are sliced from the cached full response for iOS-compatible seeking.
   if (
     request.destination === "audio" ||
     url.hostname.endsWith(".r2.cloudflarestorage.com") ||
@@ -754,19 +785,26 @@ self.addEventListener("fetch", (event) => {
               }
             }).catch(() => {})
           );
-          return exactMatch;
+          return audioRangeResponse(request, exactMatch);
         }
 
-        // Try matching by talkId query param (presigned URLs change but talkId is stable)
-        const talkId = url.searchParams.get("talkId");
-        if (talkId) {
-          const keys = await audioCache.keys();
-          for (const key of keys) {
-            const keyUrl = new URL(key.url);
-            if (keyUrl.searchParams.get("talkId") === talkId) {
-              const cached = await audioCache.match(key, { ignoreVary: true });
-              if (cached) return cached;
-            }
+        // Match the stable R2 object path when the presigned query string rotates.
+        const matchingKey = (await audioCache.keys()).find((key) => {
+          const keyUrl = new URL(key.url);
+          return keyUrl.origin === url.origin && keyUrl.pathname === url.pathname;
+        });
+        if (matchingKey) {
+          const cached = await audioCache.match(matchingKey, { ignoreVary: true });
+          if (cached) {
+            event.waitUntil(
+              fetch(request).then(async (response) => {
+                if (response.ok && response.status === 200) {
+                  await audioCache.put(request, response.clone());
+                  if (matchingKey.url !== request.url) await audioCache.delete(matchingKey);
+                }
+              }).catch(() => {})
+            );
+            return audioRangeResponse(request, cached);
           }
         }
 

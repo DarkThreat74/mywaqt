@@ -1,14 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { logError } from "@/lib/logError";
 import { downloadObject, uploadBuffer } from "@/lib/r2/client";
-import { processAudioWithMetadata, DEFAULT_PROCESSING_OPTIONS } from "@/lib/audio/process";
+import { processAudioWithMetadata, DEFAULT_PROCESSING_OPTIONS, type ProcessingOptions } from "@/lib/audio/process";
+import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes — Vercel Pro max for background processing
+
+function processingOptions(value: unknown): ProcessingOptions {
+  const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const number = (key: string, min: number, max: number, fallback: number) => {
+    const candidate = input[key];
+    return typeof candidate === "number" && Number.isFinite(candidate)
+      ? Math.min(max, Math.max(min, candidate))
+      : fallback;
+  };
+  const bool = (key: string, fallback: boolean) => typeof input[key] === "boolean" ? input[key] as boolean : fallback;
+  const bitrate = typeof input.mp3Bitrate === "string" && ["96k", "128k", "160k", "192k", "256k"].includes(input.mp3Bitrate)
+    ? input.mp3Bitrate
+    : DEFAULT_PROCESSING_OPTIONS.mp3Bitrate;
+  return {
+    ...DEFAULT_PROCESSING_OPTIONS,
+    targetLufs: number("targetLufs", -30, 0, DEFAULT_PROCESSING_OPTIONS.targetLufs!),
+    truePeak: number("truePeak", -3, 0, DEFAULT_PROCESSING_OPTIONS.truePeak!),
+    silenceThreshold: number("silenceThreshold", -80, 0, DEFAULT_PROCESSING_OPTIONS.silenceThreshold!),
+    silenceDuration: number("silenceDuration", 0.1, 5, DEFAULT_PROCESSING_OPTIONS.silenceDuration!),
+    silencePadding: number("silencePadding", 0, 1, DEFAULT_PROCESSING_OPTIONS.silencePadding!),
+    noiseReductionStrength: number("noiseReductionStrength", 0, 30, DEFAULT_PROCESSING_OPTIONS.noiseReductionStrength!),
+    enableNoiseReduction: bool("enableNoiseReduction", DEFAULT_PROCESSING_OPTIONS.enableNoiseReduction!),
+    enableLoudnessNormalization: bool("enableLoudnessNormalization", DEFAULT_PROCESSING_OPTIONS.enableLoudnessNormalization!),
+    enableDeEssing: bool("enableDeEssing", DEFAULT_PROCESSING_OPTIONS.enableDeEssing!),
+    enableSpeechEQ: bool("enableSpeechEQ", DEFAULT_PROCESSING_OPTIONS.enableSpeechEQ!),
+    enableLimiter: bool("enableLimiter", DEFAULT_PROCESSING_OPTIONS.enableLimiter!),
+    mp3Bitrate: bitrate,
+  };
+}
 
 /**
  * POST /api/admin/talks/process
@@ -36,15 +66,26 @@ export async function POST(request: NextRequest) {
   try {
     await requireAdmin(request);
 
-    const body = await request.json();
-    const { talkId } = body as { talkId?: string };
+    let body: { talkId?: string; options?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    }
+    const { talkId } = body;
+    const options = processingOptions(body.options);
 
-    if (!talkId) {
-      return NextResponse.json({ error: "Talk ID is required." }, { status: 400 });
+    if (!talkId || !isValidUUID(talkId)) {
+      return NextResponse.json({ error: "A valid talk ID is required." }, { status: 400 });
     }
 
-    // Get the talk
-    const [talk] = await db.select().from(schema.talks).where(eq(schema.talks.id, talkId)).limit(1);
+    const [talk] = await db.select({
+      id: schema.talks.id,
+      storageKey: schema.talks.storageKey,
+      duration: schema.talks.duration,
+      processedAt: schema.talks.processedAt,
+      processingStatus: schema.talks.processingStatus,
+    }).from(schema.talks).where(eq(schema.talks.id, talkId)).limit(1);
     if (!talk) {
       return NextResponse.json({ error: "Talk not found." }, { status: 404 });
     }
@@ -53,7 +94,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Talk has no audio file to process." }, { status: 400 });
     }
 
-    if (talk.processingStatus === "processing") {
+    const startedAt = new Date();
+    const staleBefore = new Date(startedAt.getTime() - maxDuration * 1000);
+    if (talk.processingStatus === "processing" && talk.processedAt && talk.processedAt >= staleBefore) {
       return NextResponse.json({ error: "Talk is already being processed." }, { status: 409 });
     }
 
@@ -61,11 +104,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Talk is already processed." }, { status: 409 });
     }
 
-    // Mark as processing
-    await db.update(schema.talks).set({
+    const [claimed] = await db.update(schema.talks).set({
       processingStatus: "processing",
+      processedAt: startedAt,
       processingError: null,
-    }).where(eq(schema.talks.id, talkId));
+    }).where(and(
+      eq(schema.talks.id, talkId),
+      or(
+        inArray(schema.talks.processingStatus, ["pending", "failed"]),
+        and(eq(schema.talks.processingStatus, "processing"), or(isNull(schema.talks.processedAt), lt(schema.talks.processedAt, staleBefore))),
+      ),
+    )).returning({ id: schema.talks.id });
+    if (!claimed) return NextResponse.json({ error: "Talk processing already started." }, { status: 409 });
 
     // Process in the background using after()
     // This continues after the response is sent, within the function lifetime
@@ -78,7 +128,7 @@ export async function POST(request: NextRequest) {
 
         // 2-4. Full processing pipeline (probe + measure + process)
         console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalBuffer.length / 1024 / 1024).toFixed(1)} MB)…`);
-        const result = await processAudioWithMetadata(originalBuffer, DEFAULT_PROCESSING_OPTIONS);
+        const result = await processAudioWithMetadata(originalBuffer, options);
 
         // 5. Upload processed audio to R2
         const processedKey = talk.storageKey!.replace(/^talks\//, 'talks/processed/');
@@ -105,11 +155,15 @@ export async function POST(request: NextRequest) {
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Unknown processing error";
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.error(`[talks:process] Talk ${talkId} processing failed after ${elapsed}s:`, errorMsg);
-        await db.update(schema.talks).set({
-          processingStatus: "failed",
-          processingError: errorMsg.slice(0, 500),
-        }).where(eq(schema.talks.id, talkId));
+        logError(err, { route: "admin/talks/process", talkId, elapsedSeconds: elapsed });
+        try {
+          await db.update(schema.talks).set({
+            processingStatus: "failed",
+            processingError: errorMsg.slice(0, 500),
+          }).where(eq(schema.talks.id, talkId));
+        } catch (updateError) {
+          logError(updateError, { route: "admin/talks/process", talkId, phase: "mark-failed" });
+        }
       }
     });
 

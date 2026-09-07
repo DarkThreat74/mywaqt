@@ -3,6 +3,38 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
 
+export const AUDIO_CACHE_NAME = "waqt-audio";
+
+export function audioCacheKey(url: string): string {
+  const parsed = new URL(url, window.location.origin);
+  const streamId = parsed.pathname === "/api/talks" ? parsed.searchParams.get("stream") : null;
+  return `${parsed.origin}${parsed.pathname}${streamId ? `?stream=${streamId}` : ""}`;
+}
+
+export async function getCachedAudioKeys(): Promise<Set<string>> {
+  const cache = await caches.open(AUDIO_CACHE_NAME);
+  return new Set((await cache.keys()).map((request) => audioCacheKey(request.url)));
+}
+
+export async function isAudioCached(url: string): Promise<boolean> {
+  return (await getCachedAudioKeys()).has(audioCacheKey(url));
+}
+
+export async function saveAudioOffline(url: string): Promise<void> {
+  const cache = await caches.open(AUDIO_CACHE_NAME);
+  await Promise.all((await cache.keys())
+    .filter((request) => audioCacheKey(request.url) === audioCacheKey(url))
+    .map((request) => cache.delete(request)));
+  await cache.add(url);
+}
+
+export async function removeAudioOffline(url: string): Promise<void> {
+  const cache = await caches.open(AUDIO_CACHE_NAME);
+  await Promise.all((await cache.keys())
+    .filter((request) => audioCacheKey(request.url) === audioCacheKey(url))
+    .map((request) => cache.delete(request)));
+}
+
 interface AudioPlayerState {
   currentTrack: PlayerTrack | null;
   queue: PlayerTrack[];

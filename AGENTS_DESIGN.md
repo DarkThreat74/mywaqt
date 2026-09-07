@@ -225,3 +225,92 @@ Then test in the browser:
 1. Hard refresh (Ctrl+Shift+R) — no hydration errors in console
 2. Navigate between routes — no "Something went wrong" error boundary
 3. Check React DevTools for hydration warnings
+
+---
+
+## Data Loading and Scale Rules
+
+### Never fetch with a placeholder date
+
+A client date is unresolved until the browser initializes it. Do not derive an
+API parameter from `new Date(0)`, an empty fallback, or a server-local date.
+Keep the date nullable and return early from callbacks/effects until it exists.
+This prevents an epoch request followed by the real request during hydration.
+
+### One user action means one request
+
+- Audit mount effects for duplicate fetches caused by changing hydration state.
+- Deduplicate request-scoped server reads with `React.cache()` when appropriate.
+- Do not combine navigation preload with a second manual navigation fetch.
+- Do not warm service-worker caches on every focus, visibility, or online event.
+  Cache warming needs an in-flight guard and a cooldown.
+- Do not POST an unchanged push subscription on every page load.
+
+### Every hot query is bounded and projected
+
+- User-facing list APIs require a date/range filter, pagination, or a hard limit.
+- Select only columns used by the response; do not use `SELECT *` on hot routes.
+- Add indexes for columns used by recurring filters, ownership checks, and sort
+  order. Verify with the generated SQL or an execution plan for large tables.
+- GET handlers are read-only. Never delete, normalize, or otherwise mutate data
+  while serving a read.
+- Authenticate before data access and filter every user-owned row by the current
+  `session.userId`. Never accept ownership from the client.
+
+### Dynamic routes and optional bundles
+
+- Disable link prefetch for highly dynamic authenticated routes when prefetching
+  would generate avoidable server and database traffic.
+- Lazy-load large, rarely used client features.
+- `next/dynamic({ ssr: false })` belongs in a Client Component, never directly
+  in a Server Component.
+
+---
+
+## Talks Library and Audio Publishing Rules
+
+### Catalog reads
+
+- Catalog responses must be bounded and must not expose R2 storage keys.
+- Do not generate a presigned R2 URL for every catalog item. Return a stable,
+  authenticated application stream URL and sign only the selected talk.
+- Search, history, downloads, loading, failure, no-results, no-downloads, empty
+  folder, and empty-library states are required parts of the customer UI.
+- Talks and all religious content remain human-curated; never generate filler.
+
+### Offline audio
+
+- The audio cache name is release-independent. App cache-version changes must
+  not erase user downloads.
+- Never use a rotating presigned URL as an offline identity. Match a stable app
+  stream URL or the stable object path and remove old keys when replacing it.
+- The player and library must use the same shared cache helpers and cache name.
+- Only cache complete successful audio responses; never store partial 206 bodies
+  as complete downloads.
+
+### Admin uploads and processing
+
+- Validate UUIDs, JSON, file extensions, declared sizes, URL protocols, and date
+  ranges on the server even when the form also validates them.
+- Direct uploads require bounded sizes. Clean up a newly uploaded object if its
+  database record cannot be created.
+- Processing claims must be atomic so two requests cannot process one talk.
+- Record a processing start time and permit safe recovery after the serverless
+  processing deadline; a talk must not remain permanently stuck in `processing`.
+- Delete the database row first, then remove original and processed R2 objects
+  best-effort. Replacing/deleting folder art must clean up the prior object.
+- Avoid duplicate large-file disk writes and unbounded in-memory work.
+- Polling intervals require terminal states, a maximum lifetime, and unmount
+  cleanup. Never leave an interval running after navigation.
+
+### Mobile and iPhone verification
+
+For customer and admin talk flows, verify 320px, 375px, 414px, and 768px:
+
+- No horizontal overflow in metadata, status badges, or action rows.
+- Controls are at least 44px where practical and have accessible names/focus.
+- Action rows wrap or stack before text becomes unreadable.
+- File inputs work with the iOS picker and show selected file name and size.
+- Upload/processing state uses `aria-live` and cannot be accidentally dismissed.
+- Fixed player/navigation surfaces include `env(safe-area-inset-bottom)`.
+- Test reduced motion, keyboard navigation, offline launch, and reconnect.

@@ -279,7 +279,7 @@ RETURN-AFTER-ABSENCE (7+ days unmarked):
 | Table | Purpose | Rule |
 |-------|---------|------|
 | `dhikr_sequences` | Phrase, transliteration, target count, order | Human-curated from authenticated source. Counter auto-advances on target hit. |
-| `talks` | External links/embeds only | No self-hosted audio. Curation + linking only. |
+| `talks` | Human-curated external or R2-hosted audio | Admin uploads require validation, processing, explicit publication, and graceful empty states. |
 
 **Build the UI to read from these tables. If a table is empty, show a graceful
 empty state — never generate content to fill it.**
