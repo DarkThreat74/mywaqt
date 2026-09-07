@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react", "date-fns"],
   },
+  // Keep native-binary packages external so Vercel's NFT bundler emits the
+  // actual binary into the serverless function instead of webpack trying to
+  // bundle it (which breaks the __dirname path resolution).
+  // Without this, ffmpeg-static resolves to a wrong path on Vercel and
+  // the binary is missing from the deployed function.
+  serverExternalPackages: ["ffmpeg-static", "fluent-ffmpeg"],
   // Image optimization
   images: {
     formats: ["image/avif", "image/webp"],

@@ -12,15 +12,31 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
   const session = await getSession();
   if (!session) redirect("/login");
 
-  // Get user's timezone so we compute "today" in their local time, not server UTC
-  const [settings] = await db
-    .select({ timezone: schema.prayerSettings.timezone })
-    .from(schema.prayerSettings)
-    .where(eq(schema.prayerSettings.userId, session.userId))
-    .limit(1);
-  const userTimezone = settings?.timezone || "UTC";
+  // Get user's timezone so we compute "today" in their local time, not server UTC.
+  // Wrap in try/catch — if the DB query fails (Neon cold start, timeout, etc.)
+  // we fall back to UTC rather than crashing the entire page.
+  let userTimezone = "UTC";
+  try {
+    const [settings] = await db
+      .select({ timezone: schema.prayerSettings.timezone })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, session.userId))
+      .limit(1);
+    if (settings?.timezone) {
+      // Validate the timezone is usable — invalid timezones throw
+      try {
+        new Date().toLocaleString("en-US", { timeZone: settings.timezone });
+        userTimezone = settings.timezone;
+      } catch {
+        // Invalid timezone in DB — fall back to UTC
+      }
+    }
+  } catch {
+    // DB error — fall back to UTC, the client will correct via local time
+  }
 
-  // Compute today's date in the user's timezone
+  // Compute today's date in the user's timezone.
+  // Use a manual format to avoid locale-dependent output.
   const nowInTz = new Date().toLocaleString("en-US", { timeZone: userTimezone });
   const today = new Date(nowInTz).toISOString().split("T")[0];
 

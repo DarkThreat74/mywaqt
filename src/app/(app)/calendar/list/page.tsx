@@ -11,15 +11,26 @@ export default async function ListPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  // Get user's timezone so we compute "today" in their local time, not server UTC
-  const [settings] = await db
-    .select({ timezone: schema.prayerSettings.timezone })
-    .from(schema.prayerSettings)
-    .where(eq(schema.prayerSettings.userId, session.userId))
-    .limit(1);
-  const userTimezone = settings?.timezone || "UTC";
+  // Get user's timezone — wrap in try/catch to survive DB errors
+  let userTimezone = "UTC";
+  try {
+    const [settings] = await db
+      .select({ timezone: schema.prayerSettings.timezone })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, session.userId))
+      .limit(1);
+    if (settings?.timezone) {
+      try {
+        new Date().toLocaleString("en-US", { timeZone: settings.timezone });
+        userTimezone = settings.timezone;
+      } catch {
+        // Invalid timezone — fall back to UTC
+      }
+    }
+  } catch {
+    // DB error — fall back to UTC
+  }
 
-  // Compute today's date in the user's timezone
   const nowInTz = new Date().toLocaleString("en-US", { timeZone: userTimezone });
   const today = new Date(nowInTz).toISOString().split("T")[0];
 
