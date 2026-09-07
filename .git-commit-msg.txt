@@ -1,14 +1,25 @@
-feat: nicer delete confirmation dialog in admin talks
+fix: talk processing stuck on large files (64MB+)
 
-Replaced the browser's native confirm() with a styled ConfirmDialog
-component that matches the app's design tokens. The dialog shows:
-- A trash icon in an error-tinted circle
-- The item name (folder name or talk title) in the message
-- Cancel and Delete buttons with proper loading state
-- Backdrop click to cancel
-- Disabled buttons during deletion
+Root cause: maxDuration was 300s (5 min) but a 64MB file with
+two-pass loudnorm needs 10-15 min. The Vercel function was killed
+at 5 min, but after() couldn't mark it as failed because the
+function just freezes — leaving the talk stuck in "processing".
 
-Applies to both talk deletion and folder deletion in AdminTalks.
+Fixes:
+1. Increased maxDuration from 300s to 900s (15 min — Vercel Pro max)
+2. For files >25 MB, skip two-pass loudnorm (the biggest time sink —
+   it reads the entire audio twice). Single-pass loudnorm is still
+   applied via the filter chain fallback in processAudioWithMetadata.
+3. Added "64k" to the valid bitrates list (our new default)
+4. Updated stale detection in GET route from 5 min to 15 min to
+   match the new maxDuration
+5. Updated the processing time estimate in the admin UI to account
+   for file size — large files use 4x realtime, small files use 6x
+   (two-pass is roughly 1.5x slower)
+
+For the currently stuck talk: it should now show a "Restart" button
+since the stale window is now 15 min. Click Restart to reprocess
+with the faster pipeline.
 
 Generated with [Devin](https://devin.ai)
 

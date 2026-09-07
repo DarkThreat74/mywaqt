@@ -9,7 +9,7 @@ import { processAudioWithMetadata, DEFAULT_PROCESSING_OPTIONS, type ProcessingOp
 import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes — Vercel Pro max for background processing
+export const maxDuration = 900; // 15 minutes — Vercel Pro max for background processing
 
 function processingOptions(value: unknown): ProcessingOptions {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -20,7 +20,7 @@ function processingOptions(value: unknown): ProcessingOptions {
       : fallback;
   };
   const bool = (key: string, fallback: boolean) => typeof input[key] === "boolean" ? input[key] as boolean : fallback;
-  const bitrate = typeof input.mp3Bitrate === "string" && ["96k", "128k", "160k", "192k", "256k"].includes(input.mp3Bitrate)
+  const bitrate = typeof input.mp3Bitrate === "string" && ["64k", "96k", "128k", "160k", "192k", "256k"].includes(input.mp3Bitrate)
     ? input.mp3Bitrate
     : DEFAULT_PROCESSING_OPTIONS.mp3Bitrate;
   return {
@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
     const [talk] = await db.select({
       id: schema.talks.id,
       storageKey: schema.talks.storageKey,
+      fileSize: schema.talks.fileSize,
       duration: schema.talks.duration,
       processedAt: schema.talks.processedAt,
       processingStatus: schema.talks.processingStatus,
@@ -99,6 +100,15 @@ export async function POST(request: NextRequest) {
     if (talk.processingStatus === "processing" && talk.processedAt && talk.processedAt >= staleBefore) {
       return NextResponse.json({ error: "Talk is already being processed." }, { status: 409 });
     }
+
+    // For large files (>25 MB), skip two-pass loudnorm to stay within timeout.
+    // Two-pass reads the entire audio twice, which doubles processing time.
+    // Single-pass loudnorm is less accurate but still normalizes volume.
+    const isLargeFile = (talk.fileSize ?? 0) > 25 * 1024 * 1024;
+    const effectiveOptions: ProcessingOptions = {
+      ...options,
+      enableLoudnessNormalization: isLargeFile ? false : options.enableLoudnessNormalization,
+    };
 
     if (talk.processingStatus === "published" || talk.processingStatus === "ready") {
       return NextResponse.json({ error: "Talk is already processed." }, { status: 409 });
@@ -128,7 +138,7 @@ export async function POST(request: NextRequest) {
 
         // 2-4. Full processing pipeline (probe + measure + process)
         console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalBuffer.length / 1024 / 1024).toFixed(1)} MB)…`);
-        const result = await processAudioWithMetadata(originalBuffer, options);
+        const result = await processAudioWithMetadata(originalBuffer, effectiveOptions);
 
         // 5. Upload processed audio to R2
         const processedKey = talk.storageKey!.replace(/^talks\//, 'talks/processed/');
