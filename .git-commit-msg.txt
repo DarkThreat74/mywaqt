@@ -1,38 +1,46 @@
-fix: talk processing still stuck — fast mode + watchdog for large files
+fix: large file processing — stream download + skip measurement pass + 1GB memory
 
-The previous fix (increasing maxDuration to 900s) wasn't enough.
-The FFmpeg filter chain has 9 filters, and for a 64MB file (~53 min
-of audio), the three most CPU-intensive filters were causing the
-function to timeout or OOM:
+Three root causes for large files (64MB+) still failing:
 
-1. silenceremove — scans entire audio to detect and remove silence
-2. afftdn (noise reduction) — FFT-based, very CPU-intensive
-3. dynaudnorm — dynamic normalization, processes frame by frame
+1. MEMORY: The entire 64MB file was loaded into a Buffer in memory
+   before being written to disk. On Vercel serverless with default
+   memory (512MB), this + FFmpeg's working memory could OOM.
+
+2. EXTRA PASS: Even in "fast mode", the loudness MEASUREMENT pass
+   (measureLoudness) still ran — a full extra read of the entire
+   audio file. For 53min of audio, that's 30-60s wasted.
+
+3. MEMORY LIMIT: The route didn't set `memory`, so Vercel used the
+   default (likely 512MB or 1GB depending on plan config).
 
 Changes:
 
-1. Added FAST_PROCESSING_OPTIONS — a minimal filter chain for large
-   files that skips silenceremove, afftdn, and dynaudnorm. Still
-   applies: highpass, lowpass, de-essing, speech EQ, loudnorm
-   (single-pass), and limiter. This cuts processing time by ~70%.
+1. Added `downloadObjectToFile()` to R2 client — streams directly
+   from R2 to a file on disk, never loading the full file into
+   memory. Used for files >25 MB.
 
-2. Added enableSilenceRemoval and enableDynamicNorm options to
-   ProcessingOptions so they can be toggled independently.
+2. Added `processAudioFile()` to audio processing — takes a file
+   path instead of a Buffer. `processAudioWithMetadata()` now
+   delegates to it after writing the buffer to disk (for small
+   files).
 
-3. The process route now uses FAST_PROCESSING_OPTIONS for files
-   >25 MB instead of just disabling loudnorm.
+3. Added `enableLoudnessMeasurement` option — when false, skips
+   the measureLoudness pass entirely and uses single-pass loudnorm
+   in the filter chain. FAST_PROCESSING_OPTIONS sets this to false.
 
-4. Added a watchdog timer that fires 30s before maxDuration. If
-   processing hasn't completed, the watchdog marks the talk as
-   "failed" with a clear timeout message — so the talk never gets
-   stuck in "processing" again, even if FFmpeg hangs.
+4. Set `memory = 1024` (1GB) on the process route — Vercel Pro max.
 
-5. The catch block now skips the DB update if the watchdog already
-   fired, avoiding a race condition.
+5. The process route now:
+   - Streams large files directly to disk (no Buffer)
+   - Uses processAudioFile() instead of processAudioWithMetadata()
+   - Cleans up the input file in finally{}
 
-For the currently stuck talk: the stale window is now 15 min, so
-the Restart button should appear. Click it to reprocess with the
-fast pipeline.
+For a 64MB file, this reduces:
+- Memory: 64MB Buffer → 0 (streamed to disk)
+- Passes: 3 (measure + process + upload) → 2 (process + upload)
+- Filters: 9 → 6 (skips silenceremove, afftdn, dynaudnorm)
+
+Expected processing time for 64MB: ~2-4 min (down from 10-15+ min)
 
 Generated with [Devin](https://devin.ai)
 

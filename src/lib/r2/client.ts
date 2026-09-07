@@ -9,6 +9,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '@/lib/env';
 import { Readable } from 'stream';
 import { randomUUID } from 'crypto';
+import { createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
 
 /**
  * Cloudflare R2 client (S3-compatible API).
@@ -78,6 +80,7 @@ export function makeStorageKey(folderName: string, filename: string): string {
 
 /**
  * Download an object from R2 as a Buffer (used by the audio processing pipeline).
+ * For large files, prefer downloadObjectToFile to avoid loading everything into memory.
  */
 export async function downloadObject(storageKey: string): Promise<Buffer> {
   const command = new GetObjectCommand({ Bucket: BUCKET, Key: storageKey });
@@ -89,6 +92,19 @@ export async function downloadObject(storageKey: string): Promise<Buffer> {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks);
+}
+
+/**
+ * Download an object from R2 directly to a file (streaming, low memory).
+ * Used by the audio processing pipeline for large files to avoid
+ * loading 64MB+ into memory as a Buffer.
+ */
+export async function downloadObjectToFile(storageKey: string, filePath: string): Promise<void> {
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: storageKey });
+  const response = await s3.send(command);
+  if (!response.Body) throw new Error('Empty response body from R2');
+  const stream = response.Body as Readable;
+  await pipeline(stream, createWriteStream(filePath));
 }
 
 /**

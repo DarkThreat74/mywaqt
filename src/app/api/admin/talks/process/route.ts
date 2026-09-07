@@ -4,12 +4,16 @@ import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { logError } from "@/lib/logError";
-import { downloadObject, uploadBuffer } from "@/lib/r2/client";
-import { processAudioWithMetadata, DEFAULT_PROCESSING_OPTIONS, FAST_PROCESSING_OPTIONS, type ProcessingOptions } from "@/lib/audio/process";
+import { downloadObject, downloadObjectToFile, uploadBuffer } from "@/lib/r2/client";
+import { processAudioWithMetadata, processAudioFile, DEFAULT_PROCESSING_OPTIONS, FAST_PROCESSING_OPTIONS, type ProcessingOptions } from "@/lib/audio/process";
 import { isValidUUID } from "@/lib/validation";
+import { join } from "path";
+import { tmpdir } from "os";
+import { mkdir, stat, unlink } from "fs/promises";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 900; // 15 minutes — Vercel Pro max for background processing
+export const memory = 1024; // 1GB — Vercel Pro max, needed for large audio files
 
 function processingOptions(value: unknown): ProcessingOptions {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -148,14 +152,33 @@ export async function POST(request: NextRequest) {
         }
       }, watchdogMs);
 
+      const tmpDir = join(tmpdir(), 'waqt-audio-processing');
+      await mkdir(tmpDir, { recursive: true });
+      const inputPath = join(tmpDir, `input-${talkId}-${Date.now()}.mp3`);
+
       try {
         // 1. Download original audio from R2
-        console.log(`[talks:process] Talk ${talkId}: downloading original from R2…`);
-        const originalBuffer = await downloadObject(talk.storageKey!);
+        // For large files, stream directly to disk to avoid loading 64MB+ into memory.
+        // For small files, use the Buffer approach (simpler, and memory isn't a concern).
+        console.log(`[talks:process] Talk ${talkId}: downloading original from R2 (stream=${isLargeFile})…`);
+        let originalSize: number;
+
+        if (isLargeFile) {
+          // Stream directly to file — avoids 64MB+ Buffer in memory
+          await downloadObjectToFile(talk.storageKey!, inputPath);
+          const fileStat = await stat(inputPath);
+          originalSize = fileStat.size;
+        } else {
+          // Small file: download as Buffer, write to file
+          const originalBuffer = await downloadObject(talk.storageKey!);
+          originalSize = originalBuffer.length;
+          const { writeFile } = await import("fs/promises");
+          await writeFile(inputPath, originalBuffer);
+        }
 
         // 2-4. Full processing pipeline (probe + measure + process)
-        console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalBuffer.length / 1024 / 1024).toFixed(1)} MB, fast=${isLargeFile})…`);
-        const result = await processAudioWithMetadata(originalBuffer, effectiveOptions);
+        console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalSize / 1024 / 1024).toFixed(1)} MB, fast=${isLargeFile})…`);
+        const result = await processAudioFile(inputPath, effectiveOptions, originalSize);
 
         // 5. Upload processed audio to R2
         const processedKey = talk.storageKey!.replace(/^talks\//, 'talks/processed/');
@@ -194,6 +217,8 @@ export async function POST(request: NextRequest) {
         }
       } finally {
         clearTimeout(watchdog);
+        // Clean up the downloaded input file
+        await unlink(inputPath).catch(() => {});
       }
     });
 

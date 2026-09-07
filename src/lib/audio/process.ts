@@ -42,7 +42,8 @@ export interface ProcessingOptions {
   silenceDuration?: number;     // Min silence duration to remove in seconds (default: 0.7s)
   silencePadding?: number;      // Padding to keep around speech in seconds (default: 1.5s)
   enableNoiseReduction?: boolean;     // Apply afftdn denoise filter
-  enableLoudnessNormalization?: boolean; // Apply two-pass loudnorm
+  enableLoudnessNormalization?: boolean; // Apply loudnorm (single or two-pass)
+  enableLoudnessMeasurement?: boolean; // Run measureLoudness pass (two-pass). Default: true. False = single-pass only.
   enableDeEssing?: boolean;     // Reduce harsh sibilance
   enableSpeechEQ?: boolean;     // Boost speech intelligibility
   enableLimiter?: boolean;      // Soft limiter to prevent clipping
@@ -61,6 +62,7 @@ export const DEFAULT_PROCESSING_OPTIONS: ProcessingOptions = {
   silencePadding: 1.5,
   enableNoiseReduction: true,
   enableLoudnessNormalization: true,
+  enableLoudnessMeasurement: true,
   enableDeEssing: true,
   enableSpeechEQ: true,
   enableLimiter: true,
@@ -74,15 +76,17 @@ export const DEFAULT_PROCESSING_OPTIONS: ProcessingOptions = {
 };
 
 // Fast mode for large files (>25 MB) — skips the most CPU-intensive
-// filters (silence removal, noise reduction, dynamic normalization)
-// to stay within Vercel serverless timeouts. Still applies EQ,
-// loudness normalization, and limiting.
+// filters to stay within Vercel serverless timeouts.
+// Skips: silence removal, noise reduction, dynamic normalization,
+// and the loudness MEASUREMENT pass (still applies single-pass loudnorm).
+// This reduces processing from 3 passes to 1 pass over the audio.
 export const FAST_PROCESSING_OPTIONS: ProcessingOptions = {
   ...DEFAULT_PROCESSING_OPTIONS,
   enableSilenceRemoval: false,
   enableNoiseReduction: false,
   enableDynamicNorm: false,
-  enableLoudnessNormalization: true, // single-pass only (no measurement)
+  enableLoudnessNormalization: true,
+  enableLoudnessMeasurement: false, // skip the extra measurement pass
 };
 
 export interface ProcessingResult {
@@ -315,7 +319,6 @@ export async function processAudioWithMetadata(
 ): Promise<ProcessingResult> {
   const opts = { ...DEFAULT_PROCESSING_OPTIONS, ...options };
 
-  // Verify ffmpeg binary exists before starting any work
   await verifyFfmpegBinary();
 
   const tmpDir = join(tmpdir(), 'waqt-audio-processing');
@@ -323,17 +326,50 @@ export async function processAudioWithMetadata(
 
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const inputPath = join(tmpDir, `input-${id}.mp3`);
-  const outputPath = join(tmpDir, `output-${id}.mp3`);
 
   try {
     await writeFile(inputPath, inputBuffer);
+    return await processAudioFile(inputPath, opts, inputBuffer.length);
+  } finally {
+    await unlink(inputPath).catch(() => {});
+  }
+}
 
+/**
+ * Process an audio file directly from a file path.
+ * This avoids loading the entire file into memory as a Buffer —
+ * critical for large files (64MB+) on Vercel serverless where
+ * memory is limited to 1024MB.
+ *
+ * @param inputPath  Path to the input MP3 file on disk
+ * @param options    Processing options
+ * @param originalSize  Original file size in bytes (for metadata)
+ */
+export async function processAudioFile(
+  inputPath: string,
+  options: ProcessingOptions = DEFAULT_PROCESSING_OPTIONS,
+  originalSize?: number,
+): Promise<ProcessingResult> {
+  const opts = { ...DEFAULT_PROCESSING_OPTIONS, ...options };
+
+  await verifyFfmpegBinary();
+
+  const tmpDir = join(tmpdir(), 'waqt-audio-processing');
+  await mkdir(tmpDir, { recursive: true });
+
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const outputPath = join(tmpDir, `output-${id}.mp3`);
+
+  try {
     // Probe the original audio
     const probe = await probeAudioPath(inputPath);
 
-    // ── Pass 1: Measure loudness (if normalization enabled) ──
+    // ── Pass 1: Measure loudness (if normalization AND measurement enabled) ──
+    // The measurement pass reads the entire audio file to calculate true
+    // integrated loudness. For large files this doubles processing time,
+    // so fast mode skips it and uses single-pass loudnorm instead.
     let loudnessMeasurements: Awaited<ReturnType<typeof measureLoudness>> | null = null;
-    if (opts.enableLoudnessNormalization) {
+    if (opts.enableLoudnessNormalization && opts.enableLoudnessMeasurement !== false) {
       try {
         loudnessMeasurements = await measureLoudness(inputPath, opts);
       } catch (err) {
@@ -482,12 +518,12 @@ export async function processAudioWithMetadata(
       duration: processedProbe.duration,
       originalLufs: loudnessMeasurements?.measuredI,
       finalLufs: opts.targetLufs,
-      originalSize: inputBuffer.length,
+      originalSize: originalSize ?? 0,
       processedSize: processedBuffer.length,
     };
   } finally {
-    // Clean up temp files (best-effort)
-    await unlink(inputPath).catch(() => {});
+    // Clean up output temp file (best-effort).
+    // Input file is cleaned up by the caller.
     await unlink(outputPath).catch(() => {});
   }
 }
