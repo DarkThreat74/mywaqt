@@ -182,25 +182,28 @@ function OrnamentDivider({ color }: { color: string }) {
 }
 
 export default function FunFactPopup() {
-  const [initialState] = useState(getInitialFact);
+  // HYDRATION-SAFE: Start with a neutral state that matches the server.
+  // getInitialFact() reads localStorage + Date.now() which produce
+  // different results on server vs client, causing React error #441
+  // (hydration mismatch). Compute the real state in useEffect instead.
+  const [fact, setFact] = useState<FunFact | null>(null);
+  const [factIndex, setFactIndex] = useState<number>(-1);
   const [show, setShow] = useState(false);
   const [revealed, setRevealed] = useState(false);
-  const [fact] = useState<FunFact | null>(initialState.fact);
-  const [factIndex] = useState<number>(initialState.factIndex);
 
   useEffect(() => {
     // Initialize next show time if not set (first visit)
-    if (typeof window !== "undefined") {
-      const nextShowStr = localStorage.getItem(STORAGE_KEY_NEXT_SHOW);
-      if (!nextShowStr) {
-        // Set first card to appear at the next 3-hour mark
-        localStorage.setItem(STORAGE_KEY_NEXT_SHOW, getNextScheduledTime().toString());
-      }
+    const nextShowStr = localStorage.getItem(STORAGE_KEY_NEXT_SHOW);
+    if (!nextShowStr) {
+      localStorage.setItem(STORAGE_KEY_NEXT_SHOW, getNextScheduledTime().toString());
     }
-    if (!initialState.shouldShow || !initialState.fact) return;
+
+    const initial = getInitialFact();
+    if (!initial.shouldShow || !initial.fact) return;
+    setFact(initial.fact);
+    setFactIndex(initial.factIndex);
     const timer = setTimeout(() => setShow(true), 800);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── "Got it" / Continue: mark as permanently seen, advance to next ──
