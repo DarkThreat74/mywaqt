@@ -13,9 +13,19 @@ import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
  * server-rendered date would be stale. This component computes "today"
  * on the client using the cached prayer timezone, so the cached shell
  * works correctly across days.
+ *
+ * HYDRATION-SAFE PATTERN:
+ * `toLocaleDateString` and `Intl.DateTimeFormat` (Islamic calendar) produce
+ * different output on the server (Node.js ICU) vs the client (browser ICU).
+ * In React 19 / Next.js 16, this mismatch triggers the error boundary.
+ * We compute ALL locale-dependent strings in useEffect and render a stable
+ * fallback during SSR. This prevents hydration mismatches entirely.
  */
 export default function DayDateHeader({ date }: { date: string }) {
   const [today, setToday] = useState<string | null>(null);
+  // Locale-dependent strings — computed AFTER mount to avoid hydration mismatch
+  const [formattedDate, setFormattedDate] = useState<string>("");
+  const [hijriDate, setHijriDate] = useState<string | null>(null);
 
   useEffect(() => {
     const cached = getCachedPrayerSettings();
@@ -30,10 +40,31 @@ export default function DayDateHeader({ date }: { date: string }) {
         const now = new Date();
         setToday(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`);
       }
-    });
-  }, []);
 
-  // Calculate prev/next days
+      // Compute locale-dependent date strings on the client only
+      const [y, m, d] = date.split("-").map(Number);
+      const dateObj = new Date(y, m - 1, d);
+      setFormattedDate(dateObj.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      }));
+
+      // Hijri date — computed client-side via Intl.DateTimeFormat (islamic calendar)
+      try {
+        const hijri = new Intl.DateTimeFormat("en-US-u-ca-islamic", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        }).format(dateObj) + " AH";
+        setHijriDate(hijri);
+      } catch {
+        setHijriDate(null);
+      }
+    });
+  }, [date]);
+
+  // Calculate prev/next days — pure arithmetic, no locale dependency, SSR-safe
   const [y, m, d] = date.split("-").map(Number);
   const prevDate = new Date(y, m - 1, d - 1);
   const nextDate = new Date(y, m - 1, d + 1);
@@ -41,24 +72,6 @@ export default function DayDateHeader({ date }: { date: string }) {
   const nextStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}-${String(nextDate.getDate()).padStart(2, "0")}`;
 
   const dateObj = new Date(y, m - 1, d);
-  const formattedDate = dateObj.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-
-  // Hijri date — computed client-side via Intl.DateTimeFormat (islamic calendar)
-  let hijriDate: string | null = null;
-  try {
-    hijriDate = new Intl.DateTimeFormat("en-US-u-ca-islamic", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    }).format(dateObj) + " AH";
-  } catch {
-    hijriDate = null;
-  }
-
   const isToday = today !== null && date === today;
 
   return (
@@ -77,8 +90,9 @@ export default function DayDateHeader({ date }: { date: string }) {
         {/* Date + view toggle */}
         <div className="flex min-w-0 flex-1 flex-col items-center gap-1 sm:flex-row sm:justify-center sm:gap-4">
           <div className="text-center">
+            {/* Render stable fallback during SSR, real value after mount */}
             <h1 className="truncate text-sm font-semibold tracking-tight sm:text-lg" style={{ color: "var(--color-ink)" }}>
-              {formattedDate}
+              {formattedDate || `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`}
             </h1>
             {hijriDate && (
               <p

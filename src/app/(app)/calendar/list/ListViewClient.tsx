@@ -84,6 +84,9 @@ export default function ListViewClient({ today }: { today: string }) {
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
   const [loading, setLoading] = useState(true);
   const [weekOffset, setWeekOffset] = useState(0); // 0 = this week, 1 = next week, etc.
+  // Locale-dependent label — computed AFTER mount to avoid hydration mismatch
+  // (toLocaleDateString produces different output on Node.js vs browser)
+  const [weekLabel, setWeekLabel] = useState<string>("");
 
   const weekStart = useMemo(() => addDays(today, weekOffset * 7), [today, weekOffset]);
   const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
@@ -138,8 +141,16 @@ export default function ListViewClient({ today }: { today: string }) {
       const res = await fetch(`/api/prayer-times?date=${weekStart}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.timings) {
-          setPrayerTimes(data.timings);
+        // API returns flat object with fajr/sunrise/dhuhr/asr/maghrib/isha
+        if (data.fajr) {
+          setPrayerTimes({
+            fajr: data.fajr,
+            sunrise: data.sunrise,
+            dhuhr: data.dhuhr,
+            asr: data.asr,
+            maghrib: data.maghrib,
+            isha: data.isha,
+          });
         }
       }
     } catch { /* non-critical */ }
@@ -189,16 +200,19 @@ export default function ListViewClient({ today }: { today: string }) {
     return count;
   }, [eventsByDay]);
 
-  // Format week range label
-  const weekLabel = useMemo(() => {
-    const start = new Date(weekStart + "T00:00:00");
-    const end = new Date(weekEnd + "T00:00:00");
-    const startFmt = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const endFmt = end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    if (weekOffset === 0) return `This Week · ${startFmt} - ${endFmt}`;
-    if (weekOffset === 1) return `Next Week · ${startFmt} - ${endFmt}`;
-    if (weekOffset === -1) return `Last Week · ${startFmt} - ${endFmt}`;
-    return `${startFmt} - ${endFmt}`;
+  // Format week range label — computed in useEffect to avoid hydration mismatch
+  // (toLocaleDateString output differs between Node.js server and browser client)
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      const start = new Date(weekStart + "T00:00:00");
+      const end = new Date(weekEnd + "T00:00:00");
+      const startFmt = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const endFmt = end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      if (weekOffset === 0) setWeekLabel(`This Week · ${startFmt} - ${endFmt}`);
+      else if (weekOffset === 1) setWeekLabel(`Next Week · ${startFmt} - ${endFmt}`);
+      else if (weekOffset === -1) setWeekLabel(`Last Week · ${startFmt} - ${endFmt}`);
+      else setWeekLabel(`${startFmt} - ${endFmt}`);
+    });
   }, [weekStart, weekEnd, weekOffset]);
 
   return (
