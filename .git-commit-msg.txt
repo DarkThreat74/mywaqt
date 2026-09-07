@@ -1,20 +1,14 @@
-fix: improve talk/folder delete reliability and error visibility
+feat: nicer delete confirmation dialog in admin talks
 
-Admin UI (AdminTalks.tsx):
-- deleteTalk and deleteFolder now parse and show the actual API error
-  message instead of a generic "Failed to delete talk." string
-- Added try/catch for network errors so the user gets a clear message
-  if the request never reaches the server
+Replaced the browser's native confirm() with a styled ConfirmDialog
+component that matches the app's design tokens. The dialog shows:
+- A trash icon in an error-tinted circle
+- The item name (folder name or talk title) in the message
+- Cancel and Delete buttons with proper loading state
+- Backdrop click to cancel
+- Disabled buttons during deletion
 
-API route (api/admin/talks/route.ts):
-- Replaced silent catch blocks on R2 deleteObject calls with logError()
-  per AGENTS.md rule "No silent catch blocks — at minimum logError()"
-- Covers: delete-talk (storageKey + processedStorageKey), delete-folder
-  (imageKey), update-folder (old imageKey)
-
-The delete flow itself was already correct — DB row is deleted first,
-then R2 objects are removed best-effort. The improvements make failures
-visible instead of silent.
+Applies to both talk deletion and folder deletion in AdminTalks.
 
 Generated with [Devin](https://devin.ai)
 

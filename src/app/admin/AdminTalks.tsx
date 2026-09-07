@@ -59,6 +59,13 @@ export function AdminTalks() {
   const [error, setError] = useState<string | null>(null);
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [showUploadForm, setShowUploadForm] = useState(false);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folderDesc, setFolderDesc] = useState("");
   const [folderStartDate, setFolderStartDate] = useState("");
@@ -130,8 +137,17 @@ export function AdminTalks() {
     }
   }
 
-  async function deleteFolder(folderId: string) {
-    if (!confirm("Delete this folder? Talks inside will remain but become uncategorized.")) return;
+  async function deleteFolder(folderId: string, folderName: string) {
+    setConfirmState({
+      title: "Delete folder",
+      message: `Delete "${folderName}"? Talks inside will remain but become uncategorized.`,
+      confirmLabel: "Delete folder",
+      onConfirm: () => doDeleteFolder(folderId),
+    });
+  }
+
+  async function doDeleteFolder(folderId: string) {
+    setDeleting(true);
     try {
       const res = await fetch("/api/admin/talks", {
         method: "POST",
@@ -146,6 +162,9 @@ export function AdminTalks() {
       }
     } catch {
       setError("Network error while deleting folder.");
+    } finally {
+      setDeleting(false);
+      setConfirmState(null);
     }
   }
 
@@ -242,8 +261,17 @@ export function AdminTalks() {
 
   // ── Talk actions ──
 
-  async function deleteTalk(talkId: string) {
-    if (!confirm("Delete this talk? The MP3 file will also be removed from storage.")) return;
+  async function deleteTalk(talkId: string, talkTitle: string) {
+    setConfirmState({
+      title: "Delete talk",
+      message: `Delete "${talkTitle}"? The MP3 file will also be removed from storage. This cannot be undone.`,
+      confirmLabel: "Delete talk",
+      onConfirm: () => doDeleteTalk(talkId),
+    });
+  }
+
+  async function doDeleteTalk(talkId: string) {
+    setDeleting(true);
     try {
       const res = await fetch("/api/admin/talks", {
         method: "POST",
@@ -258,6 +286,9 @@ export function AdminTalks() {
       }
     } catch {
       setError("Network error while deleting talk.");
+    } finally {
+      setDeleting(false);
+      setConfirmState(null);
     }
   }
 
@@ -773,7 +804,7 @@ export function AdminTalks() {
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
                   <button
-                    onClick={() => deleteFolder(folder.id)}
+                    onClick={() => deleteFolder(folder.id, folder.name)}
                     className="rounded-lg p-2 transition-colors hover:bg-[var(--color-paper-2)]"
                     style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }}
                     aria-label="Delete folder"
@@ -836,6 +867,92 @@ export function AdminTalks() {
           )}
         </div>
       )}
+
+      {/* ── Delete confirmation dialog ── */}
+      {confirmState && (
+        <ConfirmDialog
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel={confirmState.confirmLabel}
+          loading={deleting}
+          onConfirm={confirmState.onConfirm}
+          onCancel={() => { if (!deleting) setConfirmState(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Confirm dialog ───
+
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  loading,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  loading: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="w-full max-w-sm rounded-2xl border p-5 shadow-xl"
+        style={{
+          backgroundColor: "var(--color-paper)",
+          borderColor: "var(--color-paper-3)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center gap-3">
+          <div
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            style={{
+              backgroundColor: "color-mix(in oklab, var(--color-error) 10%, transparent)",
+            }}
+          >
+            <Trash2 className="h-5 w-5" style={{ color: "var(--color-error)" }} />
+          </div>
+          <h2 className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>
+            {title}
+          </h2>
+        </div>
+        <p className="mb-5 text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+          {message}
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+            style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            {loading ? "Deleting..." : confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -850,7 +967,7 @@ function TalkRow({
   onProcess,
 }: {
   talk: AdminTalk;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, title: string) => void;
   onPublish: (id: string) => void;
   onRetry: (id: string) => void;
   onProcess: (id: string) => void;
@@ -973,7 +1090,7 @@ function TalkRow({
           </button>
         )}
         <button
-          onClick={() => onDelete(talk.id)}
+          onClick={() => onDelete(talk.id, talk.title)}
           className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }}
           aria-label="Delete talk"
