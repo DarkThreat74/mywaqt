@@ -371,11 +371,12 @@ export default function AdvancedAudioPlayer({
 
   // ─── Error retry with exponential backoff ───
   const attemptRetry = useCallback(() => {
-    if (retryCount >= 3) {
+    if (retryCount >= 5) {
       setError("Unable to load audio. Please check your connection and try again.");
+      setIsBuffering(false);
       return;
     }
-    const delay = Math.pow(2, retryCount) * 1000;
+    const delay = Math.pow(2, retryCount) * 500; // 500ms, 1s, 2s, 4s, 8s
     setRetryCount((c) => c + 1);
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     retryTimeoutRef.current = setTimeout(() => {
@@ -384,9 +385,12 @@ export default function AdvancedAudioPlayer({
       const wasTime = audio.currentTime;
       audio.load();
       audio.currentTime = wasTime;
-      audio.play().catch(() => {});
+      // Only auto-play if the user had already started playback
+      if (isPlaying) {
+        audio.play().catch(() => {});
+      }
     }, delay);
-  }, [retryCount]);
+  }, [retryCount, isPlaying]);
 
   // ─── Audio event handlers ───
   const handlePlayPause = useCallback(() => {
@@ -723,9 +727,21 @@ export default function AdvancedAudioPlayer({
         onEnded={handleEnded}
         onError={(e) => {
           const audio = e.currentTarget;
-          if (audio.error?.code === 2 || audio.error?.code === 1) {
+          // Code 1 = aborted (user navigated or tapped play before URL loaded)
+          // Code 2 = network error (R2 presigned URL not ready yet, or connection issue)
+          // Both are transient — retry silently without showing an error.
+          if (audio.error?.code === 1) {
+            // Aborted — don't show error, just reset buffering state
+            setIsBuffering(false);
+            return;
+          }
+          if (audio.error?.code === 2) {
+            // Network error — retry silently (R2 URL may still be generating)
+            setIsBuffering(true);
             attemptRetry();
-          } else if (audio.error?.code === 3) {
+            return;
+          }
+          if (audio.error?.code === 3) {
             setError("Audio format not supported.");
           } else if (audio.error?.code === 4) {
             setError("Audio source not found.");
@@ -733,7 +749,6 @@ export default function AdvancedAudioPlayer({
         }}
         onStalled={() => setIsBuffering(true)}
         onSuspend={() => { /* browser paused buffering — normal */ }}
-        autoPlay
         className="hidden"
       />
 
@@ -754,10 +769,10 @@ export default function AdvancedAudioPlayer({
             <div className="absolute h-full" style={{ width: `${progressPercent}%`, backgroundColor: "var(--color-accent)" }} />
           </div>
 
-          <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-2.5">
+          <div className="mx-auto flex max-w-2xl items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4">
             {/* Track info (tap to expand) */}
-            <button onClick={() => setView("full")} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
+            <button onClick={() => setView("full")} className="flex min-w-0 flex-1 items-center gap-2.5 text-left sm:gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
                 {isBuffering ? (
                   <RefreshCw className="h-4 w-4 animate-spin" style={{ color: "var(--color-accent)" }} />
                 ) : isPlaying ? (
@@ -778,18 +793,18 @@ export default function AdvancedAudioPlayer({
               </div>
             </button>
 
-            {/* Controls */}
-            <div className="flex shrink-0 items-center gap-1">
-              <button onClick={() => skipBy(-15)} className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 40, minWidth: 40 }} aria-label="Skip back 15 seconds">
+            {/* Controls — compact on mobile, full on sm+ */}
+            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+              <button onClick={() => skipBy(-15)} className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 36, minWidth: 36 }} aria-label="Skip back 15 seconds">
                 <RotateCcw className="h-4 w-4" />
               </button>
-              <button onClick={handlePlayPause} className="flex h-10 w-10 items-center justify-center rounded-full transition-transform active:scale-95" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }} aria-label={isPlaying ? "Pause" : "Play"}>
-                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-0.5" />}
+              <button onClick={handlePlayPause} className="flex h-11 w-11 items-center justify-center rounded-full transition-transform active:scale-95 sm:h-12 sm:w-12" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }} aria-label={isPlaying ? "Pause" : "Play"}>
+                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 translate-x-0.5" />}
               </button>
-              <button onClick={() => skipBy(30)} className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 40, minWidth: 40 }} aria-label="Skip forward 30 seconds">
+              <button onClick={() => skipBy(30)} className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 36, minWidth: 36 }} aria-label="Skip forward 30 seconds">
                 <RotateCw className="h-4 w-4" />
               </button>
-              <button onClick={() => setView("full")} className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 40, minWidth: 40 }} aria-label="Expand player">
+              <button onClick={() => setView("full")} className="hidden items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)] sm:flex" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Expand player">
                 <ChevronUp className="h-4 w-4" />
               </button>
             </div>

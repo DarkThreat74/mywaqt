@@ -47,7 +47,7 @@ const DEFAULT_AUDIO_SETTINGS: AdminAudioSettings = {
   truePeak: -1.0,
   silenceThreshold: -45,
   silenceDuration: 0.7,
-  silencePadding: 0.15,
+  silencePadding: 1.5,
   enableNoiseReduction: true,
   enableLoudnessNormalization: true,
   enableDeEssing: true,
@@ -223,8 +223,8 @@ export function AdminSettings() {
               value={audioSettings.silencePadding}
               onChange={(v) => setAudioSettings((a) => ({ ...a, silencePadding: v }))}
               min={0}
-              max={1}
-              step={0.05}
+              max={5}
+              step={0.1}
             />
           </div>
         </div>

@@ -29,7 +29,7 @@ function processingOptions(value: unknown): ProcessingOptions {
     truePeak: number("truePeak", -3, 0, DEFAULT_PROCESSING_OPTIONS.truePeak!),
     silenceThreshold: number("silenceThreshold", -80, 0, DEFAULT_PROCESSING_OPTIONS.silenceThreshold!),
     silenceDuration: number("silenceDuration", 0.1, 5, DEFAULT_PROCESSING_OPTIONS.silenceDuration!),
-    silencePadding: number("silencePadding", 0, 1, DEFAULT_PROCESSING_OPTIONS.silencePadding!),
+    silencePadding: number("silencePadding", 0, 5, DEFAULT_PROCESSING_OPTIONS.silencePadding!),
     noiseReductionStrength: number("noiseReductionStrength", 0, 30, DEFAULT_PROCESSING_OPTIONS.noiseReductionStrength!),
     enableNoiseReduction: bool("enableNoiseReduction", DEFAULT_PROCESSING_OPTIONS.enableNoiseReduction!),
     enableLoudnessNormalization: bool("enableLoudnessNormalization", DEFAULT_PROCESSING_OPTIONS.enableLoudnessNormalization!),

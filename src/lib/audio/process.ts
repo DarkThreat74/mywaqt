@@ -40,7 +40,7 @@ export interface ProcessingOptions {
   lra?: number;                 // Loudness range target (default: 11)
   silenceThreshold?: number;    // dB threshold for silence detection (default: -45 dB)
   silenceDuration?: number;     // Min silence duration to remove in seconds (default: 0.7s)
-  silencePadding?: number;      // Padding to keep around speech in seconds (default: 0.15s)
+  silencePadding?: number;      // Padding to keep around speech in seconds (default: 1.5s)
   enableNoiseReduction?: boolean;     // Apply afftdn denoise filter
   enableLoudnessNormalization?: boolean; // Apply two-pass loudnorm
   enableDeEssing?: boolean;     // Reduce harsh sibilance
@@ -56,7 +56,7 @@ export const DEFAULT_PROCESSING_OPTIONS: ProcessingOptions = {
   lra: 11,
   silenceThreshold: -45,
   silenceDuration: 0.7,
-  silencePadding: 0.15,
+  silencePadding: 1.5,
   enableNoiseReduction: true,
   enableLoudnessNormalization: true,
   enableDeEssing: true,
