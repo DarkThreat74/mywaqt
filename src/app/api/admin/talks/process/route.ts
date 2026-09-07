@@ -37,9 +37,12 @@ function processingOptions(value: unknown): ProcessingOptions {
     noiseReductionStrength: number("noiseReductionStrength", 0, 30, DEFAULT_PROCESSING_OPTIONS.noiseReductionStrength!),
     enableNoiseReduction: bool("enableNoiseReduction", DEFAULT_PROCESSING_OPTIONS.enableNoiseReduction!),
     enableLoudnessNormalization: bool("enableLoudnessNormalization", DEFAULT_PROCESSING_OPTIONS.enableLoudnessNormalization!),
+    enableLoudnessMeasurement: bool("enableLoudnessMeasurement", DEFAULT_PROCESSING_OPTIONS.enableLoudnessMeasurement!),
     enableDeEssing: bool("enableDeEssing", DEFAULT_PROCESSING_OPTIONS.enableDeEssing!),
     enableSpeechEQ: bool("enableSpeechEQ", DEFAULT_PROCESSING_OPTIONS.enableSpeechEQ!),
     enableLimiter: bool("enableLimiter", DEFAULT_PROCESSING_OPTIONS.enableLimiter!),
+    enableSilenceRemoval: bool("enableSilenceRemoval", DEFAULT_PROCESSING_OPTIONS.enableSilenceRemoval!),
+    enableDynamicNorm: bool("enableDynamicNorm", DEFAULT_PROCESSING_OPTIONS.enableDynamicNorm!),
     mp3Bitrate: bitrate,
   };
 }
@@ -110,7 +113,16 @@ export async function POST(request: NextRequest) {
     // — the three most CPU-intensive filters. Still applies EQ, loudnorm, limiter.
     const isLargeFile = (talk.fileSize ?? 0) > 25 * 1024 * 1024;
     const effectiveOptions: ProcessingOptions = isLargeFile
-      ? { ...FAST_PROCESSING_OPTIONS, ...options, enableSilenceRemoval: false, enableNoiseReduction: false, enableDynamicNorm: false }
+      ? {
+          ...FAST_PROCESSING_OPTIONS,
+          ...options,
+          // Force-disable the expensive options AFTER the spread,
+          // otherwise ...options brings them back to true from DEFAULT_PROCESSING_OPTIONS.
+          enableSilenceRemoval: false,
+          enableNoiseReduction: false,
+          enableDynamicNorm: false,
+          enableLoudnessMeasurement: false,
+        }
       : options;
 
     if (talk.processingStatus === "published" || talk.processingStatus === "ready") {
