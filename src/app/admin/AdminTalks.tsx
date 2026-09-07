@@ -326,6 +326,18 @@ export function AdminTalks() {
     } catch {
       /* use server defaults */
     }
+
+    // If the talk is stuck in "processing", force-reset it to "pending" first
+    // so the process route doesn't reject it with 409 "already being processed".
+    const stuckTalk = talks.find((t) => t.id === talkId);
+    if (stuckTalk?.processingStatus === "processing") {
+      await fetch("/api/admin/talks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "force-reprocess", talkId }),
+      });
+    }
+
     const res = await fetch("/api/admin/talks/process", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

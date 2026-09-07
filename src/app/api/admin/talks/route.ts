@@ -347,6 +347,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(updated);
     }
 
+    // ── Force reprocess (reset stuck "processing" status to "pending") ──
+    if (action === "force-reprocess") {
+      const { talkId } = body as { talkId?: string };
+      if (!talkId || !isValidUUID(talkId)) {
+        return NextResponse.json({ error: "Talk ID is required." }, { status: 400 });
+      }
+      const [updated] = await db.update(schema.talks).set({
+        processingStatus: "pending",
+        processingError: null,
+        processedAt: null,
+      }).where(eq(schema.talks.id, talkId)).returning({ id: schema.talks.id });
+      if (!updated) return NextResponse.json({ error: "Talk not found." }, { status: 404 });
+      return NextResponse.json({ success: true });
+    }
+
     // ── Delete talk ──
     if (action === "delete-talk") {
       const { talkId } = body as { talkId?: string };
