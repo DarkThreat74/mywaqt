@@ -847,6 +847,26 @@ function TalkRow({
   };
   const StatusIcon = statusCfg.icon;
   const isProcessing = status === "processing";
+  const isPending = status === "pending";
+
+  // Estimate processing time from file size.
+  // MP3 at ~160kbps = ~1.2 MB/min of audio.
+  // FFmpeg audio processing on Vercel serverless runs at ~8x realtime
+  // (conservative — includes download, probe, two-pass loudnorm, upload).
+  // If we already know the duration from probing, use that instead.
+  function estimateProcessingTime(): string {
+    if (talk.duration && talk.duration > 0) {
+      const seconds = Math.ceil(talk.duration / 8);
+      if (seconds < 60) return `~${seconds}s`;
+      return `~${Math.ceil(seconds / 60)} min`;
+    }
+    if (!talk.fileSize) return "~1-3 min";
+    const mb = talk.fileSize / (1024 * 1024);
+    const audioMinutes = mb / 1.2; // 1.2 MB per minute at 160kbps
+    const processingSeconds = Math.ceil((audioMinutes * 60) / 8);
+    if (processingSeconds < 60) return `~${processingSeconds}s`;
+    return `~${Math.ceil(processingSeconds / 60)} min`;
+  }
 
   return (
     <div className="flex flex-col gap-2 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
@@ -870,6 +890,11 @@ function TalkRow({
             style={{ color: "var(--color-error)" }}
           >
             Error: {talk.processingError}
+          </p>
+        )}
+        {(isProcessing || isPending) && talk.storageKey && (
+          <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            Est. processing time: {estimateProcessingTime()}
           </p>
         )}
       </div>
