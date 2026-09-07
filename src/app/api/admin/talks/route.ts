@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
         publishedAt: schema.talks.publishedAt,
       }).from(schema.talks).orderBy(desc(schema.talks.addedAt)).limit(500),
     ]);
-    const staleBefore = Date.now() - 15 * 60 * 1000; // matches maxDuration=900s in process route
+    const staleBefore = Date.now() - 800 * 1000; // matches maxDuration=800s in process route
     return NextResponse.json({
       folders,
       talks: talks.map(({ processedAt, ...talk }) => ({

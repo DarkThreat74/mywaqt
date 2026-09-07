@@ -1,41 +1,32 @@
-fix: loudness measurement pass still running for large files (root cause)
+feat: tiered audio processing — supports files up to 300MB+
 
-ROOT CAUSE: The enableLoudnessMeasurement option was being silently
-overridden back to true by the options merge order.
+Research via context7 and agent-reach found:
+- Vercel Pro: 4GB max memory, 800s max duration (not 900s)
+- /tmp: 512MB limit (300MB input + output won't fit together)
+- Official Vercel FFmpeg demo recommends memory=3009 for CPU-bound work
+- FFmpeg transcode (no filters) runs at 20-30x realtime with 3GB RAM
 
-The effectiveOptions for large files was:
-  { ...FAST_PROCESSING_OPTIONS, ...options, enableSilenceRemoval: false, ... }
+Three-tier processing based on file size:
 
-FAST_PROCESSING_OPTIONS sets enableLoudnessMeasurement: false.
-But ...options inherits from DEFAULT_PROCESSING_OPTIONS which has
-enableLoudnessMeasurement: true. The spread ...options comes AFTER
-FAST_PROCESSING_OPTIONS, so it overrides enableLoudnessMeasurement
-back to true. The explicit overrides at the end included
-enableSilenceRemoval, enableNoiseReduction, and enableDynamicNorm
-but NOT enableLoudnessMeasurement — so the measurement pass kept
-running even in "fast mode".
+1. <25 MB: Full processing (all 9 filters, two-pass loudnorm)
+   - ~6x realtime, typical: 1-3 min
 
-The measureLoudness function runs a FULL FFmpeg pass over the entire
-audio file with the loudnorm filter and pcm_s16le codec. For a 64MB
-file (~53 min of audio), this adds 5-10 minutes — pushing total
-processing time past the 900s timeout.
+2. 25-100 MB: Fast mode (6 filters, single-pass loudnorm)
+   - Skips: silenceremove, afftdn, dynaudnorm, loudness measurement
+   - ~8x realtime, typical: 3-6 min
 
-FIX:
-1. Added enableLoudnessMeasurement: false to the explicit overrides
-   in effectiveOptions, AFTER the ...options spread. This guarantees
-   the measurement pass is skipped for large files regardless of
-   what options contains.
+3. >100 MB: Ultra-fast mode (just transcode, NO filters)
+   - Skips ALL filters — only re-encodes to 64k mono 22050Hz
+   - ~25x realtime with 3GB RAM
+   - 300MB file (~4h audio): ~8-12 min (within 800s timeout)
+   - Output still ~75% smaller than original
 
-2. Added enableLoudnessMeasurement, enableSilenceRemoval, and
-   enableDynamicNorm to the processingOptions() function so they
-   can be properly passed through from the client (previously they
-   were silently inherited from DEFAULT_PROCESSING_OPTIONS).
-
-With this fix, large file processing is now truly 1 pass:
-  - Download (streamed to disk, ~30s for 64MB)
-  - FFmpeg processing (6 lightweight filters, ~3-5 min for 53min audio)
-  - Upload (~15s for ~4MB processed file)
-  - Total: ~4-6 min (well within 900s timeout)
+Additional changes:
+- maxDuration: 800 (actual Vercel Pro max, was incorrectly 900)
+- memory: 3009 in vercel.json (was 1024 — official FFmpeg demo recommends 3009)
+- Input file deleted before upload to free /tmp space (300MB input + 115MB output = 415MB, close to 512MB limit — deleting input first leaves only 115MB)
+- Stale detection updated to 800s to match
+- Processing time estimates updated for three tiers
 
 Generated with [Devin](https://devin.ai)
 

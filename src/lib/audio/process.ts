@@ -89,6 +89,24 @@ export const FAST_PROCESSING_OPTIONS: ProcessingOptions = {
   enableLoudnessMeasurement: false, // skip the extra measurement pass
 };
 
+// Ultra-fast mode for very large files (>100 MB) — just transcodes to
+// 64k mono 22050Hz with NO filters at all. This is the fastest possible
+// FFmpeg operation (20-30x realtime) and can handle a 300MB file (~4h
+// of audio) in ~8-12 min, well within the 800s Vercel Pro timeout.
+// The output is still ~75% smaller than the original.
+export const ULTRA_FAST_PROCESSING_OPTIONS: ProcessingOptions = {
+  ...DEFAULT_PROCESSING_OPTIONS,
+  enableSilenceRemoval: false,
+  enableNoiseReduction: false,
+  enableDynamicNorm: false,
+  enableLoudnessNormalization: false,
+  enableLoudnessMeasurement: false,
+  enableDeEssing: false,
+  enableSpeechEQ: false,
+  enableLimiter: false,
+  mp3Bitrate: '64k',
+};
+
 export interface ProcessingResult {
   buffer: Buffer;
   duration: number;

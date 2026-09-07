@@ -5,15 +5,15 @@ import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { logError } from "@/lib/logError";
 import { downloadObject, downloadObjectToFile, uploadBuffer } from "@/lib/r2/client";
-import { processAudioWithMetadata, processAudioFile, DEFAULT_PROCESSING_OPTIONS, FAST_PROCESSING_OPTIONS, type ProcessingOptions } from "@/lib/audio/process";
+import { processAudioWithMetadata, processAudioFile, DEFAULT_PROCESSING_OPTIONS, FAST_PROCESSING_OPTIONS, ULTRA_FAST_PROCESSING_OPTIONS, type ProcessingOptions } from "@/lib/audio/process";
 import { isValidUUID } from "@/lib/validation";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdir, stat, unlink } from "fs/promises";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 900; // 15 minutes — Vercel Pro max for background processing
-// memory=1024 is set in vercel.json under functions config
+export const maxDuration = 800; // Vercel Pro max (800s). Extended beta allows 1800s.
+// memory=3009 is set in vercel.json — recommended by Vercel's official FFmpeg demo
 
 function processingOptions(value: unknown): ProcessingOptions {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -108,22 +108,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Talk is already being processed." }, { status: 409 });
     }
 
-    // For large files (>25 MB), use fast mode to stay within Vercel timeout.
-    // Fast mode skips silence removal, noise reduction, and dynamic normalization
-    // — the three most CPU-intensive filters. Still applies EQ, loudnorm, limiter.
-    const isLargeFile = (talk.fileSize ?? 0) > 25 * 1024 * 1024;
-    const effectiveOptions: ProcessingOptions = isLargeFile
-      ? {
-          ...FAST_PROCESSING_OPTIONS,
-          ...options,
-          // Force-disable the expensive options AFTER the spread,
-          // otherwise ...options brings them back to true from DEFAULT_PROCESSING_OPTIONS.
-          enableSilenceRemoval: false,
-          enableNoiseReduction: false,
-          enableDynamicNorm: false,
-          enableLoudnessMeasurement: false,
-        }
-      : options;
+    // Tiered processing based on file size:
+    //   <25 MB:  Full processing (all filters, two-pass loudnorm)
+    //   25-100 MB: Fast mode (skip expensive filters, single-pass loudnorm)
+    //   >100 MB: Ultra-fast mode (just transcode, NO filters at all)
+    // This ensures even 300MB files (~4h of audio) process within 800s.
+    const fileBytes = talk.fileSize ?? 0;
+    const isLargeFile = fileBytes > 25 * 1024 * 1024;
+    const isHugeFile = fileBytes > 100 * 1024 * 1024;
+
+    const baseOptions: ProcessingOptions = isHugeFile
+      ? ULTRA_FAST_PROCESSING_OPTIONS
+      : isLargeFile
+        ? FAST_PROCESSING_OPTIONS
+        : DEFAULT_PROCESSING_OPTIONS;
+
+    const effectiveOptions: ProcessingOptions = {
+      ...baseOptions,
+      ...options,
+      // Force-disable expensive options AFTER the spread,
+      // otherwise ...options brings them back to true from DEFAULT_PROCESSING_OPTIONS.
+      ...(isHugeFile
+        ? {
+            enableSilenceRemoval: false, enableNoiseReduction: false, enableDynamicNorm: false,
+            enableLoudnessMeasurement: false, enableLoudnessNormalization: false,
+            enableDeEssing: false, enableSpeechEQ: false, enableLimiter: false,
+          }
+        : isLargeFile
+          ? { enableSilenceRemoval: false, enableNoiseReduction: false, enableDynamicNorm: false, enableLoudnessMeasurement: false }
+          : {}),
+    };
 
     if (talk.processingStatus === "published" || talk.processingStatus === "ready") {
       return NextResponse.json({ error: "Talk is already processed." }, { status: 409 });
@@ -170,9 +184,9 @@ export async function POST(request: NextRequest) {
 
       try {
         // 1. Download original audio from R2
-        // For large files, stream directly to disk to avoid loading 64MB+ into memory.
+        // For large/huge files, stream directly to disk to avoid loading into memory.
         // For small files, use the Buffer approach (simpler, and memory isn't a concern).
-        console.log(`[talks:process] Talk ${talkId}: downloading original from R2 (stream=${isLargeFile})…`);
+        console.log(`[talks:process] Talk ${talkId}: downloading original from R2 (stream=${isLargeFile}, ultra=${isHugeFile})…`);
         let originalSize: number;
 
         if (isLargeFile) {
@@ -189,8 +203,14 @@ export async function POST(request: NextRequest) {
         }
 
         // 2-4. Full processing pipeline (probe + measure + process)
-        console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalSize / 1024 / 1024).toFixed(1)} MB, fast=${isLargeFile})…`);
+        const modeLabel = isHugeFile ? "ultra-fast" : isLargeFile ? "fast" : "full";
+        console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalSize / 1024 / 1024).toFixed(1)} MB, mode=${modeLabel})…`);
         const result = await processAudioFile(inputPath, effectiveOptions, originalSize);
+
+        // Free disk space: delete the input file before uploading output.
+        // For 300MB files, this frees 300MB on /tmp (512MB limit) so the
+        // ~115MB output file has plenty of room.
+        await unlink(inputPath).catch(() => {});
 
         // 5. Upload processed audio to R2
         const processedKey = talk.storageKey!.replace(/^talks\//, 'talks/processed/');
@@ -229,7 +249,7 @@ export async function POST(request: NextRequest) {
         }
       } finally {
         clearTimeout(watchdog);
-        // Clean up the downloaded input file
+        // Clean up temp files (best-effort — input may already be deleted)
         await unlink(inputPath).catch(() => {});
       }
     });

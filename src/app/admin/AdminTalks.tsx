@@ -996,24 +996,24 @@ function TalkRow({
 
   // Estimate processing time from file size.
   // MP3 at ~160kbps = ~1.2 MB/min of audio.
-  // FFmpeg audio processing on Vercel serverless runs at ~4x realtime
-  // (conservative — includes download, probe, filter chain, upload).
-  // Large files (>25 MB) skip two-pass loudnorm, smaller files include it
-  // (which roughly doubles processing time).
+  // Three tiers:
+  //   <25 MB:  Full processing (all filters, two-pass) ~6x realtime
+  //   25-100 MB: Fast mode (skip expensive filters) ~8x realtime
+  //   >100 MB: Ultra-fast (just transcode, no filters) ~25x realtime
   // If we already know the duration from probing, use that instead.
   function estimateProcessingTime(): string {
+    const mb = (talk.fileSize ?? 0) / (1024 * 1024);
+    const isHuge = mb > 100;
+    const isLarge = mb > 25;
+    const multiplier = isHuge ? 25 : isLarge ? 8 : 6;
+
     if (talk.duration && talk.duration > 0) {
-      const isLarge = (talk.fileSize ?? 0) > 25 * 1024 * 1024;
-      const multiplier = isLarge ? 4 : 6; // two-pass roughly 1.5x
       const seconds = Math.ceil(talk.duration / multiplier);
       if (seconds < 60) return `~${seconds}s`;
       return `~${Math.ceil(seconds / 60)} min`;
     }
     if (!talk.fileSize) return "~1-3 min";
-    const mb = talk.fileSize / (1024 * 1024);
-    const isLarge = mb > 25;
     const audioMinutes = mb / 1.2; // 1.2 MB per minute at 160kbps
-    const multiplier = isLarge ? 4 : 6;
     const processingSeconds = Math.ceil((audioMinutes * 60) / multiplier);
     if (processingSeconds < 60) return `~${processingSeconds}s`;
     return `~${Math.ceil(processingSeconds / 60)} min`;
