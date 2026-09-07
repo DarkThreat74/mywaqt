@@ -17,15 +17,21 @@ export default async function GoalsPage() {
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
   const habitLogCutoff = ninetyDaysAgo.toISOString().slice(0, 10); // YYYY-MM-DD
 
-  // Fetch all data for the unified goals page in parallel
+  // Fetch all data for the unified goals page in parallel.
+  // Each query is individually try-caught so a single Neon cold-start
+  // or connection hiccup degrades gracefully instead of crashing the
+  // entire Server Component render (React error #441).
+  const safeQuery = async <T,>(p: Promise<T[]>): Promise<T[]> => {
+    try { return await p; } catch { return []; }
+  };
+
   const [goals, homework, classes, habits, habitLogs, notes] = await Promise.all([
-    db.select().from(schema.goals).where(eq(schema.goals.userId, session.userId)).orderBy(schema.goals.sortOrder, schema.goals.createdAt),
-    db.select().from(schema.homeworks).where(eq(schema.homeworks.userId, session.userId)).orderBy(schema.homeworks.dueDate),
-    db.select().from(schema.classes).where(eq(schema.classes.userId, session.userId)).orderBy(schema.classes.sortOrder, schema.classes.createdAt),
-    db.select().from(schema.habits).where(eq(schema.habits.userId, session.userId)).orderBy(schema.habits.sortOrder, schema.habits.createdAt),
-    // Last 90 days of habit logs (date column is YYYY-MM-DD text)
-    db.select().from(schema.habitLogs).where(eq(schema.habitLogs.userId, session.userId)),
-    db.select().from(schema.notes).where(eq(schema.notes.userId, session.userId)).orderBy(desc(schema.notes.updatedAt)),
+    safeQuery(db.select().from(schema.goals).where(eq(schema.goals.userId, session.userId)).orderBy(schema.goals.sortOrder, schema.goals.createdAt)),
+    safeQuery(db.select().from(schema.homeworks).where(eq(schema.homeworks.userId, session.userId)).orderBy(schema.homeworks.dueDate)),
+    safeQuery(db.select().from(schema.classes).where(eq(schema.classes.userId, session.userId)).orderBy(schema.classes.sortOrder, schema.classes.createdAt)),
+    safeQuery(db.select().from(schema.habits).where(eq(schema.habits.userId, session.userId)).orderBy(schema.habits.sortOrder, schema.habits.createdAt)),
+    safeQuery(db.select().from(schema.habitLogs).where(eq(schema.habitLogs.userId, session.userId))),
+    safeQuery(db.select().from(schema.notes).where(eq(schema.notes.userId, session.userId)).orderBy(desc(schema.notes.updatedAt))),
   ]);
 
   // Client-side filter for habit logs by date (date column is text YYYY-MM-DD)

@@ -14,12 +14,18 @@ export default async function LearnPage() {
     return;
   }
 
-  // Fetch the user's madhab to pass to the client
-  const [settings] = await db
-    .select({ madhab: schema.prayerSettings.madhab })
-    .from(schema.prayerSettings)
-    .where(eq(schema.prayerSettings.userId, session.userId))
-    .limit(1);
+  // Fetch the user's madhab to pass to the client.
+  // Wrapped in try/catch so Neon cold-starts don't crash the page.
+  let settings: { madhab: string | null } | undefined;
+  try {
+    [settings] = await db
+      .select({ madhab: schema.prayerSettings.madhab })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, session.userId))
+      .limit(1);
+  } catch {
+    // DB error — default to standard madhab
+  }
 
   const madhab = (settings?.madhab === "hanafi" ? "hanafi" : "standard") as
     | "hanafi"

@@ -11,18 +11,28 @@ export default async function SettingsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  // Parallelize independent queries (user + prayer settings)
+  // Parallelize independent queries (user + prayer settings).
+  // Wrapped in try/catch so Neon cold-starts or connection issues
+  // don't crash the Server Component (React error #441).
+  const safeQuery = async <T,>(p: Promise<T[]>): Promise<T[]> => {
+    try { return await p; } catch { return []; }
+  };
+
   const [userRow, prayerSettingsRow] = await Promise.all([
-    db
-      .select({ displayName: schema.users.displayName })
-      .from(schema.users)
-      .where(eq(schema.users.id, session.userId))
-      .limit(1),
-    db
-      .select()
-      .from(schema.prayerSettings)
-      .where(eq(schema.prayerSettings.userId, session.userId))
-      .limit(1),
+    safeQuery(
+      db
+        .select({ displayName: schema.users.displayName })
+        .from(schema.users)
+        .where(eq(schema.users.id, session.userId))
+        .limit(1),
+    ),
+    safeQuery(
+      db
+        .select()
+        .from(schema.prayerSettings)
+        .where(eq(schema.prayerSettings.userId, session.userId))
+        .limit(1),
+    ),
   ]);
 
   const [user] = userRow;
@@ -35,18 +45,30 @@ export default async function SettingsPage() {
   } | null = null;
 
   if (prayerSettings) {
-    const today = new Date().toLocaleDateString("en-CA", { timeZone: prayerSettings.timezone || "UTC" });
+    // Validate timezone before using it — invalid timezones throw RangeError
+    let tz = "UTC";
+    if (prayerSettings.timezone) {
+      try {
+        new Date().toLocaleString("en-US", { timeZone: prayerSettings.timezone });
+        tz = prayerSettings.timezone;
+      } catch {
+        // Invalid timezone in DB — fall back to UTC
+      }
+    }
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
 
-    const [todayTimes] = await db
-      .select()
-      .from(schema.prayerTimesCache)
-      .where(
-        and(
-          eq(schema.prayerTimesCache.userId, session.userId),
-          eq(schema.prayerTimesCache.date, today),
-        ),
-      )
-      .limit(1);
+    const [todayTimes] = await safeQuery(
+      db
+        .select()
+        .from(schema.prayerTimesCache)
+        .where(
+          and(
+            eq(schema.prayerTimesCache.userId, session.userId),
+            eq(schema.prayerTimesCache.date, today),
+          ),
+        )
+        .limit(1),
+    );
 
     if (todayTimes) {
       // Format times: "04:50:00" → "4:50 AM"

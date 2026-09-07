@@ -1,16 +1,31 @@
-feat: polish talks empty states + remove dhikr admin tab
+fix: React error #441 — Server Component crashes from unhandled DB errors
 
-- Talks library empty states redesigned with a shared EmptyState component:
-  - Empty folder: friendly Mic2 icon + clear message
-  - No search results: Search icon + "Clear search" action
-  - No talks at all: Headphones icon + curated-by-hand message
-- Folder cards now show "Empty — no talks yet" for empty folders and a hover
-chevron shift for tactile feedback
-- Removed the Dhikr tab from the admin page navigation (NAV_ITEMS) along with
-the DhikrManager component and unused helper components
-- Restored the shared Field component used by admin forms
-- DB cleanup: deleted logintest@test.com and set umohamm7401@gmail.com
-display_name to 'admin'
+Root cause: Multiple Server Component pages had unwrapped db.select()
+calls. When Neon has a cold start or connection hiccup, the query
+throws, the Server Component render fails, and React reports error
+#441 ("An error occurred in the Server Components render"). The
+specific error message is hidden in production, making it hard to
+diagnose.
+
+Fixed pages:
+- goals/page.tsx: 6 DB queries in Promise.all now individually
+  try-caught via safeQuery() helper. Any single query failure returns
+  an empty array instead of crashing the page.
+- settings/page.tsx: 3 DB queries wrapped in safeQuery(). Also fixed
+  unsafe timezone usage — toLocaleDateString() with an invalid
+  timezone throws RangeError. Now validates timezone before use,
+  falls back to UTC.
+- learn/page.tsx: 1 DB query wrapped in try/catch, defaults to
+  standard madhab on failure.
+- user/[name]/[token]/page.tsx: DB query wrapped, treats DB error
+  as notFound().
+- user/public/[token]/page.tsx: Same fix.
+- [name]/[code]/public/page.tsx: Both generateMetadata() and page()
+  DB queries wrapped.
+
+Also added suppressHydrationWarning to <html> tag — the inline theme
+script sets data-theme on document.documentElement before hydration,
+which would cause a hydration warning without this attribute.
 
 Generated with [Devin](https://devin.ai)
 

@@ -16,11 +16,16 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { code } = await params;
 
-  const [user] = await db
-    .select({ id: schema.users.id, displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(eq(schema.users.publicShareToken, code))
-    .limit(1);
+  let user: { id: string; displayName: string | null } | undefined;
+  try {
+    [user] = await db
+      .select({ id: schema.users.id, displayName: schema.users.displayName })
+      .from(schema.users)
+      .where(eq(schema.users.publicShareToken, code))
+      .limit(1);
+  } catch {
+    // DB error — treat as not found
+  }
 
   if (!user) {
     return { title: "Calendar not found — Waqt" };
@@ -73,11 +78,16 @@ export default async function PublicCalendarPage({
   }
 
   // Verify the code exists and get the display name
-  const [user] = await db
-    .select({ id: schema.users.id, displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(eq(schema.users.publicShareToken, code))
-    .limit(1);
+  let user: { id: string; displayName: string | null } | undefined;
+  try {
+    [user] = await db
+      .select({ id: schema.users.id, displayName: schema.users.displayName })
+      .from(schema.users)
+      .where(eq(schema.users.publicShareToken, code))
+      .limit(1);
+  } catch {
+    // DB error — treat as not found
+  }
 
   if (!user) {
     notFound();
