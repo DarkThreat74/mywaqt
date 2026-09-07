@@ -4,8 +4,8 @@ import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { logError } from "@/lib/logError";
-import { downloadObject, downloadObjectToFile, uploadBuffer } from "@/lib/r2/client";
-import { processAudioWithMetadata, processAudioFile, DEFAULT_PROCESSING_OPTIONS, FAST_PROCESSING_OPTIONS, ULTRA_FAST_PROCESSING_OPTIONS, type ProcessingOptions } from "@/lib/audio/process";
+import { downloadObjectToFile, uploadBuffer } from "@/lib/r2/client";
+import { compressAudioFile } from "@/lib/audio/process";
 import { isValidUUID } from "@/lib/validation";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -15,57 +15,21 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Vercel Hobby max (300s). Pro allows 800s.
 // memory=1024 is set in vercel.json
 
-function processingOptions(value: unknown): ProcessingOptions {
-  const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const number = (key: string, min: number, max: number, fallback: number) => {
-    const candidate = input[key];
-    return typeof candidate === "number" && Number.isFinite(candidate)
-      ? Math.min(max, Math.max(min, candidate))
-      : fallback;
-  };
-  const bool = (key: string, fallback: boolean) => typeof input[key] === "boolean" ? input[key] as boolean : fallback;
-  const bitrate = typeof input.mp3Bitrate === "string" && ["64k", "96k", "128k", "160k", "192k", "256k"].includes(input.mp3Bitrate)
-    ? input.mp3Bitrate
-    : DEFAULT_PROCESSING_OPTIONS.mp3Bitrate;
-  return {
-    ...DEFAULT_PROCESSING_OPTIONS,
-    targetLufs: number("targetLufs", -30, 0, DEFAULT_PROCESSING_OPTIONS.targetLufs!),
-    truePeak: number("truePeak", -3, 0, DEFAULT_PROCESSING_OPTIONS.truePeak!),
-    silenceThreshold: number("silenceThreshold", -80, 0, DEFAULT_PROCESSING_OPTIONS.silenceThreshold!),
-    silenceDuration: number("silenceDuration", 0.1, 5, DEFAULT_PROCESSING_OPTIONS.silenceDuration!),
-    silencePadding: number("silencePadding", 0, 5, DEFAULT_PROCESSING_OPTIONS.silencePadding!),
-    noiseReductionStrength: number("noiseReductionStrength", 0, 30, DEFAULT_PROCESSING_OPTIONS.noiseReductionStrength!),
-    enableNoiseReduction: bool("enableNoiseReduction", DEFAULT_PROCESSING_OPTIONS.enableNoiseReduction!),
-    enableLoudnessNormalization: bool("enableLoudnessNormalization", DEFAULT_PROCESSING_OPTIONS.enableLoudnessNormalization!),
-    enableLoudnessMeasurement: bool("enableLoudnessMeasurement", DEFAULT_PROCESSING_OPTIONS.enableLoudnessMeasurement!),
-    enableDeEssing: bool("enableDeEssing", DEFAULT_PROCESSING_OPTIONS.enableDeEssing!),
-    enableSpeechEQ: bool("enableSpeechEQ", DEFAULT_PROCESSING_OPTIONS.enableSpeechEQ!),
-    enableLimiter: bool("enableLimiter", DEFAULT_PROCESSING_OPTIONS.enableLimiter!),
-    enableSilenceRemoval: bool("enableSilenceRemoval", DEFAULT_PROCESSING_OPTIONS.enableSilenceRemoval!),
-    enableDynamicNorm: bool("enableDynamicNorm", DEFAULT_PROCESSING_OPTIONS.enableDynamicNorm!),
-    mp3Bitrate: bitrate,
-  };
-}
-
 /**
  * POST /api/admin/talks/process
- * Triggers audio processing for a talk.
+ * Compresses a talk to Opus 24kbps mono voip mode.
  *
- * The processing runs in the background using `after()` from next/server.
- * This means the response is sent immediately and processing continues
- * within the function invocation lifetime (up to maxDuration seconds).
+ * This is a single FFmpeg transcode — no filters, no probe, no loudness
+ * measurement. Just decode the input and encode to Opus.
  *
- * Pipeline:
- *   1. Download original audio from R2
- *   2. Probe audio metadata (sample rate, channels, duration)
- *   3. Measure true integrated loudness (Pass 1 of two-pass loudnorm)
- *   4. Process: silence removal → highpass/lowpass → noise reduction →
- *      de-essing → speech EQ → two-pass loudnorm → dynaudnorm → soft limiter
- *   5. Upload processed MP3 to R2
- *   6. Update talk record with processing metadata
+ * Opus at 24kbps mono voip is better quality than MP3 at 64kbps for speech,
+ * and produces files ~85% smaller than the original 160kbps MP3.
  *
- * For talks that require more than 5 minutes of processing, consider using
- * Trigger.dev or QStash for durable background jobs.
+ * Processing speed: ~30x realtime. A 64MB file (~53min audio) processes
+ * in ~2min. A 100MB file (~83min) in ~3min. Both fit within 300s.
+ *
+ * Files >100MB are skipped (too large for 300s Hobby timeout) and the
+ * original file is used directly.
  *
  * Body: { talkId: string }
  */
@@ -73,14 +37,13 @@ export async function POST(request: NextRequest) {
   try {
     await requireAdmin(request);
 
-    let body: { talkId?: string; options?: unknown };
+    let body: { talkId?: string };
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
     const { talkId } = body;
-    const options = processingOptions(body.options);
 
     if (!talkId || !isValidUUID(talkId)) {
       return NextResponse.json({ error: "A valid talk ID is required." }, { status: 400 });
@@ -108,60 +71,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Talk is already being processed." }, { status: 409 });
     }
 
-    // Tiered processing based on file size:
-    //   <25 MB:   Full processing (all filters, two-pass loudnorm)
-    //   25-50 MB: Fast mode (skip expensive filters, single-pass loudnorm)
-    //   50-100 MB: Ultra-fast mode (just transcode, NO filters)
-    //   >100 MB:  Skip processing — file is too large for 300s Hobby timeout.
-    //             Mark as ready with the original file so the talk still works.
-    //
-    // With 300s max (Hobby plan), ultra-fast mode at ~25x realtime can handle
-    // ~100MB (~83 min of audio) in ~200s + ~60s download + ~30s upload = ~290s.
-    // Files >100MB would exceed the timeout, so we skip processing for those.
+    // Files >100MB are too large for the 300s Hobby timeout.
+    // Skip compression and use the original file directly.
     const fileBytes = talk.fileSize ?? 0;
-    const isLargeFile = fileBytes > 25 * 1024 * 1024;
-    const isHugeFile = fileBytes > 50 * 1024 * 1024;
     const isTooLarge = fileBytes > 100 * 1024 * 1024;
 
-    // For files too large to process, skip and use the original directly.
     if (isTooLarge) {
-      const processedKey = talk.storageKey!.replace(/^talks\//, 'talks/processed/');
       await db.update(schema.talks).set({
         processingStatus: "ready",
-        processedStorageKey: talk.storageKey, // use original file directly
+        processedStorageKey: talk.storageKey,
         processedAt: new Date(),
         processingError: null,
       }).where(eq(schema.talks.id, talkId));
 
-      console.log(`[talks:process] Talk ${talkId}: file too large (${(fileBytes / 1024 / 1024).toFixed(1)} MB) for Hobby plan processing — using original file directly`);
+      console.log(`[talks:process] Talk ${talkId}: file too large (${(fileBytes / 1024 / 1024).toFixed(1)} MB) — using original`);
 
       return NextResponse.json({
         success: true,
-        message: `File is ${(fileBytes / 1024 / 1024).toFixed(0)}MB — too large for processing on the Hobby plan. The original file will be used directly. Upgrade to Vercel Pro for server-side compression of large files.`,
+        message: `File is ${(fileBytes / 1024 / 1024).toFixed(0)}MB — too large for the Hobby plan 300s limit. Using original file.`,
       });
     }
-
-    const baseOptions: ProcessingOptions = isHugeFile
-      ? ULTRA_FAST_PROCESSING_OPTIONS
-      : isLargeFile
-        ? FAST_PROCESSING_OPTIONS
-        : DEFAULT_PROCESSING_OPTIONS;
-
-    const effectiveOptions: ProcessingOptions = {
-      ...baseOptions,
-      ...options,
-      // Force-disable expensive options AFTER the spread,
-      // otherwise ...options brings them back to true from DEFAULT_PROCESSING_OPTIONS.
-      ...(isHugeFile
-        ? {
-            enableSilenceRemoval: false, enableNoiseReduction: false, enableDynamicNorm: false,
-            enableLoudnessMeasurement: false, enableLoudnessNormalization: false,
-            enableDeEssing: false, enableSpeechEQ: false, enableLimiter: false,
-          }
-        : isLargeFile
-          ? { enableSilenceRemoval: false, enableNoiseReduction: false, enableDynamicNorm: false, enableLoudnessMeasurement: false }
-          : {}),
-    };
 
     if (talk.processingStatus === "published" || talk.processingStatus === "ready") {
       return NextResponse.json({ error: "Talk is already processed." }, { status: 409 });
@@ -180,22 +109,20 @@ export async function POST(request: NextRequest) {
     )).returning({ id: schema.talks.id });
     if (!claimed) return NextResponse.json({ error: "Talk processing already started." }, { status: 409 });
 
-    // Process in the background using after()
-    // This continues after the response is sent, within the function lifetime.
-    // A watchdog marks the talk as "failed" if we're about to hit maxDuration,
-    // so the talk doesn't get stuck in "processing" if the function is killed.
+    // Compress to Opus in the background using after().
+    // A watchdog marks the talk as "failed" if we're about to hit maxDuration.
     after(async () => {
       const startTime = Date.now();
-      const watchdogMs = (maxDuration - 30) * 1000; // fire 30s before timeout
+      const watchdogMs = (maxDuration - 30) * 1000;
       let watchdogFired = false;
 
       const watchdog = setTimeout(async () => {
         watchdogFired = true;
-        console.error(`[talks:process] Talk ${talkId}: watchdog fired after ${maxDuration - 30}s — marking as failed`);
+        console.error(`[talks:process] Talk ${talkId}: watchdog fired after ${maxDuration - 30}s`);
         try {
           await db.update(schema.talks).set({
             processingStatus: "failed",
-            processingError: `Processing timed out after ${maxDuration - 30}s. The file may be too large for serverless processing.`,
+            processingError: `Processing timed out after ${maxDuration - 30}s.`,
           }).where(eq(schema.talks.id, talkId));
         } catch (e) {
           logError(e, { route: "admin/talks/process", talkId, phase: "watchdog" });
@@ -204,44 +131,30 @@ export async function POST(request: NextRequest) {
 
       const tmpDir = join(tmpdir(), 'waqt-audio-processing');
       await mkdir(tmpDir, { recursive: true });
-      const inputPath = join(tmpDir, `input-${talkId}-${Date.now()}.mp3`);
+      const inputPath = join(tmpDir, `input-${talkId}-${Date.now()}`);
 
       try {
-        // 1. Download original audio from R2
-        // For large/huge files, stream directly to disk to avoid loading into memory.
-        // For small files, use the Buffer approach (simpler, and memory isn't a concern).
-        console.log(`[talks:process] Talk ${talkId}: downloading original from R2 (stream=${isLargeFile}, ultra=${isHugeFile})…`);
-        let originalSize: number;
+        // 1. Download from R2 — always stream to disk (simple, memory-safe)
+        console.log(`[talks:process] Talk ${talkId}: downloading from R2…`);
+        await downloadObjectToFile(talk.storageKey!, inputPath);
+        const fileStat = await stat(inputPath);
+        const originalSize = fileStat.size;
 
-        if (isLargeFile) {
-          // Stream directly to file — avoids 64MB+ Buffer in memory
-          await downloadObjectToFile(talk.storageKey!, inputPath);
-          const fileStat = await stat(inputPath);
-          originalSize = fileStat.size;
-        } else {
-          // Small file: download as Buffer, write to file
-          const originalBuffer = await downloadObject(talk.storageKey!);
-          originalSize = originalBuffer.length;
-          const { writeFile } = await import("fs/promises");
-          await writeFile(inputPath, originalBuffer);
-        }
+        // 2. Compress to Opus 24kbps mono voip (single FFmpeg pass, ~30x realtime)
+        console.log(`[talks:process] Talk ${talkId}: compressing to Opus (${(originalSize / 1024 / 1024).toFixed(1)} MB)…`);
+        const result = await compressAudioFile(inputPath, originalSize);
 
-        // 2-4. Full processing pipeline (probe + measure + process)
-        const modeLabel = isHugeFile ? "ultra-fast" : isLargeFile ? "fast" : "full";
-        console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalSize / 1024 / 1024).toFixed(1)} MB, mode=${modeLabel})…`);
-        const result = await processAudioFile(inputPath, effectiveOptions, originalSize);
-
-        // Free disk space: delete the input file before uploading output.
-        // For 300MB files, this frees 300MB on /tmp (512MB limit) so the
-        // ~115MB output file has plenty of room.
+        // 3. Free disk space before upload
         await unlink(inputPath).catch(() => {});
 
-        // 5. Upload processed audio to R2
-        const processedKey = talk.storageKey!.replace(/^talks\//, 'talks/processed/');
-        console.log(`[talks:process] Talk ${talkId}: uploading processed audio to R2…`);
-        await uploadBuffer(processedKey, result.buffer);
+        // 4. Upload to R2 with .opus extension and correct content type
+        const processedKey = talk.storageKey!
+          .replace(/^talks\//, 'talks/processed/')
+          .replace(/\.\w+$/, '.opus');
+        console.log(`[talks:process] Talk ${talkId}: uploading Opus to R2 (${(result.processedSize / 1024 / 1024).toFixed(1)} MB)…`);
+        await uploadBuffer(processedKey, result.buffer, 'audio/ogg');
 
-        // 6. Update talk record with full metadata
+        // 5. Update talk record
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         await db.update(schema.talks).set({
           processingStatus: "ready",
@@ -253,13 +166,12 @@ export async function POST(request: NextRequest) {
         }).where(eq(schema.talks.id, talkId));
 
         console.log(
-          `[talks:process] Talk ${talkId} processed successfully in ${elapsed}s — ` +
-          `original: ${(result.originalSize / 1024 / 1024).toFixed(1)} MB → ` +
-          `processed: ${(result.processedSize / 1024 / 1024).toFixed(1)} MB, ` +
-          `LUFS: ${result.originalLufs?.toFixed(1) || 'N/A'} → ${result.finalLufs?.toFixed(1) || 'N/A'}`
+          `[talks:process] Talk ${talkId} done in ${elapsed}s — ` +
+          `${(originalSize / 1024 / 1024).toFixed(1)} MB → ${(result.processedSize / 1024 / 1024).toFixed(1)} MB ` +
+          `(${((1 - result.processedSize / originalSize) * 100).toFixed(0)}% smaller)`
         );
       } catch (err) {
-        if (watchdogFired) return; // already marked as failed by watchdog
+        if (watchdogFired) return;
         const errorMsg = err instanceof Error ? err.message : "Unknown processing error";
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         logError(err, { route: "admin/talks/process", talkId, elapsedSeconds: elapsed });
@@ -273,12 +185,11 @@ export async function POST(request: NextRequest) {
         }
       } finally {
         clearTimeout(watchdog);
-        // Clean up temp files (best-effort — input may already be deleted)
         await unlink(inputPath).catch(() => {});
       }
     });
 
-    return NextResponse.json({ success: true, message: "Processing started." });
+    return NextResponse.json({ success: true, message: "Compression started." });
   } catch (e) {
     if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     logError(e, { route: "admin/talks/process", method: "POST" });

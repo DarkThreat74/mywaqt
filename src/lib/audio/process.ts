@@ -545,3 +545,76 @@ export async function processAudioFile(
     await unlink(outputPath).catch(() => {});
   }
 }
+
+/**
+ * Compress an audio file to Opus 24kbps mono voip mode.
+ *
+ * This is the simplest, fastest possible audio compression for speech:
+ *   - Opus codec: best low-bitrate speech codec (better than MP3 at 1/3 the bitrate)
+ *   - 24kbps: WhatsApp voice note quality, ~85% smaller than 160kbps MP3
+ *   - Mono: speech has no stereo content
+ *   - voip mode: optimized for speech (SILK codec, emphasizes clarity)
+ *   - compression_level 0: fastest encoding
+ *   - NO filters: just transcode, ~30x realtime
+ *
+ * A 64MB MP3 → ~10MB Opus. A 300MB MP3 → ~45MB Opus.
+ * Processing time for 53min audio: ~2min (vs 10+ min with the filter chain).
+ *
+ * Opus is supported by all modern browsers in <audio> elements:
+ * Chrome 25+, Firefox 15+, Safari 11+ (desktop) / 14+ (iOS), Edge 14+.
+ */
+export async function compressAudioFile(
+  inputPath: string,
+  originalSize?: number,
+): Promise<{ buffer: Buffer; processedSize: number; originalSize: number; duration: number }> {
+  await verifyFfmpegBinary();
+
+  const tmpDir = join(tmpdir(), 'waqt-audio-processing');
+  await mkdir(tmpDir, { recursive: true });
+
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const outputPath = join(tmpDir, `output-${id}.opus`);
+
+  try {
+    // Single FFmpeg pass: decode MP3 → encode Opus 24kbps mono voip
+    // No filters, no probe, no loudness measurement — just transcode.
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(inputPath)
+        .audioCodec('libopus')
+        .audioBitrate('24k')
+        .audioChannels(1)
+        .outputOptions([
+          '-application voip',       // Optimize for speech
+          '-compression_level 0',    // Fastest encoding
+          '-frame_duration 60',      // 60ms frames (better compression)
+          '-map_metadata -1',        // Strip metadata
+        ])
+        .on('stderr', (line) => {
+          if (line.includes('error')) console.error(`[audio:compress] ${line}`);
+        })
+        .on('error', (err) => reject(new Error(`Opus compression failed: ${err.message}`)))
+        .on('end', () => resolve())
+        .save(outputPath);
+    });
+
+    const processedBuffer = await readFile(outputPath);
+
+    // Get duration from the output file (fast probe)
+    let duration = 0;
+    try {
+      const probe = await probeAudioPath(outputPath);
+      duration = probe.duration;
+    } catch {
+      // Duration is nice-to-have, not critical
+    }
+
+    return {
+      buffer: processedBuffer,
+      processedSize: processedBuffer.length,
+      originalSize: originalSize ?? 0,
+      duration,
+    };
+  } finally {
+    await unlink(outputPath).catch(() => {});
+  }
+}

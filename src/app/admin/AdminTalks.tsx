@@ -319,14 +319,6 @@ export function AdminTalks() {
   const pollTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   async function processTalk(talkId: string) {
-    let options: unknown;
-    try {
-      const saved = localStorage.getItem("waqt:admin:audio");
-      options = saved ? JSON.parse(saved) : undefined;
-    } catch {
-      /* use server defaults */
-    }
-
     // If the talk is stuck in "processing", force-reset it to "pending" first
     // so the process route doesn't reject it with 409 "already being processed".
     const stuckTalk = talks.find((t) => t.id === talkId);
@@ -341,7 +333,7 @@ export function AdminTalks() {
     const res = await fetch("/api/admin/talks/process", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ talkId, options }),
+      body: JSON.stringify({ talkId }),
     });
     if (res.ok) {
       await load();
@@ -994,30 +986,21 @@ function TalkRow({
   const isProcessing = status === "processing";
   const isPending = status === "pending";
 
-  // Estimate processing time from file size.
-  // MP3 at ~160kbps = ~1.2 MB/min of audio.
-  // Vercel Hobby plan: 300s max duration.
-  // Three tiers:
-  //   <25 MB:   Full processing (all filters, two-pass) ~6x realtime
-  //   25-50 MB: Fast mode (skip expensive filters) ~8x realtime
-  //   50-100 MB: Ultra-fast (just transcode, no filters) ~25x realtime
-  //   >100 MB:  Skip processing — uses original file directly
+  // Estimate compression time from file size.
+  // Opus transcode runs at ~30x realtime — single pass, no filters.
+  // Files >100MB skip compression (Hobby plan 300s limit).
   function estimateProcessingTime(): string {
     const mb = (talk.fileSize ?? 0) / (1024 * 1024);
-    if (mb > 100) return "no compression (too large for Hobby plan)";
-
-    const isHuge = mb > 50;
-    const isLarge = mb > 25;
-    const multiplier = isHuge ? 25 : isLarge ? 8 : 6;
+    if (mb > 100) return "no compression (too large)";
 
     if (talk.duration && talk.duration > 0) {
-      const seconds = Math.ceil(talk.duration / multiplier);
+      const seconds = Math.ceil(talk.duration / 30);
       if (seconds < 60) return `~${seconds}s`;
       return `~${Math.ceil(seconds / 60)} min`;
     }
-    if (!talk.fileSize) return "~1-3 min";
+    if (!talk.fileSize) return "~1-2 min";
     const audioMinutes = mb / 1.2; // 1.2 MB per minute at 160kbps
-    const processingSeconds = Math.ceil((audioMinutes * 60) / multiplier);
+    const processingSeconds = Math.ceil((audioMinutes * 60) / 30);
     if (processingSeconds < 60) return `~${processingSeconds}s`;
     return `~${Math.ceil(processingSeconds / 60)} min`;
   }
