@@ -47,8 +47,15 @@ export default function PrayerCheckinPopup({
   const timeMatch = localStr.match(/(\d+):(\d+)/);
   const currentMinutes = timeMatch ? parseInt(timeMatch[1]) * 60 + parseInt(timeMatch[2]) : now.getHours() * 60 + now.getMinutes();
 
+  // Today's date in the user's timezone (YYYY-MM-DD)
+  const todayInTz = now.toLocaleDateString("en-CA", { timeZone: timezone });
+  // If viewing a past day, the prayer window has already ended — never "before"
+  const isPastDay = date < todayInTz;
+
   const showMasjidDuringWindow = shouldShowMasjidQuestion(prayer, currentMinutes, timings);
-  const windowState = getPrayerWindowState(prayer, currentMinutes, timings);
+  const rawWindowState = getPrayerWindowState(prayer, currentMinutes, timings);
+  // For past days, "before" is impossible — treat as "ended" so logging is allowed
+  const windowState = isPastDay && rawWindowState === "before" ? "ended" : rawWindowState;
   const windowOpen = windowState === "open";
   const windowEnded = windowState === "ended";
   // Treat both "prayed" and "assumed_prayed" as already prayed (benefit of the doubt)
