@@ -116,6 +116,32 @@ const TYPE_BG: Record<string, string> = {
   reminder: "transparent",
 };
 
+// ── Manual date/time formatters (hydration-safe) ──
+// toLocaleDateString / toLocaleTimeString produce different output on Node.js
+// (server) vs browser (client), causing hydration mismatches in React 19.
+// These manual formatters produce identical output on both platforms.
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function formatTimeFromDate(d: Date): string {
+  if (isNaN(d.getTime())) return "";
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const hour = h % 12 || 12;
+  const period = h < 12 ? "AM" : "PM";
+  return `${hour}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+function formatShortDate(d: Date): string {
+  if (isNaN(d.getTime())) return "";
+  return `${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`;
+}
+
+function formatWeekdayShortDate(d: Date): string {
+  if (isNaN(d.getTime())) return "";
+  return `${DAY_SHORT[d.getDay()]}, ${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`;
+}
+
 // Deterministic color assignment for reminders based on title
 // Falls back to user-chosen color if set
 function getReminderColor(title: string, chosenColor?: string | null): string {
@@ -548,8 +574,10 @@ export default function DayViewClient({ date }: { date: string }) {
   }
 
   // Separate blocks (take time slots) from reminders (lines)
-  const blockEvents = events.filter((e) => e.type !== "reminder");
-  const reminderEvents = events.filter((e) => e.type === "reminder");
+  // Memoized so overlapLayout doesn't recompute on every render (e.g. when
+  // toggling the add-event form). The filter only needs to re-run when events change.
+  const blockEvents = useMemo(() => events.filter((e) => e.type !== "reminder"), [events]);
+  const reminderEvents = useMemo(() => events.filter((e) => e.type === "reminder"), [events]);
 
   // ── Greedy lane clustering for overlap layout ──
   // Computes a global column index + column count for each event based on
@@ -1755,7 +1783,7 @@ export default function DayViewClient({ date }: { date: string }) {
                             .sort((a, b) => a - b)
                             .map((d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d])
                             .join(", ")}{" "}
-                          until {new Date(recurrenceEndDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}.
+                          until {formatShortDate(new Date(recurrenceEndDate + "T00:00:00"))}.
                         </p>
                       )}
                     </div>
@@ -1818,7 +1846,6 @@ export default function DayViewClient({ date }: { date: string }) {
                             const evDateStr = `${evDate.getFullYear()}-${String(evDate.getMonth() + 1).padStart(2, "0")}-${String(evDate.getDate()).padStart(2, "0")}`;
                             const isCurrent = ev.id === editingEvent.id;
                             const evEnd = new Date(ev.endAt);
-                            const timeFmt = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
                             return (
                               <div
                                 key={ev.id}
@@ -1829,10 +1856,10 @@ export default function DayViewClient({ date }: { date: string }) {
                                 }}
                               >
                                 <span className="min-w-0 flex-1 truncate" style={{ color: "var(--color-ink)" }}>
-                                  {evDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                  {formatWeekdayShortDate(evDate)}
                                   <span className="ml-1.5 tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                                    {timeFmt(evDate)}
-                                    {ev.endAt !== ev.startAt && ` - ${timeFmt(evEnd)}`}
+                                    {formatTimeFromDate(evDate)}
+                                    {ev.endAt !== ev.startAt && ` - ${formatTimeFromDate(evEnd)}`}
                                   </span>
                                   {isCurrent && (
                                     <span className="ml-1.5 text-[10px] font-semibold" style={{ color: "var(--color-accent)" }}>

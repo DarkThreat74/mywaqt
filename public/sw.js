@@ -580,69 +580,31 @@ self.addEventListener("fetch", (event) => {
       return; // Let the browser handle it directly — no SW interference
     }
 
-    // ── App pages: stale-while-revalidate ──
-    // 1. Serve from PAGE_CACHE instantly (offline-first)
-    // 2. If online, use navigation preload response to update cache (no duplicate fetch)
-    // 3. If no cache and offline, fall back to any cached app page
+    // ── App pages: network-first (try network, fall back to cache when offline) ──
+    // CRITICAL: This MUST be network-first, not stale-while-revalidate.
+    // Pages like /calendar/day?date=2024-01-07 are force-dynamic — the server
+    // renders different HTML for each query string. If we serve cached HTML
+    // (keyed by pathname only, ignoring the query string), navigating to a
+    // different day serves the WRONG cached page. Network-first ensures the
+    // user always gets fresh HTML when online, and only falls back to cache
+    // when truly offline.
+    //
+    // The cache key is the FULL URL (including query string) so that each
+    // date variant gets its own cached entry for offline use.
     event.respondWith(
       (async () => {
         const pageCache = await caches.open(PAGE_CACHE);
-        const cached = await pageCache.match(pathname);
+        // Use the full URL (with query string) as the cache key so different
+        // dates don't collide. For URLs without query strings, this is just
+        // the pathname — same as before.
+        const cacheKey = url.pathname + url.search;
 
-        // Use navigation preload response for background revalidation.
-        // This avoids a duplicate fetch — the browser already pre-fetched
-        // the page while the SW was booting up.
-        const preloadResponse = await event.preloadResponse;
-
-        if (cached) {
-          // Background revalidation using preload response (if available)
-          if (preloadResponse) {
-            event.waitUntil(
-              (async () => {
-                try {
-                  const response = await preloadResponse;
-                  if (response && response.ok) {
-                    const body = await response.blob();
-                    const headers = new Headers(response.headers);
-                    headers.set("x-waqt-cached-at", String(Date.now()));
-                    const cachedRes = new Response(body, {
-                      status: response.status,
-                      statusText: response.statusText,
-                      headers,
-                    });
-                    await pageCache.put(pathname, cachedRes);
-                  }
-                } catch { /* non-critical */ }
-              })()
-            );
-          } else if (navigator.onLine) {
-            // No preload — fetch fresh HTML in background
-            event.waitUntil(
-              fetch(request)
-                .then(async (response) => {
-                  if (response.ok) {
-                    const body = await response.blob();
-                    const headers = new Headers(response.headers);
-                    headers.set("x-waqt-cached-at", String(Date.now()));
-                    const cachedRes = new Response(body, {
-                      status: response.status,
-                      statusText: response.statusText,
-                      headers,
-                    });
-                    await pageCache.put(pathname, cachedRes);
-                  }
-                })
-                .catch(() => {})
-            );
-          }
-          return cached;
-        }
-
-        // No cache — try navigation preload response first (if available),
-        // then fall back to a regular fetch.
+        // Try network first (use navigation preload if available)
         try {
+          const preloadResponse = await event.preloadResponse;
           const response = preloadResponse || await fetch(request);
           if (response && response.ok) {
+            // Cache the fresh HTML (keyed by full URL) for offline use
             const body = await response.blob();
             const headers = new Headers(response.headers);
             headers.set("x-waqt-cached-at", String(Date.now()));
@@ -651,12 +613,22 @@ self.addEventListener("fetch", (event) => {
               statusText: response.statusText,
               headers,
             });
-            await pageCache.put(pathname, cachedRes.clone());
+            await pageCache.put(cacheKey, cachedRes.clone());
             return cachedRes;
           }
+          // Non-ok response (e.g. redirect to /login) — return as-is
           return response || new Response("Offline", { status: 503 });
         } catch {
-          // Offline and no cache — serve any cached app page as fallback
+          // Network failed — fall back to cache (keyed by full URL)
+          const cached = await pageCache.match(cacheKey);
+          if (cached) return cached;
+
+          // No exact cache match — try pathname-only match (for pages without
+          // query strings that were cached by older SW versions)
+          const pathnameCached = await pageCache.match(pathname);
+          if (pathnameCached) return pathnameCached;
+
+          // No cache at all — serve any cached app page as fallback
           for (const fallbackPage of APP_PAGES) {
             const fallback = await pageCache.match(fallbackPage);
             if (fallback) return fallback;

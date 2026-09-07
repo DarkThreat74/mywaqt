@@ -78,6 +78,14 @@ function isSameDay(startAt: string, endAt: string): boolean {
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+// Manual date formatter — avoids toLocaleDateString which produces different
+// output on Node.js (server) vs browser (client), causing hydration mismatches
+// in React 19 / Next.js 16 that trigger the error boundary.
+function formatMonthDay(dateObj: Date): string {
+  return `${MONTH_NAMES[dateObj.getMonth()]} ${dateObj.getDate()}`;
+}
 
 export default function ListViewClient({ today }: { today: string }) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -344,7 +352,7 @@ export default function ListViewClient({ today }: { today: string }) {
                         {dayName}
                       </h2>
                       <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                        {dateObj.toLocaleDateString("en-US", { month: "long", day: "numeric" })}
+                        {formatMonthDay(dateObj)}
                         {isToday && <span className="ml-1.5 font-medium" style={{ color: "var(--color-accent)" }}>· Today</span>}
                         {isTomorrow && <span className="ml-1.5" style={{ color: "var(--color-ink-muted)" }}>· Tomorrow</span>}
                         {isYesterday && <span className="ml-1.5" style={{ color: "var(--color-ink-muted)" }}>· Yesterday</span>}

@@ -314,3 +314,44 @@ For customer and admin talk flows, verify 320px, 375px, 414px, and 768px:
 - Upload/processing state uses `aria-live` and cannot be accidentally dismissed.
 - Fixed player/navigation surfaces include `env(safe-area-inset-bottom)`.
 - Test reduced motion, keyboard navigation, offline launch, and reconnect.
+
+---
+
+## Service Worker Navigation Caching Rules
+
+### Navigation MUST be network-first, not stale-while-revalidate
+
+The service worker's navigation handler MUST try the network first and fall
+back to cache only when the network fails. Serving cached HTML first
+(stale-while-revalidate) breaks pages whose content depends on the URL query
+string:
+
+- `/calendar/day?date=2024-01-07` and `/calendar/day?date=2024-01-08` share
+  the same pathname (`/calendar/day`) but render completely different HTML.
+- If the SW caches by pathname only, every `?date=` variant serves the same
+  stale page — the user cannot switch days.
+
+### Cache keys MUST include the query string
+
+When caching navigation responses, use the **full URL** (pathname + search)
+as the cache key, not just the pathname. This ensures each date variant gets
+its own offline cache entry. Fall back to a pathname-only match only when the
+full URL has no cache entry (for older SW versions that used pathname-only keys).
+
+### What to cache vs. what to always fetch
+
+| Request type | Strategy | Why |
+|---|---|---|
+| Navigation (HTML pages) | Network-first | Pages are `force-dynamic`; query string changes content |
+| RSC/Flight payloads | Network-only | Tied to build ID + session; caching causes stale data |
+| `_next/static/` chunks | Cache-first | Content-hashed, immutable |
+| API GET (events, etc.) | Stale-while-revalidate | Data changes infrequently; SWR is safe for reads |
+| API writes (POST/PATCH/DELETE) | Online: pass-through, Offline: queue | Never cache writes |
+
+### Never serve a cached page for a different URL variant
+
+If the user navigates to `/calendar/day?date=2024-01-08` and the SW only has
+`/calendar/day` (no query string) cached, it MUST NOT serve that cached page
+as if it were the requested URL. The cached page was rendered for a different
+date. Instead, fetch from the network. Only serve the pathname-only cache as a
+last-resort fallback when the network is down AND no full-URL cache exists.

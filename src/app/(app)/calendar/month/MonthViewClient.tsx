@@ -32,6 +32,18 @@ function getReminderColor(title: string, chosenColor?: string | null): string {
   return REMINDER_COLORS[Math.abs(hash) % REMINDER_COLORS.length];
 }
 
+// Manual time formatter — avoids toLocaleTimeString which produces different
+// output on Node.js (server) vs browser (client), causing hydration mismatches.
+function formatEventTime(isoString: string): string {
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return "";
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const hour = h % 12 || 12;
+  const period = h < 12 ? "AM" : "PM";
+  return `${hour}:${String(m).padStart(2, "0")} ${period}`;
+}
+
 interface PrayerLogEntry {
   date: string;
   prayerName: string;
@@ -433,11 +445,7 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
                 {/* Event blocks — show up to maxVisibleEvents, then "+N more" */}
                 <div className="flex flex-col gap-0.5 overflow-hidden">
                   {blockEvents.slice(0, maxVisibleEvents).map((event) => {
-                    const fmt = new Date(event.startAt).toLocaleTimeString("en-US", {
-                      hour: "numeric",
-                      minute: "2-digit",
-                      hour12: true,
-                    });
+                    const fmt = formatEventTime(event.startAt);
                     const color = (event.color && event.color.length >= 4 ? event.color : null) || typeColors[event.type] || "var(--color-accent)";
                     return (
                       <div
