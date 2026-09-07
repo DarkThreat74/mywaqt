@@ -8,5 +8,11 @@
       "path": "/api/cron/prayer-times-sync",
       "schedule": "0 0 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "src/app/api/admin/talks/process/route.ts": {
+      "maxDuration": 900,
+      "memory": 1024
+    }
+  }
 }

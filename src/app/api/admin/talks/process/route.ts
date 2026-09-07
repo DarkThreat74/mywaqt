@@ -13,7 +13,7 @@ import { mkdir, stat, unlink } from "fs/promises";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 900; // 15 minutes — Vercel Pro max for background processing
-export const memory = 1024; // 1GB — Vercel Pro max, needed for large audio files
+// memory=1024 is set in vercel.json under functions config
 
 function processingOptions(value: unknown): ProcessingOptions {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
