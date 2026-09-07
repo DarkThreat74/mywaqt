@@ -45,9 +45,11 @@ function formatCurrency(amount: number, currency: string): string {
 }
 
 function formatCardNumber(total: number): string {
-  // Card number = total amount in cents, padded to 16 digits
-  const cents = Math.round(total * 100);
-  const padded = cents.toString().padStart(16, "0");
+  // Card number = total sadaqah amount, padded to 16 digits.
+  // Uses the dollar amount directly (not cents) so $1,000 shows as
+  // "0000 0000 0000 1000" — not "0010 0000" which reads as $10,000.
+  const rounded = Math.round(total);
+  const padded = rounded.toString().padStart(16, "0");
   return padded.replace(/(\d{4})(?=\d)/g, "$1 ");
 }
 

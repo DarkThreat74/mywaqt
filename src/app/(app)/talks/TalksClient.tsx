@@ -275,7 +275,7 @@ export default function TalksClient() {
         )
       : folderTalks;
     return (
-      <div className="mx-auto max-w-2xl">
+      <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 py-8 sm:px-6 sm:py-12">
         <button
           onClick={() => { setSelectedFolder(null); setSearchInput(""); }}
           className="mb-4 flex items-center gap-1.5 text-sm transition-opacity hover:opacity-70"
@@ -285,7 +285,7 @@ export default function TalksClient() {
         </button>
 
         {/* Folder header */}
-        <div className="mb-5">
+        <div className="mb-6">
           <div className="flex items-center gap-3">
             {selectedFolder.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -301,12 +301,12 @@ export default function TalksClient() {
               </div>
             )}
             <div className="min-w-0">
-              <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{selectedFolder.name}</h1>
-              <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>{folderTalks.length} {folderTalks.length === 1 ? "talk" : "talks"}</p>
+              <h1 className="text-xl font-semibold tracking-tight sm:text-2xl" style={{ color: "var(--color-ink)" }}>{selectedFolder.name}</h1>
+              <p className="mt-0.5 text-sm" style={{ color: "var(--color-ink-muted)" }}>{folderTalks.length} {folderTalks.length === 1 ? "talk" : "talks"}</p>
             </div>
           </div>
           {selectedFolder.description && (
-            <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>{selectedFolder.description}</p>
+            <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>{selectedFolder.description}</p>
           )}
         </div>
 
@@ -338,7 +338,7 @@ export default function TalksClient() {
             subtitle={folderQuery ? "Try a different search term or clear the search to see all talks." : "Talks added to this folder will appear here. Check back soon."}
           />
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {filteredFolderTalks.map((talk) => (
               <TalkCard
                 key={talk.id}
@@ -365,25 +365,33 @@ export default function TalksClient() {
   const talksToShow = activeFilter === "downloaded" ? downloadedTalks : talks;
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 py-8 sm:px-6 sm:py-12">
       {/* Header */}
-      <div className="mb-4">
-        <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Talks Library</h1>
-        <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+      <div className="mb-6">
+        <h1
+          className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl"
+          style={{ color: "var(--color-ink)" }}
+        >
+          Talks Library
+        </h1>
+        <p
+          className="text-sm leading-relaxed"
+          style={{ color: "var(--color-ink-muted)" }}
+        >
           Curated lectures and khutbahs from trusted speakers
         </p>
       </div>
 
       {/* Search bar */}
-      <div className="relative mb-3">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--color-ink-muted)" }} />
+      <div className="relative mb-4">
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--color-ink-muted)" }} />
         <input
           type="search"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Search by title, speaker, or topic…"
-          className="w-full rounded-xl border py-2.5 pl-10 pr-9 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+          className="w-full rounded-xl py-3.5 pl-11 pr-4 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
+          style={{ border: "1px solid var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 48 }}
           aria-label="Search talks"
         />
         {searchInput && (
@@ -395,7 +403,10 @@ export default function TalksClient() {
 
       {/* Filter pills */}
       {!searchQuery && (
-        <div className="mb-5 flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+        <div
+          className="mb-6 flex gap-1 rounded-xl p-1"
+          style={{ backgroundColor: "var(--color-paper-2)" }}
+        >
           <FilterPill active={activeFilter === "all"} onClick={() => setActiveFilter("all")} label="All" />
           <FilterPill active={activeFilter === "folders"} onClick={() => setActiveFilter("folders")} label="Folders" />
           <FilterPill active={activeFilter === "downloaded"} onClick={() => setActiveFilter("downloaded")} label={`Downloaded${downloadedTalks.length > 0 ? ` (${downloadedTalks.length})` : ""}`} />
@@ -445,7 +456,7 @@ export default function TalksClient() {
                   {!folder && folderId !== null && (
                     <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Unknown folder</p>
                   )}
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {folderTalks.map((talk) => (
                       <TalkCard
                         key={talk.id}
@@ -557,7 +568,7 @@ export default function TalksClient() {
               {talksToShow.length === 0 ? (
                 <p className="px-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>No talks available.</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {talksToShow.map((talk) => (
                     <TalkCard
                       key={talk.id}
@@ -585,12 +596,12 @@ function FilterPill({ active, onClick, label }: { active: boolean; onClick: () =
   return (
     <button
       onClick={onClick}
-      className="shrink-0 rounded-full px-3.5 py-2.5 text-xs font-medium transition-colors"
-      style={
-        active
-          ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
-          : { backgroundColor: "transparent", color: "var(--color-ink-muted)", border: "1px solid var(--color-paper-3)" }
-      }
+      className="flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors"
+      style={{
+        backgroundColor: active ? "var(--color-paper)" : "transparent",
+        color: active ? "var(--color-ink)" : "var(--color-ink-muted)",
+        boxShadow: active ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+      }}
     >
       {label}
     </button>
@@ -708,8 +719,8 @@ function TalkCard({
   const isExternal = !talk.streamUrl && talk.externalUrl;
   return (
     <div
-      className="flex items-center gap-3 rounded-xl border p-3.5 transition-colors"
-      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+      className="flex items-center gap-3 rounded-xl border p-4 transition-colors hover:bg-[var(--color-paper-2)] sm:gap-4 sm:p-5"
+      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", minHeight: 64 }}
     >
       {/* Play button */}
       {isExternal ? (
@@ -717,38 +728,38 @@ function TalkCard({
           href={talk.externalUrl!}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors"
           style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}
           aria-label={`Open ${talk.title} externally`}
         >
-          <ExternalLink className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
+          <ExternalLink className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
         </a>
       ) : (
         <button
           onClick={onPlay}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-transform active:scale-95"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-transform active:scale-95"
           style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}
           aria-label={`Play ${talk.title}`}
         >
-          <Play className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
+          <Play className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
         </button>
       )}
 
       {/* Content */}
       <div className="min-w-0 flex-1">
-        <h3 className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{talk.title}</h3>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <h3 className="truncate text-sm font-semibold leading-tight sm:text-base" style={{ color: "var(--color-ink)" }}>{talk.title}</h3>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
           {talk.speaker && (
-            <span className="truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>{talk.speaker}</span>
+            <span className="truncate text-xs sm:text-[13px]" style={{ color: "var(--color-ink-muted)" }}>{talk.speaker}</span>
           )}
           {talk.duration && (
-            <span className="flex items-center gap-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-              <Clock className="h-2.5 w-2.5" /> {formatDuration(talk.duration)}
+            <span className="flex items-center gap-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              <Clock className="h-3 w-3" /> {formatDuration(talk.duration)}
             </span>
           )}
           {isOffline && (
-            <span className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)", color: "var(--color-success)" }}>
-              <Download className="h-2 w-2" /> Offline
+            <span className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)", color: "var(--color-success)" }}>
+              <Download className="h-2.5 w-2.5" /> Offline
             </span>
           )}
         </div>
@@ -759,7 +770,7 @@ function TalkCard({
         <button
           onClick={isOffline ? onRemoveDownload : onDownload}
           disabled={isDownloading}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-50"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-50"
           style={{
             color: isOffline ? "var(--color-success)" : "var(--color-ink-muted)",
             backgroundColor: isOffline

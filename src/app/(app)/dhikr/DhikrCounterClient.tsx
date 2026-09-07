@@ -208,9 +208,10 @@ export default function DhikrCounterClient() {
           <button
             onClick={handleTap}
             disabled={isComplete}
-            className="relative flex flex-1 flex-col items-center justify-center overflow-hidden rounded-3xl border transition-colors active:scale-[0.99] disabled:cursor-default"
+            className="relative flex flex-1 flex-col items-center justify-center overflow-y-auto rounded-3xl border transition-colors active:scale-[0.99] disabled:cursor-default"
             style={{
               minHeight: "min(60vh, 440px)",
+              maxHeight: "min(75dvh, 560px)",
               backgroundColor: isComplete
                 ? "color-mix(in oklab, var(--color-success) 6%, var(--color-paper))"
                 : "var(--color-paper)",
@@ -241,14 +242,17 @@ export default function DhikrCounterClient() {
 
         {/* ── Arabic phrase ── */}
         {current && (
-          <div className="mb-8 px-6 text-center">
+          <div className="mb-8 min-w-0 max-w-full px-6 text-center">
             <p
-              className="text-3xl leading-loose sm:text-4xl"
-              style={{ color: "var(--color-ink)", fontFamily: "var(--font-amiri, serif)", direction: "rtl" }}
+              className="max-w-full break-words text-2xl leading-snug sm:text-3xl"
+              style={{ color: "var(--color-ink)", fontFamily: "var(--font-amiri, serif)", direction: "rtl", overflowWrap: "break-word" }}
             >
               {current.phraseArabic}
             </p>
-            <p className="mt-1.5 text-sm italic" style={{ color: "var(--color-ink-soft)" }}>
+            <p
+              className="mt-1.5 max-w-full break-words text-sm italic"
+              style={{ color: "var(--color-ink-soft)", overflowWrap: "break-word" }}
+            >
               {current.phraseTransliteration}
             </p>
           </div>

@@ -127,16 +127,19 @@ export default function NamesClient() {
   const isSearching = trimmed.length > 0;
 
   return (
-    <div
-      className="mx-auto max-w-2xl"
-      style={{ overflowX: "clip", paddingTop: "env(safe-area-inset-top)" }}
-    >
+    <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 py-8 sm:px-6 sm:py-12">
       {/* ── Header ── */}
-      <div className="mb-5">
-        <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
+      <div className="mb-6">
+        <h1
+          className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl"
+          style={{ color: "var(--color-ink)" }}
+        >
           99 Names of Allah
         </h1>
-        <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+        <p
+          className="text-sm leading-relaxed"
+          style={{ color: "var(--color-ink-muted)" }}
+        >
           Asma ul Husna · The Beautiful Names
         </p>
       </div>
