@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v33";
+const CACHE_VERSION = "waqt-v34";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -198,14 +198,6 @@ async function warmCache() {
     const cache = await caches.open(PAGE_CACHE);
     const results = await Promise.allSettled(
       APP_PAGES.map(async (page) => {
-        // Don't re-fetch if already cached and fresh (within 1 hour)
-        const existing = await cache.match(page);
-        if (existing) {
-          const cachedAt = existing.headers.get("x-waqt-cached-at");
-          if (cachedAt && Date.now() - parseInt(cachedAt, 10) < 60 * 60 * 1000) {
-            return; // Still fresh
-          }
-        }
         const res = await fetch(page, {
           credentials: "include",
           redirect: "manual", // Don't follow redirects to /login
