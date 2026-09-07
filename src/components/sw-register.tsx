@@ -91,27 +91,25 @@ export default function ServiceWorkerRegister() {
 
     navigator.serviceWorker.addEventListener("message", handleMessage);
 
-    // ── Check for updates every 5 minutes (not 60s — too aggressive) ──
+    // ── Check for updates every 6 hours (was 5 min — too aggressive at 100k scale) ──
+    // The browser also checks for SW updates on navigation by default.
     const interval = setInterval(() => {
       navigator.serviceWorker.getRegistration().then((reg) => {
         if (reg) reg.update();
       });
-    }, 5 * 60_000);
+    }, 6 * 60 * 60_000);
 
-    // ── On 'online' event, tell SW to sync outbox and warm cache ──
+    // ── On 'online' event, tell SW to sync outbox (don't warm cache — SW does it on activate) ──
     const handleOnline = () => {
       navigator.serviceWorker.controller?.postMessage({ type: "SYNC_OUTBOX" });
-      navigator.serviceWorker.controller?.postMessage({ type: "WARM_CACHE" });
     };
     window.addEventListener("online", handleOnline);
 
     // ── iOS Safari fallback: Background Sync API is not supported ──
-    // When the app becomes visible again (user switches back to the tab),
-    // trigger a sync in case we came back online while in the background.
+    // When the app becomes visible again, trigger a sync only (not warm cache).
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible" && navigator.onLine) {
         navigator.serviceWorker.controller?.postMessage({ type: "SYNC_OUTBOX" });
-        navigator.serviceWorker.controller?.postMessage({ type: "WARM_CACHE" });
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -120,10 +118,6 @@ export default function ServiceWorkerRegister() {
     // the app was reopened while online but SW didn't fire sync)
     if (navigator.onLine) {
       navigator.serviceWorker.controller?.postMessage({ type: "SYNC_OUTBOX" });
-      // Warm cache: prefetch all app pages so they're available offline.
-      // This runs on every load while online — the SW skips pages that
-      // are already cached and fresh (within 1 hour).
-      navigator.serviceWorker.controller?.postMessage({ type: "WARM_CACHE" });
     }
 
     return () => {
@@ -149,8 +143,12 @@ async function subscribeToPush(registration: ServiceWorkerRegistration) {
     // Check if already subscribed
     const existing = await registration.pushManager.getSubscription();
     if (existing) {
-      // Re-send to server in case it changed
+      // Only re-send to server if the subscription changed since last time.
+      // Storing the last-sent endpoint in localStorage avoids a POST on every load.
+      const lastSent = localStorage.getItem("waqt:push-endpoint");
+      if (lastSent === existing.endpoint) return; // Already registered — skip
       await sendSubscriptionToServer(existing);
+      localStorage.setItem("waqt:push-endpoint", existing.endpoint);
       return;
     }
 
@@ -167,6 +165,7 @@ async function subscribeToPush(registration: ServiceWorkerRegistration) {
     });
 
     await sendSubscriptionToServer(subscription);
+    localStorage.setItem("waqt:push-endpoint", subscription.endpoint);
   } catch (err) {
     console.warn("Push subscription failed:", err);
   }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, gte, lte, asc, lt } from "drizzle-orm";
+import { eq, and, gte, lte, asc, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -7,9 +7,11 @@ import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/homework — list all homework for the user
+// GET /api/homework — list homework for the user (capped at 200 most recent)
 // GET /api/homework?from=YYYY-MM-DD&to=YYYY-MM-DD — list homework in a date range
-// Also auto-prunes completed homework older than 30 days to prevent DB bloat.
+// GET /api/homework?date=YYYY-MM-DD — list homework due on a specific date
+// Note: auto-pruning of old completed homework moved to a cron job to avoid
+// turning every read into a write (critical for 100k user scale).
 export async function GET(request: NextRequest) {
   try {
     const session = await getSessionFromRequest(request);
@@ -25,12 +27,39 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const fromStr = searchParams.get("from");
     const toStr = searchParams.get("to");
+    const dateStr = searchParams.get("date");
 
-    let query = db
-      .select()
-      .from(schema.homeworks)
-      .where(eq(schema.homeworks.userId, session.userId));
+    // Project only the columns the client needs — reduces payload at 100k scale
+    const columns = {
+      id: schema.homeworks.id,
+      title: schema.homeworks.title,
+      description: schema.homeworks.description,
+      classId: schema.homeworks.classId,
+      dueDate: schema.homeworks.dueDate,
+      dueTime: schema.homeworks.dueTime,
+      priority: schema.homeworks.priority,
+      status: schema.homeworks.status,
+      kind: schema.homeworks.kind,
+      completedAt: schema.homeworks.completedAt,
+    };
 
+    // Single-date query: only homework due on that specific date
+    if (dateStr) {
+      const homework = await db
+        .select(columns)
+        .from(schema.homeworks)
+        .where(
+          and(
+            eq(schema.homeworks.userId, session.userId),
+            eq(schema.homeworks.dueDate, dateStr),
+          ),
+        )
+        .orderBy(asc(schema.homeworks.dueDate), asc(schema.homeworks.dueTime))
+        .limit(100);
+      return NextResponse.json(homework);
+    }
+
+    // Date-range query
     if (fromStr && toStr) {
       const fromDate = new Date(fromStr + "T00:00:00");
       const toDate = new Date(toStr + "T23:59:59.999");
@@ -41,8 +70,8 @@ export async function GET(request: NextRequest) {
       if (toDate.getTime() - fromDate.getTime() > maxRange) {
         return NextResponse.json({ error: "Date range cannot exceed 1 year." }, { status: 400 });
       }
-      query = db
-        .select()
+      const homework = await db
+        .select(columns)
         .from(schema.homeworks)
         .where(
           and(
@@ -50,28 +79,28 @@ export async function GET(request: NextRequest) {
             gte(schema.homeworks.dueDate, fromStr),
             lte(schema.homeworks.dueDate, toStr),
           ),
-        );
+        )
+        .orderBy(asc(schema.homeworks.dueDate), asc(schema.homeworks.dueTime))
+        .limit(500);
+      return NextResponse.json(homework);
     }
 
-    const homework = await query.orderBy(asc(schema.homeworks.dueDate), asc(schema.homeworks.dueTime));
-
-    // Auto-prune: delete completed homework older than 30 days to prevent DB bloat.
-    // Best-effort — doesn't block the response if it fails.
-    try {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      await db
-        .delete(schema.homeworks)
-        .where(
-          and(
-            eq(schema.homeworks.userId, session.userId),
-            eq(schema.homeworks.status, "completed"),
-            lt(schema.homeworks.completedAt, cutoff),
-          ),
-        );
-    } catch {
-      // non-critical — prune failure shouldn't block the read
-    }
+    // No date filter — return only pending + recently completed (last 30 days)
+    // This prevents loading years of old homework on every page load
+    const recentCutoff = new Date();
+    recentCutoff.setDate(recentCutoff.getDate() - 30);
+    const homework = await db
+      .select(columns)
+      .from(schema.homeworks)
+      .where(
+        and(
+          eq(schema.homeworks.userId, session.userId),
+          // Only pending homework OR completed within last 30 days
+          sql`(${schema.homeworks.status} = 'pending' OR ${schema.homeworks.completedAt} >= ${recentCutoff.toISOString()})`,
+        ),
+      )
+      .orderBy(asc(schema.homeworks.dueDate), asc(schema.homeworks.dueTime))
+      .limit(200);
 
     return NextResponse.json(homework);
   } catch (err) {

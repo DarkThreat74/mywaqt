@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v32";
+const CACHE_VERSION = "waqt-v33";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -186,39 +186,51 @@ async function syncOutbox() {
 // Fetches each app page and caches the HTML. If a page fails, it's skipped
 // (will be cached on next visit). This is critical for offline-first:
 // without it, pages the user hasn't visited won't load offline.
+// Concurrency guard: prevent overlapping warmCache calls from multiple triggers
+// (install + activate + WARM_CACHE messages can fire in quick succession).
+let isWarming = false;
+let lastWarmTime = 0;
 async function warmCache() {
-  const cache = await caches.open(PAGE_CACHE);
-  const results = await Promise.allSettled(
-    APP_PAGES.map(async (page) => {
-      // Don't re-fetch if already cached and fresh (within 1 hour)
-      const existing = await cache.match(page);
-      if (existing) {
-        const cachedAt = existing.headers.get("x-waqt-cached-at");
-        if (cachedAt && Date.now() - parseInt(cachedAt, 10) < 60 * 60 * 1000) {
-          return; // Still fresh
+  // Deduplicate: if we warmed within the last 10 minutes, skip
+  if (isWarming || (Date.now() - lastWarmTime < 10 * 60 * 1000)) return;
+  isWarming = true;
+  try {
+    const cache = await caches.open(PAGE_CACHE);
+    const results = await Promise.allSettled(
+      APP_PAGES.map(async (page) => {
+        // Don't re-fetch if already cached and fresh (within 1 hour)
+        const existing = await cache.match(page);
+        if (existing) {
+          const cachedAt = existing.headers.get("x-waqt-cached-at");
+          if (cachedAt && Date.now() - parseInt(cachedAt, 10) < 60 * 60 * 1000) {
+            return; // Still fresh
+          }
         }
-      }
-      const res = await fetch(page, {
-        credentials: "include",
-        redirect: "manual", // Don't follow redirects to /login
-      });
-      // Only cache successful responses (not redirects to /login)
-      if (res.ok || res.status === 304) {
-        // Clone and add a custom header for cache freshness tracking
-        const body = await res.blob();
-        const headers = new Headers(res.headers);
-        headers.set("x-waqt-cached-at", String(Date.now()));
-        const cachedRes = new Response(body, {
-          status: res.status,
-          statusText: res.statusText,
-          headers,
+        const res = await fetch(page, {
+          credentials: "include",
+          redirect: "manual", // Don't follow redirects to /login
         });
-        await cache.put(page, cachedRes);
-      }
-    })
-  );
-  const succeeded = results.filter((r) => r.status === "fulfilled").length;
-  return succeeded;
+        // Only cache successful responses (not redirects to /login)
+        if (res.ok || res.status === 304) {
+          // Clone and add a custom header for cache freshness tracking
+          const body = await res.blob();
+          const headers = new Headers(res.headers);
+          headers.set("x-waqt-cached-at", String(Date.now()));
+          const cachedRes = new Response(body, {
+            status: res.status,
+            statusText: res.statusText,
+            headers,
+          });
+          await cache.put(page, cachedRes);
+        }
+      })
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    lastWarmTime = Date.now();
+    return succeeded;
+  } finally {
+    isWarming = false;
+  }
 }
 
 // ─── Install: precache app shell ───
@@ -538,42 +550,67 @@ self.addEventListener("fetch", (event) => {
 
     // ── App pages: stale-while-revalidate ──
     // 1. Serve from PAGE_CACHE instantly (offline-first)
-    // 2. If online, fetch fresh HTML in background and update cache
+    // 2. If online, use navigation preload response to update cache (no duplicate fetch)
     // 3. If no cache and offline, fall back to any cached app page
     event.respondWith(
       (async () => {
         const pageCache = await caches.open(PAGE_CACHE);
         const cached = await pageCache.match(pathname);
 
-        // Background revalidation — keep SW alive during cache write
-        if (navigator.onLine) {
-          event.waitUntil(
-            fetch(request)
-              .then(async (response) => {
-                if (response.ok) {
-                  const body = await response.blob();
-                  const headers = new Headers(response.headers);
-                  headers.set("x-waqt-cached-at", String(Date.now()));
-                  const cachedRes = new Response(body, {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers,
-                  });
-                  await pageCache.put(pathname, cachedRes);
-                }
-              })
-              .catch(() => {})
-          );
-        }
+        // Use navigation preload response for background revalidation.
+        // This avoids a duplicate fetch — the browser already pre-fetched
+        // the page while the SW was booting up.
+        const preloadResponse = await event.preloadResponse;
 
-        if (cached) return cached;
+        if (cached) {
+          // Background revalidation using preload response (if available)
+          if (preloadResponse) {
+            event.waitUntil(
+              (async () => {
+                try {
+                  const response = await preloadResponse;
+                  if (response && response.ok) {
+                    const body = await response.blob();
+                    const headers = new Headers(response.headers);
+                    headers.set("x-waqt-cached-at", String(Date.now()));
+                    const cachedRes = new Response(body, {
+                      status: response.status,
+                      statusText: response.statusText,
+                      headers,
+                    });
+                    await pageCache.put(pathname, cachedRes);
+                  }
+                } catch { /* non-critical */ }
+              })()
+            );
+          } else if (navigator.onLine) {
+            // No preload — fetch fresh HTML in background
+            event.waitUntil(
+              fetch(request)
+                .then(async (response) => {
+                  if (response.ok) {
+                    const body = await response.blob();
+                    const headers = new Headers(response.headers);
+                    headers.set("x-waqt-cached-at", String(Date.now()));
+                    const cachedRes = new Response(body, {
+                      status: response.status,
+                      statusText: response.statusText,
+                      headers,
+                    });
+                    await pageCache.put(pathname, cachedRes);
+                  }
+                })
+                .catch(() => {})
+            );
+          }
+          return cached;
+        }
 
         // No cache — try navigation preload response first (if available),
         // then fall back to a regular fetch.
         try {
-          const preloadResponse = await event.preloadResponse;
           const response = preloadResponse || await fetch(request);
-          if (response.ok) {
+          if (response && response.ok) {
             const body = await response.blob();
             const headers = new Headers(response.headers);
             headers.set("x-waqt-cached-at", String(Date.now()));
@@ -585,7 +622,7 @@ self.addEventListener("fetch", (event) => {
             await pageCache.put(pathname, cachedRes.clone());
             return cachedRes;
           }
-          return response;
+          return response || new Response("Offline", { status: 503 });
         } catch {
           // Offline and no cache — serve any cached app page as fallback
           for (const fallbackPage of APP_PAGES) {

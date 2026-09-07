@@ -32,7 +32,13 @@ export async function GET(request: NextRequest) {
   }
 
   const logs = await db
-    .select()
+    .select({
+      id: schema.prayerLog.id,
+      date: schema.prayerLog.date,
+      prayerName: schema.prayerLog.prayerName,
+      status: schema.prayerLog.status,
+      wentToMasjid: schema.prayerLog.wentToMasjid,
+    })
     .from(schema.prayerLog)
     .where(
       and(

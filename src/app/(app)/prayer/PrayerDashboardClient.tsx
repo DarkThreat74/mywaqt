@@ -247,9 +247,12 @@ export default function PrayerDashboard() {
     };
   }, []);
 
-  const todayStr = (currentTime ?? new Date(0)).toLocaleDateString("en-CA");
+  const todayStr = currentTime
+    ? currentTime.toLocaleDateString("en-CA")
+    : null; // null until client mounts — prevents fetching with 1970-01-01
 
   const fetchTodayData = useCallback(async () => {
+    if (!todayStr) return;
     try {
       const [logsRes, sunnahRes, timesRes] = await Promise.all([
         fetch(`/api/prayer-log?date=${todayStr}`).catch(() => null),
@@ -281,6 +284,9 @@ export default function PrayerDashboard() {
   }, [todayStr]);
 
   useEffect(() => {
+    // Skip fetching until todayStr is resolved (prevents 1970-01-01 double-fetch)
+    if (!todayStr) return;
+
     let cancelled = false;
 
     (async () => {
@@ -647,6 +653,7 @@ export default function PrayerDashboard() {
   }
 
   async function handleToggleSunnah(sunnahKey: string) {
+    if (!todayStr) return; // Not ready yet
     const isLogged = todaySunnahs.includes(sunnahKey);
     setSunnahError(null);
     try {
@@ -1124,7 +1131,7 @@ export default function PrayerDashboard() {
                                     color: "var(--color-ink-muted)",
                                   }}
                                 >
-                                  Pending
+                                  Missed
                                 </span>
                               ) : (
                                 <span

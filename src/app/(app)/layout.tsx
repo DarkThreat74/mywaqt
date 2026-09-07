@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { cache } from "react";
 import { getSession } from "@/lib/auth/session";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
@@ -17,25 +18,15 @@ import GlobalAudioPlayer from "@/components/global-audio-player";
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const session = await getSession();
-  if (!session) redirect("/login");
-
-  // Check if the user has completed all required settings:
-  //   1. Display name
-  //   2. Location (latitude/longitude)
-  //   3. Calculation method
-  //   4. Madhab
-  // If any are missing, show a red dot on Settings.
-  // Wrap in try-catch so a DB failure doesn't crash the entire layout.
-  let needsSettings = false;
+// React.cache() deduplicates the settings check within a single request.
+// If child pages also query prayerSettings, the DB hit is shared.
+const getNeedsSettings = cache(async (userId: string): Promise<boolean> => {
   try {
-    // Parallelize user + prayer settings queries (no dependency between them)
     const [userRows, settingsRows] = await Promise.all([
       db
         .select({ displayName: schema.users.displayName })
         .from(schema.users)
-        .where(eq(schema.users.id, session.userId))
+        .where(eq(schema.users.id, userId))
         .limit(1),
       db
         .select({
@@ -45,25 +36,29 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           madhab: schema.prayerSettings.madhab,
         })
         .from(schema.prayerSettings)
-        .where(eq(schema.prayerSettings.userId, session.userId))
+        .where(eq(schema.prayerSettings.userId, userId))
         .limit(1),
     ]);
 
     const [user] = userRows;
-    needsSettings = !user?.displayName;
+    if (!user?.displayName) return true;
 
-    if (!needsSettings) {
-      const [settings] = settingsRows;
-      // Show dot if no settings row, no location, no calculation method, or no madhab
-      if (!settings) needsSettings = true;
-      else if (!settings.latitude || !settings.longitude) needsSettings = true;
-      else if (!settings.calculationMethod) needsSettings = true;
-      else if (!settings.madhab) needsSettings = true;
-    }
+    const [settings] = settingsRows;
+    if (!settings) return true;
+    if (!settings.latitude || !settings.longitude) return true;
+    if (!settings.calculationMethod) return true;
+    if (!settings.madhab) return true;
+    return false;
   } catch {
-    // If the query fails, don't show the dot — better to render the app than crash
-    needsSettings = false;
+    return false;
   }
+});
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSession();
+  if (!session) redirect("/login");
+
+  const needsSettings = await getNeedsSettings(session.userId);
 
   const navItems = [
     { label: "Calendar", href: "/calendar/day", icon: Calendar, alert: false },
@@ -163,7 +158,6 @@ function NavItem({ label, href, icon: Icon, alert }: { label: string; href: stri
   return (
     <Link
       href={href}
-      prefetch
       className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
       style={{ color: "var(--color-ink-soft)" }}
     >
@@ -186,7 +180,6 @@ function MobileNavItem({ label, href, icon: Icon, alert }: { label: string; href
   return (
     <Link
       href={href}
-      prefetch
       className="flex min-w-0 flex-1 flex-col items-center gap-1 py-3 text-[11px] font-medium"
       style={{ color: "var(--color-ink-muted)", minHeight: 44 }}
     >

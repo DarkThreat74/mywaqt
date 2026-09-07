@@ -8,6 +8,19 @@ import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
+// Project only the columns the calendar clients need — reduces payload at 100k scale
+const EVENT_COLUMNS = {
+  id: schema.events.id,
+  title: schema.events.title,
+  startAt: schema.events.startAt,
+  endAt: schema.events.endAt,
+  type: schema.events.type,
+  color: schema.events.color,
+  notify: schema.events.notify,
+  recurrenceRule: schema.events.recurrenceRule,
+  seriesId: schema.events.seriesId,
+};
+
 // GET /api/events?date=YYYY-MM-DD — list events for a specific day (in user's timezone)
 // GET /api/events?from=YYYY-MM-DD&to=YYYY-MM-DD — list events in a date range
 export async function GET(request: NextRequest) {
@@ -33,7 +46,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Valid seriesId is required." }, { status: 400 });
     }
     const events = await db
-      .select()
+      .select(EVENT_COLUMNS)
       .from(schema.events)
       .where(
         and(
@@ -62,7 +75,7 @@ export async function GET(request: NextRequest) {
     }
 
     const events = await db
-      .select()
+      .select(EVENT_COLUMNS)
       .from(schema.events)
       .where(
         and(
@@ -92,7 +105,7 @@ export async function GET(request: NextRequest) {
   }
 
   const events = await db
-    .select()
+    .select(EVENT_COLUMNS)
     .from(schema.events)
     .where(
       and(

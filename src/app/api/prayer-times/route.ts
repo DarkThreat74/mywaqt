@@ -34,7 +34,14 @@ export async function GET(request: NextRequest) {
       .where(eq(schema.prayerSettings.userId, session.userId))
       .limit(1),
     db
-      .select()
+      .select({
+        fajr: schema.prayerTimesCache.fajr,
+        sunrise: schema.prayerTimesCache.sunrise,
+        dhuhr: schema.prayerTimesCache.dhuhr,
+        asr: schema.prayerTimesCache.asr,
+        maghrib: schema.prayerTimesCache.maghrib,
+        isha: schema.prayerTimesCache.isha,
+      })
       .from(schema.prayerTimesCache)
       .where(
         and(

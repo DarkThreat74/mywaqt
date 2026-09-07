@@ -239,7 +239,7 @@ export default function DayViewClient({ date }: { date: string }) {
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
-          fetch(`/api/homework`).catch(() => null),
+          fetch(`/api/homework?date=${date}`).catch(() => null),
         ]);
 
         if (cancelled) return;
