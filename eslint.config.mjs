@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Third-party skill/tool installations (not project source code)
+    ".claude/**",
+    ".agents/**",
+    ".devin/**",
   ]),
 ]);
 

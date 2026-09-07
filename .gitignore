@@ -41,10 +41,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Embedded skill repos
+# Embedded skill repos / third-party tool installations
 .devin/skills/hallmark/
 .devin/skills/*/
-.claude/skills/
+.claude/
 .agents/skills/
 skills-lock.json
 

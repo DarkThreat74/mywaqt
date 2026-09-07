@@ -326,8 +326,8 @@ export default async function MarketingPage() {
             </StaggerItem>
             <StaggerItem>
               <Feature
-                title="Hijri calendar & converter"
-                body="See the Islamic date alongside the Gregorian date everywhere. Convert any date between Gregorian and Hijri with the built-in converter tool."
+                title="Hijri calendar"
+                body="See the Islamic date alongside the Gregorian date everywhere — on the calendar, day view, and prayer pages. The Hijri date is computed locally and stays in sync as you navigate."
               />
             </StaggerItem>
             <StaggerItem>

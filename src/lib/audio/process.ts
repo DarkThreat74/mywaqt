@@ -1,8 +1,7 @@
 import 'server-only';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
-import { path as ffprobePath } from 'ffprobe-static';
-import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
+import { writeFile, readFile, unlink, mkdir, access } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -10,8 +9,29 @@ import { tmpdir } from 'os';
 if (ffmpegPath) {
   ffmpeg.setFfmpegPath(ffmpegPath);
 }
-if (ffprobePath) {
-  ffmpeg.setFfprobePath(ffprobePath);
+
+// Verify the ffmpeg binary exists at the resolved path. On Vercel serverless,
+// the binary may not be bundled correctly — we catch this early with a clear
+// error message instead of a cryptic ENOENT spawn error during processing.
+let ffmpegBinaryChecked = false;
+async function verifyFfmpegBinary(): Promise<void> {
+  if (ffmpegBinaryChecked) return;
+  if (!ffmpegPath) {
+    throw new Error(
+      'FFmpeg binary path is not resolved. The ffmpeg-static package may not be installed correctly. ' +
+      'Run `pnpm install` to ensure all dependencies are present.'
+    );
+  }
+  try {
+    await access(ffmpegPath);
+    ffmpegBinaryChecked = true;
+  } catch {
+    throw new Error(
+      `FFmpeg binary not found at expected path: ${ffmpegPath}. ` +
+      'This is a deployment/bundling issue — the ffmpeg-static binary was not included in the serverless function bundle. ' +
+      'Ensure ffmpeg-static is in your dependencies and not excluded by build configuration.'
+    );
+  }
 }
 
 export interface ProcessingOptions {
@@ -64,26 +84,108 @@ export interface AudioProbeInfo {
 }
 
 /**
- * Probe audio file metadata using FFprobe.
+ * Probe audio file metadata using FFmpeg (not FFprobe).
+ *
+ * Why not FFprobe? The `ffprobe-static` package ships platform-specific
+ * binaries in subdirectories that don't get bundled correctly on Vercel
+ * serverless — the binary exists in node_modules locally but is missing
+ * from the deployed function, causing `spawn ... ENOENT` errors.
+ *
+ * FFmpeg can output the same metadata to stderr when given `-i <input>`.
+ * We parse the stderr output for duration, sample rate, channels, and codec.
+ * This uses only the `ffmpeg-static` binary, which is known to work on Vercel.
  */
 async function probeAudioPath(filePath: string): Promise<AudioProbeInfo> {
+  await verifyFfmpegBinary();
+
   return new Promise<AudioProbeInfo>((resolve, reject) => {
-    ffmpeg.ffprobe(filePath, (err, data) => {
-      if (err) { reject(err); return; }
-      const audioStream = data.streams.find((s) => s.codec_type === 'audio');
-      const duration = data.format?.duration;
-      resolve({
-        duration: duration ? Math.round(typeof duration === 'string' ? parseFloat(duration) : duration) : 0,
-        sampleRate: audioStream?.sample_rate || 44100,
-        channels: audioStream?.channels || 1,
-        bitrate: data.format?.bit_rate ? parseInt(String(data.format.bit_rate)) : 0,
-        codec: audioStream?.codec_name || 'unknown',
-      });
+    let stderrData = '';
+
+    const command = ffmpeg(filePath)
+      .format('null')
+      .outputOptions(['-f null']);
+
+    command.on('stderr', (line: string) => {
+      stderrData += line + '\n';
     });
+
+    command.on('error', (err: Error) => {
+      // Even on "error", FFmpeg may have output metadata to stderr.
+      // The -f null output with no audio codec will produce an error,
+      // but the input metadata is still in stderr. Try to parse it.
+      const info = parseFfmpegStderr(stderrData);
+      if (info) {
+        resolve(info);
+      } else {
+        reject(new Error(`Audio probing failed: ${err.message}`));
+      }
+    });
+
+    command.on('end', () => {
+      const info = parseFfmpegStderr(stderrData);
+      if (info) {
+        resolve(info);
+      } else {
+        // Fallback: couldn't parse stderr, return defaults
+        resolve({
+          duration: 0,
+          sampleRate: 44100,
+          channels: 2,
+          bitrate: 0,
+          codec: 'unknown',
+        });
+      }
+    });
+
+    // Save to /dev/null (or NUL on Windows) — we only want the stderr metadata
+    command.save(process.platform === 'win32' ? 'NUL' : '/dev/null');
   });
 }
 
+/**
+ * Parse FFmpeg stderr output for audio metadata.
+ *
+ * FFmpeg outputs lines like:
+ *   Duration: 00:03:45.23, start: 0.000000, bitrate: 160 kb/s
+ *   Stream #0:1: Audio: mp3, 44100 Hz, stereo, fltp, 160 kb/s
+ */
+function parseFfmpegStderr(stderr: string): AudioProbeInfo | null {
+  // Parse duration: "Duration: 00:03:45.23"
+  const durationMatch = stderr.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/);
+  let duration = 0;
+  if (durationMatch) {
+    const hours = parseInt(durationMatch[1], 10);
+    const minutes = parseInt(durationMatch[2], 10);
+    const seconds = parseFloat(durationMatch[3]);
+    duration = Math.round(hours * 3600 + minutes * 60 + seconds);
+  }
+
+  // Parse audio stream: "Audio: mp3, 44100 Hz, stereo, fltp, 160 kb/s"
+  const streamMatch = stderr.match(/Audio:\s*(\w+),\s*(\d+)\s*Hz,\s*(mono|stereo|\d+\s*channels)/);
+  let sampleRate = 44100;
+  let channels = 2;
+  let codec = 'unknown';
+  if (streamMatch) {
+    codec = streamMatch[1];
+    sampleRate = parseInt(streamMatch[2], 10) || 44100;
+    const chanStr = streamMatch[3].toLowerCase();
+    if (chanStr === 'mono') channels = 1;
+    else if (chanStr === 'stereo') channels = 2;
+    else channels = parseInt(chanStr, 10) || 2;
+  }
+
+  // Parse bitrate: "bitrate: 160 kb/s"
+  const bitrateMatch = stderr.match(/bitrate:\s*(\d+)\s*kb\/s/);
+  const bitrate = bitrateMatch ? parseInt(bitrateMatch[1], 10) * 1000 : 0;
+
+  // Return null only if we couldn't parse anything at all
+  if (!durationMatch && !streamMatch) return null;
+
+  return { duration, sampleRate, channels, bitrate, codec };
+}
+
 export async function probeAudio(buffer: Buffer): Promise<AudioProbeInfo> {
+  await verifyFfmpegBinary();
   const tmpDir = join(tmpdir(), 'waqt-audio-probe');
   await mkdir(tmpDir, { recursive: true });
   const tmpPath = join(tmpDir, `probe-${Date.now()}.mp3`);
@@ -193,6 +295,10 @@ export async function processAudioWithMetadata(
   options: ProcessingOptions = DEFAULT_PROCESSING_OPTIONS,
 ): Promise<ProcessingResult> {
   const opts = { ...DEFAULT_PROCESSING_OPTIONS, ...options };
+
+  // Verify ffmpeg binary exists before starting any work
+  await verifyFfmpegBinary();
+
   const tmpDir = join(tmpdir(), 'waqt-audio-processing');
   await mkdir(tmpDir, { recursive: true });
 
@@ -301,6 +407,7 @@ export async function processAudioWithMetadata(
 
     // Run FFmpeg
     await new Promise<void>((resolve, reject) => {
+      let stderrData = '';
       ffmpeg(inputPath)
         .audioCodec('libmp3lame')
         .audioBitrate(opts.mp3Bitrate || '160k')
@@ -311,7 +418,27 @@ export async function processAudioWithMetadata(
           '-map_metadata -1',           // Strip original metadata
           '-compression_level 0',       // Fastest encoding (quality is set by bitrate)
         ])
-        .on('error', (err) => reject(new Error(`FFmpeg processing error: ${err.message}`)))
+        .on('stderr', (line: string) => { stderrData += line + '\n'; })
+        .on('error', (err) => {
+          // Check for common binary issues
+          if (err.message.includes('ENOENT') || err.message.includes('spawn')) {
+            reject(new Error(
+              'FFmpeg binary not found or not executable. This is a deployment issue — ' +
+              'the ffmpeg-static binary was not bundled correctly. ' +
+              'Contact the administrator to fix the deployment configuration.'
+            ));
+          } else if (stderrData.includes('Unknown encoder')) {
+            reject(new Error(
+              `FFmpeg encoding error: the required audio codec is not available in this FFmpeg build. ${err.message}`
+            ));
+          } else if (stderrData.includes('No such filter')) {
+            reject(new Error(
+              `FFmpeg filter error: a required audio filter is not available in this FFmpeg build. ${err.message}`
+            ));
+          } else {
+            reject(new Error(`FFmpeg processing error: ${err.message}`));
+          }
+        })
         .on('end', () => resolve())
         .save(outputPath);
     });

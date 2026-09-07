@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Sparkles } from "lucide-react";
+import { Search, X, BookOpen } from "lucide-react";
 
 interface DivineName {
   number: number;
@@ -115,80 +115,173 @@ const NAMES: DivineName[] = [
 export default function NamesClient() {
   const [query, setQuery] = useState("");
 
-  const filtered = query.trim()
+  const trimmed = query.trim().toLowerCase();
+  const filtered = trimmed
     ? NAMES.filter((n) =>
-        n.transliteration.toLowerCase().includes(query.toLowerCase()) ||
-        n.meaning.toLowerCase().includes(query.toLowerCase()) ||
-        n.arabic.includes(query)
+        n.transliteration.toLowerCase().includes(trimmed) ||
+        n.meaning.toLowerCase().includes(trimmed) ||
+        n.arabic.includes(query.trim())
       )
     : NAMES;
 
+  const isSearching = trimmed.length > 0;
+
   return (
-    <div className="mx-auto max-w-2xl">
+    <div
+      className="mx-auto max-w-2xl"
+      style={{ overflowX: "clip", paddingTop: "env(safe-area-inset-top)" }}
+    >
       {/* ── Header ── */}
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>99 Names of Allah</h1>
+      <div className="mb-5">
+        <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
+          99 Names of Allah
+        </h1>
         <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
           Asma ul Husna · The Beautiful Names
         </p>
       </div>
 
       {/* ── Search ── */}
-      <div className="relative mb-6">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--color-ink-muted)" }} />
+      <div className="relative mb-3">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+          style={{ color: "var(--color-ink-muted)" }}
+        />
         <input
-          type="text"
+          type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search names..."
-          aria-label="Search names"
-          className="w-full rounded-xl border py-2.5 pl-10 pr-4 text-sm outline-none"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
+          placeholder="Search by name or meaning…"
+          aria-label="Search the 99 names"
+          className="w-full rounded-xl border py-2.5 pl-10 pr-9 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
+          style={{
+            borderColor: "var(--color-paper-3)",
+            backgroundColor: "var(--color-paper)",
+            color: "var(--color-ink)",
+            minHeight: 44,
+          }}
         />
+        {query && (
+          <button
+            onClick={() => setQuery("")}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
+          </button>
+        )}
       </div>
 
-      {/* ── Names list ── */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {filtered.map((name) => (
-          <div
-            key={name.number}
-            className="flex items-center gap-3 rounded-xl border p-3"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", minHeight: 72 }}
+      {/* ── Result count ── */}
+      <div className="mb-4 flex items-center justify-between px-1">
+        <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+          {isSearching
+            ? `${filtered.length} ${filtered.length === 1 ? "match" : "matches"}`
+            : "99 names"}
+        </p>
+        {isSearching && filtered.length > 0 && (
+          <button
+            onClick={() => setQuery("")}
+            className="text-xs font-medium transition-opacity hover:opacity-70"
+            style={{ color: "var(--color-accent)" }}
           >
-            {/* Number badge */}
-            <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold tabular-nums"
-              style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)", color: "var(--color-accent)" }}
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* ── Names grid ── */}
+      {filtered.length > 0 ? (
+        <div
+          className="grid grid-cols-1 gap-2.5 sm:grid-cols-2"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
+        >
+          {filtered.map((name) => (
+            <article
+              key={name.number}
+              className="group flex items-start gap-3 rounded-2xl border p-3.5 transition-colors hover:border-[var(--color-accent)]"
+              style={{
+                borderColor: "var(--color-paper-3)",
+                backgroundColor: "var(--color-paper)",
+                minHeight: 88,
+              }}
             >
-              {name.number}
-            </div>
-            {/* Arabic + transliteration + meaning */}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline justify-between gap-2">
+              {/* Number badge */}
+              <div
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-semibold tabular-nums"
+                style={{
+                  backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)",
+                  color: "var(--color-accent)",
+                }}
+                aria-hidden="true"
+              >
+                {name.number}
+              </div>
+
+              {/* Text block */}
+              <div className="min-w-0 flex-1">
+                {/* Arabic — the visual hero */}
                 <p
-                  className="text-lg leading-tight"
-                  style={{ color: "var(--color-ink)", fontFamily: "var(--font-amiri, serif)", direction: "rtl" }}
+                  className="text-2xl leading-[1.4] tracking-wide"
+                  style={{
+                    color: "var(--color-ink)",
+                    fontFamily: "var(--font-arabic, var(--font-amiri, serif))",
+                    direction: "rtl",
+                    textAlign: "right",
+                  }}
+                  lang="ar"
                 >
                   {name.arabic}
                 </p>
+                {/* Transliteration */}
+                <p
+                  className="mt-1 text-sm font-medium leading-snug"
+                  style={{ color: "var(--color-ink-soft)" }}
+                >
+                  {name.transliteration}
+                </p>
+                {/* Meaning */}
+                <p
+                  className="mt-0.5 text-xs leading-snug"
+                  style={{ color: "var(--color-ink-muted)" }}
+                >
+                  {name.meaning}
+                </p>
               </div>
-              <p className="text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
-                {name.transliteration}
-              </p>
-              <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                {name.meaning}
-              </p>
-            </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        /* ── Empty state ── */
+        <div
+          className="flex flex-col items-center rounded-2xl border p-8 text-center"
+          style={{
+            borderColor: "var(--color-paper-3)",
+            backgroundColor: "var(--color-paper)",
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 2rem)",
+          }}
+        >
+          <div
+            className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl"
+            style={{
+              backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)",
+            }}
+          >
+            <BookOpen className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
           </div>
-        ))}
-      </div>
-
-      {filtered.length === 0 && (
-        <div className="rounded-2xl border p-6 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-          <Sparkles className="mx-auto mb-3 h-6 w-6" style={{ color: "var(--color-ink-muted)" }} />
-          <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-            No names match &ldquo;{query}&rdquo;
+          <p className="text-sm font-medium" style={{ color: "var(--color-ink-soft)" }}>
+            No names match &ldquo;{query.trim()}&rdquo;
           </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            Try searching by transliteration, meaning, or Arabic text.
+          </p>
+          <button
+            onClick={() => setQuery("")}
+            className="mt-4 rounded-lg border px-3.5 py-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+          >
+            Clear search
+          </button>
         </div>
       )}
     </div>
