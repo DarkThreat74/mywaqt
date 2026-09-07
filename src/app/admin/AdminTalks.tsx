@@ -996,14 +996,17 @@ function TalkRow({
 
   // Estimate processing time from file size.
   // MP3 at ~160kbps = ~1.2 MB/min of audio.
+  // Vercel Hobby plan: 300s max duration.
   // Three tiers:
-  //   <25 MB:  Full processing (all filters, two-pass) ~6x realtime
-  //   25-100 MB: Fast mode (skip expensive filters) ~8x realtime
-  //   >100 MB: Ultra-fast (just transcode, no filters) ~25x realtime
-  // If we already know the duration from probing, use that instead.
+  //   <25 MB:   Full processing (all filters, two-pass) ~6x realtime
+  //   25-50 MB: Fast mode (skip expensive filters) ~8x realtime
+  //   50-100 MB: Ultra-fast (just transcode, no filters) ~25x realtime
+  //   >100 MB:  Skip processing — uses original file directly
   function estimateProcessingTime(): string {
     const mb = (talk.fileSize ?? 0) / (1024 * 1024);
-    const isHuge = mb > 100;
+    if (mb > 100) return "no compression (too large for Hobby plan)";
+
+    const isHuge = mb > 50;
     const isLarge = mb > 25;
     const multiplier = isHuge ? 25 : isLarge ? 8 : 6;
 

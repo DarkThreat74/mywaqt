@@ -11,8 +11,8 @@
   ],
   "functions": {
     "src/app/api/admin/talks/process/route.ts": {
-      "maxDuration": 800,
-      "memory": 3009
+      "maxDuration": 300,
+      "memory": 1024
     }
   }
 }

@@ -12,8 +12,8 @@ import { tmpdir } from "os";
 import { mkdir, stat, unlink } from "fs/promises";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 800; // Vercel Pro max (800s). Extended beta allows 1800s.
-// memory=3009 is set in vercel.json — recommended by Vercel's official FFmpeg demo
+export const maxDuration = 300; // Vercel Hobby max (300s). Pro allows 800s.
+// memory=1024 is set in vercel.json
 
 function processingOptions(value: unknown): ProcessingOptions {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -109,13 +109,37 @@ export async function POST(request: NextRequest) {
     }
 
     // Tiered processing based on file size:
-    //   <25 MB:  Full processing (all filters, two-pass loudnorm)
-    //   25-100 MB: Fast mode (skip expensive filters, single-pass loudnorm)
-    //   >100 MB: Ultra-fast mode (just transcode, NO filters at all)
-    // This ensures even 300MB files (~4h of audio) process within 800s.
+    //   <25 MB:   Full processing (all filters, two-pass loudnorm)
+    //   25-50 MB: Fast mode (skip expensive filters, single-pass loudnorm)
+    //   50-100 MB: Ultra-fast mode (just transcode, NO filters)
+    //   >100 MB:  Skip processing — file is too large for 300s Hobby timeout.
+    //             Mark as ready with the original file so the talk still works.
+    //
+    // With 300s max (Hobby plan), ultra-fast mode at ~25x realtime can handle
+    // ~100MB (~83 min of audio) in ~200s + ~60s download + ~30s upload = ~290s.
+    // Files >100MB would exceed the timeout, so we skip processing for those.
     const fileBytes = talk.fileSize ?? 0;
     const isLargeFile = fileBytes > 25 * 1024 * 1024;
-    const isHugeFile = fileBytes > 100 * 1024 * 1024;
+    const isHugeFile = fileBytes > 50 * 1024 * 1024;
+    const isTooLarge = fileBytes > 100 * 1024 * 1024;
+
+    // For files too large to process, skip and use the original directly.
+    if (isTooLarge) {
+      const processedKey = talk.storageKey!.replace(/^talks\//, 'talks/processed/');
+      await db.update(schema.talks).set({
+        processingStatus: "ready",
+        processedStorageKey: talk.storageKey, // use original file directly
+        processedAt: new Date(),
+        processingError: null,
+      }).where(eq(schema.talks.id, talkId));
+
+      console.log(`[talks:process] Talk ${talkId}: file too large (${(fileBytes / 1024 / 1024).toFixed(1)} MB) for Hobby plan processing — using original file directly`);
+
+      return NextResponse.json({
+        success: true,
+        message: `File is ${(fileBytes / 1024 / 1024).toFixed(0)}MB — too large for processing on the Hobby plan. The original file will be used directly. Upgrade to Vercel Pro for server-side compression of large files.`,
+      });
+    }
 
     const baseOptions: ProcessingOptions = isHugeFile
       ? ULTRA_FAST_PROCESSING_OPTIONS
