@@ -8,8 +8,11 @@
  * - Dhuhr:  show masjid question from 12:00 PM to 3:00 PM
  * - Maghrib: show masjid question for 40 minutes after maghrib time
  * - Asr:    show masjid question as long as it's NOT in the last 30 minutes of Asr
- * - Isha:   show masjid question as long as it's NOT after 11:30 PM
+ * - Isha:   show masjid question for the first 2 hours after Isha starts
  * - Fajr:   show masjid question as long as it's NOT in the last 30 minutes of Fajr
+ *
+ * After the prayer window has ended, the masjid question is ALWAYS asked
+ * when the user confirms they forgot to log (late log flow).
  */
 
 export type PrayerKey = "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
@@ -174,15 +177,18 @@ export function shouldShowMasjidQuestion(
       return currentMinutes >= maghribStart && currentMinutes <= windowEnd;
     }
     case "isha": {
-      // Show as long as within the Isha window (after isha start tonight, or after midnight before fajr)
+      // Show masjid question only in the first 2 hours after Isha starts.
+      // After that (even within the Isha window until Fajr), don't ask.
       const ishaStart = parseMinutes(timings.isha);
-      const fajrStart = parseMinutes(timings.fajr);
-      if (currentMinutes >= ishaStart) {
-        // After Isha start tonight — within window
+      const twoHours = 120;
+      const masjidWindowEnd = ishaStart + twoHours;
+      if (currentMinutes >= ishaStart && currentMinutes <= masjidWindowEnd) {
+        // Within the first 2 hours of tonight's Isha — show masjid question
         return true;
       }
-      // Before Isha start — only show if after midnight (before Fajr = still yesterday's Isha)
-      return currentMinutes < fajrStart;
+      // After midnight but before Fajr — still in Isha's prayer window,
+      // but past the 2-hour masjid question window — don't ask
+      return false;
     }
     default:
       return false;
@@ -256,6 +262,10 @@ export function isPrayedInMakruhTime(
 /**
  * Calculate the current streak (consecutive days where all 5 prayers were prayed/assumed_prayed).
  *
+ * Per the "benefit of the doubt" principle: a partial day (e.g., 2/5 logged) does NOT
+ * break the streak — the unmarked prayers are assumed prayed. The streak only breaks
+ * when a past day has ZERO prayers logged (the user was completely inactive).
+ *
  * @param prayerLogsByDate - Map of "YYYY-MM-DD" -> array of prayer logs for that day
  * @param todayStr - Today's date string "YYYY-MM-DD"
  * @returns The streak count (0 if today not complete, counts back from yesterday)
@@ -275,17 +285,19 @@ export function calculateStreak(
     const dateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, "0")}-${String(checkDate.getDate()).padStart(2, "0")}`;
 
     const logs = prayerLogsByDate.get(dateStr) || [];
+    // Count prayers that are prayed or assumed_prayed (benefit of the doubt)
     const prayedCount = logs.filter(
       (l) => l.status === "prayed" || l.status === "assumed_prayed",
     ).length;
 
     if (prayedCount === 5) {
       streak++;
-    } else if (prayedCount > 0 && prayedCount < 5) {
-      // Partial day — streak breaks
-      break;
+    } else if (prayedCount > 0) {
+      // Partial day — benefit of the doubt: assume the rest were prayed.
+      // Count it as a complete day for streak purposes.
+      streak++;
     } else if (i > 0) {
-      // No logs for a past day — streak breaks
+      // No logs for a past day — user was completely inactive, streak breaks
       break;
     }
     // If i === 0 and no logs, skip today (streak can still continue from yesterday)
@@ -295,7 +307,9 @@ export function calculateStreak(
 }
 
 /**
- * Calculate the best (longest) streak of consecutive complete days (all 5 prayed).
+ * Calculate the best (longest) streak of consecutive complete days.
+ * Uses the same "benefit of the doubt" principle as calculateStreak:
+ * a partial day counts as complete (unmarked prayers assumed prayed).
  * Scans the full log history backwards from today.
  */
 export function calculateBestStreak(
@@ -317,7 +331,8 @@ export function calculateBestStreak(
       (l) => l.status === "prayed" || l.status === "assumed_prayed",
     ).length;
 
-    if (prayedCount === 5) {
+    if (prayedCount >= 1) {
+      // Any activity (even partial) counts as a complete day (benefit of the doubt)
       current++;
       if (current > best) best = current;
     } else {

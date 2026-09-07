@@ -38,6 +38,8 @@ export default function PrayerCheckinPopup({
   const [error, setError] = useState<string | null>(null);
   const [sunnahLogs, setSunnahLogs] = useState<Record<string, boolean>>({});
   const [sunnahLoading, setSunnahLoading] = useState<string | null>(null);
+  // Track whether this is a late log (window ended) to skip sunnahs
+  const [isLateLog, setIsLateLog] = useState(false);
 
   // Get current time in user's timezone
   const now = new Date();
@@ -45,10 +47,12 @@ export default function PrayerCheckinPopup({
   const timeMatch = localStr.match(/(\d+):(\d+)/);
   const currentMinutes = timeMatch ? parseInt(timeMatch[1]) * 60 + parseInt(timeMatch[2]) : now.getHours() * 60 + now.getMinutes();
 
-  const showMasjid = shouldShowMasjidQuestion(prayer, currentMinutes, timings);
+  const showMasjidDuringWindow = shouldShowMasjidQuestion(prayer, currentMinutes, timings);
   const windowState = getPrayerWindowState(prayer, currentMinutes, timings);
   const windowOpen = windowState === "open";
-  const alreadyPrayed = existingStatus === "prayed";
+  const windowEnded = windowState === "ended";
+  // Treat both "prayed" and "assumed_prayed" as already prayed (benefit of the doubt)
+  const alreadyPrayed = existingStatus === "prayed" || existingStatus === "assumed_prayed";
 
   // Sunnah definitions for this prayer
   const sunnahDefs = getSunnahsForFard(prayer, madhab);
@@ -103,8 +107,10 @@ export default function PrayerCheckinPopup({
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
         clearApiCache();
-        // If there are sunnahs for this prayer, show the sunnah step
-        if (sunnahDefs.length > 0) {
+        // Only show sunnah step if:
+        // 1. There are sunnahs for this prayer
+        // 2. This is NOT a late log (window was open when user confirmed)
+        if (sunnahDefs.length > 0 && !isLateLog) {
           setStep("sunnah");
           setLoading(false);
         } else {
@@ -154,12 +160,19 @@ export default function PrayerCheckinPopup({
     }
   }
 
-  function handlePrayedYes() {
-    if (showMasjid) {
+  // During the active window: "Did you pray?" → masjid (if in masjid window) → sunnahs
+  function handlePrayedYesDuringWindow() {
+    if (showMasjidDuringWindow) {
       setStep("masjid");
     } else {
       checkIn(null);
     }
+  }
+
+  // After the window ended: "Did you forget to log?" → always ask masjid → no sunnahs
+  function handleForgotToLogYes() {
+    setIsLateLog(true);
+    setStep("masjid");
   }
 
   function handleUndo() {
@@ -234,56 +247,29 @@ export default function PrayerCheckinPopup({
           </div>
         )}
 
-        {step === "main" && !alreadyPrayed && !windowOpen && (
+        {/* ── State: prayer hasn't started yet — NO logging allowed ── */}
+        {step === "main" && !alreadyPrayed && windowState === "before" && (
           <div className="text-center">
-            {windowState === "before" ? (
-              <>
-                <p className="mb-3 text-sm" style={{ color: "var(--color-ink-soft)" }}>
-                  {prayerLabel} hasn&apos;t started yet.
-                </p>
-                <p className="mb-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  It begins at {startTimeStr}. Check back then, in sha&apos; Allah.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="mb-3 text-sm" style={{ color: "var(--color-ink-soft)" }}>
-                  The {prayerLabel} window has ended.
-                </p>
-                <p className="mb-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  You can still log it if you prayed but couldn&apos;t check in earlier.
-                </p>
-              </>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={handlePrayedYes}
-                disabled={loading}
-                className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
-                style={{
-                  borderColor: "var(--color-success)",
-                  backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)",
-                  color: "var(--color-success)",
-                }}
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                Yes, I prayed
-              </button>
-              <button
-                onClick={onClose}
-                disabled={loading}
-                className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
-                style={{
-                  borderColor: "var(--color-paper-3)",
-                  color: "var(--color-ink-muted)",
-                }}
-              >
-                Close
-              </button>
-            </div>
+            <p className="mb-3 text-sm" style={{ color: "var(--color-ink-soft)" }}>
+              {prayerLabel} hasn&apos;t started yet.
+            </p>
+            <p className="mb-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              It begins at {startTimeStr}. Check back then, in sha&apos; Allah.
+            </p>
+            <button
+              onClick={onClose}
+              className="min-h-11 w-full rounded-lg border py-2.5 text-sm font-medium transition-colors"
+              style={{
+                borderColor: "var(--color-paper-3)",
+                color: "var(--color-ink-muted)",
+              }}
+            >
+              Close
+            </button>
           </div>
         )}
 
+        {/* ── State: window open — "Did you pray?" ── */}
         {step === "main" && !alreadyPrayed && windowOpen && (
           <>
             <p className="mb-4 text-sm" style={{ color: "var(--color-ink-soft)" }}>
@@ -291,7 +277,7 @@ export default function PrayerCheckinPopup({
             </p>
             <div className="flex gap-2">
               <button
-                onClick={handlePrayedYes}
+                onClick={handlePrayedYesDuringWindow}
                 disabled={loading}
                 className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
                 style={{
@@ -318,6 +304,45 @@ export default function PrayerCheckinPopup({
           </>
         )}
 
+        {/* ── State: window ended — "Did you forget to log?" ── */}
+        {step === "main" && !alreadyPrayed && windowEnded && (
+          <div className="text-center">
+            <p className="mb-3 text-sm" style={{ color: "var(--color-ink-soft)" }}>
+              The {prayerLabel} window has ended.
+            </p>
+            <p className="mb-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              Did you forget to log it?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleForgotToLogYes}
+                disabled={loading}
+                className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                style={{
+                  borderColor: "var(--color-success)",
+                  backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)",
+                  color: "var(--color-success)",
+                }}
+              >
+                <Check className="h-4 w-4" />
+                Yes, I forgot to log
+              </button>
+              <button
+                onClick={onClose}
+                disabled={loading}
+                className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                style={{
+                  borderColor: "var(--color-paper-3)",
+                  color: "var(--color-ink-muted)",
+                }}
+              >
+                No
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── State: already prayed (or assumed_prayed) — show confirmation + undo ── */}
         {step === "main" && alreadyPrayed && (
           <>
             <div
@@ -332,7 +357,8 @@ export default function PrayerCheckinPopup({
                 You prayed {prayerLabel}. In sha&apos; Allah.
               </span>
             </div>
-            {sunnahDefs.length > 0 && (
+            {/* Only show sunnah logging if the window is still open */}
+            {sunnahDefs.length > 0 && windowOpen && (
               <button
                 onClick={() => setStep("sunnah")}
                 className="mb-2 min-h-11 w-full rounded-lg border py-2.5 text-sm font-medium transition-colors"
@@ -358,6 +384,7 @@ export default function PrayerCheckinPopup({
           </>
         )}
 
+        {/* ── Step: masjid question ── */}
         {step === "masjid" && (
           <>
             <div className="mb-4 flex items-center gap-2">
@@ -403,6 +430,7 @@ export default function PrayerCheckinPopup({
           </>
         )}
 
+        {/* ── Step: sunnah logging (only shown for in-window logs) ── */}
         {step === "sunnah" && (
           <>
             <div

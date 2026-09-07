@@ -992,7 +992,6 @@ export default function PrayerDashboard() {
 
                 {PRAYER_ORDER.map((prayer, idx) => {
                   const prayed = isPrayed(prayer);
-                  const status = getPrayerStatus(prayer);
                   const color = PRAYER_COLORS[prayer];
                   const time = prayerTimes[prayer];
                   const isLast = idx === PRAYER_ORDER.length - 1;
@@ -1105,7 +1104,7 @@ export default function PrayerDashboard() {
                                     color: color,
                                   }}
                                 >
-                                  {status === "assumed_prayed" ? "Assumed" : "Prayed"}
+                                  Prayed
                                 </span>
                               ) : isCurrent ? (
                                 <span
@@ -1125,7 +1124,7 @@ export default function PrayerDashboard() {
                                     color: "var(--color-ink-muted)",
                                   }}
                                 >
-                                  Missed
+                                  Pending
                                 </span>
                               ) : (
                                 <span
