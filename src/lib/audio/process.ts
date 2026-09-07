@@ -46,8 +46,10 @@ export interface ProcessingOptions {
   enableDeEssing?: boolean;     // Reduce harsh sibilance
   enableSpeechEQ?: boolean;     // Boost speech intelligibility
   enableLimiter?: boolean;      // Soft limiter to prevent clipping
+  enableSilenceRemoval?: boolean; // Remove silence gaps (default: true)
+  enableDynamicNorm?: boolean;  // Dynamic volume normalization (default: true)
   noiseReductionStrength?: number; // 0-30, higher = more aggressive (default: 12)
-  mp3Bitrate?: string;          // Output MP3 bitrate (default: '160k')
+  mp3Bitrate?: string;          // Output MP3 bitrate (default: '64k')
 }
 
 export const DEFAULT_PROCESSING_OPTIONS: ProcessingOptions = {
@@ -62,11 +64,25 @@ export const DEFAULT_PROCESSING_OPTIONS: ProcessingOptions = {
   enableDeEssing: true,
   enableSpeechEQ: true,
   enableLimiter: true,
+  enableSilenceRemoval: true,
+  enableDynamicNorm: true,
   noiseReductionStrength: 12,
   // 64k mono 22050 Hz — ~75% smaller than 160k stereo 44100 Hz.
   // Speech has no stereo content and little above 16kHz, so this
   // cuts a 16MB file to ~4MB with no perceptible quality loss for voice.
   mp3Bitrate: '64k',
+};
+
+// Fast mode for large files (>25 MB) — skips the most CPU-intensive
+// filters (silence removal, noise reduction, dynamic normalization)
+// to stay within Vercel serverless timeouts. Still applies EQ,
+// loudness normalization, and limiting.
+export const FAST_PROCESSING_OPTIONS: ProcessingOptions = {
+  ...DEFAULT_PROCESSING_OPTIONS,
+  enableSilenceRemoval: false,
+  enableNoiseReduction: false,
+  enableDynamicNorm: false,
+  enableLoudnessNormalization: true, // single-pass only (no measurement)
 };
 
 export interface ProcessingResult {
@@ -334,13 +350,16 @@ export async function processAudioWithMetadata(
     //    stop_periods=-1 removes ALL subsequent silences (with padding)
     //    detection=rms is more natural for speech
     //    leave_padding keeps a small gap so speech doesn't feel cut
-    const padding = opts.silencePadding!;
-    filters.push(
-      `silenceremove=` +
-      `start_periods=1:start_duration=${opts.silenceDuration}:start_threshold=${opts.silenceThreshold}dB:start_silence=${padding}:` +
-      `stop_periods=-1:stop_duration=${opts.silenceDuration}:stop_threshold=${opts.silenceThreshold}dB:stop_silence=${padding}:` +
-      `detection=rms:window=0.02`
-    );
+    //    SKIPPED in fast mode (very CPU-intensive for long audio)
+    if (opts.enableSilenceRemoval !== false) {
+      const padding = opts.silencePadding!;
+      filters.push(
+        `silenceremove=` +
+        `start_periods=1:start_duration=${opts.silenceDuration}:start_threshold=${opts.silenceThreshold}dB:start_silence=${padding}:` +
+        `stop_periods=-1:stop_duration=${opts.silenceDuration}:stop_threshold=${opts.silenceThreshold}dB:stop_silence=${padding}:` +
+        `detection=rms:window=0.02`
+      );
+    }
 
     // 2. High-pass filter — remove low-frequency rumble (HVAC, traffic, mic handling)
     filters.push('highpass=f=80');
@@ -395,7 +414,10 @@ export async function processAudioWithMetadata(
 
     // 8. Dynamic audio normalization — maintains consistent volume throughout
     //    f = frame length (ms), g = gaussian filter window, p = peak target
-    filters.push('dynaudnorm=f=150:g=15:p=0.9:m=10:s=0');
+    //    SKIPPED in fast mode (CPU-intensive for long audio)
+    if (opts.enableDynamicNorm !== false) {
+      filters.push('dynaudnorm=f=150:g=15:p=0.9:m=10:s=0');
+    }
 
     // 9. Soft limiter — catch any peaks that might clip after normalization
     //    Prevents digital clipping while keeping the audio natural

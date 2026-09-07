@@ -5,7 +5,7 @@ import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { logError } from "@/lib/logError";
 import { downloadObject, uploadBuffer } from "@/lib/r2/client";
-import { processAudioWithMetadata, DEFAULT_PROCESSING_OPTIONS, type ProcessingOptions } from "@/lib/audio/process";
+import { processAudioWithMetadata, DEFAULT_PROCESSING_OPTIONS, FAST_PROCESSING_OPTIONS, type ProcessingOptions } from "@/lib/audio/process";
 import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -101,14 +101,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Talk is already being processed." }, { status: 409 });
     }
 
-    // For large files (>25 MB), skip two-pass loudnorm to stay within timeout.
-    // Two-pass reads the entire audio twice, which doubles processing time.
-    // Single-pass loudnorm is less accurate but still normalizes volume.
+    // For large files (>25 MB), use fast mode to stay within Vercel timeout.
+    // Fast mode skips silence removal, noise reduction, and dynamic normalization
+    // — the three most CPU-intensive filters. Still applies EQ, loudnorm, limiter.
     const isLargeFile = (talk.fileSize ?? 0) > 25 * 1024 * 1024;
-    const effectiveOptions: ProcessingOptions = {
-      ...options,
-      enableLoudnessNormalization: isLargeFile ? false : options.enableLoudnessNormalization,
-    };
+    const effectiveOptions: ProcessingOptions = isLargeFile
+      ? { ...FAST_PROCESSING_OPTIONS, ...options, enableSilenceRemoval: false, enableNoiseReduction: false, enableDynamicNorm: false }
+      : options;
 
     if (talk.processingStatus === "published" || talk.processingStatus === "ready") {
       return NextResponse.json({ error: "Talk is already processed." }, { status: 409 });
@@ -128,16 +127,34 @@ export async function POST(request: NextRequest) {
     if (!claimed) return NextResponse.json({ error: "Talk processing already started." }, { status: 409 });
 
     // Process in the background using after()
-    // This continues after the response is sent, within the function lifetime
+    // This continues after the response is sent, within the function lifetime.
+    // A watchdog marks the talk as "failed" if we're about to hit maxDuration,
+    // so the talk doesn't get stuck in "processing" if the function is killed.
     after(async () => {
       const startTime = Date.now();
+      const watchdogMs = (maxDuration - 30) * 1000; // fire 30s before timeout
+      let watchdogFired = false;
+
+      const watchdog = setTimeout(async () => {
+        watchdogFired = true;
+        console.error(`[talks:process] Talk ${talkId}: watchdog fired after ${maxDuration - 30}s — marking as failed`);
+        try {
+          await db.update(schema.talks).set({
+            processingStatus: "failed",
+            processingError: `Processing timed out after ${maxDuration - 30}s. The file may be too large for serverless processing.`,
+          }).where(eq(schema.talks.id, talkId));
+        } catch (e) {
+          logError(e, { route: "admin/talks/process", talkId, phase: "watchdog" });
+        }
+      }, watchdogMs);
+
       try {
         // 1. Download original audio from R2
         console.log(`[talks:process] Talk ${talkId}: downloading original from R2…`);
         const originalBuffer = await downloadObject(talk.storageKey!);
 
         // 2-4. Full processing pipeline (probe + measure + process)
-        console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalBuffer.length / 1024 / 1024).toFixed(1)} MB)…`);
+        console.log(`[talks:process] Talk ${talkId}: processing audio (${(originalBuffer.length / 1024 / 1024).toFixed(1)} MB, fast=${isLargeFile})…`);
         const result = await processAudioWithMetadata(originalBuffer, effectiveOptions);
 
         // 5. Upload processed audio to R2
@@ -163,6 +180,7 @@ export async function POST(request: NextRequest) {
           `LUFS: ${result.originalLufs?.toFixed(1) || 'N/A'} → ${result.finalLufs?.toFixed(1) || 'N/A'}`
         );
       } catch (err) {
+        if (watchdogFired) return; // already marked as failed by watchdog
         const errorMsg = err instanceof Error ? err.message : "Unknown processing error";
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         logError(err, { route: "admin/talks/process", talkId, elapsedSeconds: elapsed });
@@ -174,6 +192,8 @@ export async function POST(request: NextRequest) {
         } catch (updateError) {
           logError(updateError, { route: "admin/talks/process", talkId, phase: "mark-failed" });
         }
+      } finally {
+        clearTimeout(watchdog);
       }
     });
 
