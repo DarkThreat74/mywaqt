@@ -132,13 +132,21 @@ export function AdminTalks() {
 
   async function deleteFolder(folderId: string) {
     if (!confirm("Delete this folder? Talks inside will remain but become uncategorized.")) return;
-    const res = await fetch("/api/admin/talks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete-folder", folderId }),
-    });
-    if (res.ok) await load();
-    else setError("Failed to delete folder.");
+    try {
+      const res = await fetch("/api/admin/talks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete-folder", folderId }),
+      });
+      if (res.ok) {
+        await load();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Failed to delete folder.");
+      }
+    } catch {
+      setError("Network error while deleting folder.");
+    }
   }
 
   function openEditFolder(folder: AdminFolder) {
@@ -236,13 +244,21 @@ export function AdminTalks() {
 
   async function deleteTalk(talkId: string) {
     if (!confirm("Delete this talk? The MP3 file will also be removed from storage.")) return;
-    const res = await fetch("/api/admin/talks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete-talk", talkId }),
-    });
-    if (res.ok) await load();
-    else setError("Failed to delete talk.");
+    try {
+      const res = await fetch("/api/admin/talks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete-talk", talkId }),
+      });
+      if (res.ok) {
+        await load();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Failed to delete talk.");
+      }
+    } catch {
+      setError("Network error while deleting talk.");
+    }
   }
 
   async function publishTalk(talkId: string) {

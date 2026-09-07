@@ -1,34 +1,20 @@
-fix: UI consistency across pages + audio compression + sadaqah card number
+fix: improve talk/folder delete reliability and error visibility
 
-UI — match Learn section design pattern (px-4 py-8 sm:px-6 sm:py-12,
-text-2xl sm:text-3xl headers):
-- 99 Names: added page padding and larger header
-- Talks: added page padding, larger header, taller search bar,
-  segmented tab filter (matching Learn's TabButton), less dense
-  TalkCards with responsive typography, increased card spacing
-- Talks folder view: same padding + larger header
+Admin UI (AdminTalks.tsx):
+- deleteTalk and deleteFolder now parse and show the actual API error
+  message instead of a generic "Failed to delete talk." string
+- Added try/catch for network errors so the user gets a clear message
+  if the request never reaches the server
 
-Sadaqah card number:
-- formatCardNumber was converting dollars to cents, so $1,000 showed
-  as "0000 0000 0010 0000" which reads as $10,000. Now uses the
-  dollar amount directly: $1,000 → "0000 0000 0000 1000".
+API route (api/admin/talks/route.ts):
+- Replaced silent catch blocks on R2 deleteObject calls with logError()
+  per AGENTS.md rule "No silent catch blocks — at minimum logError()"
+- Covers: delete-talk (storageKey + processedStorageKey), delete-folder
+  (imageKey), update-folder (old imageKey)
 
-Dhikr counter overflow:
-- The tahlil phrase (la ilaha illallah wahdahu la sharika lah...) is
-  the longest default dhikr and was overflowing the card, pushing the
-  entire page down. Fixed by:
-  - Adding break-words + max-w-full + min-w-0 to the text container
-  - Reducing Arabic from text-3xl/leading-loose to text-2xl/leading-snug
-  - Adding maxHeight to the card (min(75dvh, 560px)) with overflow-y-auto
-
-Audio compression:
-- Changed default MP3 bitrate from 160k to 64k
-- Force mono output (talks are single-speaker, stereo wastes bytes)
-- Lowered sample rate from 44100 to 22050 Hz (lowpass filter already
-  removes content above 16kHz)
-- Result: ~75% file size reduction. A 16.6MB talk becomes ~4MB.
-  Speech quality is preserved — voice has no stereo content and
-  little useful information above 16kHz.
+The delete flow itself was already correct — DB row is deleted first,
+then R2 objects are removed best-effort. The improvements make failures
+visible instead of silent.
 
 Generated with [Devin](https://devin.ai)
 

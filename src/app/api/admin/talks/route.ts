@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
         endDate: endDate || null,
       }).where(eq(schema.talkFolders.id, folderId)).returning();
       if (current.imageKey && current.imageKey !== updated.imageKey) {
-        try { await deleteObject(current.imageKey); } catch { /* best-effort */ }
+        try { await deleteObject(current.imageKey); } catch (e) { logError(e, { route: "admin/talks", action: "update-folder", key: current.imageKey }); }
       }
       return NextResponse.json(updated);
     }
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
         .returning({ imageKey: schema.talkFolders.imageKey });
       if (!deleted) return NextResponse.json({ error: "Folder not found." }, { status: 404 });
       if (deleted.imageKey) {
-        try { await deleteObject(deleted.imageKey); } catch { /* best-effort */ }
+        try { await deleteObject(deleted.imageKey); } catch (e) { logError(e, { route: "admin/talks", action: "delete-folder", key: deleted.imageKey }); }
       }
       return NextResponse.json({ success: true });
     }
@@ -363,10 +363,10 @@ export async function POST(request: NextRequest) {
       if (!deleted) return NextResponse.json({ error: "Talk not found." }, { status: 404 });
 
       if (deleted.storageKey) {
-        try { await deleteObject(deleted.storageKey); } catch { /* best-effort */ }
+        try { await deleteObject(deleted.storageKey); } catch (e) { logError(e, { route: "admin/talks", action: "delete-talk", key: deleted.storageKey }); }
       }
       if (deleted.processedStorageKey && deleted.processedStorageKey !== deleted.storageKey) {
-        try { await deleteObject(deleted.processedStorageKey); } catch { /* best-effort */ }
+        try { await deleteObject(deleted.processedStorageKey); } catch (e) { logError(e, { route: "admin/talks", action: "delete-talk", key: deleted.processedStorageKey }); }
       }
       return NextResponse.json({ success: true });
     }
