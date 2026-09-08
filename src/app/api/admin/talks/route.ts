@@ -11,6 +11,9 @@ export const dynamic = "force-dynamic";
 
 const MAX_AUDIO_BYTES = 150 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'opus', 'flac', 'wma'];
+const AUDIO_EXT_REGEX = new RegExp(`\\.(${AUDIO_EXTENSIONS.join('|')})$`, 'i');
+const STORAGE_KEY_REGEX = /^talks\/[a-z0-9-]+\/\d+-[a-z0-9-]+\.(mp3|m4a|aac|wav|ogg|opus|flac|wma)$/;
 
 function isValidDate(value?: string): boolean {
   if (!value) return true;
@@ -61,7 +64,7 @@ export async function GET(request: NextRequest) {
         publishedAt: schema.talks.publishedAt,
       }).from(schema.talks).orderBy(desc(schema.talks.addedAt)).limit(500),
     ]);
-    const staleBefore = Date.now() - 300 * 1000; // matches maxDuration=300s (Hobby plan)
+    const staleBefore = Date.now() - 300 * 1000; // matches maxDuration=300s in process/route.ts
     return NextResponse.json({
       folders,
       talks: talks.map(({ processedAt, ...talk }) => ({
@@ -80,7 +83,9 @@ export async function POST(request: NextRequest) {
   try {
     await requireAdmin(request);
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("admin-talks-create", ip, 20, 60 * 60 * 1000)) {
+    // Batch uploads of 10 files = ~20 API calls (get-upload-url + create-talk).
+    // Allow 200 calls/hour to handle large batch uploads without 429.
+    if (!checkRateLimit("admin-talks-mutate", ip, 200, 60 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 
@@ -164,11 +169,11 @@ export async function POST(request: NextRequest) {
     // ── Get presigned upload URL ──
     if (action === "get-upload-url") {
       const { folderId, filename, fileSize } = body as { folderId?: string; filename?: string; fileSize?: number };
-      if (!filename?.trim().toLowerCase().endsWith(".mp3")) {
-        return NextResponse.json({ error: "A valid MP3 filename is required." }, { status: 400 });
+      if (!filename?.trim() || !AUDIO_EXT_REGEX.test(filename.trim())) {
+        return NextResponse.json({ error: "A valid audio filename is required (mp3, m4a, aac, wav, ogg, opus, flac)." }, { status: 400 });
       }
       if (!Number.isInteger(fileSize) || fileSize! <= 0 || fileSize! > MAX_AUDIO_BYTES) {
-        return NextResponse.json({ error: "MP3 files must be 150 MB or smaller." }, { status: 400 });
+        return NextResponse.json({ error: "Audio files must be 150 MB or smaller." }, { status: 400 });
       }
       if (folderId && !isValidUUID(folderId)) {
         return NextResponse.json({ error: "Invalid folder ID." }, { status: 400 });
@@ -182,7 +187,14 @@ export async function POST(request: NextRequest) {
       }
 
       const storageKey = makeStorageKey(folderName, filename);
-      const uploadUrl = await getUploadUrl(storageKey, "audio/mpeg");
+      const ext = filename!.toLowerCase().split('.').pop();
+      const contentTypeMap: Record<string, string> = {
+        mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac',
+        wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg',
+        flac: 'audio/flac', wma: 'audio/x-ms-wma',
+      };
+      const contentType = contentTypeMap[ext || ''] || 'audio/mpeg';
+      const uploadUrl = await getUploadUrl(storageKey, contentType);
 
       return NextResponse.json({
         uploadUrl,
@@ -240,7 +252,7 @@ export async function POST(request: NextRequest) {
 
     if (action === "delete-upload") {
       const { storageKey } = body as { storageKey?: string };
-      if (!storageKey || !/^talks\/[a-z0-9-]+\/\d+-[a-z0-9.-]+\.mp3$/.test(storageKey)) {
+      if (!storageKey || !STORAGE_KEY_REGEX.test(storageKey)) {
         return NextResponse.json({ error: "Invalid storage key." }, { status: 400 });
       }
       const [referenced] = await db.select({ id: schema.talks.id })
@@ -273,8 +285,8 @@ export async function POST(request: NextRequest) {
       if (folderId && !isValidUUID(folderId)) {
         return NextResponse.json({ error: "Invalid folder ID." }, { status: 400 });
       }
-      if (storageKey && (!/^talks\/[a-z0-9-]+\/\d+-[a-z0-9.-]+\.mp3$/.test(storageKey) || !Number.isInteger(fileSize) || fileSize! <= 0 || fileSize! > MAX_AUDIO_BYTES)) {
-        return NextResponse.json({ error: "Invalid uploaded MP3." }, { status: 400 });
+      if (storageKey && (!STORAGE_KEY_REGEX.test(storageKey) || !Number.isInteger(fileSize) || fileSize! <= 0 || fileSize! > MAX_AUDIO_BYTES)) {
+        return NextResponse.json({ error: "Invalid uploaded audio file." }, { status: 400 });
       }
       if (duration !== undefined && (!Number.isInteger(duration) || duration < 0)) {
         return NextResponse.json({ error: "Invalid audio duration." }, { status: 400 });

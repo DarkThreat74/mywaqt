@@ -340,7 +340,7 @@ export const talks = pgTable('talks', {
   topics: text('topics'),
   // R2 storage key for the ORIGINAL uploaded MP3
   storageKey: text('storage_key'),
-  // R2 storage key for the PROCESSED MP3 (after silence removal + loudness normalization)
+  // R2 storage key for the PROCESSED Opus (after 10-stage filter chain + Opus encode)
   processedStorageKey: text('processed_storage_key'),
   // File size in bytes (for display + offline storage management)
   fileSize: integer('file_size'),

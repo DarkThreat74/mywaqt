@@ -19,17 +19,14 @@ export const maxDuration = 300; // Vercel Hobby max (300s). Pro allows 800s.
  * POST /api/admin/talks/process
  * Compresses a talk to Opus 24kbps mono voip mode.
  *
- * This is a single FFmpeg transcode — no filters, no probe, no loudness
- * measurement. Just decode the input and encode to Opus.
+ * Filter chain (10 stages, ~6x realtime on Vercel shared vCPU):
+ *   highpass(80) → lowpass(12k) → silenceremove → afftdn → deesser →
+ *   equalizer(3k) → equalizer(200) → acompressor → dynaudnorm → alimiter
+ *   → Opus 24kbps mono voip @ 48kHz, compression_level 5, cutoff 12kHz
  *
- * Opus at 24kbps mono voip is better quality than MP3 at 64kbps for speech,
- * and produces files ~85% smaller than the original 160kbps MP3.
- *
- * Processing speed: ~30x realtime. A 64MB file (~53min audio) processes
- * in ~2min. A 100MB file (~83min) in ~3min. Both fit within 300s.
- *
- * Files >100MB are skipped (too large for 300s Hobby timeout) and the
- * original file is used directly.
+ * Files >40MB are skipped (too large for 300s timeout at ~6x realtime).
+ * At 6x realtime, a 40MB file (~33min audio) takes ~330s — tight but
+ * the watchdog fires at 270s, so we skip to be safe.
  *
  * Body: { talkId: string }
  */
@@ -71,10 +68,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Talk is already being processed." }, { status: 409 });
     }
 
-    // Files >100MB are too large for the 300s Hobby timeout.
+    // Files >40MB are too large for the 300s Hobby timeout at ~6x realtime.
     // Skip compression and use the original file directly.
+    // (At 6x realtime, 40MB ≈ 33min audio ≈ 330s processing — too tight.)
     const fileBytes = talk.fileSize ?? 0;
-    const isTooLarge = fileBytes > 100 * 1024 * 1024;
+    const MAX_PROCESSABLE_BYTES = 40 * 1024 * 1024;
+    const isTooLarge = fileBytes > MAX_PROCESSABLE_BYTES;
 
     if (isTooLarge) {
       await db.update(schema.talks).set({
@@ -88,7 +87,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `File is ${(fileBytes / 1024 / 1024).toFixed(0)}MB — too large for the Hobby plan 300s limit. Using original file.`,
+        message: `File is ${(fileBytes / 1024 / 1024).toFixed(0)}MB — too large for the 300s processing limit. Using original file.`,
       });
     }
 
@@ -140,7 +139,19 @@ export async function POST(request: NextRequest) {
         const fileStat = await stat(inputPath);
         const originalSize = fileStat.size;
 
-        // 2. Compress to Opus 24kbps mono voip (single FFmpeg pass, ~30x realtime)
+        // Re-check file size after download — DB value may be stale or wrong
+        if (originalSize > MAX_PROCESSABLE_BYTES) {
+          console.log(`[talks:process] Talk ${talkId}: actual file size ${(originalSize / 1024 / 1024).toFixed(1)} MB exceeds limit — using original`);
+          await db.update(schema.talks).set({
+            processingStatus: "ready",
+            processedStorageKey: talk.storageKey,
+            processedAt: new Date(),
+            processingError: null,
+          }).where(eq(schema.talks.id, talkId));
+          return;
+        }
+
+        // 2. Compress to Opus 24kbps mono voip (10-stage filter chain, ~6x realtime)
         console.log(`[talks:process] Talk ${talkId}: compressing to Opus (${(originalSize / 1024 / 1024).toFixed(1)} MB)…`);
         const result = await compressAudioFile(inputPath, originalSize);
 

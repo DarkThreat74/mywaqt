@@ -300,7 +300,7 @@ export function AdminTalks() {
   async function deleteTalk(talkId: string, talkTitle: string) {
     setConfirmState({
       title: "Delete talk",
-      message: `Delete "${talkTitle}"? The MP3 file will also be removed from storage. This cannot be undone.`,
+      message: `Delete "${talkTitle}"? The audio file will also be removed from storage. This cannot be undone.`,
       confirmLabel: "Delete talk",
       onConfirm: () => doDeleteTalk(talkId),
     });
@@ -417,15 +417,15 @@ export function AdminTalks() {
     e.preventDefault();
     setError(null);
     if (!talkTitle.trim() || !talkFile) {
-      setError("Title and MP3 file are required.");
+      setError("Title and audio file are required.");
       return;
     }
-    if (!talkFile.name.toLowerCase().endsWith(".mp3")) {
-      setError("Choose an MP3 file (.mp3 extension required).");
+    if (!/\.(mp3|m4a|aac|wav|ogg|opus|flac|wma)$/i.test(talkFile.name)) {
+      setError("Choose an audio file (mp3, m4a, aac, wav, ogg, opus, flac).");
       return;
     }
     if (talkFile.size > 150 * 1024 * 1024) {
-      setError("MP3 files must be 150 MB or smaller.");
+      setError("Audio files must be 150 MB or smaller.");
       return;
     }
 
@@ -1666,7 +1666,7 @@ function TalkRow({
         <p className="mt-0.5 truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
           {talk.speaker ? talk.speaker : "Unknown speaker"}
           {talk.fileSize ? ` · ${(talk.fileSize / 1024 / 1024).toFixed(1)} MB` : ""}
-          {talk.externalUrl ? " · external link" : " · MP3"}
+          {talk.externalUrl ? " · external link" : " · audio"}
         </p>
         {talk.topics && (
           <p className="mt-0.5 truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>

@@ -91,8 +91,8 @@ export const FAST_PROCESSING_OPTIONS: ProcessingOptions = {
 
 // Ultra-fast mode for very large files (>100 MB) — just transcodes to
 // 64k mono 22050Hz with NO filters at all. This is the fastest possible
-// FFmpeg operation (20-30x realtime) and can handle a 300MB file (~4h
-// of audio) in ~8-12 min, well within the 800s Vercel Pro timeout.
+// FFmpeg operation (~20x realtime) and can handle a 300MB file (~4h
+// of audio) in ~12 min, well within the 800s Vercel Pro timeout.
 // The output is still ~75% smaller than the original.
 export const ULTRA_FAST_PROCESSING_OPTIONS: ProcessingOptions = {
   ...DEFAULT_PROCESSING_OPTIONS,
@@ -418,9 +418,9 @@ export async function processAudioFile(
     // 2. High-pass filter — remove low-frequency rumble (HVAC, traffic, mic handling)
     filters.push('highpass=f=80');
 
-    // 3. Low-pass filter — remove high-frequency hiss above 16kHz
-    //    Speech rarely has useful content above 16kHz; removing it cleans up noise
-    filters.push('lowpass=f=16000');
+    // 3. Low-pass filter — remove high-frequency hiss above 10kHz
+    //    Must be below Nyquist for 22050Hz output (Nyquist = 11025Hz)
+    filters.push('lowpass=f=10000');
 
     // 4. Noise reduction — afftdn (adaptive FFT denoising)
     //    nr = noise reduction strength (0-97, we use conservative 12)
@@ -549,15 +549,22 @@ export async function processAudioFile(
 /**
  * Compress an audio file to Opus 24kbps mono voip mode.
  *
- * This is the simplest, fastest possible audio compression for speech:
- *   - Opus codec: best low-bitrate speech codec (better than MP3 at 1/3 the bitrate)
- *   - 24kbps: WhatsApp voice note quality, ~85% smaller than 160kbps MP3
- *   - Mono: speech has no stereo content
- *   - voip mode: optimized for speech (SILK codec, emphasizes clarity)
- *   - compression_level 0: fastest encoding
- *   - loudnorm: single-pass broadcast loudness normalization (-16 LUFS)
- *   - highpass: removes low-frequency rumble below 80Hz
- *   - ~25x realtime (loudnorm adds ~15% over raw transcode)
+ * 10-stage filter chain (researched via agent-reach + context7):
+ *   1. highpass(80Hz)      — remove rumble/DC
+ *   2. lowpass(12kHz)      — match Opus SWB cutoff, save bits for speech
+ *   3. silenceremove       — trim pauses >2s, keep 1s buffer (stop_silence)
+ *   4. afftdn(nr=10)       — light FFT noise reduction, auto noise floor
+ *   5. deesser(i=0.3)      — dynamic sibilance reduction
+ *   6. equalizer(3kHz+2dB) — presence boost for consonant clarity
+ *   7. equalizer(200Hz+1)  — warmth for voice body
+ *   8. acompressor(3:1)     — even out dynamics (RMS detection)
+ *   9. dynaudnorm          — frame-by-frame gain leveling (no pumping)
+ *   10. alimiter(0.891)    — peak ceiling ~-1dB
+ *
+ * Encoder: libopus 24kbps mono voip @ 48kHz, compression_level 5, cutoff 12kHz
+ *
+ * Processing speed: ~6x realtime on Vercel shared vCPU.
+ * A 40MB file (~33min audio) processes in ~330s.
  *
  * Opus is supported by all modern browsers in <audio> elements:
  * Chrome 25+, Firefox 15+, Safari 11+ (desktop) / 14+ (iOS), Edge 14+.

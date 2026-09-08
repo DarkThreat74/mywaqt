@@ -31,9 +31,9 @@ const s3 = new S3Client({
 const BUCKET = env.r2BucketName;
 
 /**
- * Generate a presigned PUT URL for uploading an MP3 to R2.
+ * Generate a presigned PUT URL for uploading audio to R2.
  * The client uploads directly to R2 — no server-side file handling.
- * URL expires in 15 minutes.
+ * URL expires in 1 hour (enough for large batch uploads on slow connections).
  */
 export async function getUploadUrl(storageKey: string, contentType: string = 'audio/mpeg'): Promise<string> {
   const command = new PutObjectCommand({
@@ -41,19 +41,19 @@ export async function getUploadUrl(storageKey: string, contentType: string = 'au
     Key: storageKey,
     ContentType: contentType,
   });
-  return getSignedUrl(s3, command, { expiresIn: 900 });
+  return getSignedUrl(s3, command, { expiresIn: 3600 });
 }
 
 /**
- * Generate a presigned GET URL for streaming an MP3 from R2.
- * URL expires in 1 hour (enough for a long talk).
+ * Generate a presigned GET URL for streaming audio from R2.
+ * URL expires in 6 hours (enough for long talks + pause/resume).
  */
 export async function getStreamUrl(storageKey: string): Promise<string> {
   const command = new GetObjectCommand({
     Bucket: BUCKET,
     Key: storageKey,
   });
-  return getSignedUrl(s3, command, { expiresIn: 3600 });
+  return getSignedUrl(s3, command, { expiresIn: 6 * 3600 });
 }
 
 /**
