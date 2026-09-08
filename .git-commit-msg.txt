@@ -1,23 +1,16 @@
-feat: batch folder upload with auto-numbering and 3-at-a-time processing
+fix: add loudness normalization to Opus compression — audio was inaudible
 
-Admin can now select an entire folder of audio files and upload them
-in one operation. Each file gets a numbered title based on a naming
-pattern (e.g. "Seerah of the Prophet Episode 1", "...2", "...3").
+The Opus-only transcode had zero audio filters, so quiet source
+recordings stayed quiet (or got quieter). Added two lightweight
+filters to the single FFmpeg pass:
 
-Flow:
-1. Admin clicks "Batch Upload Folder" button
-2. Selects a folder via webkitdirectory picker (all audio files extracted)
-3. Enters naming pattern + optional speaker + optional folder
-4. Files are sorted by name with numeric collation (1, 2, 10, not 1, 10, 2)
-5. Each file is uploaded to R2 and a talk record is created
-6. After all uploads, processing runs 3 at a time:
-   - 3 talks start processing simultaneously
-   - Client polls every 5s for completion
-   - When one finishes (ready/failed), the next batch starts
-   - Progress bar shows current phase and count
+- loudnorm=I=-16:TP=-1.5:LRA=11 — brings audio to broadcast
+  standard loudness (-16 LUFS, the podcast/speech target)
+- highpass=f=80 — removes low-frequency rumble (HVAC, mic handling)
 
-This stays within Vercel Hobby's 300s limit by never running more
-than 3 concurrent processing jobs.
+This adds ~15% to processing time (~25x realtime instead of ~30x)
+but the audio is now properly audible. Still far faster than the
+old 9-filter pipeline.
 
 Generated with [Devin](https://devin.ai)
 

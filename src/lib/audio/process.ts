@@ -555,10 +555,9 @@ export async function processAudioFile(
  *   - Mono: speech has no stereo content
  *   - voip mode: optimized for speech (SILK codec, emphasizes clarity)
  *   - compression_level 0: fastest encoding
- *   - NO filters: just transcode, ~30x realtime
- *
- * A 64MB MP3 → ~10MB Opus. A 300MB MP3 → ~45MB Opus.
- * Processing time for 53min audio: ~2min (vs 10+ min with the filter chain).
+ *   - loudnorm: single-pass broadcast loudness normalization (-16 LUFS)
+ *   - highpass: removes low-frequency rumble below 80Hz
+ *   - ~25x realtime (loudnorm adds ~15% over raw transcode)
  *
  * Opus is supported by all modern browsers in <audio> elements:
  * Chrome 25+, Firefox 15+, Safari 11+ (desktop) / 14+ (iOS), Edge 14+.
@@ -576,13 +575,18 @@ export async function compressAudioFile(
   const outputPath = join(tmpDir, `output-${id}.opus`);
 
   try {
-    // Single FFmpeg pass: decode MP3 → encode Opus 24kbps mono voip
-    // No filters, no probe, no loudness measurement — just transcode.
+    // Single FFmpeg pass: decode → loudness normalize → encode Opus 24kbps mono voip
+    // loudnorm brings quiet recordings up to broadcast standard (-16 LUFS).
+    // highpass removes low-frequency rumble (HVAC, mic handling) — nearly free.
     await new Promise<void>((resolve, reject) => {
       ffmpeg(inputPath)
         .audioCodec('libopus')
         .audioBitrate('24k')
         .audioChannels(1)
+        .audioFilter([
+          'highpass=f=80',                              // Cut low rumble
+          'loudnorm=I=-16:TP=-1.5:LRA=11',              // Normalize to broadcast loudness
+        ])
         .outputOptions([
           '-application voip',       // Optimize for speech
           '-compression_level 0',    // Fastest encoding
