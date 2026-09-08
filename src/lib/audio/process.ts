@@ -575,9 +575,10 @@ export async function compressAudioFile(
   const outputPath = join(tmpDir, `output-${id}.opus`);
 
   try {
-    // Single FFmpeg pass: decode → loudness normalize → encode Opus 24kbps mono voip
-    // loudnorm brings quiet recordings up to broadcast standard (-16 LUFS).
-    // highpass removes low-frequency rumble (HVAC, mic handling) — nearly free.
+    // Single FFmpeg pass: decode → silence trim → loudness normalize → encode Opus
+    // silenceremove: caps all pauses at 1 second (removes excess, keeps 1s)
+    // loudnorm: brings quiet recordings up to broadcast standard (-16 LUFS)
+    // highpass: removes low-frequency rumble (HVAC, mic handling)
     await new Promise<void>((resolve, reject) => {
       ffmpeg(inputPath)
         .audioCodec('libopus')
@@ -585,6 +586,7 @@ export async function compressAudioFile(
         .audioChannels(1)
         .audioFilter([
           'highpass=f=80',                              // Cut low rumble
+          'silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=-1:stop_duration=1:stop_threshold=-50dB:leave_silence=1',
           'loudnorm=I=-16:TP=-1.5:LRA=11',              // Normalize to broadcast loudness
         ])
         .outputOptions([

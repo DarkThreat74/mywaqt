@@ -1,16 +1,14 @@
-fix: add loudness normalization to Opus compression — audio was inaudible
+feat: remove long silences from talks — cap pauses at 1 second
 
-The Opus-only transcode had zero audio filters, so quiet source
-recordings stayed quiet (or got quieter). Added two lightweight
-filters to the single FFmpeg pass:
+Added silenceremove filter to the Opus compression pipeline:
+- Trims leading silence (0.5s+ at start)
+- Caps all mid-file pauses at 1 second
+- Pauses under 1 second are preserved as-is
+- Uses leave_silence=1 so 1 second of silence is kept at each
+  cut point (natural pacing between sentences)
 
-- loudnorm=I=-16:TP=-1.5:LRA=11 — brings audio to broadcast
-  standard loudness (-16 LUFS, the podcast/speech target)
-- highpass=f=80 — removes low-frequency rumble (HVAC, mic handling)
-
-This adds ~15% to processing time (~25x realtime instead of ~30x)
-but the audio is now properly audible. Still far faster than the
-old 9-filter pipeline.
+Filter chain is now: highpass → silenceremove → loudnorm → Opus encode
+Still single-pass, ~20x realtime.
 
 Generated with [Devin](https://devin.ai)
 
