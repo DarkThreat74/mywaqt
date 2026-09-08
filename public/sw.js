@@ -724,8 +724,10 @@ self.addEventListener("fetch", (event) => {
   }
 
   // ── Audio requests from R2 (talks): cache-first with range support ──
-  // R2 presigned URLs are long-lived (1 hour) and unique per talk.
-  // We cache the full response so offline playback + seeking works.
+  // R2 presigned URLs are long-lived (6 hours) and unique per talk.
+  // We only serve from cache — we do NOT auto-cache on play.
+  // Audio is cached only when the user explicitly downloads (saveAudioOffline).
+  // This prevents unbounded storage growth from passive listening.
   // Range requests are sliced from the cached full response for iOS-compatible seeking.
   if (
     request.destination === "audio" ||
@@ -774,14 +776,11 @@ self.addEventListener("fetch", (event) => {
           }
         }
 
-        // No cache — fetch from network and cache
+        // No cache — fetch from network but DO NOT cache.
+        // Only explicit downloads (saveAudioOffline) add to the cache.
+        // This prevents passive listening from filling storage.
         try {
-          const response = await fetch(request);
-          if (response.ok && response.status === 200) {
-            // Only cache full responses (not partial 206s — they're incomplete)
-            await audioCache.put(request, response.clone());
-          }
-          return response;
+          return await fetch(request);
         } catch {
           // Offline and no cache — return 503 so the player can show an error
           return new Response(null, {

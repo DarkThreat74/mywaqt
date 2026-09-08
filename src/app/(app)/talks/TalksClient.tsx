@@ -186,12 +186,17 @@ export default function TalksClient() {
     if (!talk.streamUrl || downloadedIds.has(talk.id) || downloadingIds.has(talk.id)) return;
     setDownloadingIds((prev) => new Set(prev).add(talk.id));
     try {
-      await saveAudioOffline(talk.streamUrl);
+      await saveAudioOffline(talk.streamUrl, {
+        talkId: talk.id,
+        title: talk.title,
+        fileSize: talk.fileSize || undefined,
+      });
       setDownloadedIds((prev) => new Set(prev).add(talk.id));
       setOffline(talk.id, true);
       setDownloadError(null);
-    } catch {
-      setDownloadError("This talk couldn't be downloaded. Check your connection and available storage.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "This talk couldn't be downloaded. Check your connection and available storage.";
+      setDownloadError(msg);
     }
     finally {
       setDownloadingIds((prev) => { const n = new Set(prev); n.delete(talk.id); return n; });

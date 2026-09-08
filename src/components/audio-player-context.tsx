@@ -2,8 +2,13 @@
 
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
+import { getOfflineDB, type CachedTalkDownload } from "@/lib/offline/db";
 
 export const AUDIO_CACHE_NAME = "waqt-audio";
+
+// 500 MB — enough for ~50 talks at ~10 MB each.
+// When exceeded, oldest-played entries are evicted (LRU).
+const MAX_AUDIO_CACHE_BYTES = 500 * 1024 * 1024;
 
 export function audioCacheKey(url: string): string {
   const parsed = new URL(url, window.location.origin);
@@ -20,19 +25,184 @@ export async function isAudioCached(url: string): Promise<boolean> {
   return (await getCachedAudioKeys()).has(audioCacheKey(url));
 }
 
-export async function saveAudioOffline(url: string): Promise<void> {
-  const cache = await caches.open(AUDIO_CACHE_NAME);
-  await Promise.all((await cache.keys())
-    .filter((request) => audioCacheKey(request.url) === audioCacheKey(url))
-    .map((request) => cache.delete(request)));
-  await cache.add(url);
+/**
+ * Get the total size of all cached audio entries (from manifest, fast).
+ * Falls back to 0 if the manifest is empty or unavailable.
+ */
+export async function getAudioCacheSize(): Promise<number> {
+  try {
+    const db = getOfflineDB();
+    const entries = await db.talkDownloads.toArray();
+    return entries.reduce((sum, e) => sum + (e.size || 0), 0);
+  } catch {
+    return 0;
+  }
 }
 
-export async function removeAudioOffline(url: string): Promise<void> {
+/**
+ * Get the count of downloaded talks.
+ */
+export async function getAudioCacheCount(): Promise<number> {
+  try {
+    const db = getOfflineDB();
+    return await db.talkDownloads.count();
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Evict oldest-played entries until the total cache size is under the limit.
+ * Uses LRU (least recently used) based on lastPlayedAt.
+ */
+async function evictLRUIfNeeded(): Promise<void> {
+  try {
+    const db = getOfflineDB();
+    const cache = await caches.open(AUDIO_CACHE_NAME);
+    let totalSize = await getAudioCacheSize();
+
+    if (totalSize <= MAX_AUDIO_CACHE_BYTES) return;
+
+    // Sort by lastPlayedAt ascending (oldest first) and evict until under limit
+    const entries = await db.talkDownloads.orderBy("lastPlayedAt").toArray();
+    for (const entry of entries) {
+      if (totalSize <= MAX_AUDIO_CACHE_BYTES) break;
+      // Delete from Cache API
+      const keys = await cache.keys();
+      await Promise.all(
+        keys
+          .filter((req) => audioCacheKey(req.url) === entry.cacheKey)
+          .map((req) => cache.delete(req))
+      );
+      // Delete from manifest
+      await db.talkDownloads.delete(entry.cacheKey);
+      totalSize -= entry.size || 0;
+    }
+  } catch {
+    // non-critical — eviction is best-effort
+  }
+}
+
+/**
+ * Check available storage before downloading.
+ * Returns an error message if storage is likely insufficient, or null if OK.
+ */
+async function checkStorageAvailable(estimatedFileSize: number): Promise<string | null> {
+  if (navigator.storage?.estimate) {
+    try {
+      const estimate = await navigator.storage.estimate();
+      const remaining = (estimate.quota || 0) - (estimate.usage || 0);
+      // Need 2x the file size as headroom (cache + processing overhead)
+      if (remaining < estimatedFileSize * 2) {
+        return "Storage is almost full. Remove some offline talks to free space.";
+      }
+    } catch {
+      // estimate() not available — proceed without check
+    }
+  }
+  return null;
+}
+
+/**
+ * Save a talk for offline use.
+ * Checks storage, downloads, records in manifest, and evicts LRU if over limit.
+ * Throws with a user-friendly message if storage is insufficient.
+ */
+export async function saveAudioOffline(
+  url: string,
+  metadata?: { talkId: string; title: string; fileSize?: number }
+): Promise<void> {
+  const key = audioCacheKey(url);
+
+  // Check storage before downloading
+  if (metadata?.fileSize) {
+    const storageError = await checkStorageAvailable(metadata.fileSize);
+    if (storageError) throw new Error(storageError);
+  }
+
   const cache = await caches.open(AUDIO_CACHE_NAME);
-  await Promise.all((await cache.keys())
-    .filter((request) => audioCacheKey(request.url) === audioCacheKey(url))
-    .map((request) => cache.delete(request)));
+
+  // Remove any existing entry for this talk (re-download)
+  await Promise.all(
+    (await cache.keys())
+      .filter((request) => audioCacheKey(request.url) === key)
+      .map((request) => cache.delete(request))
+  );
+
+  // Download and cache
+  await cache.add(url);
+
+  // Get the actual cached size
+  const response = await cache.match(new Request(url), { ignoreVary: true });
+  let actualSize = metadata?.fileSize || 0;
+  if (response) {
+    try {
+      const buffer = await response.clone().arrayBuffer();
+      actualSize = buffer.byteLength;
+    } catch {
+      // fall back to metadata size
+    }
+  }
+
+  // Record in manifest
+  if (metadata) {
+    try {
+      const db = getOfflineDB();
+      const now = Date.now();
+      await db.talkDownloads.put({
+        cacheKey: key,
+        talkId: metadata.talkId,
+        title: metadata.title,
+        size: actualSize,
+        cachedAt: now,
+        lastPlayedAt: now,
+      });
+    } catch {
+      // manifest is best-effort — the cache entry still works
+    }
+  }
+
+  // Evict old entries if over the limit
+  await evictLRUIfNeeded();
+}
+
+/**
+ * Remove a talk from offline cache.
+ */
+export async function removeAudioOffline(url: string): Promise<void> {
+  const key = audioCacheKey(url);
+  const cache = await caches.open(AUDIO_CACHE_NAME);
+
+  // Delete from Cache API
+  await Promise.all(
+    (await cache.keys())
+      .filter((request) => audioCacheKey(request.url) === key)
+      .map((request) => cache.delete(request))
+  );
+
+  // Delete from manifest
+  try {
+    const db = getOfflineDB();
+    await db.talkDownloads.delete(key);
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * Update lastPlayedAt for a talk in the manifest (for LRU tracking).
+ */
+export async function touchAudioCache(url: string): Promise<void> {
+  const key = audioCacheKey(url);
+  try {
+    const db = getOfflineDB();
+    const entry = await db.talkDownloads.get(key);
+    if (entry) {
+      await db.talkDownloads.update(key, { lastPlayedAt: Date.now() });
+    }
+  } catch {
+    // best-effort
+  }
 }
 
 interface AudioPlayerState {

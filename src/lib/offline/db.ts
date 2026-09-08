@@ -134,6 +134,17 @@ export interface CachedNote {
   _cachedAt: number;
 }
 
+// Manifest entry for an explicitly downloaded talk.
+// The cacheKey is the normalized audioCacheKey() so we can match Cache API entries.
+export interface CachedTalkDownload {
+  cacheKey: string;       // normalized audioCacheKey — primary key
+  talkId: string;         // talk UUID from DB
+  title: string;          // for display in storage management UI
+  size: number;           // bytes stored in Cache API (approx)
+  cachedAt: number;       // timestamp — for LRU eviction
+  lastPlayedAt: number;   // timestamp — for LRU eviction
+}
+
 class WaqtOfflineDB extends Dexie {
   events!: Table<CachedEvent, string>;
   prayerLogs!: Table<CachedPrayerLog, string>;
@@ -148,6 +159,7 @@ class WaqtOfflineDB extends Dexie {
   habits!: Table<CachedHabit, string>;
   habitLogs!: Table<CachedHabitLog, string>;
   notes!: Table<CachedNote, string>;
+  talkDownloads!: Table<CachedTalkDownload, string>;
 
   constructor() {
     super("waqt-offline-data");
@@ -198,6 +210,24 @@ class WaqtOfflineDB extends Dexie {
       habitLogs: "id, habitId, date, [habitId+date]",
       notes: "id, updatedAt, pinned",
     });
+    // v4: add talkDownloads store for offline audio manifest (LRU eviction + size tracking)
+    this.version(4).stores({
+      events: "id, _dateKey, userId",
+      prayerLogs: "id, date, userId, prayerName",
+      prayerTimes: "date",
+      analytics: "id",
+      friends: "id",
+      qadaa: "id",
+      sunnahLogs: "id, date",
+      goals: "id, parentId, userId",
+      homework: "id, dueDate, status, classId",
+      classes: "id, sortOrder",
+      habits: "id, sortOrder, archived",
+      habitLogs: "id, habitId, date, [habitId+date]",
+      notes: "id, updatedAt, pinned",
+      // cacheKey is primary key, talkId for lookup, cachedAt/lastPlayedAt for LRU eviction
+      talkDownloads: "cacheKey, talkId, cachedAt, lastPlayedAt",
+    });
   }
 }
 
@@ -232,6 +262,7 @@ export async function clearOfflineCache(): Promise<void> {
       db.habits.clear(),
       db.habitLogs.clear(),
       db.notes.clear(),
+      db.talkDownloads.clear(),
     ]);
   } catch {
     // non-critical

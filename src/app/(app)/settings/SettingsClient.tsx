@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2 } from "lucide-react";
+import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2, Headphones } from "lucide-react";
 import { clearApiCache } from "@/lib/sw-helpers";
 import { isNativeApp } from "@/lib/native-bridge";
 import { clearOfflineCache } from "@/lib/offline/db";
+import { getAudioCacheCount, getAudioCacheSize } from "@/components/audio-player-context";
 import { HTTP_USER_AGENT } from "@/lib/site-config";
 import { clearCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 
@@ -375,6 +376,21 @@ export default function SettingsClient({
   const [notifMsg, setNotifMsg] = useState<string | null>(null);
   const [swStatus, setSwStatus] = useState<string>("checking...");
   const [pushStatus, setPushStatus] = useState<string>("checking...");
+
+  // Offline audio storage state
+  const [audioCacheInfo, setAudioCacheInfo] = useState<{ count: number; sizeBytes: number } | null>(null);
+
+  // Load audio cache info on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [count, sizeBytes] = await Promise.all([getAudioCacheCount(), getAudioCacheSize()]);
+        if (!cancelled) setAudioCacheInfo({ count, sizeBytes });
+      } catch { /* non-critical */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Logout state
   const [loggingOut, setLoggingOut] = useState(false);
@@ -1674,6 +1690,60 @@ export default function SettingsClient({
               </button>
             )}
           </div>
+        </CollapsibleSection>
+
+        {/* ── Offline Audio Storage — collapsible ── */}
+        <CollapsibleSection
+          icon={<Headphones className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />}
+          title="Offline talks"
+          badge={audioCacheInfo?.count ? `${audioCacheInfo.count}` : undefined}
+          defaultOpen={false}
+        >
+          <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+            Downloaded talks are stored on your device for offline listening. A 500 MB limit
+            automatically removes the oldest-played talks when exceeded.
+          </p>
+          {audioCacheInfo ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <span className="text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>Downloaded talks</span>
+                <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{audioCacheInfo.count}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <span className="text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>Total storage used</span>
+                <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
+                  {audioCacheInfo.sizeBytes > 0
+                    ? `${(audioCacheInfo.sizeBytes / 1024 / 1024).toFixed(1)} MB`
+                    : "0 MB"}
+                </span>
+              </div>
+              {/* Progress bar showing usage toward 500 MB limit */}
+              <div className="mt-1">
+                <div className="mb-1 flex items-center justify-between text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                  <span>0 MB</span>
+                  <span>500 MB limit</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                  <div className="h-full rounded-full transition-all" style={{
+                    width: `${Math.min(100, (audioCacheInfo.sizeBytes / (500 * 1024 * 1024)) * 100)}%`,
+                    backgroundColor: audioCacheInfo.sizeBytes > 450 * 1024 * 1024
+                      ? "var(--color-error)"
+                      : "var(--color-accent)",
+                  }} />
+                </div>
+              </div>
+              {audioCacheInfo.count === 0 && (
+                <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                  No talks downloaded yet. Tap the download icon next to any talk to save it for offline listening.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              <span>Loading…</span>
+            </div>
+          )}
         </CollapsibleSection>
 
         {/* ── Trusted Devices — collapsible ── */}

@@ -652,11 +652,16 @@ export default function AdvancedAudioPlayer({
     if (!track.streamUrl || isOffline) return;
     setIsSavingOffline(true);
     try {
-      await saveAudioOffline(track.streamUrl);
+      await saveAudioOffline(track.streamUrl, {
+        talkId: track.id,
+        title: track.title,
+        fileSize: track.fileSize || undefined,
+      });
       setIsOffline(true);
       onOfflineStatusChange(track.id, true);
-    } catch {
-      setError("Failed to save for offline use.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save for offline use.";
+      setError(msg);
     } finally {
       setIsSavingOffline(false);
     }

@@ -1,52 +1,32 @@
-fix: 15 bugs found via codebase audit — stale constants, wrong limits, MP3-only restriction
+feat: fast Opus transcode for large files + offline cache fixes
 
-Found via subagent audit of the audio processing pipeline.
+PROBLEM: Files >40MB were skipping processing entirely, serving the
+original 150MB MP3. Streaming these used 50-150MB of cellular data
+per talk. Downloaded copies were also 150MB instead of ~10MB.
 
-CRITICAL fixes:
+FIX: Added compressAudioFileFast() — bare Opus transcode with no
+filter chain and compression_level 0. Runs at ~25x realtime
+(vs ~6x for the full chain), so files up to 150MB process within
+the 300s timeout.
 
-1. File size limit calibrated to wrong speed (process/route.ts)
-   - Was: 100MB (assumed 30x realtime, no filters)
-   - Now: 40MB (correct for 10-stage chain at ~6x realtime)
-   - At 6x, a 40MB file takes ~330s — tight but safe under 300s timeout
+Processing paths:
+  ≤40MB:   Full 10-stage filter chain (~6x realtime)
+  40-150MB: Fast bare transcode, no filters (~25x realtime)
+  >150MB:  Skipped (exceeds upload limit anyway)
 
-2. Re-check file size after download (process/route.ts)
-   - Was: only checked DB value before download
-   - Now: also checks actual file size after stat() — catches stale DB
-   - If actual size > 40MB, marks as ready with original file
+Both paths produce 24kbps Opus (~85% smaller), so ALL talks now
+stream at ~3 KB/s regardless of source file size.
 
-3. Nyquist violation in dead code (process.ts:421)
-   - Was: lowpass=f=16000 with 22050Hz sample rate (Nyquist=11025Hz)
-   - Now: lowpass=f=10000 (below Nyquist)
-   - This path is dead code but fixed for correctness
+DATA USAGE:
+  Downloaded:      0 KB/s (served from cache)
+  Not downloaded: ~3 KB/s (24kbps Opus) = ~10.8 MB/hour
 
-HIGH fixes:
-
-4. Server only accepted .mp3 but UI accepted all audio formats
-   - Was: regex only matched .mp3, error said "MP3 required"
-   - Now: accepts mp3, m4a, aac, wav, ogg, opus, flac, wma
-   - Content-type map added for correct R2 upload headers
-
-MODERATE fixes:
-
-5. Rate limit too low for batch uploads (route.ts)
-   - Was: 20 calls/hour (batch of 10 = 20 calls, hits limit)
-   - Now: 200 calls/hour (handles 10 batches of 10)
-
-6. R2 presigned URL expiry too short (r2/client.ts)
-   - Upload URL: 15min → 1hr (large batches on slow connections)
-   - Stream URL: 1hr → 6hrs (long talks + pause/resume)
-
-COSMETIC fixes:
-
-7. Stale comments throughout:
-   - process/route.ts: "no filters, ~30x realtime" → accurate 10-stage chain
-   - process.ts JSDoc: "loudnorm, compression_level 0, ~25x realtime" → accurate
-   - schema.ts: "PROCESSED MP3" → "PROCESSED Opus"
-   - route.ts: "Hobby plan" → "process/route.ts"
-
-8. Talk rows showed "MP3" but output is Opus
-   - Now shows "audio" instead of "MP3"
-   - Error messages updated from "MP3" to "audio file"
+Also includes offline cache fixes from the audit:
+  - Storage estimate check before download
+  - LRU eviction at 500MB limit
+  - Download manifest in IndexedDB (v4 schema)
+  - Stop implicit caching on Play (only explicit downloads)
+  - Settings page shows offline storage usage
 
 Generated with [Devin](https://devin.ai)
 

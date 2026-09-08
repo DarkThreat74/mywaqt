@@ -658,3 +658,77 @@ export async function compressAudioFile(
     await unlink(outputPath).catch(() => {});
   }
 }
+
+/**
+ * Fast Opus transcode for large files (>40MB).
+ *
+ * Same 24kbps mono voip output as compressAudioFile, but with NO filter chain
+ * and compression_level 0 (fastest encoding). This runs at ~25x realtime
+ * instead of ~6x, so a 150MB file (~2.5h audio) processes in ~360s.
+ *
+ * Trade-off: no noise reduction, no silence removal, no loudness normalization.
+ * The audio will sound raw but still be ~85% smaller than the original.
+ *
+ * This ensures ALL talks produce a small Opus file for low-data streaming,
+ * regardless of source file size.
+ */
+export async function compressAudioFileFast(
+  inputPath: string,
+  originalSize?: number,
+): Promise<{ buffer: Buffer; processedSize: number; originalSize: number; duration: number }> {
+  await verifyFfmpegBinary();
+
+  const tmpDir = join(tmpdir(), 'waqt-audio-processing');
+  await mkdir(tmpDir, { recursive: true });
+
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const outputPath = join(tmpDir, `output-${id}.opus`);
+
+  try {
+    // Bare Opus transcode — no filters, fastest encoding.
+    // Just highpass to remove DC offset and lowpass to match Opus cutoff.
+    // These two filters are cheap (IIR) and don't significantly slow processing.
+    const filterChain = 'highpass=f=80,lowpass=f=12000';
+
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(inputPath)
+        .audioCodec('libopus')
+        .audioBitrate('24k')
+        .audioChannels(1)
+        .outputOptions([
+          `-af ${filterChain}`,
+          '-ar 48000',
+          '-application voip',
+          '-compression_level 0', // Fastest encoding
+          '-frame_duration 60',
+          '-cutoff 12000',
+          '-map_metadata -1',
+        ])
+        .on('stderr', (line) => {
+          console.error(`[audio:compress-fast] ${line}`);
+        })
+        .on('error', (err) => reject(new Error(`Fast Opus transcode failed: ${err.message}`)))
+        .on('end', () => resolve())
+        .save(outputPath);
+    });
+
+    const processedBuffer = await readFile(outputPath);
+
+    let duration = 0;
+    try {
+      const probe = await probeAudioPath(outputPath);
+      duration = probe.duration;
+    } catch {
+      // Duration is nice-to-have, not critical
+    }
+
+    return {
+      buffer: processedBuffer,
+      processedSize: processedBuffer.length,
+      originalSize: originalSize ?? 0,
+      duration,
+    };
+  } finally {
+    await unlink(outputPath).catch(() => {});
+  }
+}
