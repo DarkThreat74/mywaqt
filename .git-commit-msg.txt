@@ -1,25 +1,32 @@
-fix: replace loudnorm with dynaudnorm to fix audio glitching/pumping
+feat: professional speech audio chain for Opus talks
 
-Research via agent-reach found that single-pass loudnorm is the
-known cause of audio "glitching" on speech:
+Researched via agent-reach + context7 (FFmpeg 6.1 docs). Upgraded the
+Opus compression pipeline with a full speech-optimized filter chain.
 
-  "Single-pass loudnorm pumps; don't use it for VOD. In one pass,
-  loudnorm doesn't know what's coming, so it makes loudness decisions
-  on the fly with dynamic processing. On dialogue that breathes
-  audibly."
+New filter chain (10 stages):
+  1. highpass(80Hz)      — remove rumble/DC
+  2. lowpass(12kHz)      — match Opus SWB cutoff (was 16k, wasted bits)
+  3. silenceremove      — trim pauses >2s, keep 1s buffer
+  4. afftdn(nr=10)      — light FFT noise reduction, auto noise floor
+  5. deesser(i=0.3)     — dynamic sibilance reduction (preserves treble)
+  6. equalizer(3kHz+2dB)— presence boost for consonant clarity
+  7. equalizer(200Hz+1) — warmth for voice body
+  8. acompressor        — even out dynamics (ratio 3:1, RMS detection)
+  9. dynaudnorm         — frame-by-frame gain leveling (no pumping)
+  10. alimiter(0.891)   — peak ceiling ~-1dB to prevent clipping
 
-Also: loudnorm internally upsamples to 192kHz which can cause
-artifacts when encoding to Opus at low bitrates.
+Filter order follows speech processing best practices:
+  - Denoise/de-ess BEFORE compression (compressor would lift noise)
+  - Normalize/limit LAST (all filters see stable levels)
+  - lowpass matches Opus cutoff (12kHz SWB is sweet spot for 24kbps)
 
-Fix:
-- Replaced loudnorm with dynaudnorm (frame-by-frame gain with
-  Gaussian smoothing — designed for speech, no pumping)
-- Set maxgain=5 to avoid amplifying silence/noise excessively
-- Pinned sample rate to 48000 with -ar 48000
+Opus encoder improvements:
+  - compression_level 0 → 5 (quality/speed balance)
+  - Added -cutoff 12000 (super-wideband, focuses bits on speech)
+  - Kept voip application mode (SILK layer for speech)
 
-Filter chain now:
-  highpass(80) → lowpass(16k) → silenceremove(>2s, 1s buffer) →
-  dynaudnorm(maxgain=5) → Opus 24kbps 48kHz
+If Vercel times out, drop in this order:
+  compression_level 5→0, remove afftdn, remove EQs, remove deesser
 
 Generated with [Devin](https://devin.ai)
 

@@ -576,23 +576,36 @@ export async function compressAudioFile(
 
   try {
     // Single FFmpeg pass: decode → filter chain → encode Opus
-    // Filter chain: highpass → lowpass → silenceremove → dynaudnorm
     //
-    // silenceremove (stop_silence added FFmpeg 4.2, available in 6.1.1):
-    //   stop_duration=2  → only act on silence longer than 2 seconds
-    //   stop_silence=1   → keep 1 second of silence when trimming (the buffer)
-    //   start_silence=0.3 → keep 0.3s at the very start so audio doesn't begin abruptly
+    // Filter order follows speech-processing best practices (researched via
+    // agent-reach + context7 FFmpeg 6.1 docs):
+    //   1. highpass(80)     — remove rumble/DC
+    //   2. lowpass(12k)     — match Opus SWB cutoff at 24kbps (saves bits for speech)
+    //   3. silenceremove    — trim pauses >2s, keep 1s buffer (stop_silence)
+    //   4. afftdn           — light FFT noise reduction (auto noise floor tracking)
+    //   5. deesser          — dynamic sibilance reduction (preserves non-sibilant treble)
+    //   6. equalizer(3kHz)  — presence boost for consonant clarity
+    //   7. equalizer(200Hz) — warmth for male voice body
+    //   8. acompressor      — even out voice dynamics (before final gain)
+    //   9. dynaudnorm       — frame-by-frame gain leveling (no pumping like loudnorm)
+    //  10. alimiter         — peak ceiling to prevent clipping
     //
-    // dynaudnorm instead of loudnorm:
-    //   Single-pass loudnorm uses dynamic compression that pumps/breathes on
-    //   speech. dynaudnorm applies frame-by-frame gain with Gaussian smoothing
-    //   — smoother for voice, no pumping artifacts.
-    //   maxgain=5 caps amplification so silence/noise isn't boosted excessively.
+    // Key rules applied:
+    //   - Denoise/de-ess BEFORE compression (compressor would lift noise/sibilance)
+    //   - Normalize/limit LAST (so all filters see stable levels)
+    //   - lowpass matches Opus cutoff (12kHz SWB is the sweet spot for 24kbps voice)
+    //   - Conservative settings throughout — avoid musical-noise artifacts
     const filterChain = [
       'highpass=f=80',
-      'lowpass=f=16000',
+      'lowpass=f=12000',
       'silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:start_silence=0.3:stop_periods=-1:stop_duration=2:stop_threshold=-50dB:stop_silence=1',
-      'dynaudnorm=maxgain=5:gausssize=31',
+      'afftdn=nr=10:nf=-30:nt=w:tn=1',
+      'deesser=i=0.3:m=0.4:f=0.5',
+      'equalizer=f=3000:g=2:t=q:w=1',
+      'equalizer=f=200:g=1:t=q:w=1',
+      'acompressor=threshold=0.1:ratio=3:attack=5:release=100:makeup=2dB:knee=2.828:detection=rms',
+      'dynaudnorm=f=150:g=11:p=0.95:m=5:r=0.5',
+      'alimiter=limit=0.891:attack=5:release=50:level=disabled',
     ].join(',');
 
     await new Promise<void>((resolve, reject) => {
@@ -602,11 +615,12 @@ export async function compressAudioFile(
         .audioChannels(1)
         .outputOptions([
           `-af ${filterChain}`,
-          '-ar 48000',            // Pin sample rate — loudnorm upsamples to 192k internally
-          '-application voip',
-          '-compression_level 0',
-          '-frame_duration 60',
-          '-map_metadata -1',
+          '-ar 48000',            // Pin sample rate — Opus operates at 48kHz internally
+          '-application voip',   // SILK layer for speech intelligibility
+          '-compression_level 5',// Quality/speed balance (10=best, 0=fastest)
+          '-frame_duration 60',  // 60ms frames improve coding efficiency at low bitrate
+          '-cutoff 12000',       // Super-wideband — matches lowpass, focuses bits on speech
+          '-map_metadata -1',    // Strip metadata
         ])
         .on('stderr', (line) => {
           console.error(`[audio:compress] ${line}`);
