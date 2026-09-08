@@ -100,7 +100,16 @@ export function AdminTalks() {
   const [batchSpeaker, setBatchSpeaker] = useState("");
   const [batchFolderId, setBatchFolderId] = useState<string | null>(null);
   const [batchUploading, setBatchUploading] = useState(false);
-  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; phase: string; processing: number } | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{
+    current: number;       // file currently being processed (1-indexed)
+    total: number;         // total files
+    phase: string;         // human-readable phase
+    processing: number;     // how many in current batch are processing
+    batchNumber: number;   // current batch number (1-indexed)
+    totalBatches: number;  // total number of batches
+    uploadedInBatch: number; // files uploaded in current batch
+    processedInBatch: number; // files processed in current batch
+  } | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -496,130 +505,182 @@ export function AdminTalks() {
     }
   }
 
-  // ─── Batch upload + processing queue (3 at a time) ───
+  // ─── Batch upload + processing queue (10 at a time) ───
+  // For large folders (300+ files, ~5GB), we process in batches of 10:
+  //   1. Upload 10 files to R2 and create talk records
+  //   2. Start compression for those 10
+  //   3. Poll until all 10 are done (ready/failed)
+  //   4. Move to next 10
+  // This avoids uploading 5GB at once and overloading the server.
   async function startBatchUpload() {
     if (batchFiles.length === 0 || !batchName.trim()) return;
     setBatchUploading(true);
     setError(null);
 
     const total = batchFiles.length;
-    const createdIds: string[] = [];
+    const BATCH_SIZE = 10;
+    const totalBatches = Math.ceil(total / BATCH_SIZE);
 
     try {
-      // Phase 1: Upload all files to R2 and create talk records
-      for (let i = 0; i < total; i++) {
-        const file = batchFiles[i];
-        setBatchProgress({ current: i + 1, total, phase: `Uploading ${file.name}…`, processing: 0 });
+      for (let batchStart = 0; batchStart < total; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, total);
+        const batchNum = Math.floor(batchStart / BATCH_SIZE) + 1;
+        const batchFilesSlice = batchFiles.slice(batchStart, batchEnd);
 
-        // Get presigned URL
-        const presignRes = await fetch("/api/admin/talks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "get-upload-url",
-            folderId: batchFolderId,
-            filename: file.name,
-            fileSize: file.size,
-          }),
+        setBatchProgress({
+          current: batchStart,
+          total,
+          phase: `Batch ${batchNum}/${totalBatches} — Uploading…`,
+          processing: 0,
+          batchNumber: batchNum,
+          totalBatches,
+          uploadedInBatch: 0,
+          processedInBatch: 0,
         });
-        if (!presignRes.ok) {
-          const d = await presignRes.json().catch(() => ({}));
-          setError(`Failed to upload ${file.name}: ${d.error || "presign failed"}`);
-          continue;
+
+        // Phase 1: Upload this batch's files to R2 and create talk records
+        const createdIds: { id: string; fileName: string }[] = [];
+        for (let i = 0; i < batchFilesSlice.length; i++) {
+          const file = batchFilesSlice[i];
+          const globalIndex = batchStart + i;
+          setBatchProgress({
+            current: globalIndex,
+            total,
+            phase: `Batch ${batchNum}/${totalBatches} — Uploading ${file.name}…`,
+            processing: 0,
+            batchNumber: batchNum,
+            totalBatches,
+            uploadedInBatch: i,
+            processedInBatch: 0,
+          });
+
+          // Get presigned URL
+          const presignRes = await fetch("/api/admin/talks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "get-upload-url",
+              folderId: batchFolderId,
+              filename: file.name,
+              fileSize: file.size,
+            }),
+          });
+          if (!presignRes.ok) {
+            const d = await presignRes.json().catch(() => ({}));
+            setError(`Failed to upload ${file.name}: ${d.error || "presign failed"}`);
+            continue;
+          }
+          const { uploadUrl, storageKey, fileSize } = await presignRes.json();
+
+          // Upload to R2
+          const uploadRes = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": file.type || "audio/mpeg" },
+            body: file,
+          });
+          if (!uploadRes.ok) {
+            setError(`Failed to upload ${file.name} to storage.`);
+            continue;
+          }
+
+          // Create talk record with numbered title
+          const title = `${batchName.trim()} ${batchStartNumber + globalIndex}`;
+          const createRes = await fetch("/api/admin/talks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "create-talk",
+              title,
+              speaker: batchSpeaker || undefined,
+              folderId: batchFolderId || undefined,
+              storageKey,
+              fileSize: fileSize || file.size,
+            }),
+          });
+          if (createRes.ok) {
+            const created = await createRes.json();
+            createdIds.push({ id: created.id, fileName: file.name });
+          } else {
+            setError(`Failed to create record for ${file.name}.`);
+          }
         }
-        const { uploadUrl, storageKey, fileSize } = await presignRes.json();
 
-        // Upload to R2
-        const uploadRes = await fetch(uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type || "audio/mpeg" },
-          body: file,
-        });
-        if (!uploadRes.ok) {
-          setError(`Failed to upload ${file.name} to storage.`);
-          continue;
+        if (createdIds.length === 0) {
+          continue; // skip processing if nothing was created
         }
 
-        // Create talk record with numbered title
-        const title = `${batchName.trim()} ${batchStartNumber + i}`;
-        const createRes = await fetch("/api/admin/talks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "create-talk",
-            title,
-            speaker: batchSpeaker || undefined,
-            folderId: batchFolderId || undefined,
-            storageKey,
-            fileSize: fileSize || file.size,
-          }),
+        await load(); // refresh talk list
+
+        // Phase 2: Start compression for all files in this batch
+        setBatchProgress({
+          current: batchStart,
+          total,
+          phase: `Batch ${batchNum}/${totalBatches} — Starting compression for ${createdIds.length} files…`,
+          processing: createdIds.length,
+          batchNumber: batchNum,
+          totalBatches,
+          uploadedInBatch: createdIds.length,
+          processedInBatch: 0,
         });
-        if (createRes.ok) {
-          const created = await createRes.json();
-          createdIds.push(created.id);
-        } else {
-          setError(`Failed to create record for ${file.name}.`);
-        }
-      }
 
-      // Phase 2: Process 3 at a time
-      await load(); // refresh talk list
-      setBatchProgress({ current: total, total, phase: "Starting compression…", processing: 0 });
+        // Kick off processing for all files in the batch
+        await Promise.all(createdIds.map(async ({ id }) => {
+          await fetch("/api/admin/talks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "force-reprocess", talkId: id }),
+          }).catch(() => {});
+          await fetch("/api/admin/talks/process", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ talkId: id }),
+          });
+        }));
 
-      const CONCURRENCY = 3;
-      let nextIndex = 0;
-      let completedCount = 0;
+        // Phase 3: Poll until all files in this batch are done
+        const completed = new Set<string>();
+        const failed = new Set<string>();
+        const batchIds = new Set(createdIds.map((c) => c.id));
 
-      async function processOne(id: string): Promise<void> {
-        // Force-reset if somehow already processing, then start
-        await fetch("/api/admin/talks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "force-reprocess", talkId: id }),
-        }).catch(() => {});
-        await fetch("/api/admin/talks/process", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ talkId: id }),
-        });
-      }
-
-      async function pollUntilDone(id: string): Promise<void> {
-        for (let poll = 0; poll < 120; poll++) {
+        for (let poll = 0; poll < 300 && completed.size + failed.size < createdIds.length; poll++) {
           await new Promise((r) => setTimeout(r, 5000));
           const res = await fetch("/api/admin/talks");
           if (!res.ok) continue;
           const data = await res.json().catch(() => ({}));
-          const talk = (data.talks as AdminTalk[])?.find((t) => t.id === id);
-          if (!talk) return;
-          if (talk.processingStatus === "ready" || talk.processingStatus === "published" || talk.processingStatus === "failed") {
-            completedCount++;
-            setBatchProgress({
-              current: total,
-              total,
-              phase: `Processing complete: ${completedCount}/${createdIds.length}`,
-              processing: 0,
-            });
-            return;
+          const talks = (data.talks as AdminTalk[]) || [];
+          for (const talk of talks) {
+            if (!batchIds.has(talk.id)) continue;
+            if (talk.processingStatus === "ready" || talk.processingStatus === "published") {
+              completed.add(talk.id);
+            } else if (talk.processingStatus === "failed") {
+              failed.add(talk.id);
+            }
           }
+          setBatchProgress({
+            current: batchStart + completed.size + failed.size,
+            total,
+            phase: `Batch ${batchNum}/${totalBatches} — Processing ${completed.size + failed.size}/${createdIds.length}`,
+            processing: createdIds.length - completed.size - failed.size,
+            batchNumber: batchNum,
+            totalBatches,
+            uploadedInBatch: createdIds.length,
+            processedInBatch: completed.size + failed.size,
+          });
         }
+
+        await load(); // refresh UI after batch completes
       }
 
-      // Process in batches of CONCURRENCY
-      while (nextIndex < createdIds.length) {
-        const batch = createdIds.slice(nextIndex, nextIndex + CONCURRENCY);
-        setBatchProgress({
-          current: total,
-          total,
-          phase: `Processing ${nextIndex + 1}-${nextIndex + batch.length} of ${createdIds.length}…`,
-          processing: batch.length,
-        });
-        await Promise.all(batch.map((id) => processOne(id).then(() => pollUntilDone(id))));
-        nextIndex += CONCURRENCY;
-        await load(); // refresh UI
-      }
-
-      setBatchProgress({ current: total, total, phase: "All done!", processing: 0 });
+      setBatchProgress({
+        current: total,
+        total,
+        phase: "All done!",
+        processing: 0,
+        batchNumber: totalBatches,
+        totalBatches,
+        uploadedInBatch: 0,
+        processedInBatch: 0,
+      });
       await load();
       setTimeout(() => {
         setActiveForm(null);
@@ -882,8 +943,9 @@ export function AdminTalks() {
             </button>
           </div>
           <p className="-mt-2 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            Select a folder of audio files. Each file becomes a talk, numbered automatically.
-            Drag to reorder, remove unwanted files, then process 3 at a time.
+            Select a folder of audio files. Files are sorted by name (natural sort — handles
+            "Episode 2" before "Episode 10"). Each file becomes a talk, numbered automatically.
+            Files are processed in batches of 10 to handle large folders without overloading the server.
           </p>
 
           {/* Step 1: Folder picker */}
@@ -1078,17 +1140,35 @@ export function AdminTalks() {
 
           {/* Progress */}
           {batchProgress && (
-            <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-              <div className="flex items-center justify-between text-xs" style={{ color: "var(--color-ink-soft)" }}>
-                <span className="font-medium">{batchProgress.phase}</span>
-                <span className="tabular-nums">{batchProgress.current}/{batchProgress.total}</span>
+            <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+              {/* Batch indicator */}
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 items-center rounded-full px-2.5 text-[11px] font-bold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
+                    Batch {batchProgress.batchNumber}/{batchProgress.totalBatches}
+                  </span>
+                  <span className="text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
+                    {batchProgress.phase}
+                  </span>
+                </div>
+                <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
+                  {batchProgress.current}/{batchProgress.total}
+                </span>
               </div>
-              <div className="mt-2 h-1.5 w-full rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+              {/* Overall progress bar */}
+              <div className="h-2 w-full rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
                 <div className="h-full rounded-full transition-all" style={{
-                  width: `${(batchProgress.current / batchProgress.total) * 100}%`,
+                  width: `${batchProgress.total > 0 ? (batchProgress.current / batchProgress.total) * 100 : 0}%`,
                   backgroundColor: "var(--color-accent)",
                 }} />
               </div>
+              {/* Batch detail */}
+              {batchProgress.processing > 0 && (
+                <div className="mt-2 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  <span>{batchProgress.processing} file{batchProgress.processing !== 1 ? "s" : ""} compressing…</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -1101,7 +1181,7 @@ export function AdminTalks() {
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
             >
               {batchUploading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              {batchUploading ? "Working…" : `Upload & Process ${batchFiles.length || ""} File${batchFiles.length !== 1 ? "s" : ""}`}
+              {batchUploading ? "Working…" : `Process ${batchFiles.length || ""} File${batchFiles.length !== 1 ? "s" : ""}${batchFiles.length > 10 ? ` (10 at a time)` : ""}`}
             </button>
             <button
               type="button"

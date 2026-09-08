@@ -1,32 +1,28 @@
-feat: professional speech audio chain for Opus talks
+feat: batch folder upload processes 10 files at a time for large folders
 
-Researched via agent-reach + context7 (FFmpeg 6.1 docs). Upgraded the
-Opus compression pipeline with a full speech-optimized filter chain.
+Previously the batch upload uploaded ALL files to R2 first, then
+processed 3 at a time. For a 300-file folder (~5GB of MP3s), this
+meant uploading 5GB before any processing started — overloading
+the server and risking timeouts.
 
-New filter chain (10 stages):
-  1. highpass(80Hz)      — remove rumble/DC
-  2. lowpass(12kHz)      — match Opus SWB cutoff (was 16k, wasted bits)
-  3. silenceremove      — trim pauses >2s, keep 1s buffer
-  4. afftdn(nr=10)      — light FFT noise reduction, auto noise floor
-  5. deesser(i=0.3)     — dynamic sibilance reduction (preserves treble)
-  6. equalizer(3kHz+2dB)— presence boost for consonant clarity
-  7. equalizer(200Hz+1) — warmth for voice body
-  8. acompressor        — even out dynamics (ratio 3:1, RMS detection)
-  9. dynaudnorm         — frame-by-frame gain leveling (no pumping)
-  10. alimiter(0.891)   — peak ceiling ~-1dB to prevent clipping
+New flow processes in batches of 10:
+  1. Upload 10 files to R2 and create talk records
+  2. Start compression for those 10 files
+  3. Poll until all 10 are done (ready/failed)
+  4. Move to next 10
+  5. Repeat until all files are processed
 
-Filter order follows speech processing best practices:
-  - Denoise/de-ess BEFORE compression (compressor would lift noise)
-  - Normalize/limit LAST (all filters see stable levels)
-  - lowpass matches Opus cutoff (12kHz SWB is sweet spot for 24kbps)
+Files are sorted by name using natural sort (localeCompare with
+numeric: true) so "Episode 2" comes before "Episode 10".
 
-Opus encoder improvements:
-  - compression_level 0 → 5 (quality/speed balance)
-  - Added -cutoff 12000 (super-wideband, focuses bits on speech)
-  - Kept voip application mode (SILK layer for speech)
+Progress UI now shows:
+  - Current batch number (e.g. "Batch 3/30")
+  - Phase description (uploading, processing, etc.)
+  - Overall progress bar (files completed / total)
+  - How many files are currently compressing
 
-If Vercel times out, drop in this order:
-  compression_level 5→0, remove afftdn, remove EQs, remove deesser
+This handles 300-file folders (~5GB) without overwhelming the
+server — only 10 files are in flight at any time.
 
 Generated with [Devin](https://devin.ai)
 
