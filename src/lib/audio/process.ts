@@ -577,13 +577,16 @@ export async function compressAudioFile(
   try {
     // Single FFmpeg pass: decode → filter chain → encode Opus
     // Filter chain: highpass → lowpass → silenceremove → loudnorm
-    // Note: leave_silence option removed — not available in all ffmpeg-static
-    // builds. silenceremove with stop_duration=2 removes all silence longer
-    // than 2 seconds entirely. Pauses under 2 seconds are preserved.
+    //
+    // silenceremove uses stop_silence (added FFmpeg 4.2, available in 6.1.1)
+    // instead of leave_silence (which caused "Option not found" errors).
+    //   stop_duration=2  → only act on silence longer than 2 seconds
+    //   stop_silence=1   → keep 1 second of silence when trimming (the buffer)
+    //   start_silence=0.3 → keep 0.3s at the very start so audio doesn't begin abruptly
     const filterChain = [
       'highpass=f=80',
       'lowpass=f=16000',
-      'silenceremove=stop_periods=-1:stop_duration=2:stop_threshold=-50dB',
+      'silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:start_silence=0.3:stop_periods=-1:stop_duration=2:stop_threshold=-50dB:stop_silence=1',
       'loudnorm=I=-16:TP=-1.5:LRA=11',
     ].join(',');
 
