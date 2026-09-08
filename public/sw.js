@@ -732,7 +732,9 @@ self.addEventListener("fetch", (event) => {
     url.hostname.endsWith(".r2.cloudflarestorage.com") ||
     url.pathname.endsWith(".mp3") ||
     url.pathname.endsWith(".m4a") ||
-    url.pathname.endsWith(".aac")
+    url.pathname.endsWith(".aac") ||
+    url.pathname.endsWith(".opus") ||
+    url.pathname.endsWith(".ogg")
   ) {
     event.respondWith(
       (async () => {
@@ -784,7 +786,7 @@ self.addEventListener("fetch", (event) => {
           // Offline and no cache — return 503 so the player can show an error
           return new Response(null, {
             status: 503,
-            headers: { "Content-Type": "audio/mpeg" },
+            headers: { "Content-Type": "audio/ogg" },
           });
         }
       })()

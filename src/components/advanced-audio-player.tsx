@@ -158,6 +158,24 @@ export default function AdvancedAudioPlayer({
   const [sleepEnd, setSleepEnd] = useState<number | null>(null);
   const [sleepRemaining, setSleepRemaining] = useState(0);
 
+  // ─── Reset state when track changes ───
+  // Without this, switching tracks leaves stale duration/currentTime from
+  // the previous track, and the audio element may not reload properly.
+  useEffect(() => {
+    setCurrentTime(0);
+    setDuration(0);
+    setBuffered(0);
+    setIsLoading(true);
+    setIsBuffering(false);
+    setError(null);
+    setRetryCount(0);
+    // Force the audio element to reload with the new src
+    const audio = audioRef.current;
+    if (audio) {
+      audio.load();
+    }
+  }, [track.id]);
+
   // ─── Load bookmarks when track changes ───
   useEffect(() => {
     try {
@@ -698,8 +716,9 @@ export default function AdvancedAudioPlayer({
 
   return (
     <>
-      {/* Hidden audio element */}
+      {/* Hidden audio element — key forces clean remount on track change */}
       <audio
+        key={track.id}
         ref={audioRef}
         src={track.streamUrl || undefined}
         crossOrigin="anonymous"
@@ -795,14 +814,16 @@ export default function AdvancedAudioPlayer({
 
             {/* Controls — compact on mobile, full on sm+ */}
             <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
-              <button onClick={() => skipBy(-15)} className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 36, minWidth: 36 }} aria-label="Skip back 15 seconds">
+              <button onClick={() => skipBy(-15)} className="flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 36, minWidth: 36 }} aria-label="Skip back 15 seconds">
                 <RotateCcw className="h-4 w-4" />
+                <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>15s</span>
               </button>
               <button onClick={handlePlayPause} className="flex h-11 w-11 items-center justify-center rounded-full transition-transform active:scale-95 sm:h-12 sm:w-12" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }} aria-label={isPlaying ? "Pause" : "Play"}>
                 {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 translate-x-0.5" />}
               </button>
-              <button onClick={() => skipBy(30)} className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 36, minWidth: 36 }} aria-label="Skip forward 30 seconds">
+              <button onClick={() => skipBy(30)} className="flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 36, minWidth: 36 }} aria-label="Skip forward 30 seconds">
                 <RotateCw className="h-4 w-4" />
+                <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>30s</span>
               </button>
               <button onClick={() => setView("full")} className="hidden items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)] sm:flex" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Expand player">
                 <ChevronUp className="h-4 w-4" />
@@ -927,11 +948,12 @@ export default function AdvancedAudioPlayer({
                 {/* Skip back 15 */}
                 <button
                   onClick={() => skipBy(-15)}
-                  className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+                  className="flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
                   style={{ color: "var(--color-ink-soft)", minHeight: 44, minWidth: 44 }}
                   aria-label="Skip back 15 seconds"
                 >
                   <RotateCcw className="h-5 w-5" />
+                  <span className="text-[9px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>15s</span>
                 </button>
 
                 {/* Play/Pause */}
@@ -947,11 +969,12 @@ export default function AdvancedAudioPlayer({
                 {/* Skip forward 30 */}
                 <button
                   onClick={() => skipBy(30)}
-                  className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+                  className="flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
                   style={{ color: "var(--color-ink-soft)", minHeight: 44, minWidth: 44 }}
                   aria-label="Skip forward 30 seconds"
                 >
                   <RotateCw className="h-5 w-5" />
+                  <span className="text-[9px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>30s</span>
                 </button>
 
                 {/* Next */}

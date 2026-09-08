@@ -14,7 +14,10 @@ import {
   CheckCircle2,
   Loader2,
   FileAudio,
+  Play,
 } from "lucide-react";
+import { useAudioPlayer } from "@/components/audio-player-context";
+import type { PlayerTrack } from "@/components/advanced-audio-player";
 
 interface AdminFolder {
   id: string;
@@ -976,6 +979,7 @@ function TalkRow({
   onRetry: (id: string) => void;
   onProcess: (id: string) => void;
 }) {
+  const { play } = useAudioPlayer();
   const status = talk.processingStatus;
   const statusCfg = STATUS_CONFIG[status] || {
     label: status,
@@ -983,6 +987,24 @@ function TalkRow({
     icon: AlertCircle,
   };
   const StatusIcon = statusCfg.icon;
+
+  const canPlay = (status === "ready" || status === "published") &&
+    (talk.processedStorageKey || talk.storageKey || talk.externalUrl);
+
+  const handlePlay = () => {
+    const track: PlayerTrack = {
+      id: talk.id,
+      title: talk.title,
+      speaker: talk.speaker,
+      description: talk.description,
+      streamUrl: talk.processedStorageKey || talk.storageKey ? `/api/talks?stream=${talk.id}` : null,
+      externalUrl: talk.externalUrl,
+      fileSize: talk.fileSize,
+      duration: talk.duration,
+      folderId: talk.folderId,
+    };
+    play(track);
+  };
   const isProcessing = status === "processing";
   const isPending = status === "pending";
 
@@ -1053,6 +1075,16 @@ function TalkRow({
         </span>
 
         {/* Action buttons */}
+        {canPlay && (
+          <button
+            onClick={handlePlay}
+            className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-accent)", minHeight: 36, minWidth: 36 }}
+            aria-label={`Play ${talk.title}`}
+          >
+            <Play className="h-3.5 w-3.5 translate-x-0.5" />
+          </button>
+        )}
         {status === "ready" && (
           <button
             onClick={() => onPublish(talk.id)}

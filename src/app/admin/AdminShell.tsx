@@ -12,6 +12,8 @@ import {
   Menu,
   X,
 } from "lucide-react";
+import { AudioPlayerProvider } from "@/components/audio-player-context";
+import GlobalAudioPlayer from "@/components/global-audio-player";
 
 export type AdminTab = "overview" | "users" | "talks" | "settings";
 
@@ -83,6 +85,7 @@ export function AdminShell({
   const currentNav = NAV_ITEMS.find((n) => n.key === tab);
 
   return (
+    <AudioPlayerProvider>
     <div
       className="flex min-h-dvh overflow-x-clip"
       style={{ backgroundColor: "var(--color-paper-2)" }}
@@ -223,7 +226,11 @@ export function AdminShell({
           to { transform: translateX(0); }
         }
       `}</style>
+
+      {/* Global audio player — lets admin test talk playback */}
+      <GlobalAudioPlayer />
     </div>
+    </AudioPlayerProvider>
   );
 }
 

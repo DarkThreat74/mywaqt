@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
         addedAt: schema.talks.addedAt,
       }).from(schema.talks)
         .where(eq(schema.talks.processingStatus, "published"))
-        .orderBy(desc(schema.talks.addedAt))
+        .orderBy(asc(schema.talks.title))
         .limit(500),
     ]);
 
