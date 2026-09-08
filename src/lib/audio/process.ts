@@ -575,34 +575,70 @@ export async function compressAudioFile(
   const outputPath = join(tmpDir, `output-${id}.opus`);
 
   try {
-    // Single FFmpeg pass: decode → silence trim → loudness normalize → encode Opus
-    // silenceremove: caps all pauses at 1 second (removes excess, keeps 1s)
-    // loudnorm: brings quiet recordings up to broadcast standard (-16 LUFS)
-    // highpass: removes low-frequency rumble (HVAC, mic handling)
-    await new Promise<void>((resolve, reject) => {
-      ffmpeg(inputPath)
-        .audioCodec('libopus')
-        .audioBitrate('24k')
-        .audioChannels(1)
-        .audioFilter([
-          'highpass=f=80',                              // Cut low rumble below 80Hz
-          'lowpass=f=16000',                            // Cut hiss above 16kHz (speech has no useful content above this)
-          'silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=-1:stop_duration=1:stop_threshold=-50dB:leave_silence=1',
-          'loudnorm=I=-16:TP=-1.5:LRA=11',              // Normalize to broadcast loudness (-16 LUFS, podcast standard)
-        ])
-        .outputOptions([
-          '-application voip',       // Optimize for speech
-          '-compression_level 0',    // Fastest encoding
-          '-frame_duration 60',      // 60ms frames (better compression)
-          '-map_metadata -1',        // Strip metadata
-        ])
-        .on('stderr', (line) => {
-          if (line.includes('error')) console.error(`[audio:compress] ${line}`);
-        })
-        .on('error', (err) => reject(new Error(`Opus compression failed: ${err.message}`)))
-        .on('end', () => resolve())
-        .save(outputPath);
-    });
+    // Single FFmpeg pass: decode → filter chain → encode Opus
+    // Try full filter chain first, fall back to simpler chains if filters
+    // aren't available in the Vercel FFmpeg build.
+    const fullChain = [
+      'highpass=f=80',
+      'lowpass=f=16000',
+      'silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=-1:stop_duration=1:stop_threshold=-50dB:leave_silence=1',
+      'loudnorm=I=-16:TP=-1.5:LRA=11',
+    ].join(',');
+
+    // Fallback 1: loudnorm without silenceremove (leave_silence may be missing)
+    const fallbackChain1 = [
+      'highpass=f=80',
+      'lowpass=f=16000',
+      'loudnorm=I=-16:TP=-1.5:LRA=11',
+    ].join(',');
+
+    // Fallback 2: simple volume boost (available in all FFmpeg builds)
+    const fallbackChain2 = 'highpass=f=80,volume=2.0';
+
+    const chains = [
+      { name: 'full', af: fullChain },
+      { name: 'no-silence', af: fallbackChain1 },
+      { name: 'volume-only', af: fallbackChain2 },
+    ];
+
+    let succeeded = false;
+    let lastError = '';
+
+    for (const { name, af } of chains) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          ffmpeg(inputPath)
+            .audioCodec('libopus')
+            .audioBitrate('24k')
+            .audioChannels(1)
+            .outputOptions([
+              `-af ${af}`,
+              '-application voip',
+              '-compression_level 0',
+              '-frame_duration 60',
+              '-map_metadata -1',
+            ])
+            .on('stderr', (line) => {
+              console.error(`[audio:compress:${name}] ${line}`);
+            })
+            .on('error', (err) => reject(new Error(err.message)))
+            .on('end', () => resolve())
+            .save(outputPath);
+        });
+        succeeded = true;
+        console.log(`[audio:compress] succeeded with ${name} filter chain`);
+        break;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        console.error(`[audio:compress] ${name} chain failed: ${lastError}`);
+        // Clean up partial output before trying next chain
+        await unlink(outputPath).catch(() => {});
+      }
+    }
+
+    if (!succeeded) {
+      throw new Error(`Opus compression failed after all filter chain attempts: ${lastError}`);
+    }
 
     const processedBuffer = await readFile(outputPath);
 

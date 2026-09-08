@@ -1,30 +1,26 @@
-feat: redesign edit folder UI, add folder speaker inheritance
+fix: FFmpeg filter chain fails on Vercel — add fallback chains
 
-Edit Folder form redesigned:
-- Folder name is now editable (was missing entirely)
-- Description field
-- "Optional" section in a subtle bordered card containing:
-  - Default speaker field — talks uploaded to this folder with no
-    speaker automatically inherit this name
-  - Compact date range (Start → End) in a single row, smaller inputs
-  - Image upload as a clickable button (not raw file input):
-    - Empty: "Click to upload an image"
-    - Set: "Image set — click to replace" (green text)
-    - Selected: shows filename + size
+The full filter chain (highpass + lowpass + silenceremove + loudnorm)
+was causing "Option not found" errors on Vercel's FFmpeg build. The
+issue is that the Vercel Linux ffmpeg-static binary may not support
+all filter options (likely leave_silence in silenceremove).
 
-New Folder form also gets the default speaker field.
+Fix: try three filter chains in order, use whichever works:
 
-Schema: added `speaker` column to `talk_folders` table.
-Migration: drizzle/0020_talk_folders_speaker.sql
+1. Full chain: highpass + lowpass + silenceremove + loudnorm
+   (best quality — silence removal + broadcast loudness normalization)
 
-API changes:
-- create-folder: accepts optional `speaker`
-- update-folder: accepts `name` (was not editable before) and `speaker`
-- create-talk: when talk speaker is empty and folder has a speaker,
-  inherits the folder's speaker automatically
+2. No-silence chain: highpass + lowpass + loudnorm
+   (if silenceremove/leave_silence isn't available — still gets
+   volume normalization and frequency cleanup)
 
-⚠️ Run migration 0020 against Neon before deploying:
-  drizzle/0020_talk_folders_speaker.sql
+3. Volume-only chain: highpass + volume=2.0
+   (fallback for minimal FFmpeg builds — simple 2x gain boost
+   to ensure audio is audible)
+
+Also switched from .audioFilter() to raw -af in .outputOptions()
+for better compatibility, and added full stderr logging for each
+chain attempt so we can see exactly what's happening on Vercel.
 
 Generated with [Devin](https://devin.ai)
 
