@@ -1,29 +1,23 @@
-fix: offline playback, seek labels, talk ordering, admin play button
+feat: batch folder upload with auto-numbering and 3-at-a-time processing
 
-1. Offline talks playback — switching tracks didn't load
-   Root cause: when track.id changed, the <audio> element's src
-   updated but React state (duration, currentTime, isLoading) was
-   not reset. The audio element also didn't reliably reload.
-   Fix: added key={track.id} to force clean remount + useEffect
-   to reset state and call audio.load() on track change.
+Admin can now select an entire folder of audio files and upload them
+in one operation. Each file gets a numbered title based on a naming
+pattern (e.g. "Seerah of the Prophet Episode 1", "...2", "...3").
 
-   Also added .opus and .ogg to service worker audio interception
-   (was only .mp3/.m4a/.aac — Opus files wouldn't be cached).
+Flow:
+1. Admin clicks "Batch Upload Folder" button
+2. Selects a folder via webkitdirectory picker (all audio files extracted)
+3. Enters naming pattern + optional speaker + optional folder
+4. Files are sorted by name with numeric collation (1, 2, 10, not 1, 10, 2)
+5. Each file is uploaded to R2 and a talk record is created
+6. After all uploads, processing runs 3 at a time:
+   - 3 talks start processing simultaneously
+   - Client polls every 5s for completion
+   - When one finishes (ready/failed), the next batch starts
+   - Progress bar shows current phase and count
 
-2. Seek button labels
-   Added "15s" and "30s" text labels under the skip icons in both
-   the mini player and full player.
-
-3. Folder talk ordering
-   Changed from orderBy(desc(addedAt)) to orderBy(asc(title)).
-   Talks now sort alphabetically by title (1, 2, 3, 4...) instead
-   of by upload date.
-
-4. Admin play button
-   Added AudioPlayerProvider + GlobalAudioPlayer to AdminShell.
-   Each ready/published talk now has a play button that opens the
-   same audio player as the customer-facing app, so admins can
-   test audio playback directly.
+This stays within Vercel Hobby's 300s limit by never running more
+than 3 concurrent processing jobs.
 
 Generated with [Devin](https://devin.ai)
 

@@ -89,6 +89,15 @@ export function AdminTalks() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
 
+  // Batch upload state
+  const [showBatchForm, setShowBatchForm] = useState(false);
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [batchName, setBatchName] = useState("");
+  const [batchSpeaker, setBatchSpeaker] = useState("");
+  const [batchFolderId, setBatchFolderId] = useState<string | null>(null);
+  const [batchUploading, setBatchUploading] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; phase: string; processing: number } | null>(null);
+
   const load = useCallback(async (): Promise<AdminTalk[] | null> => {
     try {
       const res = await fetch("/api/admin/talks");
@@ -475,6 +484,145 @@ export function AdminTalks() {
     }
   }
 
+  // ─── Batch upload + processing queue (3 at a time) ───
+  async function startBatchUpload() {
+    if (batchFiles.length === 0 || !batchName.trim()) return;
+    setBatchUploading(true);
+    setError(null);
+
+    const total = batchFiles.length;
+    const createdIds: string[] = [];
+
+    try {
+      // Phase 1: Upload all files to R2 and create talk records
+      for (let i = 0; i < total; i++) {
+        const file = batchFiles[i];
+        setBatchProgress({ current: i + 1, total, phase: `Uploading ${file.name}…`, processing: 0 });
+
+        // Get presigned URL
+        const presignRes = await fetch("/api/admin/talks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "get-upload-url",
+            folderId: batchFolderId,
+            filename: file.name,
+            fileSize: file.size,
+          }),
+        });
+        if (!presignRes.ok) {
+          const d = await presignRes.json().catch(() => ({}));
+          setError(`Failed to upload ${file.name}: ${d.error || "presign failed"}`);
+          continue;
+        }
+        const { uploadUrl, storageKey, fileSize } = await presignRes.json();
+
+        // Upload to R2
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "audio/mpeg" },
+          body: file,
+        });
+        if (!uploadRes.ok) {
+          setError(`Failed to upload ${file.name} to storage.`);
+          continue;
+        }
+
+        // Create talk record with numbered title
+        const title = `${batchName.trim()} ${i + 1}`;
+        const createRes = await fetch("/api/admin/talks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "create-talk",
+            title,
+            speaker: batchSpeaker || undefined,
+            folderId: batchFolderId || undefined,
+            storageKey,
+            fileSize: fileSize || file.size,
+          }),
+        });
+        if (createRes.ok) {
+          const created = await createRes.json();
+          createdIds.push(created.id);
+        } else {
+          setError(`Failed to create record for ${file.name}.`);
+        }
+      }
+
+      // Phase 2: Process 3 at a time
+      await load(); // refresh talk list
+      setBatchProgress({ current: total, total, phase: "Starting compression…", processing: 0 });
+
+      const CONCURRENCY = 3;
+      let nextIndex = 0;
+      let completedCount = 0;
+
+      async function processOne(id: string): Promise<void> {
+        // Force-reset if somehow already processing, then start
+        await fetch("/api/admin/talks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "force-reprocess", talkId: id }),
+        }).catch(() => {});
+        await fetch("/api/admin/talks/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ talkId: id }),
+        });
+      }
+
+      async function pollUntilDone(id: string): Promise<void> {
+        for (let poll = 0; poll < 120; poll++) {
+          await new Promise((r) => setTimeout(r, 5000));
+          const res = await fetch("/api/admin/talks");
+          if (!res.ok) continue;
+          const data = await res.json().catch(() => ({}));
+          const talk = (data.talks as AdminTalk[])?.find((t) => t.id === id);
+          if (!talk) return;
+          if (talk.processingStatus === "ready" || talk.processingStatus === "published" || talk.processingStatus === "failed") {
+            completedCount++;
+            setBatchProgress({
+              current: total,
+              total,
+              phase: `Processing complete: ${completedCount}/${createdIds.length}`,
+              processing: 0,
+            });
+            return;
+          }
+        }
+      }
+
+      // Process in batches of CONCURRENCY
+      while (nextIndex < createdIds.length) {
+        const batch = createdIds.slice(nextIndex, nextIndex + CONCURRENCY);
+        setBatchProgress({
+          current: total,
+          total,
+          phase: `Processing ${nextIndex + 1}-${nextIndex + batch.length} of ${createdIds.length}…`,
+          processing: batch.length,
+        });
+        await Promise.all(batch.map((id) => processOne(id).then(() => pollUntilDone(id))));
+        nextIndex += CONCURRENCY;
+        await load(); // refresh UI
+      }
+
+      setBatchProgress({ current: total, total, phase: "All done!", processing: 0 });
+      await load();
+      setTimeout(() => {
+        setShowBatchForm(false);
+        setBatchFiles([]);
+        setBatchName("");
+        setBatchSpeaker("");
+        setBatchProgress(null);
+      }, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? `Batch upload failed: ${err.message}` : "Batch upload failed.");
+    } finally {
+      setBatchUploading(false);
+    }
+  }
+
   const talksInFolder = (folderId: string | null) => talks.filter((t) => t.folderId === folderId);
 
   if (loading) {
@@ -555,6 +703,18 @@ export function AdminTalks() {
           }}
         >
           <Upload className="h-4 w-4" /> Upload Talk
+        </button>
+        <button
+          onClick={() => { setShowBatchForm(!showBatchForm); setShowUploadForm(false); }}
+          className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors"
+          style={{
+            borderColor: "var(--color-paper-3)",
+            color: "var(--color-ink-soft)",
+            backgroundColor: "var(--color-paper)",
+            minHeight: 44,
+          }}
+        >
+          <FolderPlus className="h-4 w-4" /> Batch Upload Folder
         </button>
       </div>
 
@@ -687,6 +847,141 @@ export function AdminTalks() {
             </button>
           </div>
         </form>
+      )}
+
+      {/* ─── Batch upload form ─── */}
+      {showBatchForm && (
+        <div className="flex flex-col gap-4 rounded-2xl border p-5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+          <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+            Batch Upload Folder
+          </h2>
+          <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+            Select a folder of audio files. Each file becomes a talk, numbered automatically.
+            Processing runs 3 at a time to stay within server limits.
+          </p>
+
+          {/* Folder picker */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
+              Audio folder
+            </label>
+            <input
+              type="file"
+              multiple
+              accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.opus"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                const audioFiles = files.filter((f) =>
+                  f.type.startsWith("audio/") || /\.(mp3|m4a|aac|wav|ogg|opus|flac)$/i.test(f.name)
+                );
+                audioFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+                setBatchFiles(audioFiles);
+              }}
+              className="block w-full text-xs file:mr-3 file:rounded-lg file:border file:px-3 file:py-2 file:text-xs file:font-medium"
+              style={{ color: "var(--color-ink-muted)" }}
+              disabled={batchUploading}
+              {...{ webkitdirectory: "", directory: "" }}
+            />
+            {batchFiles.length > 0 && (
+              <p className="mt-1.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                {batchFiles.length} audio file{batchFiles.length !== 1 ? "s" : ""} selected
+                {" · "}total {(batchFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB
+              </p>
+            )}
+          </div>
+
+          {/* Naming pattern */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
+              Naming pattern <span style={{ color: "var(--color-error)" }}>*</span>
+            </label>
+            <input
+              type="text"
+              value={batchName}
+              onChange={(e) => setBatchName(e.target.value)}
+              placeholder="e.g. Seerah of the Prophet Episode"
+              className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+              disabled={batchUploading}
+            />
+            <p className="mt-1 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              Files will be named: <strong>{batchName.trim() || "Pattern"} 1</strong>, <strong>{batchName.trim() || "Pattern"} 2</strong>, <strong>{batchName.trim() || "Pattern"} 3</strong>…
+            </p>
+          </div>
+
+          {/* Speaker + folder */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
+                Speaker (optional)
+              </label>
+              <input
+                type="text"
+                value={batchSpeaker}
+                onChange={(e) => setBatchSpeaker(e.target.value)}
+                placeholder="e.g. Sh. Hamza Yusuf"
+                className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                disabled={batchUploading}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
+                Folder (optional)
+              </label>
+              <select
+                value={batchFolderId || ""}
+                onChange={(e) => setBatchFolderId(e.target.value || null)}
+                className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                disabled={batchUploading}
+              >
+                <option value="">No folder</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Progress */}
+          {batchProgress && (
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+              <div className="flex items-center justify-between text-xs" style={{ color: "var(--color-ink-soft)" }}>
+                <span className="font-medium">{batchProgress.phase}</span>
+                <span className="tabular-nums">{batchProgress.current}/{batchProgress.total}</span>
+              </div>
+              <div className="mt-2 h-1.5 w-full rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                <div className="h-full rounded-full transition-all" style={{
+                  width: `${(batchProgress.current / batchProgress.total) * 100}%`,
+                  backgroundColor: "var(--color-accent)",
+                }} />
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <button
+              onClick={startBatchUpload}
+              disabled={batchUploading || batchFiles.length === 0 || !batchName.trim()}
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium disabled:opacity-50"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
+            >
+              {batchUploading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {batchUploading ? "Working…" : `Upload & Process ${batchFiles.length || ""} File${batchFiles.length !== 1 ? "s" : ""}`}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowBatchForm(false); setBatchFiles([]); setBatchName(""); setBatchProgress(null); }}
+              disabled={batchUploading}
+              className="rounded-xl border px-4 py-2.5 text-sm disabled:opacity-50"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 44 }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Folder edit form */}
