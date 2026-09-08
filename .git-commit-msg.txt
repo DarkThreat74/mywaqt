@@ -1,25 +1,30 @@
-feat: batch upload — step-based UI, drag-drop file list, start number selector
+feat: redesign edit folder UI, add folder speaker inheritance
 
-Redesigned the batch upload form into a clear 3-step flow:
+Edit Folder form redesigned:
+- Folder name is now editable (was missing entirely)
+- Description field
+- "Optional" section in a subtle bordered card containing:
+  - Default speaker field — talks uploaded to this folder with no
+    speaker automatically inherit this name
+  - Compact date range (Start → End) in a single row, smaller inputs
+  - Image upload as a clickable button (not raw file input):
+    - Empty: "Click to upload an image"
+    - Set: "Image set — click to replace" (green text)
+    - Selected: shows filename + size
 
-Step 1 — Select audio folder:
-- Empty state: large dashed dropzone with icon + "Choose folder"
-- After selection: summary card with green file count badge, total size,
-  "Clear all" button, scrollable drag-and-drop file list, and a hint bar
-  at the bottom ("Drag to reorder · Click ✕ to remove")
+New Folder form also gets the default speaker field.
 
-Step 2 — Naming pattern:
-- Two-column layout: naming pattern input + "Start from" number selector
-- Start number defaults to 1, can be set to any number (0-9999)
-- Live preview shows actual names with the start number:
-  "Pattern 5, Pattern 6, Pattern 7… (12 total, ending at #16)"
-- File list badges update to show the actual episode numbers
+Schema: added `speaker` column to `talk_folders` table.
+Migration: drizzle/0020_talk_folders_speaker.sql
 
-Step 3 — Details (optional):
-- Speaker and folder selection in a grid
+API changes:
+- create-folder: accepts optional `speaker`
+- update-folder: accepts `name` (was not editable before) and `speaker`
+- create-talk: when talk speaker is empty and folder has a speaker,
+  inherits the folder's speaker automatically
 
-The start number is useful when continuing an existing series — if
-episodes 1-10 already exist, set start to 11 and upload the next batch.
+⚠️ Run migration 0020 against Neon before deploying:
+  drizzle/0020_talk_folders_speaker.sql
 
 Generated with [Devin](https://devin.ai)
 

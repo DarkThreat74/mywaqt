@@ -319,6 +319,8 @@ export const talkFolders = pgTable('talk_folders', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   description: text('description'),
+  // Default speaker for talks in this folder (inherited when talk speaker is empty)
+  speaker: text('speaker'),
   // R2 storage key for folder image (e.g. "folder-images/uuid.jpg")
   imageKey: text('image_key'),
   // Optional date range for series/events

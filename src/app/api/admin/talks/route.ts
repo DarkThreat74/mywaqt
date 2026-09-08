@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     // ── Create folder ──
     if (action === "create-folder") {
-      const { name, description, startDate, endDate } = body as { name?: string; description?: string; startDate?: string; endDate?: string };
+      const { name, description, speaker, startDate, endDate } = body as { name?: string; description?: string; speaker?: string; startDate?: string; endDate?: string };
       if (!name?.trim()) {
         return NextResponse.json({ error: "Folder name is required." }, { status: 400 });
       }
@@ -104,19 +104,23 @@ export async function POST(request: NextRequest) {
       const [folder] = await db.insert(schema.talkFolders).values({
         name: name.trim().slice(0, 100),
         description: description?.trim().slice(0, 500) || null,
+        speaker: speaker?.trim().slice(0, 100) || null,
         startDate: startDate || null,
         endDate: endDate || null,
       }).returning();
       return NextResponse.json(folder, { status: 201 });
     }
 
-    // ── Update folder (image, description, dates) ──
+    // ── Update folder (name, description, speaker, image, dates) ──
     if (action === "update-folder") {
-      const { folderId, description, imageKey, startDate, endDate } = body as {
-        folderId?: string; description?: string; imageKey?: string; startDate?: string; endDate?: string;
+      const { folderId, name, description, speaker, imageKey, startDate, endDate } = body as {
+        folderId?: string; name?: string; description?: string; speaker?: string; imageKey?: string; startDate?: string; endDate?: string;
       };
       if (!folderId || !isValidUUID(folderId)) {
         return NextResponse.json({ error: "Folder ID is required." }, { status: 400 });
+      }
+      if (name !== undefined && !name.trim()) {
+        return NextResponse.json({ error: "Folder name cannot be empty." }, { status: 400 });
       }
       if (!isValidDate(startDate) || !isValidDate(endDate) || (startDate && endDate && startDate > endDate)) {
         return NextResponse.json({ error: "Enter a valid folder date range." }, { status: 400 });
@@ -126,12 +130,15 @@ export async function POST(request: NextRequest) {
         .where(eq(schema.talkFolders.id, folderId))
         .limit(1);
       if (!current) return NextResponse.json({ error: "Folder not found." }, { status: 404 });
-      const [updated] = await db.update(schema.talkFolders).set({
+      const updateData: Record<string, unknown> = {
         description: description?.trim().slice(0, 500) || null,
+        speaker: speaker?.trim().slice(0, 100) || null,
         imageKey: imageKey || null,
         startDate: startDate || null,
         endDate: endDate || null,
-      }).where(eq(schema.talkFolders.id, folderId)).returning();
+      };
+      if (name !== undefined) updateData.name = name.trim().slice(0, 100);
+      const [updated] = await db.update(schema.talkFolders).set(updateData).where(eq(schema.talkFolders.id, folderId)).returning();
       if (current.imageKey && current.imageKey !== updated.imageKey) {
         try { await deleteObject(current.imageKey); } catch (e) { logError(e, { route: "admin/talks", action: "update-folder", key: current.imageKey }); }
       }
@@ -284,9 +291,19 @@ export async function POST(request: NextRequest) {
       const isExternal = !storageKey && !!trimmedExternalUrl;
       const processingStatus = isExternal ? "published" : "pending";
 
+      // Inherit folder speaker when talk speaker is empty
+      let effectiveSpeaker = speaker?.trim().slice(0, 100) || null;
+      if (!effectiveSpeaker && folderId) {
+        const [folder] = await db.select({ speaker: schema.talkFolders.speaker })
+          .from(schema.talkFolders)
+          .where(eq(schema.talkFolders.id, folderId))
+          .limit(1);
+        if (folder?.speaker) effectiveSpeaker = folder.speaker;
+      }
+
       const [talk] = await db.insert(schema.talks).values({
         title: title.trim().slice(0, 200),
-        speaker: speaker?.trim().slice(0, 100) || null,
+        speaker: effectiveSpeaker,
         description: description?.trim().slice(0, 1000) || null,
         topics: topics?.trim().slice(0, 500) || null,
         folderId: folderId || null,

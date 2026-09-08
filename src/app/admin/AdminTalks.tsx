@@ -15,6 +15,7 @@ import {
   Loader2,
   FileAudio,
   Play,
+  ImageIcon,
 } from "lucide-react";
 import { useAudioPlayer } from "@/components/audio-player-context";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
@@ -23,6 +24,7 @@ interface AdminFolder {
   id: string;
   name: string;
   description: string | null;
+  speaker: string | null;
   imageKey: string | null;
   startDate: string | null;
   endDate: string | null;
@@ -70,11 +72,14 @@ export function AdminTalks() {
   const [deleting, setDeleting] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folderDesc, setFolderDesc] = useState("");
+  const [folderSpeaker, setFolderSpeaker] = useState("");
   const [folderStartDate, setFolderStartDate] = useState("");
   const [folderEndDate, setFolderEndDate] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [editingFolder, setEditingFolder] = useState<AdminFolder | null>(null);
+  const [editFolderName, setEditFolderName] = useState("");
   const [editFolderDesc, setEditFolderDesc] = useState("");
+  const [editFolderSpeaker, setEditFolderSpeaker] = useState("");
   const [editFolderStart, setEditFolderStart] = useState("");
   const [editFolderEnd, setEditFolderEnd] = useState("");
   const [editFolderImage, setEditFolderImage] = useState<File | null>(null);
@@ -133,6 +138,7 @@ export function AdminTalks() {
         action: "create-folder",
         name: folderName,
         description: folderDesc,
+        speaker: folderSpeaker || undefined,
         startDate: folderStartDate || undefined,
         endDate: folderEndDate || undefined,
       }),
@@ -140,6 +146,7 @@ export function AdminTalks() {
     if (res.ok) {
       setFolderName("");
       setFolderDesc("");
+      setFolderSpeaker("");
       setFolderStartDate("");
       setFolderEndDate("");
       setActiveForm(null);
@@ -183,7 +190,9 @@ export function AdminTalks() {
 
   function openEditFolder(folder: AdminFolder) {
     setEditingFolder(folder);
+    setEditFolderName(folder.name || "");
     setEditFolderDesc(folder.description || "");
+    setEditFolderSpeaker(folder.speaker || "");
     setEditFolderStart(folder.startDate || "");
     setEditFolderEnd(folder.endDate || "");
     setEditFolderImage(null);
@@ -248,7 +257,9 @@ export function AdminTalks() {
         body: JSON.stringify({
           action: "update-folder",
           folderId: editingFolder.id,
+          name: editFolderName,
           description: editFolderDesc || undefined,
+          speaker: editFolderSpeaker || undefined,
           imageKey: imageKey || undefined,
           startDate: editFolderStart || undefined,
           endDate: editFolderEnd || undefined,
@@ -743,6 +754,10 @@ export function AdminTalks() {
             placeholder="What series is this?"
             textarea
           />
+          <Field label="Default speaker (optional)" value={folderSpeaker} onChange={setFolderSpeaker} placeholder="e.g. Sh. Hamza Yusuf" />
+          <p className="-mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            Talks uploaded to this folder with no speaker will inherit this name.
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <DateField label="Start date (optional)" value={folderStartDate} onChange={setFolderStartDate} />
             <DateField label="End date (optional)" value={folderEndDate} onChange={setFolderEndDate} />
@@ -1113,10 +1128,7 @@ export function AdminTalks() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
                 <Pencil className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
               </div>
-              <div>
-                <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Edit Folder</h2>
-                <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{editingFolder.name}</p>
-              </div>
+              <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Edit Folder</h2>
             </div>
             <button
               type="button"
@@ -1128,6 +1140,11 @@ export function AdminTalks() {
               <X className="h-4 w-4" />
             </button>
           </div>
+
+          {/* Name */}
+          <Field label="Folder name" value={editFolderName} onChange={setEditFolderName} placeholder="Folder name" />
+
+          {/* Description */}
           <Field
             label="Description"
             value={editFolderDesc}
@@ -1135,36 +1152,74 @@ export function AdminTalks() {
             placeholder="What series is this?"
             textarea
           />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <DateField label="Start date (optional)" value={editFolderStart} onChange={setEditFolderStart} />
-            <DateField label="End date (optional)" value={editFolderEnd} onChange={setEditFolderEnd} />
+
+          {/* Optional section */}
+          <div className="flex flex-col gap-3 rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+            <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Optional</span>
+
+            {/* Speaker */}
+            <Field label="Default speaker" value={editFolderSpeaker} onChange={setEditFolderSpeaker} placeholder="e.g. Sh. Hamza Yusuf" />
+            <p className="-mt-1 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Talks uploaded to this folder with no speaker will inherit this name.
+            </p>
+
+            {/* Dates — compact, side by side */}
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--color-ink-soft)" }}>Start</label>
+                <input
+                  type="date"
+                  value={editFolderStart}
+                  onChange={(e) => setEditFolderStart(e.target.value)}
+                  className="w-full rounded-lg border px-2.5 py-2 text-xs outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 36 }}
+                  disabled={savingFolder}
+                />
+              </div>
+              <span className="pb-2.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>→</span>
+              <div className="flex-1">
+                <label className="mb-1 block text-[11px] font-medium" style={{ color: "var(--color-ink-soft)" }}>End</label>
+                <input
+                  type="date"
+                  value={editFolderEnd}
+                  onChange={(e) => setEditFolderEnd(e.target.value)}
+                  className="w-full rounded-lg border px-2.5 py-2 text-xs outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 36 }}
+                  disabled={savingFolder}
+                />
+              </div>
+            </div>
+
+            {/* Image upload — clickable button */}
+            <div>
+              <label className="mb-1.5 block text-[11px] font-medium" style={{ color: "var(--color-ink-soft)" }}>Folder image</label>
+              <label
+                className="flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-colors hover:border-[var(--color-accent)]"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink-soft)", minHeight: 40 }}
+              >
+                <ImageIcon className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                {editFolderImage ? (
+                  <span style={{ color: "var(--color-ink)" }}>{editFolderImage.name} ({(editFolderImage.size / 1024).toFixed(0)} KB)</span>
+                ) : editFolderImageKey ? (
+                  <span style={{ color: "var(--color-success)" }}>Image set — click to replace</span>
+                ) : (
+                  <span>Click to upload an image</span>
+                )}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={(e) => setEditFolderImage(e.target.files?.[0] || null)}
+                  className="hidden"
+                  disabled={savingFolder}
+                />
+              </label>
+            </div>
           </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
-              Folder image (optional)
-            </label>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              onChange={(e) => setEditFolderImage(e.target.files?.[0] || null)}
-              className="w-full text-sm"
-              style={{ color: "var(--color-ink-soft)" }}
-            />
-            {editFolderImage && (
-              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                {editFolderImage.name} ({(editFolderImage.size / 1024).toFixed(0)} KB) — will replace current image
-              </p>
-            )}
-            {editFolderImageKey && !editFolderImage && (
-              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                Image set. Upload a new file to replace.
-              </p>
-            )}
-          </div>
+
           <div className="flex gap-2">
             <button
               type="submit"
-              disabled={savingFolder}
+              disabled={savingFolder || !editFolderName.trim()}
               className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition-transform active:scale-95 disabled:opacity-50"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44, boxShadow: "0 2px 8px color-mix(in oklab, var(--color-ink) 20%, transparent)" }}
             >
