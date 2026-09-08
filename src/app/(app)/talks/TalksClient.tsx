@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { ExternalLink, Folder, ChevronLeft, Play, Clock, Headphones, Download, Search, X, Mic2, Check, Loader2, History } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { ExternalLink, Folder, ChevronLeft, ChevronRight, Play, Clock, Headphones, Download, Search, X, Mic2, Check, Loader2, History, CheckCircle2, Circle } from "lucide-react";
 import { audioCacheKey, getCachedAudioKeys, removeAudioOffline, saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
+import { getFolderColor } from "@/lib/folder-colors";
+
 const RECENT_KEY = "waqt:talks:recent";
 const MAX_RECENT = 6;
 
@@ -12,6 +14,13 @@ interface Folder {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  folderColor: string | null;
+  sortOrder: number;
+}
+
+interface TalkProgress {
+  position: number;
+  completed: boolean;
 }
 
 interface Talk {
@@ -26,6 +35,7 @@ interface Talk {
   externalUrl: string | null;
   streamUrl: string | null;
   addedAt: string;
+  progress: TalkProgress | null;
 }
 
 interface RecentEntry {
@@ -216,6 +226,31 @@ export default function TalksClient() {
     }
   }, [downloadedIds, setOffline]);
 
+  // Toggle completed state (manual checkmark)
+  const handleToggleComplete = useCallback(async (talk: Talk) => {
+    const newCompleted = !talk.progress?.completed;
+    // Optimistic update
+    setTalks((prev) => prev.map((t) =>
+      t.id === talk.id
+        ? { ...t, progress: { position: t.progress?.position ?? 0, completed: newCompleted } }
+        : t
+    ));
+    try {
+      await fetch("/api/talks/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ talkId: talk.id, completed: newCompleted }),
+      });
+    } catch {
+      // Revert on failure
+      setTalks((prev) => prev.map((t) =>
+        t.id === talk.id
+          ? { ...t, progress: { position: t.progress?.position ?? 0, completed: !newCompleted } }
+          : t
+      ));
+    }
+  }, []);
+
   // Play a talk — builds the queue from siblings, saves to recent
   const playTalk = useCallback((talk: Talk) => {
     const siblings = talk.folderId ? talksInFolder(talk.folderId) : uncategorized;
@@ -279,6 +314,10 @@ export default function TalksClient() {
           (t.topics && t.topics.toLowerCase().includes(folderQuery))
         )
       : folderTalks;
+    // Folder progress
+    const completedCount = folderTalks.filter((t) => t.progress?.completed).length;
+    const totalCount = folderTalks.length;
+    const folderColorTokens = getFolderColor(selectedFolder.folderColor, selectedFolder.sortOrder);
     return (
       <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 py-8 sm:px-6 sm:py-12">
         <button
@@ -289,7 +328,7 @@ export default function TalksClient() {
           <ChevronLeft className="h-4 w-4" /> All folders
         </button>
 
-        {/* Folder header */}
+        {/* Folder header with progress bar */}
         <div className="mb-6">
           <div className="flex items-center gap-3">
             {selectedFolder.imageUrl ? (
@@ -301,17 +340,34 @@ export default function TalksClient() {
                 loading="lazy"
               />
             ) : (
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
-                <Folder className="h-7 w-7" style={{ color: "var(--color-accent)" }} />
+              <div
+                className="flex h-14 w-14 items-center justify-center rounded-2xl"
+                style={{ backgroundColor: folderColorTokens.soft }}
+              >
+                <Folder className="h-7 w-7" style={{ color: folderColorTokens.accent }} />
               </div>
             )}
             <div className="min-w-0">
               <h1 className="text-xl font-semibold tracking-tight sm:text-2xl" style={{ color: "var(--color-ink)" }}>{selectedFolder.name}</h1>
-              <p className="mt-0.5 text-sm" style={{ color: "var(--color-ink-muted)" }}>{folderTalks.length} {folderTalks.length === 1 ? "talk" : "talks"}</p>
+              <p className="mt-0.5 text-sm" style={{ color: folderColorTokens.text }}>
+                {completedCount}/{totalCount} {totalCount === 1 ? "talk" : "talks"} listened
+              </p>
             </div>
           </div>
+          {/* Folder progress bar */}
+          {totalCount > 0 && (
+            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${(completedCount / totalCount) * 100}%`,
+                  backgroundColor: folderColorTokens.accent,
+                }}
+              />
+            </div>
+          )}
           {selectedFolder.description && (
-            <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>{selectedFolder.description}</p>
+            <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>{selectedFolder.description}</p>
           )}
         </div>
 
@@ -343,7 +399,7 @@ export default function TalksClient() {
             subtitle={folderQuery ? "Try a different search term or clear the search to see all talks." : "Talks added to this folder will appear here. Check back soon."}
           />
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {filteredFolderTalks.map((talk) => (
               <TalkCard
                 key={talk.id}
@@ -353,6 +409,7 @@ export default function TalksClient() {
                 isDownloading={downloadingIds.has(talk.id)}
                 onDownload={() => handleDownload(talk)}
                 onRemoveDownload={() => handleRemoveDownload(talk)}
+                onToggleComplete={() => handleToggleComplete(talk)}
               />
             ))}
           </div>
@@ -461,7 +518,7 @@ export default function TalksClient() {
                   {!folder && folderId !== null && (
                     <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Unknown folder</p>
                   )}
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {folderTalks.map((talk) => (
                       <TalkCard
                         key={talk.id}
@@ -471,6 +528,7 @@ export default function TalksClient() {
                         isDownloading={downloadingIds.has(talk.id)}
                         onDownload={() => handleDownload(talk)}
                         onRemoveDownload={() => handleRemoveDownload(talk)}
+                        onToggleComplete={() => handleToggleComplete(talk)}
                       />
                     ))}
                   </div>
@@ -520,41 +578,55 @@ export default function TalksClient() {
             <section>
               <h2 className="mb-3 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Folders</h2>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {folders.map((folder) => {
-                  const count = talksInFolder(folder.id).length;
+                {folders.map((folder, idx) => {
+                  const folderTalks = talksInFolder(folder.id);
+                  const count = folderTalks.length;
+                  const completedCount = folderTalks.filter((t) => t.progress?.completed).length;
+                  const colorTokens = getFolderColor(folder.folderColor, folder.sortOrder ?? idx);
                   return (
                     <button
                       key={folder.id}
                       onClick={() => setSelectedFolder(folder)}
-                      className="group flex items-center gap-3.5 rounded-2xl border p-4 text-left transition-[border-color,box-shadow] hover:border-[var(--color-paper-3)] hover:shadow-sm"
+                      className="group relative flex flex-col gap-3 rounded-2xl border p-4 text-left transition-[border-color,box-shadow] hover:shadow-sm"
                       style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
                     >
-                      {folder.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={folder.imageUrl}
-                          alt=""
-                          className="h-12 w-12 shrink-0 rounded-xl object-cover ring-1 ring-[var(--color-paper-3)]"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div
-                          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-transform group-hover:scale-[1.03]"
-                          style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}
-                        >
-                          <Folder className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
+                      <div className="flex items-center gap-3">
+                        {folder.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={folder.imageUrl}
+                            alt=""
+                            className="h-11 w-11 shrink-0 rounded-xl object-cover ring-1 ring-[var(--color-paper-3)]"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-transform group-hover:scale-[1.03]"
+                            style={{ backgroundColor: colorTokens.soft }}
+                          >
+                            <Folder className="h-5 w-5" style={{ color: colorTokens.accent }} />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{folder.name}</p>
+                          <p className="mt-0.5 text-[11px]" style={{ color: colorTokens.text }}>
+                            {count > 0 ? `${completedCount}/${count} listened` : "Empty"}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" style={{ color: "var(--color-ink-muted)" }} />
+                      </div>
+                      {/* Folder progress bar */}
+                      {count > 0 && (
+                        <div className="h-1 w-full overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${(completedCount / count) * 100}%`,
+                              backgroundColor: colorTokens.accent,
+                            }}
+                          />
                         </div>
                       )}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{folder.name}</p>
-                        {folder.description && (
-                          <p className="mt-0.5 truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>{folder.description}</p>
-                        )}
-                        <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                          {count > 0 ? `${count} ${count === 1 ? "talk" : "talks"}` : "Empty"}
-                        </p>
-                      </div>
-                      <ChevronLeft className="h-4 w-4 rotate-180 shrink-0 transition-transform group-hover:translate-x-0.5" style={{ color: "var(--color-ink-muted)" }} />
                     </button>
                   );
                 })}
@@ -573,7 +645,7 @@ export default function TalksClient() {
               {talksToShow.length === 0 ? (
                 <p className="px-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>No talks available.</p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {talksToShow.map((talk) => (
                     <TalkCard
                       key={talk.id}
@@ -583,6 +655,7 @@ export default function TalksClient() {
                       isDownloading={downloadingIds.has(talk.id)}
                       onDownload={() => handleDownload(talk)}
                       onRemoveDownload={() => handleRemoveDownload(talk)}
+                      onToggleComplete={() => handleToggleComplete(talk)}
                     />
                   ))}
                 </div>
@@ -704,7 +777,9 @@ function EmptyState({
   );
 }
 
-// ─── Talk Card ───
+// ─── Talk Card (Redesigned) ───
+// Layout: [checkmark] [play] [title + meta] [download top-right]
+// Completed talks get a subtle green tint and the checkmark fills green.
 
 function TalkCard({
   talk,
@@ -713,6 +788,7 @@ function TalkCard({
   isDownloading,
   onDownload,
   onRemoveDownload,
+  onToggleComplete,
 }: {
   talk: Talk;
   onPlay: () => void;
@@ -720,20 +796,49 @@ function TalkCard({
   isDownloading: boolean;
   onDownload: () => void;
   onRemoveDownload: () => void;
+  onToggleComplete: () => void;
 }) {
   const isExternal = !talk.streamUrl && talk.externalUrl;
+  const isCompleted = !!talk.progress?.completed;
+
   return (
     <div
-      className="flex items-center gap-3 rounded-xl border p-4 transition-colors hover:bg-[var(--color-paper-2)] sm:gap-4 sm:p-5"
-      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", minHeight: 64 }}
+      className="relative flex items-center gap-2.5 rounded-xl border p-3.5 transition-colors sm:gap-3 sm:p-4"
+      style={{
+        borderColor: isCompleted
+          ? "color-mix(in oklab, var(--color-success) 20%, var(--color-paper-3))"
+          : "var(--color-paper-3)",
+        backgroundColor: isCompleted
+          ? "color-mix(in oklab, var(--color-success) 3%, var(--color-paper))"
+          : "var(--color-paper)",
+        minHeight: 60,
+        opacity: isCompleted ? 0.7 : 1,
+      }}
     >
+      {/* Checkmark box — left side */}
+      <button
+        onClick={onToggleComplete}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border-2 transition-all active:scale-90"
+        style={{
+          borderColor: isCompleted ? "var(--color-success)" : "var(--color-paper-3)",
+          backgroundColor: isCompleted ? "var(--color-success)" : "transparent",
+        }}
+        aria-label={isCompleted ? "Mark as not listened" : "Mark as listened"}
+      >
+        {isCompleted ? (
+          <Check className="h-4 w-4" style={{ color: "var(--color-paper)" }} strokeWidth={3} />
+        ) : (
+          <Circle className="h-3 w-3" style={{ color: "transparent" }} />
+        )}
+      </button>
+
       {/* Play button */}
       {isExternal ? (
         <a
           href={talk.externalUrl!}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors"
           style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}
           aria-label={`Open ${talk.title} externally`}
         >
@@ -742,7 +847,7 @@ function TalkCard({
       ) : (
         <button
           onClick={onPlay}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-transform active:scale-95"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-transform active:scale-95"
           style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}
           aria-label={`Play ${talk.title}`}
         >
@@ -752,10 +857,19 @@ function TalkCard({
 
       {/* Content */}
       <div className="min-w-0 flex-1">
-        <h3 className="truncate text-sm font-semibold leading-tight sm:text-base" style={{ color: "var(--color-ink)" }}>{talk.title}</h3>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <h3
+          className="truncate text-sm font-semibold leading-tight sm:text-[15px]"
+          style={{
+            color: "var(--color-ink)",
+            textDecoration: isCompleted ? "line-through" : "none",
+            textDecorationColor: "var(--color-ink-muted)",
+          }}
+        >
+          {talk.title}
+        </h3>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
           {talk.speaker && (
-            <span className="truncate text-xs sm:text-[13px]" style={{ color: "var(--color-ink-muted)" }}>{talk.speaker}</span>
+            <span className="truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>{talk.speaker}</span>
           )}
           {talk.duration && (
             <span className="flex items-center gap-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
@@ -770,12 +884,12 @@ function TalkCard({
         </div>
       </div>
 
-      {/* Download / remove offline button — only for self-hosted talks */}
+      {/* Download button — small, top-right corner */}
       {talk.streamUrl && !isExternal && (
         <button
           onClick={isOffline ? onRemoveDownload : onDownload}
           disabled={isDownloading}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-50"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-50"
           style={{
             color: isOffline ? "var(--color-success)" : "var(--color-ink-muted)",
             backgroundColor: isOffline
@@ -785,11 +899,11 @@ function TalkCard({
           aria-label={isOffline ? "Remove offline copy" : "Download for offline use"}
         >
           {isDownloading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : isOffline ? (
-            <Check className="h-4 w-4" />
+            <Check className="h-3.5 w-3.5" />
           ) : (
-            <Download className="h-4 w-4" />
+            <Download className="h-3.5 w-3.5" />
           )}
         </button>
       )}

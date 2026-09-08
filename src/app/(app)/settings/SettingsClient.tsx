@@ -5,7 +5,7 @@ import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLin
 import { clearApiCache } from "@/lib/sw-helpers";
 import { isNativeApp } from "@/lib/native-bridge";
 import { clearOfflineCache } from "@/lib/offline/db";
-import { getAudioCacheCount, getAudioCacheSize } from "@/components/audio-player-context";
+import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
 import { HTTP_USER_AGENT } from "@/lib/site-config";
 import { clearCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 
@@ -379,8 +379,9 @@ export default function SettingsClient({
 
   // Offline audio storage state
   const [audioCacheInfo, setAudioCacheInfo] = useState<{ count: number; sizeBytes: number } | null>(null);
+  const [downloadLimitMB, setDownloadLimitMBState] = useState<number>(500);
 
-  // Load audio cache info on mount
+  // Load audio cache info + download limit on mount
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -389,7 +390,14 @@ export default function SettingsClient({
         if (!cancelled) setAudioCacheInfo({ count, sizeBytes });
       } catch { /* non-critical */ }
     })();
+    setDownloadLimitMBState(getDownloadLimitMB());
     return () => { cancelled = true; };
+  }, []);
+
+  // Handle download limit change
+  const handleDownloadLimitChange = useCallback((mb: number) => {
+    setDownloadLimitMB(mb);
+    setDownloadLimitMBState(mb);
   }, []);
 
   // Logout state
@@ -1700,8 +1708,8 @@ export default function SettingsClient({
           defaultOpen={false}
         >
           <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            Downloaded talks are stored on your device for offline listening. A 500 MB limit
-            automatically removes the oldest-played talks when exceeded.
+            Downloaded talks are stored on your device for offline listening. When the limit is
+            reached, the oldest-played talks are automatically removed.
           </p>
           {audioCacheInfo ? (
             <div className="flex flex-col gap-2">
@@ -1717,26 +1725,64 @@ export default function SettingsClient({
                     : "0 MB"}
                 </span>
               </div>
-              {/* Progress bar showing usage toward 500 MB limit */}
-              <div className="mt-1">
-                <div className="mb-1 flex items-center justify-between text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                  <span>0 MB</span>
-                  <span>500 MB limit</span>
+              {/* Progress bar showing usage toward download limit */}
+              {downloadLimitMB > 0 && (
+                <div className="mt-1">
+                  <div className="mb-1 flex items-center justify-between text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    <span>0 MB</span>
+                    <span>{downloadLimitMB >= 1024 ? `${(downloadLimitMB / 1024).toFixed(0)} GB` : `${downloadLimitMB} MB`} limit</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                    <div className="h-full rounded-full transition-all" style={{
+                      width: `${Math.min(100, (audioCacheInfo.sizeBytes / (downloadLimitMB * 1024 * 1024)) * 100)}%`,
+                      backgroundColor: audioCacheInfo.sizeBytes > downloadLimitMB * 1024 * 1024 * 0.9
+                        ? "var(--color-error)"
+                        : "var(--color-accent)",
+                    }} />
+                  </div>
                 </div>
-                <div className="h-1.5 w-full rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-                  <div className="h-full rounded-full transition-all" style={{
-                    width: `${Math.min(100, (audioCacheInfo.sizeBytes / (500 * 1024 * 1024)) * 100)}%`,
-                    backgroundColor: audioCacheInfo.sizeBytes > 450 * 1024 * 1024
-                      ? "var(--color-error)"
-                      : "var(--color-accent)",
-                  }} />
-                </div>
-              </div>
+              )}
               {audioCacheInfo.count === 0 && (
                 <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
                   No talks downloaded yet. Tap the download icon next to any talk to save it for offline listening.
                 </p>
               )}
+
+              {/* Download limit selector */}
+              <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
+                <p className="mb-2 text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>Download limit</p>
+                <p className="mb-3 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                  When the limit is reached, the oldest-played talks are automatically removed to make space.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: "500 MB", value: 500 },
+                    { label: "1 GB", value: 1024 },
+                    { label: "2 GB", value: 2048 },
+                    { label: "3 GB", value: 3072 },
+                    { label: "Unlimited", value: 0 },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => handleDownloadLimitChange(option.value)}
+                      className="rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
+                      style={{
+                        borderColor: downloadLimitMB === option.value
+                          ? "var(--color-accent)"
+                          : "var(--color-paper-3)",
+                        backgroundColor: downloadLimitMB === option.value
+                          ? "color-mix(in oklab, var(--color-accent) 10%, transparent)"
+                          : "transparent",
+                        color: downloadLimitMB === option.value
+                          ? "var(--color-accent)"
+                          : "var(--color-ink-soft)",
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>

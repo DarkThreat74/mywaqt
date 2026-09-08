@@ -6,9 +6,51 @@ import { getOfflineDB, type CachedTalkDownload } from "@/lib/offline/db";
 
 export const AUDIO_CACHE_NAME = "waqt-audio";
 
-// 500 MB — enough for ~50 talks at ~10 MB each.
+// Default download limit: 500 MB.
+// User can change this in Settings (500MB / 1GB / 2GB / 3GB / Unlimited).
 // When exceeded, oldest-played entries are evicted (LRU).
-const MAX_AUDIO_CACHE_BYTES = 500 * 1024 * 1024;
+const DEFAULT_MAX_AUDIO_CACHE_BYTES = 500 * 1024 * 1024;
+const DOWNLOAD_LIMIT_KEY = "waqt:download-limit-mb";
+
+/**
+ * Get the user's configured download limit in bytes.
+ * Reads from localStorage; falls back to 500MB default.
+ * Returns Infinity for "unlimited".
+ */
+export function getDownloadLimitBytes(): number {
+  try {
+    const stored = localStorage.getItem(DOWNLOAD_LIMIT_KEY);
+    if (!stored) return DEFAULT_MAX_AUDIO_CACHE_BYTES;
+    const mb = parseInt(stored, 10);
+    if (isNaN(mb) || mb <= 0) return DEFAULT_MAX_AUDIO_CACHE_BYTES;
+    return mb * 1024 * 1024;
+  } catch {
+    return DEFAULT_MAX_AUDIO_CACHE_BYTES;
+  }
+}
+
+/**
+ * Set the download limit (in MB). 0 = unlimited.
+ */
+export function setDownloadLimitMB(mb: number): void {
+  try {
+    localStorage.setItem(DOWNLOAD_LIMIT_KEY, String(mb));
+  } catch { /* non-critical */ }
+}
+
+/**
+ * Get the download limit in MB for display. 0 = unlimited.
+ */
+export function getDownloadLimitMB(): number {
+  try {
+    const stored = localStorage.getItem(DOWNLOAD_LIMIT_KEY);
+    if (!stored) return 500;
+    const mb = parseInt(stored, 10);
+    return isNaN(mb) ? 500 : mb;
+  } catch {
+    return 500;
+  }
+}
 
 export function audioCacheKey(url: string): string {
   const parsed = new URL(url, window.location.origin);
@@ -60,13 +102,14 @@ async function evictLRUIfNeeded(): Promise<void> {
     const db = getOfflineDB();
     const cache = await caches.open(AUDIO_CACHE_NAME);
     let totalSize = await getAudioCacheSize();
+    const maxBytes = getDownloadLimitBytes();
 
-    if (totalSize <= MAX_AUDIO_CACHE_BYTES) return;
+    if (totalSize <= maxBytes) return;
 
     // Sort by lastPlayedAt ascending (oldest first) and evict until under limit
     const entries = await db.talkDownloads.orderBy("lastPlayedAt").toArray();
     for (const entry of entries) {
-      if (totalSize <= MAX_AUDIO_CACHE_BYTES) break;
+      if (totalSize <= maxBytes) break;
       // Delete from Cache API
       const keys = await cache.keys();
       await Promise.all(
@@ -248,6 +291,16 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const queueRef = useRef(queue);
   useEffect(() => { trackRef.current = currentTrack; }, [currentTrack]);
   useEffect(() => { queueRef.current = queue; }, [queue]);
+
+  // Set a CSS variable on the root when a track is loaded.
+  // The layout uses this to add bottom padding so content isn't hidden behind the mini bar.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.style.setProperty(
+      "--player-active",
+      currentTrack ? "1" : "0"
+    );
+  }, [currentTrack]);
 
   const play = useCallback((track: PlayerTrack, trackQueue?: PlayerTrack[]) => {
     setCurrentTrack(track);

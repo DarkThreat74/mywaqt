@@ -1,32 +1,45 @@
-feat: fast Opus transcode for large files + offline cache fixes
+feat: redesign talks library + morphing player + progress tracking
 
-PROBLEM: Files >40MB were skipping processing entirely, serving the
-original 150MB MP3. Streaming these used 50-150MB of cellular data
-per talk. Downloaded copies were also 150MB instead of ~10MB.
+Talks Library Redesign:
+- New TalkCard with checkmark box (left), play button, small download
+  button (top-right). Completed talks get green tint + strikethrough.
+- Folder cards now show progress bar (X/Y listened) with distinct
+  colors from an 8-color palette (auto-assigned by order, admin can
+  override via folderColor column).
+- Folder detail view shows completion fraction and progress bar.
 
-FIX: Added compressAudioFileFast() — bare Opus transcode with no
-filter chain and compression_level 0. Runs at ~25x realtime
-(vs ~6x for the full chain), so files up to 150MB process within
-the 300s timeout.
+Morphing Audio Player:
+- Three states: floating circle FAB → mini bar → full player.
+- FAB shows animated equalizer bars + progress ring around the circle.
+- Mini bar has X button with "Close" label that stops playback entirely.
+- Full player has minimize-to-circle (chevron down) + close (X) buttons.
+- Tapping outside the full player minimizes to mini bar (doesn't close).
+- Site layout adapts: main content gets extra bottom padding when
+  player is active via --player-active CSS variable.
 
-Processing paths:
-  ≤40MB:   Full 10-stage filter chain (~6x realtime)
-  40-150MB: Fast bare transcode, no filters (~25x realtime)
-  >150MB:  Skipped (exceeds upload limit anyway)
+Track Switching Bug Fix:
+- Fixed bug where switching talks failed: the <audio> remounts via
+  key={track.id} but isPlaying state stayed true and play() was never
+  called on the new element. Now auto-plays the new track when one
+  was already playing.
 
-Both paths produce 24kbps Opus (~85% smaller), so ALL talks now
-stream at ~3 KB/s regardless of source file size.
+Progress Tracking:
+- New talk_progress table (userId, talkId, position, completed, updatedAt).
+- Auto-marks talks as completed at 100% (onEnded).
+- Manual checkmark to mark/unmark anytime.
+- Progress synced to server every 5s for cross-device resume.
+- Migration: 0021_talk_progress_folder_color.sql.
 
-DATA USAGE:
-  Downloaded:      0 KB/s (served from cache)
-  Not downloaded: ~3 KB/s (24kbps Opus) = ~10.8 MB/hour
+Configurable Download Limit:
+- Settings page now has download limit selector (500MB/1GB/2GB/3GB/Unlimited).
+- LRU eviction uses the configured limit instead of hardcoded 500MB.
+- Progress bar in Settings reflects the configured limit.
 
-Also includes offline cache fixes from the audit:
-  - Storage estimate check before download
-  - LRU eviction at 500MB limit
-  - Download manifest in IndexedDB (v4 schema)
-  - Stop implicit caching on Play (only explicit downloads)
-  - Settings page shows offline storage usage
+Schema Changes:
+- talk_folders: added folderColor column (nullable, auto-assigned if null).
+- New talk_progress table with unique (userId, talkId) index.
+- GET /api/talks now returns folderColor, sortOrder, and per-talk progress.
+- POST /api/talks/progress for upserting listening state.
 
 Generated with [Devin](https://devin.ai)
 

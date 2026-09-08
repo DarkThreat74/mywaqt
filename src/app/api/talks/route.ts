@@ -45,12 +45,14 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
-    const [folders, talks] = await Promise.all([
+    const [folders, talks, progress] = await Promise.all([
       db.select({
         id: schema.talkFolders.id,
         name: schema.talkFolders.name,
         description: schema.talkFolders.description,
         imageKey: schema.talkFolders.imageKey,
+        folderColor: schema.talkFolders.folderColor,
+        sortOrder: schema.talkFolders.sortOrder,
       }).from(schema.talkFolders)
         .orderBy(asc(schema.talkFolders.sortOrder), asc(schema.talkFolders.name))
         .limit(200),
@@ -71,7 +73,18 @@ export async function GET(request: NextRequest) {
         .where(eq(schema.talks.processingStatus, "published"))
         .orderBy(asc(schema.talks.title))
         .limit(500),
+      // Fetch user's progress for all talks (bounded to 500)
+      db.select({
+        talkId: schema.talkProgress.talkId,
+        position: schema.talkProgress.position,
+        completed: schema.talkProgress.completed,
+      }).from(schema.talkProgress)
+        .where(eq(schema.talkProgress.userId, session.userId))
+        .limit(500),
     ]);
+
+    // Build progress map for quick lookup
+    const progressMap = new Map(progress.map(p => [p.talkId, p]));
 
     return NextResponse.json({
       folders: folders.map(({ imageKey, ...folder }) => ({
@@ -81,6 +94,7 @@ export async function GET(request: NextRequest) {
       talks: talks.map(({ storageKey, processedStorageKey, ...talk }) => ({
         ...talk,
         streamUrl: storageKey || processedStorageKey ? `/api/talks?stream=${talk.id}` : null,
+        progress: progressMap.get(talk.id) || null,
       })),
     });
   } catch (err) {

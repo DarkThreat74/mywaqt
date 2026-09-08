@@ -326,6 +326,10 @@ export const talkFolders = pgTable('talk_folders', {
   // Optional date range for series/events
   startDate: date('start_date'),
   endDate: date('end_date'),
+  // Accent color for the folder (auto-assigned from palette, admin can override).
+  // Values: "teal" | "amber" | "rose" | "indigo" | "emerald" | "violet" | "orange" | "sky"
+  // null = auto-assign based on folder order
+  folderColor: text('folder_color'),
   sortOrder: integer('sort_order').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -358,6 +362,27 @@ export const talks = pgTable('talks', {
   folderIdx: index('talks_folder_idx').on(t.folderId),
   processingStatusIdx: index('talks_processing_status_idx').on(t.processingStatus),
   publishedIdx: index('talks_published_idx').on(t.publishedAt),
+}));
+
+// ─── Talk Progress (per-user listening state) ───
+// Tracks playback position and completion status for each user × talk.
+// Used for "listened" checkmarks, folder progress bars, and resume playback.
+export const talkProgress = pgTable('talk_progress', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  talkId: uuid('talk_id').notNull().references(() => talks.id, { onDelete: 'cascade' }),
+  // Last playback position in seconds (0 if not started)
+  position: integer('position').default(0).notNull(),
+  // Whether the user has marked this talk as listened (auto at 100% or manual checkmark)
+  completed: boolean('completed').default(false).notNull(),
+  // When the talk was completed
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  // Last time the user interacted with this talk (play, pause, seek)
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  // One progress record per user × talk
+  userTalkIdx: uniqueIndex('talk_progress_user_talk_idx').on(t.userId, t.talkId),
+  userCompletedIdx: index('talk_progress_user_completed_idx').on(t.userId, t.completed),
 }));
 
 // ─── Trusted Devices (FingerprintJS) ───
@@ -562,6 +587,7 @@ export type NewEvent = typeof events.$inferInsert;
 export type DhikrSequence = typeof dhikrSequences.$inferSelect;
 export type Talk = typeof talks.$inferSelect;
 export type TalkFolder = typeof talkFolders.$inferSelect;
+export type TalkProgress = typeof talkProgress.$inferSelect;
 export type PrayerFriend = typeof prayerFriends.$inferSelect;
 export type PrayerBlock = typeof prayerBlocks.$inferSelect;
 export type TrustedDevice = typeof trustedDevices.$inferSelect;

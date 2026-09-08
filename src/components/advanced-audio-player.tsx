@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Play, Pause, SkipBack, SkipForward, RotateCcw, RotateCw,
   Download, Trash2, Clock, Volume2, VolumeX, Volume1,
-  ChevronUp, Repeat, Repeat1, Shuffle,
+  ChevronUp, ChevronDown, Repeat, Repeat1, Shuffle,
   Gauge, Moon, Bookmark, BookmarkPlus, ListMusic,
   X, AlertCircle, RefreshCw, Airplay,
 } from "lucide-react";
@@ -31,7 +31,7 @@ interface Bookmark {
 }
 
 type RepeatMode = "off" | "one" | "all";
-type PlayerView = "mini" | "full" | "closed";
+type PlayerView = "fab" | "mini" | "full" | "closed";
 
 // ─── Helpers ───
 
@@ -115,7 +115,7 @@ export default function AdvancedAudioPlayer({
   onOfflineStatusChange,
 }: AdvancedAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [view, setView] = useState<PlayerView>("mini");
+  const [view, setView] = useState<PlayerView>("fab");
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -161,7 +161,13 @@ export default function AdvancedAudioPlayer({
   // ─── Reset state when track changes ───
   // Without this, switching tracks leaves stale duration/currentTime from
   // the previous track, and the audio element may not reload properly.
+  // Track change: reset state and auto-play if we were already playing.
+  // The <audio> element remounts via key={track.id}, so the new element
+  // starts paused. If isPlaying was true (user was listening), resume
+  // playback on the new track automatically.
+  const wasPlayingRef = useRef(false);
   useEffect(() => {
+    wasPlayingRef.current = isPlaying;
     setCurrentTime(0);
     setDuration(0);
     setBuffered(0);
@@ -169,11 +175,19 @@ export default function AdvancedAudioPlayer({
     setIsBuffering(false);
     setError(null);
     setRetryCount(0);
-    // Force the audio element to reload with the new src
+    setIsPlaying(false); // reset — the onPlay handler will set it back
     const audio = audioRef.current;
     if (audio) {
       audio.load();
+      if (wasPlayingRef.current) {
+        // Auto-play the new track if the previous one was playing
+        audio.play().catch(() => {
+          // Autoplay blocked (e.g., iOS requires user gesture) — user can tap play
+          setIsPlaying(false);
+        });
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track.id]);
 
   // ─── Load bookmarks when track changes ───
@@ -250,6 +264,7 @@ export default function AdvancedAudioPlayer({
   }, [track.id, updatePositionState]);
 
   // ─── Save playback position (throttled) ───
+  // Saves to localStorage for instant resume + server for cross-device sync
   const persistProgress = useCallback((time: number, id: string) => {
     try {
       const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
@@ -261,6 +276,14 @@ export default function AdvancedAudioPlayer({
         for (const oldId of sorted.slice(50)) delete saved[oldId];
       }
       localStorage.setItem(PROGRESS_KEY, JSON.stringify(saved));
+    } catch { /* non-critical */ }
+    // Sync to server (best-effort, non-blocking)
+    try {
+      fetch("/api/talks/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ talkId: id, position: Math.floor(time) }),
+      }).catch(() => {});
     } catch { /* non-critical */ }
   }, []);
   const saveProgress = useMemo(() => throttle(persistProgress, 5000), [persistProgress]);
@@ -474,6 +497,14 @@ export default function AdvancedAudioPlayer({
       if (audio) { audio.currentTime = 0; audio.play().catch(() => {}); }
       return;
     }
+    // Auto-mark talk as completed (100% reached)
+    try {
+      fetch("/api/talks/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ talkId: track.id, completed: true, position: 0 }),
+      }).catch(() => {});
+    } catch { /* non-critical */ }
     // Clear saved progress for this track
     try {
       const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
@@ -776,6 +807,53 @@ export default function AdvancedAudioPlayer({
         className="hidden"
       />
 
+      {/* ─── FAB (floating circle — minimized state) ─── */}
+      {view === "fab" && (
+        <button
+          onClick={() => setView("mini")}
+          className="fixed z-50 flex items-center justify-center rounded-full shadow-lg transition-transform active:scale-95"
+          style={{
+            right: "calc(env(safe-area-inset-right) + 1rem)",
+            bottom: "calc(env(safe-area-inset-bottom) + 5rem)",
+            width: 56,
+            height: 56,
+            backgroundColor: "var(--color-accent)",
+            boxShadow: "0 8px 24px -8px color-mix(in oklab, var(--color-accent) 60%, transparent)",
+            animation: "player-fade-in 0.25s ease-out",
+          }}
+          aria-label="Open player"
+        >
+          {isBuffering ? (
+            <RefreshCw className="h-5 w-5 animate-spin" style={{ color: "var(--color-paper)" }} />
+          ) : isPlaying ? (
+            <div className="flex items-end gap-0.5" aria-hidden>
+              <div className="h-2.5 w-0.5 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-paper)", animationDuration: "0.4s" }} />
+              <div className="h-4 w-0.5 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-paper)", animationDuration: "0.6s" }} />
+              <div className="h-3 w-0.5 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-paper)", animationDuration: "0.5s" }} />
+            </div>
+          ) : (
+            <Play className="h-5 w-5 translate-x-0.5" style={{ color: "var(--color-paper)" }} />
+          )}
+          {/* Mini progress ring around the FAB */}
+          <svg
+            className="absolute inset-0 -rotate-90"
+            viewBox="0 0 56 56"
+            style={{ pointerEvents: "none" }}
+          >
+            <circle cx="28" cy="28" r="26" fill="none" stroke="color-mix(in oklab, var(--color-paper) 30%, transparent)" strokeWidth="2" />
+            <circle
+              cx="28" cy="28" r="26" fill="none"
+              stroke="var(--color-paper)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeDasharray={`${2 * Math.PI * 26}`}
+              strokeDashoffset={`${2 * Math.PI * 26 * (1 - progressPercent / 100)}`}
+              style={{ transition: "stroke-dashoffset 0.3s linear" }}
+            />
+          </svg>
+        </button>
+      )}
+
       {/* ─── Mini Player (bottom bar) ─── */}
       {view === "mini" && (
         <div
@@ -834,6 +912,12 @@ export default function AdvancedAudioPlayer({
                 <ChevronUp className="h-4 w-4" />
               </button>
             </div>
+
+            {/* Close button with "Close" label — stops playback entirely */}
+            <button onClick={onClose} className="flex shrink-0 flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close player">
+              <X className="h-4 w-4" />
+              <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>Close</span>
+            </button>
           </div>
         </div>
       )}
@@ -856,14 +940,18 @@ export default function AdvancedAudioPlayer({
             onClick={(e) => e.stopPropagation()}
             onTouchEnd={handleTouchEnd}
           >
-            {/* Drag handle */}
-            <div className="flex justify-center pt-2.5 pb-1" onClick={() => setView("mini")} role="button" aria-label="Minimize">
+            {/* Drag handle — minimize to mini bar */}
+            <div className="flex justify-center pt-2.5 pb-1" onClick={() => setView("mini")} role="button" aria-label="Minimize to bar">
               <div className="h-1 w-10 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
             </div>
 
-            {/* Close button */}
-            <button onClick={onClose} className="absolute right-3 top-3 flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close player">
+            {/* Minimize to FAB (left) + Close (right) */}
+            <button onClick={() => setView("fab")} className="absolute left-3 top-3 flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Minimize to circle">
+              <ChevronDown className="h-4 w-4" />
+            </button>
+            <button onClick={onClose} className="absolute right-3 top-3 flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close player">
               <X className="h-4 w-4" />
+              <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>Close</span>
             </button>
 
             <div className="overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]" style={{ maxHeight: "calc(92dvh - 2rem)" }}>
