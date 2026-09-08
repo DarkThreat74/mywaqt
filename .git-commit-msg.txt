@@ -1,23 +1,25 @@
-feat: redesign admin forms — segmented control, mutual exclusivity, better UI
+feat: batch upload — step-based UI, drag-drop file list, start number selector
 
-Replaced three separate toggle buttons with a segmented control bar.
-Only one form can be open at a time — opening one closes the others.
+Redesigned the batch upload form into a clear 3-step flow:
 
-UI improvements across all forms:
-- Segmented control button bar (New Folder | Upload Talk | Batch Folder)
-  Active button is filled black, inactive are transparent
-- Each form now has:
-  - Icon badge + title header with close (✕) button
-  - Consistent rounded-2xl card with subtle shadow
-  - Better spacing (gap-5, p-6)
-  - Primary buttons with active:scale-95 press feedback
-  - Upload progress shown as inline alert (not just text)
-- Edit Folder form redesigned:
-  - Icon badge with pencil icon
-  - Folder name shown as subtitle under "Edit Folder" heading
-  - Same card style as other forms
-- Removed unused showFolderForm/showUploadForm/showBatchForm state
-  (replaced by single activeForm: "folder" | "upload" | "batch" | null)
+Step 1 — Select audio folder:
+- Empty state: large dashed dropzone with icon + "Choose folder"
+- After selection: summary card with green file count badge, total size,
+  "Clear all" button, scrollable drag-and-drop file list, and a hint bar
+  at the bottom ("Drag to reorder · Click ✕ to remove")
+
+Step 2 — Naming pattern:
+- Two-column layout: naming pattern input + "Start from" number selector
+- Start number defaults to 1, can be set to any number (0-9999)
+- Live preview shows actual names with the start number:
+  "Pattern 5, Pattern 6, Pattern 7… (12 total, ending at #16)"
+- File list badges update to show the actual episode numbers
+
+Step 3 — Details (optional):
+- Speaker and folder selection in a grid
+
+The start number is useful when continuing an existing series — if
+episodes 1-10 already exist, set start to 11 and upload the next batch.
 
 Generated with [Devin](https://devin.ai)
 

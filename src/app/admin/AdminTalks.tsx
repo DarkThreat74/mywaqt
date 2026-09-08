@@ -91,6 +91,7 @@ export function AdminTalks() {
   // Batch upload state
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [batchName, setBatchName] = useState("");
+  const [batchStartNumber, setBatchStartNumber] = useState(1);
   const [batchSpeaker, setBatchSpeaker] = useState("");
   const [batchFolderId, setBatchFolderId] = useState<string | null>(null);
   const [batchUploading, setBatchUploading] = useState(false);
@@ -529,7 +530,7 @@ export function AdminTalks() {
         }
 
         // Create talk record with numbered title
-        const title = `${batchName.trim()} ${i + 1}`;
+        const title = `${batchName.trim()} ${batchStartNumber + i}`;
         const createRes = await fetch("/api/admin/talks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -613,6 +614,7 @@ export function AdminTalks() {
         setActiveForm(null);
         setBatchFiles([]);
         setBatchName("");
+        setBatchStartNumber(1);
         setBatchSpeaker("");
         setBatchProgress(null);
       }, 2000);
@@ -869,35 +871,61 @@ export function AdminTalks() {
             Drag to reorder, remove unwanted files, then process 3 at a time.
           </p>
 
-          {/* Folder picker */}
+          {/* Step 1: Folder picker */}
           <div>
-            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
-              Audio folder
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+              Step 1 — Select audio folder
             </label>
-            <input
-              type="file"
-              multiple
-              accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.opus"
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                const audioFiles = files.filter((f) =>
-                  f.type.startsWith("audio/") || /\.(mp3|m4a|aac|wav|ogg|opus|flac)$/i.test(f.name)
-                );
-                audioFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-                setBatchFiles(audioFiles);
-              }}
-              className="block w-full text-xs file:mr-3 file:rounded-lg file:border file:px-3 file:py-2 file:text-xs file:font-medium"
-              style={{ color: "var(--color-ink-muted)" }}
-              disabled={batchUploading}
-              {...{ webkitdirectory: "", directory: "" }}
-            />
-            {batchFiles.length > 0 && (
-              <div className="mt-2">
-                <div className="mb-1.5 flex items-center justify-between text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  <span>{batchFiles.length} file{batchFiles.length !== 1 ? "s" : ""} · {(batchFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB</span>
-                  <span>Drag to reorder · Click ✕ to remove</span>
+            {batchFiles.length === 0 ? (
+              <label
+                className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-10 transition-colors hover:border-[var(--color-accent)]"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+              >
+                <FolderPlus className="h-7 w-7" style={{ color: "var(--color-ink-muted)" }} />
+                <span className="text-sm font-medium" style={{ color: "var(--color-ink-soft)" }}>Choose folder</span>
+                <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>All audio files inside will be listed</span>
+                <input
+                  type="file"
+                  multiple
+                  accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.opus"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    const audioFiles = files.filter((f) =>
+                      f.type.startsWith("audio/") || /\.(mp3|m4a|aac|wav|ogg|opus|flac)$/i.test(f.name)
+                    );
+                    audioFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+                    setBatchFiles(audioFiles);
+                  }}
+                  className="hidden"
+                  disabled={batchUploading}
+                  {...{ webkitdirectory: "", directory: "" }}
+                />
+              </label>
+            ) : (
+              <div className="rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
+                {/* Summary bar */}
+                <div className="flex items-center justify-between border-b px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold" style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)" }}>
+                      {batchFiles.length}
+                    </span>
+                    <span className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>
+                      {batchFiles.length} file{batchFiles.length !== 1 ? "s" : ""} · {(batchFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setBatchFiles([])}
+                      disabled={batchUploading}
+                      className="text-[11px] font-medium transition-colors hover:underline disabled:opacity-30"
+                      style={{ color: "var(--color-error)" }}
+                    >
+                      Clear all
+                    </button>
+                  </div>
                 </div>
-                <div className="max-h-64 overflow-y-auto rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
+                {/* File list */}
+                <div className="max-h-56 overflow-y-auto">
                   {batchFiles.map((file, i) => (
                     <div
                       key={`${file.name}-${i}`}
@@ -916,7 +944,7 @@ export function AdminTalks() {
                         setDragOverIndex(null);
                       }}
                       onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
-                      className="flex items-center gap-2 border-b px-3 py-2 text-xs transition-colors last:border-b-0"
+                      className="flex items-center gap-2.5 border-b px-3 py-2 text-xs transition-colors last:border-b-0"
                       style={{
                         borderColor: "var(--color-paper-3)",
                         backgroundColor: dragOverIndex === i ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "transparent",
@@ -925,7 +953,7 @@ export function AdminTalks() {
                       }}
                     >
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
-                        {i + 1}
+                        {batchStartNumber + i}
                       </span>
                       <span className="min-w-0 flex-1 truncate font-medium" style={{ color: "var(--color-ink)" }}>
                         {file.name}
@@ -945,31 +973,60 @@ export function AdminTalks() {
                     </div>
                   ))}
                 </div>
+                {/* Hint */}
+                <div className="border-t px-3 py-1.5 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                  Drag to reorder · Click ✕ to remove
+                </div>
               </div>
             )}
           </div>
 
-          {/* Naming pattern */}
+          {/* Step 2: Naming pattern + start number */}
           <div>
-            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
-              Naming pattern <span style={{ color: "var(--color-error)" }}>*</span>
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+              Step 2 — Naming pattern
             </label>
-            <input
-              type="text"
-              value={batchName}
-              onChange={(e) => setBatchName(e.target.value)}
-              placeholder="e.g. Seerah of the Prophet Episode"
-              className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
-              disabled={batchUploading}
-            />
-            <p className="mt-1 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              Files will be named: <strong>{batchName.trim() || "Pattern"} 1</strong>, <strong>{batchName.trim() || "Pattern"} 2</strong>, <strong>{batchName.trim() || "Pattern"} 3</strong>… ({batchFiles.length || 0} total)
-            </p>
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <div>
+                <input
+                  type="text"
+                  value={batchName}
+                  onChange={(e) => setBatchName(e.target.value)}
+                  placeholder="e.g. Seerah of the Prophet Episode"
+                  className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                  disabled={batchUploading}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-medium whitespace-nowrap" style={{ color: "var(--color-ink-muted)" }}>Start from</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={9999}
+                  value={batchStartNumber}
+                  onChange={(e) => setBatchStartNumber(Math.max(0, parseInt(e.target.value) || 1))}
+                  className="w-16 rounded-xl border px-2 py-2.5 text-center text-sm font-semibold tabular-nums outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                  disabled={batchUploading}
+                />
+              </div>
+            </div>
+            <div className="mt-2 rounded-lg px-3 py-2 text-[11px]" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}>
+              {batchFiles.length > 0 ? (
+                <>Files will be named: <strong style={{ color: "var(--color-ink)" }}>{batchName.trim() || "Pattern"} {batchStartNumber}</strong>, <strong style={{ color: "var(--color-ink)" }}>{batchName.trim() || "Pattern"} {batchStartNumber + 1}</strong>, <strong style={{ color: "var(--color-ink)" }}>{batchName.trim() || "Pattern"} {batchStartNumber + 2}</strong>… <span style={{ color: "var(--color-ink-muted)" }}>({batchFiles.length} total, ending at #{batchStartNumber + batchFiles.length - 1})</span></>
+              ) : (
+                <>Files will be named: <strong style={{ color: "var(--color-ink)" }}>{batchName.trim() || "Pattern"} {batchStartNumber}</strong>, <strong style={{ color: "var(--color-ink)" }}>{batchName.trim() || "Pattern"} {batchStartNumber + 1}</strong>, <strong style={{ color: "var(--color-ink)" }}>{batchName.trim() || "Pattern"} {batchStartNumber + 2}</strong>…</>
+              )}
+            </div>
           </div>
 
-          {/* Speaker + folder */}
-          <div className="grid gap-3 sm:grid-cols-2">
+          {/* Step 3: Speaker + folder */}
+          <div>
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+              Step 3 — Details (optional)
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
                 Speaker (optional)
@@ -1002,6 +1059,7 @@ export function AdminTalks() {
               </select>
             </div>
           </div>
+          </div>
 
           {/* Progress */}
           {batchProgress && (
@@ -1032,7 +1090,7 @@ export function AdminTalks() {
             </button>
             <button
               type="button"
-              onClick={() => { setActiveForm(null); setBatchFiles([]); setBatchName(""); setBatchProgress(null); }}
+              onClick={() => { setActiveForm(null); setBatchFiles([]); setBatchName(""); setBatchStartNumber(1); setBatchProgress(null); }}
               disabled={batchUploading}
               className="rounded-xl border px-4 py-2.5 text-sm disabled:opacity-50"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 44 }}
