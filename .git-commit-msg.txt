@@ -1,18 +1,23 @@
-fix: switch to @ffmpeg-installer/ffmpeg for full filter support on Vercel
+fix: revert to ffmpeg-static, remove leave_silence option causing filter errors
 
-ffmpeg-static ships a minimal Linux binary that was missing filter
-options (likely leave_silence in silenceremove or loudnorm), causing
-"Option not found" errors on all batch-processed talks.
+@ffmpeg-installer/ffmpeg ships FFmpeg 4.1 from 2018 — way too old.
+Reverted to ffmpeg-static (FFmpeg 6.1.1).
 
-Switched to @ffmpeg-installer/ffmpeg which provides full FFmpeg builds
-with all filters enabled. Added to serverExternalPackages in
-next.config.ts so Next.js doesn't try to bundle the platform-specific
-sub-packages.
+Root cause of "Option not found" filter errors: the leave_silence
+option in silenceremove is not available in all ffmpeg-static builds.
+Removed it and simplified silenceremove:
 
-Removed the fallback chain logic — the full chain now runs directly:
-  highpass → lowpass → silenceremove → loudnorm → Opus encode
+Before (failed):
+  silenceremove=start_periods=1:start_duration=0.5:...:leave_silence=1
 
-Removed ffmpeg-static dependency.
+After (works):
+  silenceremove=stop_periods=-1:stop_duration=2:stop_threshold=-50dB
+
+This removes all silence longer than 2 seconds entirely. Pauses
+under 2 seconds are preserved. The 1-second replacement pause is
+dropped since leave_silence isn't reliably available.
+
+Full chain: highpass(80) → lowpass(16k) → silenceremove(>2s) → loudnorm(-16 LUFS) → Opus
 
 Generated with [Devin](https://devin.ai)
 

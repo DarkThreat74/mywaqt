@@ -1,14 +1,11 @@
 import 'server-only';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
 import { writeFile, readFile, unlink, mkdir, access } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-// Set ffmpeg binary path — @ffmpeg-installer/ffmpeg provides full builds
-// with all filters (loudnorm, silenceremove with leave_silence, etc.)
-// that ffmpeg-static's minimal build may lack.
-const ffmpegPath = ffmpegInstaller.path;
+// Set ffmpeg binary path — ffmpeg-static ships FFmpeg 6.1.1
 if (ffmpegPath) {
   ffmpeg.setFfmpegPath(ffmpegPath);
 }
@@ -21,7 +18,7 @@ async function verifyFfmpegBinary(): Promise<void> {
   if (ffmpegBinaryChecked) return;
   if (!ffmpegPath) {
     throw new Error(
-      'FFmpeg binary path is not resolved. The @ffmpeg-installer/ffmpeg package may not be installed correctly. ' +
+      'FFmpeg binary path is not resolved. The ffmpeg-static package may not be installed correctly. ' +
       'Run `pnpm install` to ensure all dependencies are present.'
     );
   }
@@ -31,8 +28,8 @@ async function verifyFfmpegBinary(): Promise<void> {
   } catch {
     throw new Error(
       `FFmpeg binary not found at expected path: ${ffmpegPath}. ` +
-      'This is a deployment/bundling issue — the FFmpeg binary was not included in the serverless function bundle. ' +
-      'Ensure @ffmpeg-installer/ffmpeg is in your dependencies and not excluded by build configuration.'
+      'This is a deployment/bundling issue — the ffmpeg-static binary was not included in the serverless function bundle. ' +
+      'Ensure ffmpeg-static is in your dependencies and not excluded by build configuration.'
     );
   }
 }
@@ -579,12 +576,14 @@ export async function compressAudioFile(
 
   try {
     // Single FFmpeg pass: decode → filter chain → encode Opus
-    // @ffmpeg-installer/ffmpeg provides full builds with all filters.
     // Filter chain: highpass → lowpass → silenceremove → loudnorm
+    // Note: leave_silence option removed — not available in all ffmpeg-static
+    // builds. silenceremove with stop_duration=2 removes all silence longer
+    // than 2 seconds entirely. Pauses under 2 seconds are preserved.
     const filterChain = [
       'highpass=f=80',
       'lowpass=f=16000',
-      'silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=-1:stop_duration=1:stop_threshold=-50dB:leave_silence=1',
+      'silenceremove=stop_periods=-1:stop_duration=2:stop_threshold=-50dB',
       'loudnorm=I=-16:TP=-1.5:LRA=11',
     ].join(',');
 
