@@ -1,13 +1,11 @@
-feat: collapsible folders in admin talks view
+feat: save original filename in talk description
 
-Folders now have a chevron toggle to collapse/expand. Click the
-folder name or chevron to toggle. Collapsed folders hide their
-talk list but remain visible in the sidebar with their talk count.
+Batch upload: each talk's description is set to "Source file: <filename>"
+so the original file name is always visible in the admin panel.
 
-This is essential for managing large libraries — a folder with
-300 talks no longer pushes other folders off screen.
-
-The Uncategorized section is also collapsible.
+Single upload: if the user enters a description, the source filename
+is appended on a new line. If no description is entered, the source
+filename is used as the description.
 
 Generated with [Devin](https://devin.ai)
 

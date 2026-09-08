@@ -468,6 +468,9 @@ export function AdminTalks() {
 
       // Step 3: Create talk record
       setUploadProgress("Saving talk record…");
+      const descWithFile = talkDesc
+        ? `${talkDesc}\n\nSource file: ${talkFile.name}`
+        : `Source file: ${talkFile.name}`;
       const createRes = await fetch("/api/admin/talks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -475,7 +478,7 @@ export function AdminTalks() {
           action: "create-talk",
           title: talkTitle,
           speaker: talkSpeaker || undefined,
-          description: talkDesc || undefined,
+          description: descWithFile,
           topics: talkTopics || undefined,
           folderId: selectedFolderId || undefined,
           storageKey,
@@ -594,6 +597,7 @@ export function AdminTalks() {
             body: JSON.stringify({
               action: "create-talk",
               title,
+              description: `Source file: ${file.name}`,
               speaker: batchSpeaker || undefined,
               folderId: batchFolderId || undefined,
               storageKey,
