@@ -16,6 +16,8 @@ import {
   FileAudio,
   Play,
   ImageIcon,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { useAudioPlayer } from "@/components/audio-player-context";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
@@ -110,6 +112,7 @@ export function AdminTalks() {
     uploadedInBatch: number; // files uploaded in current batch
     processedInBatch: number; // files processed in current batch
   } | null>(null);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -1335,7 +1338,10 @@ export function AdminTalks() {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {folders.map((folder) => (
+          {folders.map((folder) => {
+            const isCollapsed = collapsedFolders.has(folder.id);
+            const folderTalks = talksInFolder(folder.id);
+            return (
             <div
               key={folder.id}
               className="overflow-hidden rounded-2xl border"
@@ -1343,17 +1349,32 @@ export function AdminTalks() {
             >
               <div
                 className="flex items-center justify-between border-b px-5 py-3.5"
-                style={{ borderColor: "var(--color-paper-3)" }}
+                style={{ borderColor: isCollapsed ? "transparent" : "var(--color-paper-3)" }}
               >
-                <div className="flex min-w-0 items-center gap-2">
+                <button
+                  onClick={() => setCollapsedFolders((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(folder.id)) next.delete(folder.id);
+                    else next.add(folder.id);
+                    return next;
+                  })}
+                  className="flex min-w-0 items-center gap-2 transition-colors hover:opacity-80"
+                  aria-label={isCollapsed ? "Expand folder" : "Collapse folder"}
+                  aria-expanded={!isCollapsed}
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                  )}
                   <Folder className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
                   <span className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
                     {folder.name}
                   </span>
                   <span className="shrink-0 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                    {talksInFolder(folder.id).length} talks
+                    {folderTalks.length} talk{folderTalks.length !== 1 ? "s" : ""}
                   </span>
-                </div>
+                </button>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => openEditFolder(folder)}
@@ -1373,58 +1394,89 @@ export function AdminTalks() {
                   </button>
                 </div>
               </div>
-              {folder.description && (
-                <p className="px-5 py-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  {folder.description}
-                </p>
+              {!isCollapsed && (
+                <>
+                  {folder.description && (
+                    <p className="px-5 py-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                      {folder.description}
+                    </p>
+                  )}
+                  <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
+                    {folderTalks.map((talk) => (
+                      <TalkRow
+                        key={talk.id}
+                        talk={talk}
+                        onDelete={deleteTalk}
+                        onPublish={publishTalk}
+                        onRetry={retryProcessing}
+                        onProcess={processTalk}
+                      />
+                    ))}
+                    {folderTalks.length === 0 && (
+                      <p className="px-5 py-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                        No talks in this folder yet.
+                      </p>
+                    )}
+                  </div>
+                </>
               )}
-              <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
-                {talksInFolder(folder.id).map((talk) => (
-                  <TalkRow
-                    key={talk.id}
-                    talk={talk}
-                    onDelete={deleteTalk}
-                    onPublish={publishTalk}
-                    onRetry={retryProcessing}
-                    onProcess={processTalk}
-                  />
-                ))}
-                {talksInFolder(folder.id).length === 0 && (
-                  <p className="px-5 py-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                    No talks in this folder yet.
-                  </p>
-                )}
-              </div>
             </div>
-          ))}
+            );
+          })}
 
-          {talksInFolder(null).length > 0 && (
+          {talksInFolder(null).length > 0 && (() => {
+            const isCollapsed = collapsedFolders.has("__uncategorized");
+            const uncategorizedTalks = talksInFolder(null);
+            return (
             <div
               className="overflow-hidden rounded-2xl border"
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
             >
-              <div className="border-b px-5 py-3.5" style={{ borderColor: "var(--color-paper-3)" }}>
-                <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                  Uncategorized
-                </span>
-                <span className="ml-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  {talksInFolder(null).length} talks
-                </span>
+              <div
+                className="border-b px-5 py-3.5"
+                style={{ borderColor: isCollapsed ? "transparent" : "var(--color-paper-3)" }}
+              >
+                <button
+                  onClick={() => setCollapsedFolders((prev) => {
+                    const next = new Set(prev);
+                    if (next.has("__uncategorized")) next.delete("__uncategorized");
+                    else next.add("__uncategorized");
+                    return next;
+                  })}
+                  className="flex min-w-0 items-center gap-2 transition-colors hover:opacity-80"
+                  aria-label={isCollapsed ? "Expand uncategorized" : "Collapse uncategorized"}
+                  aria-expanded={!isCollapsed}
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                  )}
+                  <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                    Uncategorized
+                  </span>
+                  <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                    {uncategorizedTalks.length} talk{uncategorizedTalks.length !== 1 ? "s" : ""}
+                  </span>
+                </button>
               </div>
-              <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
-                {talksInFolder(null).map((talk) => (
-                  <TalkRow
-                    key={talk.id}
-                    talk={talk}
-                    onDelete={deleteTalk}
-                    onPublish={publishTalk}
-                    onRetry={retryProcessing}
-                    onProcess={processTalk}
-                  />
-                ))}
-              </div>
+              {!isCollapsed && (
+                <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
+                  {uncategorizedTalks.map((talk) => (
+                    <TalkRow
+                      key={talk.id}
+                      talk={talk}
+                      onDelete={deleteTalk}
+                      onPublish={publishTalk}
+                      onRetry={retryProcessing}
+                      onProcess={processTalk}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 

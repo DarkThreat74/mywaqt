@@ -1,28 +1,13 @@
-feat: batch folder upload processes 10 files at a time for large folders
+feat: collapsible folders in admin talks view
 
-Previously the batch upload uploaded ALL files to R2 first, then
-processed 3 at a time. For a 300-file folder (~5GB of MP3s), this
-meant uploading 5GB before any processing started — overloading
-the server and risking timeouts.
+Folders now have a chevron toggle to collapse/expand. Click the
+folder name or chevron to toggle. Collapsed folders hide their
+talk list but remain visible in the sidebar with their talk count.
 
-New flow processes in batches of 10:
-  1. Upload 10 files to R2 and create talk records
-  2. Start compression for those 10 files
-  3. Poll until all 10 are done (ready/failed)
-  4. Move to next 10
-  5. Repeat until all files are processed
+This is essential for managing large libraries — a folder with
+300 talks no longer pushes other folders off screen.
 
-Files are sorted by name using natural sort (localeCompare with
-numeric: true) so "Episode 2" comes before "Episode 10".
-
-Progress UI now shows:
-  - Current batch number (e.g. "Batch 3/30")
-  - Phase description (uploading, processing, etc.)
-  - Overall progress bar (files completed / total)
-  - How many files are currently compressing
-
-This handles 300-file folders (~5GB) without overwhelming the
-server — only 10 files are in flight at any time.
+The Uncategorized section is also collapsible.
 
 Generated with [Devin](https://devin.ai)
 
