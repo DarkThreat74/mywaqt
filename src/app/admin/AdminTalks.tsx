@@ -1617,23 +1617,44 @@ function TalkRow({
   const isProcessing = status === "processing";
   const isPending = status === "pending";
 
-  // Estimate compression time from file size.
-  // Opus transcode runs at ~30x realtime — single pass, no filters.
+  // Estimate compression time from audio duration and file size.
+  //
+  // Our filter chain is 10 stages: highpass, lowpass, silenceremove, afftdn,
+  // deesser, 2× equalizer, acompressor, dynaudnorm, alimiter → Opus encode
+  // at compression_level 5. On Vercel serverless (shared vCPU, no GPU):
+  //
+  //   - Simple transcode (no filters): ~20-30x realtime
+  //   - afftdn (FFT denoise): adds ~30-50% processing time
+  //   - dynaudnorm (frame-by-frame gain): adds ~20-30%
+  //   - acompressor + deesser + alimiter: adds ~10-15%
+  //   - compression_level 5 (vs 0): adds ~15-20%
+  //   - Shared vCPU contention: multiply by ~1.5-2x
+  //
+  // Net: ~5-8x realtime on Vercel. We use 6x as a conservative estimate.
   // Files >100MB skip compression (Hobby plan 300s limit).
   function estimateProcessingTime(): string {
     const mb = (talk.fileSize ?? 0) / (1024 * 1024);
     if (mb > 100) return "no compression (too large)";
 
+    // If we have the actual audio duration (from probe), use it directly
     if (talk.duration && talk.duration > 0) {
-      const seconds = Math.ceil(talk.duration / 30);
-      if (seconds < 60) return `~${seconds}s`;
-      return `~${Math.ceil(seconds / 60)} min`;
+      const processingSeconds = Math.ceil(talk.duration / 6); // 6x realtime
+      if (processingSeconds < 60) return `~${processingSeconds}s`;
+      const mins = Math.floor(processingSeconds / 60);
+      const secs = processingSeconds % 60;
+      return secs > 0 ? `~${mins}m ${secs}s` : `~${mins}m`;
     }
-    if (!talk.fileSize) return "~1-2 min";
-    const audioMinutes = mb / 1.2; // 1.2 MB per minute at 160kbps
-    const processingSeconds = Math.ceil((audioMinutes * 60) / 30);
+
+    // No duration available — estimate from file size
+    // MP3 at 128kbps (common) = ~1 MB/min, at 192kbps = ~1.5 MB/min
+    // Use 1.2 MB/min as a middle estimate for typical sermon recordings
+    if (!talk.fileSize) return "~1-3 min";
+    const audioMinutes = mb / 1.2;
+    const processingSeconds = Math.ceil((audioMinutes * 60) / 6);
     if (processingSeconds < 60) return `~${processingSeconds}s`;
-    return `~${Math.ceil(processingSeconds / 60)} min`;
+    const mins = Math.floor(processingSeconds / 60);
+    const secs = processingSeconds % 60;
+    return secs > 0 ? `~${mins}m ${secs}s` : `~${mins}m`;
   }
 
   return (

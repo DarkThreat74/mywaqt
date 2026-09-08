@@ -1,11 +1,22 @@
-feat: save original filename in talk description
+fix: accurate processing time estimate for 10-stage filter chain
 
-Batch upload: each talk's description is set to "Source file: <filename>"
-so the original file name is always visible in the admin panel.
+The old estimate assumed 30x realtime (simple transcode, no filters).
+With our 10-stage chain (highpass, lowpass, silenceremove, afftdn,
+deesser, 2× EQ, acompressor, dynaudnorm, alimiter) + Opus at
+compression_level 5 on Vercel's shared vCPU, realistic throughput
+is ~6x realtime.
 
-Single upload: if the user enters a description, the source filename
-is appended on a new line. If no description is entered, the source
-filename is used as the description.
+Factors:
+  - afftdn (FFT denoise): +30-50% processing time
+  - dynaudnorm (frame-by-frame gain): +20-30%
+  - acompressor + deesser + alimiter: +10-15%
+  - compression_level 5 vs 0: +15-20%
+  - Shared vCPU contention: ×1.5-2x
+
+Net: ~5-8x realtime on Vercel. Using 6x as conservative estimate.
+
+Also improved output format: shows "Xm Ys" instead of rounding up
+to whole minutes (e.g. "2m 15s" instead of "3 min").
 
 Generated with [Devin](https://devin.ai)
 
