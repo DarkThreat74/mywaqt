@@ -1,26 +1,23 @@
-feat: drag-and-drop batch file reordering + lowpass filter
+feat: redesign admin forms — segmented control, mutual exclusivity, better UI
 
-Batch upload improvements:
-- Files now shown as a scrollable list with numbered badges (1, 2, 3...)
-- Drag any file up or down to reorder — numbering follows the drag order
-- Click ✕ on any file to remove it from the batch
-- File list shows name + size per file, total count and MB
-- Naming pattern preview shows total count
+Replaced three separate toggle buttons with a segmented control bar.
+Only one form can be open at a time — opening one closes the others.
 
-Filter chain optimization (researched via agent-reach + context7):
-- Added lowpass=f=16000 — removes high-frequency hiss above 16kHz
-  (speech has no useful content above this, nearly free cost)
-- Confirmed filter order is correct per ffmpeg-cookbook:
-  highpass → lowpass → silenceremove → loudnorm
-  ("put loudnorm after silenceremove. Normalising first changes
-  what counts as silence")
-- Confirmed single-pass loudnorm is correct for speech on serverless
-  ("For podcasts, interviews, and talking-head videos, single-pass
-  is usually fine" — two-pass only needed for broadcast-grade ±0.02dB)
-- Confirmed -16 LUFS is the right target (Spotify/YouTube/Apple standard)
-
-Final filter chain: highpass → lowpass → silenceremove → loudnorm → Opus
-Still single-pass, ~20x realtime.
+UI improvements across all forms:
+- Segmented control button bar (New Folder | Upload Talk | Batch Folder)
+  Active button is filled black, inactive are transparent
+- Each form now has:
+  - Icon badge + title header with close (✕) button
+  - Consistent rounded-2xl card with subtle shadow
+  - Better spacing (gap-5, p-6)
+  - Primary buttons with active:scale-95 press feedback
+  - Upload progress shown as inline alert (not just text)
+- Edit Folder form redesigned:
+  - Icon badge with pencil icon
+  - Folder name shown as subtitle under "Edit Folder" heading
+  - Same card style as other forms
+- Removed unused showFolderForm/showUploadForm/showBatchForm state
+  (replaced by single activeForm: "folder" | "upload" | "batch" | null)
 
 Generated with [Devin](https://devin.ai)
 

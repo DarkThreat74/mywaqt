@@ -60,8 +60,7 @@ export function AdminTalks() {
   const [talks, setTalks] = useState<AdminTalk[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showFolderForm, setShowFolderForm] = useState(false);
-  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [activeForm, setActiveForm] = useState<"folder" | "upload" | "batch" | null>(null);
   const [confirmState, setConfirmState] = useState<{
     title: string;
     message: string;
@@ -90,7 +89,6 @@ export function AdminTalks() {
   const [uploadProgress, setUploadProgress] = useState("");
 
   // Batch upload state
-  const [showBatchForm, setShowBatchForm] = useState(false);
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [batchName, setBatchName] = useState("");
   const [batchSpeaker, setBatchSpeaker] = useState("");
@@ -143,7 +141,7 @@ export function AdminTalks() {
       setFolderDesc("");
       setFolderStartDate("");
       setFolderEndDate("");
-      setShowFolderForm(false);
+      setActiveForm(null);
       await load();
     } else {
       const data = await res.json().catch(() => ({}));
@@ -468,7 +466,7 @@ export function AdminTalks() {
         setTalkDesc("");
         setTalkTopics("");
         setTalkFile(null);
-        setShowUploadForm(false);
+        setActiveForm(null);
         setUploadProgress("Starting audio processing…");
         await processTalk(created.id);
       } else {
@@ -612,7 +610,7 @@ export function AdminTalks() {
       setBatchProgress({ current: total, total, phase: "All done!", processing: 0 });
       await load();
       setTimeout(() => {
-        setShowBatchForm(false);
+        setActiveForm(null);
         setBatchFiles([]);
         setBatchName("");
         setBatchSpeaker("");
@@ -680,56 +678,61 @@ export function AdminTalks() {
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="flex flex-wrap gap-2">
+      {/* Action buttons — segmented control, only one form open at a time */}
+      <div className="flex gap-1 rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
         <button
-          onClick={() => setShowFolderForm(!showFolderForm)}
-          className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors"
+          onClick={() => setActiveForm(activeForm === "folder" ? null : "folder")}
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-all"
           style={{
-            borderColor: "var(--color-paper-3)",
-            color: "var(--color-ink-soft)",
-            backgroundColor: "var(--color-paper)",
-            minHeight: 44,
+            backgroundColor: activeForm === "folder" ? "var(--color-ink)" : "transparent",
+            color: activeForm === "folder" ? "var(--color-paper)" : "var(--color-ink-soft)",
+            minHeight: 40,
           }}
         >
           <FolderPlus className="h-4 w-4" /> New Folder
         </button>
         <button
-          onClick={() => setShowUploadForm(!showUploadForm)}
-          className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors"
+          onClick={() => setActiveForm(activeForm === "upload" ? null : "upload")}
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-all"
           style={{
-            backgroundColor: "var(--color-ink)",
-            color: "var(--color-paper)",
-            minHeight: 44,
-            boxShadow: "0 2px 8px color-mix(in oklab, var(--color-ink) 20%, transparent)",
+            backgroundColor: activeForm === "upload" ? "var(--color-ink)" : "transparent",
+            color: activeForm === "upload" ? "var(--color-paper)" : "var(--color-ink-soft)",
+            minHeight: 40,
           }}
         >
           <Upload className="h-4 w-4" /> Upload Talk
         </button>
         <button
-          onClick={() => { setShowBatchForm(!showBatchForm); setShowUploadForm(false); }}
-          className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors"
+          onClick={() => setActiveForm(activeForm === "batch" ? null : "batch")}
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-all"
           style={{
-            borderColor: "var(--color-paper-3)",
-            color: "var(--color-ink-soft)",
-            backgroundColor: "var(--color-paper)",
-            minHeight: 44,
+            backgroundColor: activeForm === "batch" ? "var(--color-ink)" : "transparent",
+            color: activeForm === "batch" ? "var(--color-paper)" : "var(--color-ink-soft)",
+            minHeight: 40,
           }}
         >
-          <FolderPlus className="h-4 w-4" /> Batch Upload Folder
+          <FolderPlus className="h-4 w-4" /> Batch Folder
         </button>
       </div>
 
       {/* Folder form */}
-      {showFolderForm && (
+      {activeForm === "folder" && (
         <form
-          onSubmit={createFolder}
-          className="flex flex-col gap-4 rounded-2xl border p-5"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          onSubmit={(e) => { e.preventDefault(); createFolder(e); }}
+          className="flex flex-col gap-5 rounded-2xl border p-6"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", boxShadow: "0 4px 24px -8px color-mix(in oklab, var(--color-ink) 12%, transparent)" }}
         >
-          <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-            Create Folder
-          </h2>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
+                <FolderPlus className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+              </div>
+              <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Create Folder</h2>
+            </div>
+            <button type="button" onClick={() => setActiveForm(null)} className="rounded-lg p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
           <Field label="Folder name" value={folderName} onChange={setFolderName} placeholder="e.g. Friday Khutbahs" />
           <Field
             label="Description (optional)"
@@ -745,15 +748,15 @@ export function AdminTalks() {
           <div className="flex gap-2">
             <button
               type="submit"
-              className="rounded-xl px-4 py-2.5 text-sm font-medium"
-              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
+              className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition-transform active:scale-95"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44, boxShadow: "0 2px 8px color-mix(in oklab, var(--color-ink) 20%, transparent)" }}
             >
-              Create
+              <FolderPlus className="h-4 w-4" /> Create Folder
             </button>
             <button
               type="button"
-              onClick={() => setShowFolderForm(false)}
-              className="rounded-xl border px-4 py-2.5 text-sm"
+              onClick={() => setActiveForm(null)}
+              className="rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 44 }}
             >
               Cancel
@@ -763,60 +766,50 @@ export function AdminTalks() {
       )}
 
       {/* Upload form */}
-      {showUploadForm && (
+      {activeForm === "upload" && (
         <form
-          onSubmit={uploadTalk}
-          className="flex flex-col gap-4 rounded-2xl border p-5"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          onSubmit={(e) => { e.preventDefault(); uploadTalk(e); }}
+          className="flex flex-col gap-5 rounded-2xl border p-6"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", boxShadow: "0 4px 24px -8px color-mix(in oklab, var(--color-ink) 12%, transparent)" }}
         >
-          <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-            Upload MP3 Talk
-          </h2>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
+                <Upload className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+              </div>
+              <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Upload Talk</h2>
+            </div>
+            <button type="button" onClick={() => !uploading && setActiveForm(null)} className="rounded-lg p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
           <div>
-            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
               Folder
             </label>
             <select
               value={selectedFolderId || ""}
               onChange={(e) => setSelectedFolderId(e.target.value || null)}
-              className="w-full rounded-xl border px-3 py-2.5 text-sm"
-              style={{
-                borderColor: "var(--color-paper-3)",
-                backgroundColor: "var(--color-paper-2)",
-                color: "var(--color-ink)",
-                minHeight: 44,
-              }}
+              className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)", minHeight: 44 }}
             >
               <option value="">No folder (uncategorized)</option>
               {folders.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
+                <option key={f.id} value={f.id}>{f.name}</option>
               ))}
             </select>
           </div>
           <Field label="Title" value={talkTitle} onChange={setTalkTitle} placeholder="e.g. Patience in Prayer" />
           <Field label="Speaker" value={talkSpeaker} onChange={setTalkSpeaker} placeholder="e.g. Imam Malik" />
-          <Field
-            label="Description (optional)"
-            value={talkDesc}
-            onChange={setTalkDesc}
-            placeholder="What is this talk about?"
-            textarea
-          />
-          <Field
-            label="Topics (optional)"
-            value={talkTopics}
-            onChange={setTalkTopics}
-            placeholder="e.g. patience, salah, ramadan"
-          />
+          <Field label="Description (optional)" value={talkDesc} onChange={setTalkDesc} placeholder="What is this talk about?" textarea />
+          <Field label="Topics (optional)" value={talkTopics} onChange={setTalkTopics} placeholder="e.g. patience, salah, ramadan" />
           <div>
-            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
-              MP3 File
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
+              Audio File
             </label>
             <input
               type="file"
-              accept="audio/mpeg,audio/mp3,.mp3"
+              accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.opus"
               onChange={(e) => setTalkFile(e.target.files?.[0] || null)}
               required
               className="w-full text-sm"
@@ -828,21 +821,27 @@ export function AdminTalks() {
               </p>
             )}
           </div>
+          {uploadProgress && (
+            <div className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: "color-mix(in oklab, var(--color-accent) 30%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)", color: "var(--color-accent)" }}>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {uploadProgress}
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               type="submit"
               disabled={uploading}
-              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
+              className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition-transform active:scale-95 disabled:opacity-50"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44, boxShadow: "0 2px 8px color-mix(in oklab, var(--color-ink) 20%, transparent)" }}
             >
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              {uploading ? "Uploading…" : "Upload"}
+              {uploading ? "Uploading…" : "Upload & Process"}
             </button>
             <button
               type="button"
-              onClick={() => setShowUploadForm(false)}
+              onClick={() => setActiveForm(null)}
               disabled={uploading}
-              className="rounded-xl border px-4 py-2.5 text-sm disabled:opacity-50"
+              className="rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 44 }}
             >
               Cancel
@@ -852,14 +851,22 @@ export function AdminTalks() {
       )}
 
       {/* ─── Batch upload form ─── */}
-      {showBatchForm && (
-        <div className="flex flex-col gap-4 rounded-2xl border p-5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-          <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-            Batch Upload Folder
-          </h2>
-          <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+      {activeForm === "batch" && (
+        <div className="flex flex-col gap-5 rounded-2xl border p-6" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", boxShadow: "0 4px 24px -8px color-mix(in oklab, var(--color-ink) 12%, transparent)" }}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
+                <FolderPlus className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+              </div>
+              <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Batch Upload Folder</h2>
+            </div>
+            <button type="button" onClick={() => !batchUploading && setActiveForm(null)} className="rounded-lg p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="-mt-2 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
             Select a folder of audio files. Each file becomes a talk, numbered automatically.
-            Processing runs 3 at a time to stay within server limits.
+            Drag to reorder, remove unwanted files, then process 3 at a time.
           </p>
 
           {/* Folder picker */}
@@ -1025,7 +1032,7 @@ export function AdminTalks() {
             </button>
             <button
               type="button"
-              onClick={() => { setShowBatchForm(false); setBatchFiles([]); setBatchName(""); setBatchProgress(null); }}
+              onClick={() => { setActiveForm(null); setBatchFiles([]); setBatchName(""); setBatchProgress(null); }}
               disabled={batchUploading}
               className="rounded-xl border px-4 py-2.5 text-sm disabled:opacity-50"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 44 }}
@@ -1040,17 +1047,23 @@ export function AdminTalks() {
       {editingFolder && (
         <form
           onSubmit={saveFolderEdit}
-          className="flex flex-col gap-4 rounded-2xl border p-5"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          className="flex flex-col gap-5 rounded-2xl border p-6"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", boxShadow: "0 4px 24px -8px color-mix(in oklab, var(--color-ink) 12%, transparent)" }}
         >
           <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-              Edit Folder — {editingFolder.name}
-            </h2>
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
+                <Pencil className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Edit Folder</h2>
+                <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{editingFolder.name}</p>
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => setEditingFolder(null)}
-              className="rounded-lg p-1.5"
+              className="rounded-lg p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
               style={{ color: "var(--color-ink-muted)" }}
               aria-label="Close"
             >
@@ -1069,7 +1082,7 @@ export function AdminTalks() {
             <DateField label="End date (optional)" value={editFolderEnd} onChange={setEditFolderEnd} />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
               Folder image (optional)
             </label>
             <input
@@ -1094,17 +1107,17 @@ export function AdminTalks() {
             <button
               type="submit"
               disabled={savingFolder}
-              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
+              className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition-transform active:scale-95 disabled:opacity-50"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44, boxShadow: "0 2px 8px color-mix(in oklab, var(--color-ink) 20%, transparent)" }}
             >
               {savingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              {savingFolder ? "Saving…" : "Save"}
+              {savingFolder ? "Saving…" : "Save Changes"}
             </button>
             <button
               type="button"
               onClick={() => setEditingFolder(null)}
               disabled={savingFolder}
-              className="rounded-xl border px-4 py-2.5 text-sm disabled:opacity-50"
+              className="rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 44 }}
             >
               Cancel
