@@ -1,19 +1,25 @@
-fix: use stop_silence instead of leave_silence for 1s pause buffer
+fix: replace loudnorm with dynaudnorm to fix audio glitching/pumping
 
-Research via agent-reach + context7 found that stop_silence (added
-FFmpeg 4.2, available in 6.1.1) does exactly what leave_silence did
-but without the compatibility issues.
+Research via agent-reach found that single-pass loudnorm is the
+known cause of audio "glitching" on speech:
+
+  "Single-pass loudnorm pumps; don't use it for VOD. In one pass,
+  loudnorm doesn't know what's coming, so it makes loudness decisions
+  on the fly with dynamic processing. On dialogue that breathes
+  audibly."
+
+Also: loudnorm internally upsamples to 192kHz which can cause
+artifacts when encoding to Opus at low bitrates.
+
+Fix:
+- Replaced loudnorm with dynaudnorm (frame-by-frame gain with
+  Gaussian smoothing — designed for speech, no pumping)
+- Set maxgain=5 to avoid amplifying silence/noise excessively
+- Pinned sample rate to 48000 with -ar 48000
 
 Filter chain now:
-  highpass(80) → lowpass(16k) → silenceremove → loudnorm → Opus
-
-silenceremove config:
-  start_periods=1:start_duration=0.5:start_threshold=-50dB:start_silence=0.3
-  stop_periods=-1:stop_duration=2:stop_threshold=-50dB:stop_silence=1
-
-- Pauses > 2s: trimmed, 1s buffer kept (stop_silence=1)
-- Leading silence: trimmed, 0.3s kept (start_silence=0.3)
-- Pauses < 2s: preserved untouched
+  highpass(80) → lowpass(16k) → silenceremove(>2s, 1s buffer) →
+  dynaudnorm(maxgain=5) → Opus 24kbps 48kHz
 
 Generated with [Devin](https://devin.ai)
 

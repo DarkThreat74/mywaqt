@@ -576,18 +576,23 @@ export async function compressAudioFile(
 
   try {
     // Single FFmpeg pass: decode → filter chain → encode Opus
-    // Filter chain: highpass → lowpass → silenceremove → loudnorm
+    // Filter chain: highpass → lowpass → silenceremove → dynaudnorm
     //
-    // silenceremove uses stop_silence (added FFmpeg 4.2, available in 6.1.1)
-    // instead of leave_silence (which caused "Option not found" errors).
+    // silenceremove (stop_silence added FFmpeg 4.2, available in 6.1.1):
     //   stop_duration=2  → only act on silence longer than 2 seconds
     //   stop_silence=1   → keep 1 second of silence when trimming (the buffer)
     //   start_silence=0.3 → keep 0.3s at the very start so audio doesn't begin abruptly
+    //
+    // dynaudnorm instead of loudnorm:
+    //   Single-pass loudnorm uses dynamic compression that pumps/breathes on
+    //   speech. dynaudnorm applies frame-by-frame gain with Gaussian smoothing
+    //   — smoother for voice, no pumping artifacts.
+    //   maxgain=5 caps amplification so silence/noise isn't boosted excessively.
     const filterChain = [
       'highpass=f=80',
       'lowpass=f=16000',
       'silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:start_silence=0.3:stop_periods=-1:stop_duration=2:stop_threshold=-50dB:stop_silence=1',
-      'loudnorm=I=-16:TP=-1.5:LRA=11',
+      'dynaudnorm=maxgain=5:gausssize=31',
     ].join(',');
 
     await new Promise<void>((resolve, reject) => {
@@ -597,6 +602,7 @@ export async function compressAudioFile(
         .audioChannels(1)
         .outputOptions([
           `-af ${filterChain}`,
+          '-ar 48000',            // Pin sample rate — loudnorm upsamples to 192k internally
           '-application voip',
           '-compression_level 0',
           '-frame_duration 60',
