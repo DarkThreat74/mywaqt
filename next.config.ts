@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
   // bundle it (which breaks the __dirname path resolution).
   // Without this, ffmpeg-static resolves to a wrong path on Vercel and
   // the binary is missing from the deployed function.
-  serverExternalPackages: ["ffmpeg-static", "fluent-ffmpeg"],
+  serverExternalPackages: ["@ffmpeg-installer/ffmpeg", "ffmpeg-static", "fluent-ffmpeg"],
   // Image optimization
   images: {
     formats: ["image/avif", "image/webp"],

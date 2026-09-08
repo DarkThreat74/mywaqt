@@ -1,26 +1,18 @@
-fix: FFmpeg filter chain fails on Vercel — add fallback chains
+fix: switch to @ffmpeg-installer/ffmpeg for full filter support on Vercel
 
-The full filter chain (highpass + lowpass + silenceremove + loudnorm)
-was causing "Option not found" errors on Vercel's FFmpeg build. The
-issue is that the Vercel Linux ffmpeg-static binary may not support
-all filter options (likely leave_silence in silenceremove).
+ffmpeg-static ships a minimal Linux binary that was missing filter
+options (likely leave_silence in silenceremove or loudnorm), causing
+"Option not found" errors on all batch-processed talks.
 
-Fix: try three filter chains in order, use whichever works:
+Switched to @ffmpeg-installer/ffmpeg which provides full FFmpeg builds
+with all filters enabled. Added to serverExternalPackages in
+next.config.ts so Next.js doesn't try to bundle the platform-specific
+sub-packages.
 
-1. Full chain: highpass + lowpass + silenceremove + loudnorm
-   (best quality — silence removal + broadcast loudness normalization)
+Removed the fallback chain logic — the full chain now runs directly:
+  highpass → lowpass → silenceremove → loudnorm → Opus encode
 
-2. No-silence chain: highpass + lowpass + loudnorm
-   (if silenceremove/leave_silence isn't available — still gets
-   volume normalization and frequency cleanup)
-
-3. Volume-only chain: highpass + volume=2.0
-   (fallback for minimal FFmpeg builds — simple 2x gain boost
-   to ensure audio is audible)
-
-Also switched from .audioFilter() to raw -af in .outputOptions()
-for better compatibility, and added full stderr logging for each
-chain attempt so we can see exactly what's happening on Vercel.
+Removed ffmpeg-static dependency.
 
 Generated with [Devin](https://devin.ai)
 

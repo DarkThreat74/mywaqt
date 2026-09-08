@@ -1,11 +1,14 @@
 import 'server-only';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegPath from 'ffmpeg-static';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { writeFile, readFile, unlink, mkdir, access } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-// Set ffmpeg binary path
+// Set ffmpeg binary path — @ffmpeg-installer/ffmpeg provides full builds
+// with all filters (loudnorm, silenceremove with leave_silence, etc.)
+// that ffmpeg-static's minimal build may lack.
+const ffmpegPath = ffmpegInstaller.path;
 if (ffmpegPath) {
   ffmpeg.setFfmpegPath(ffmpegPath);
 }
@@ -18,7 +21,7 @@ async function verifyFfmpegBinary(): Promise<void> {
   if (ffmpegBinaryChecked) return;
   if (!ffmpegPath) {
     throw new Error(
-      'FFmpeg binary path is not resolved. The ffmpeg-static package may not be installed correctly. ' +
+      'FFmpeg binary path is not resolved. The @ffmpeg-installer/ffmpeg package may not be installed correctly. ' +
       'Run `pnpm install` to ensure all dependencies are present.'
     );
   }
@@ -28,8 +31,8 @@ async function verifyFfmpegBinary(): Promise<void> {
   } catch {
     throw new Error(
       `FFmpeg binary not found at expected path: ${ffmpegPath}. ` +
-      'This is a deployment/bundling issue — the ffmpeg-static binary was not included in the serverless function bundle. ' +
-      'Ensure ffmpeg-static is in your dependencies and not excluded by build configuration.'
+      'This is a deployment/bundling issue — the FFmpeg binary was not included in the serverless function bundle. ' +
+      'Ensure @ffmpeg-installer/ffmpeg is in your dependencies and not excluded by build configuration.'
     );
   }
 }
@@ -576,69 +579,34 @@ export async function compressAudioFile(
 
   try {
     // Single FFmpeg pass: decode → filter chain → encode Opus
-    // Try full filter chain first, fall back to simpler chains if filters
-    // aren't available in the Vercel FFmpeg build.
-    const fullChain = [
+    // @ffmpeg-installer/ffmpeg provides full builds with all filters.
+    // Filter chain: highpass → lowpass → silenceremove → loudnorm
+    const filterChain = [
       'highpass=f=80',
       'lowpass=f=16000',
       'silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=-1:stop_duration=1:stop_threshold=-50dB:leave_silence=1',
       'loudnorm=I=-16:TP=-1.5:LRA=11',
     ].join(',');
 
-    // Fallback 1: loudnorm without silenceremove (leave_silence may be missing)
-    const fallbackChain1 = [
-      'highpass=f=80',
-      'lowpass=f=16000',
-      'loudnorm=I=-16:TP=-1.5:LRA=11',
-    ].join(',');
-
-    // Fallback 2: simple volume boost (available in all FFmpeg builds)
-    const fallbackChain2 = 'highpass=f=80,volume=2.0';
-
-    const chains = [
-      { name: 'full', af: fullChain },
-      { name: 'no-silence', af: fallbackChain1 },
-      { name: 'volume-only', af: fallbackChain2 },
-    ];
-
-    let succeeded = false;
-    let lastError = '';
-
-    for (const { name, af } of chains) {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          ffmpeg(inputPath)
-            .audioCodec('libopus')
-            .audioBitrate('24k')
-            .audioChannels(1)
-            .outputOptions([
-              `-af ${af}`,
-              '-application voip',
-              '-compression_level 0',
-              '-frame_duration 60',
-              '-map_metadata -1',
-            ])
-            .on('stderr', (line) => {
-              console.error(`[audio:compress:${name}] ${line}`);
-            })
-            .on('error', (err) => reject(new Error(err.message)))
-            .on('end', () => resolve())
-            .save(outputPath);
-        });
-        succeeded = true;
-        console.log(`[audio:compress] succeeded with ${name} filter chain`);
-        break;
-      } catch (err) {
-        lastError = err instanceof Error ? err.message : String(err);
-        console.error(`[audio:compress] ${name} chain failed: ${lastError}`);
-        // Clean up partial output before trying next chain
-        await unlink(outputPath).catch(() => {});
-      }
-    }
-
-    if (!succeeded) {
-      throw new Error(`Opus compression failed after all filter chain attempts: ${lastError}`);
-    }
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(inputPath)
+        .audioCodec('libopus')
+        .audioBitrate('24k')
+        .audioChannels(1)
+        .outputOptions([
+          `-af ${filterChain}`,
+          '-application voip',
+          '-compression_level 0',
+          '-frame_duration 60',
+          '-map_metadata -1',
+        ])
+        .on('stderr', (line) => {
+          console.error(`[audio:compress] ${line}`);
+        })
+        .on('error', (err) => reject(new Error(`Opus compression failed: ${err.message}`)))
+        .on('end', () => resolve())
+        .save(outputPath);
+    });
 
     const processedBuffer = await readFile(outputPath);
 
