@@ -97,6 +97,8 @@ export function AdminTalks() {
   const [batchFolderId, setBatchFolderId] = useState<string | null>(null);
   const [batchUploading, setBatchUploading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; phase: string; processing: number } | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const load = useCallback(async (): Promise<AdminTalk[] | null> => {
     try {
@@ -883,10 +885,60 @@ export function AdminTalks() {
               {...{ webkitdirectory: "", directory: "" }}
             />
             {batchFiles.length > 0 && (
-              <p className="mt-1.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                {batchFiles.length} audio file{batchFiles.length !== 1 ? "s" : ""} selected
-                {" · "}total {(batchFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB
-              </p>
+              <div className="mt-2">
+                <div className="mb-1.5 flex items-center justify-between text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                  <span>{batchFiles.length} file{batchFiles.length !== 1 ? "s" : ""} · {(batchFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB</span>
+                  <span>Drag to reorder · Click ✕ to remove</span>
+                </div>
+                <div className="max-h-64 overflow-y-auto rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
+                  {batchFiles.map((file, i) => (
+                    <div
+                      key={`${file.name}-${i}`}
+                      draggable={!batchUploading}
+                      onDragStart={() => setDragIndex(i)}
+                      onDragOver={(e) => { e.preventDefault(); setDragOverIndex(i); }}
+                      onDragLeave={() => setDragOverIndex(null)}
+                      onDrop={() => {
+                        if (dragIndex !== null && dragIndex !== i) {
+                          const next = [...batchFiles];
+                          const [moved] = next.splice(dragIndex, 1);
+                          next.splice(i, 0, moved);
+                          setBatchFiles(next);
+                        }
+                        setDragIndex(null);
+                        setDragOverIndex(null);
+                      }}
+                      onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+                      className="flex items-center gap-2 border-b px-3 py-2 text-xs transition-colors last:border-b-0"
+                      style={{
+                        borderColor: "var(--color-paper-3)",
+                        backgroundColor: dragOverIndex === i ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "transparent",
+                        opacity: dragIndex === i ? 0.4 : 1,
+                        cursor: batchUploading ? "default" : "grab",
+                      }}
+                    >
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
+                        {i + 1}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate font-medium" style={{ color: "var(--color-ink)" }}>
+                        {file.name}
+                      </span>
+                      <span className="shrink-0 tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                        {(file.size / 1024 / 1024).toFixed(1)} MB
+                      </span>
+                      <button
+                        onClick={() => setBatchFiles(batchFiles.filter((_, idx) => idx !== i))}
+                        disabled={batchUploading}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-30"
+                        style={{ color: "var(--color-ink-muted)" }}
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
@@ -905,7 +957,7 @@ export function AdminTalks() {
               disabled={batchUploading}
             />
             <p className="mt-1 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              Files will be named: <strong>{batchName.trim() || "Pattern"} 1</strong>, <strong>{batchName.trim() || "Pattern"} 2</strong>, <strong>{batchName.trim() || "Pattern"} 3</strong>…
+              Files will be named: <strong>{batchName.trim() || "Pattern"} 1</strong>, <strong>{batchName.trim() || "Pattern"} 2</strong>, <strong>{batchName.trim() || "Pattern"} 3</strong>… ({batchFiles.length || 0} total)
             </p>
           </div>
 

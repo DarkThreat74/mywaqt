@@ -1,13 +1,25 @@
-feat: remove long silences from talks — cap pauses at 1 second
+feat: drag-and-drop batch file reordering + lowpass filter
 
-Added silenceremove filter to the Opus compression pipeline:
-- Trims leading silence (0.5s+ at start)
-- Caps all mid-file pauses at 1 second
-- Pauses under 1 second are preserved as-is
-- Uses leave_silence=1 so 1 second of silence is kept at each
-  cut point (natural pacing between sentences)
+Batch upload improvements:
+- Files now shown as a scrollable list with numbered badges (1, 2, 3...)
+- Drag any file up or down to reorder — numbering follows the drag order
+- Click ✕ on any file to remove it from the batch
+- File list shows name + size per file, total count and MB
+- Naming pattern preview shows total count
 
-Filter chain is now: highpass → silenceremove → loudnorm → Opus encode
+Filter chain optimization (researched via agent-reach + context7):
+- Added lowpass=f=16000 — removes high-frequency hiss above 16kHz
+  (speech has no useful content above this, nearly free cost)
+- Confirmed filter order is correct per ffmpeg-cookbook:
+  highpass → lowpass → silenceremove → loudnorm
+  ("put loudnorm after silenceremove. Normalising first changes
+  what counts as silence")
+- Confirmed single-pass loudnorm is correct for speech on serverless
+  ("For podcasts, interviews, and talking-head videos, single-pass
+  is usually fine" — two-pass only needed for broadcast-grade ±0.02dB)
+- Confirmed -16 LUFS is the right target (Spotify/YouTube/Apple standard)
+
+Final filter chain: highpass → lowpass → silenceremove → loudnorm → Opus
 Still single-pass, ~20x realtime.
 
 Generated with [Devin](https://devin.ai)

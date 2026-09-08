@@ -585,9 +585,10 @@ export async function compressAudioFile(
         .audioBitrate('24k')
         .audioChannels(1)
         .audioFilter([
-          'highpass=f=80',                              // Cut low rumble
+          'highpass=f=80',                              // Cut low rumble below 80Hz
+          'lowpass=f=16000',                            // Cut hiss above 16kHz (speech has no useful content above this)
           'silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB:stop_periods=-1:stop_duration=1:stop_threshold=-50dB:leave_silence=1',
-          'loudnorm=I=-16:TP=-1.5:LRA=11',              // Normalize to broadcast loudness
+          'loudnorm=I=-16:TP=-1.5:LRA=11',              // Normalize to broadcast loudness (-16 LUFS, podcast standard)
         ])
         .outputOptions([
           '-application voip',       // Optimize for speech
