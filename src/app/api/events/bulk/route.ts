@@ -44,9 +44,10 @@ export async function GET(request: NextRequest) {
 }
 
 // PATCH /api/events/bulk — update all events in a recurring series
-// Body: { seriesId: string, title?, type?, color?, notify? }
-// Only updates fields that are present in the body. Does NOT change startAt/endAt
-// since each occurrence has its own timestamp.
+// Body: { seriesId: string, title?, details?, type?, color?, notify?, startAt?, endAt? }
+// Updates fields that are present in the body.
+// If startAt/endAt are provided, shifts ALL events in the series by the same
+// time delta (preserving each occurrence's date, only changing the time-of-day).
 export async function PATCH(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
@@ -65,12 +66,15 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { seriesId, title, type, color, notify } = body as {
+  const { seriesId, title, details, type, color, notify, startAt, endAt } = body as {
     seriesId?: string;
     title?: string;
+    details?: string | null;
     type?: string;
     color?: string | null;
     notify?: boolean;
+    startAt?: string;
+    endAt?: string;
   };
 
   if (!seriesId || !isValidUUID(seriesId)) {
@@ -98,6 +102,10 @@ export async function PATCH(request: NextRequest) {
     updates.title = title.trim();
   }
 
+  if (details !== undefined) {
+    updates.details = details !== null ? details.trim().slice(0, 1000) || null : null;
+  }
+
   if (notify !== undefined) {
     updates.notify = Boolean(notify);
   }
@@ -106,11 +114,89 @@ export async function PATCH(request: NextRequest) {
     updates.color = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
   }
 
-  if (Object.keys(updates).length === 0) {
+  // Time-shift: if startAt and/or endAt are provided, shift all events in the
+  // series by the same time-of-day delta. This preserves each occurrence's
+  // calendar date while updating the time.
+  let timeShiftMs: number | null = null;
+  let durationDeltaMs = 0;
+
+  if (startAt !== undefined || endAt !== undefined) {
+    // Fetch the edited event to compute the delta
+    const [firstEvent] = await db
+      .select({
+        startAt: schema.events.startAt,
+        endAt: schema.events.endAt,
+        type: schema.events.type,
+      })
+      .from(schema.events)
+      .where(and(eq(schema.events.userId, session.userId), eq(schema.events.seriesId, seriesId)))
+      .limit(1);
+
+    if (!firstEvent) {
+      return NextResponse.json({ error: "No events found for this series." }, { status: 404 });
+    }
+
+    if (startAt !== undefined) {
+      const newStart = new Date(startAt);
+      if (isNaN(newStart.getTime())) {
+        return NextResponse.json({ error: "Invalid start time." }, { status: 400 });
+      }
+      // Compute the delta in milliseconds — applied to every event in the series
+      timeShiftMs = newStart.getTime() - firstEvent.startAt.getTime();
+    }
+
+    if (endAt !== undefined) {
+      const newEnd = new Date(endAt);
+      if (isNaN(newEnd.getTime())) {
+        return NextResponse.json({ error: "Invalid end time." }, { status: 400 });
+      }
+      const oldDuration = firstEvent.endAt.getTime() - firstEvent.startAt.getTime();
+      const newDuration = newEnd.getTime() - (startAt !== undefined ? new Date(startAt).getTime() : firstEvent.startAt.getTime());
+      // For blocks/tasks, duration must be positive
+      const effectiveType = (updates.type as string) || firstEvent.type;
+      if (effectiveType !== "reminder" && newDuration <= 0) {
+        return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
+      }
+      durationDeltaMs = newDuration - oldDuration;
+    }
+  }
+
+  if (Object.keys(updates).length === 0 && timeShiftMs === null) {
     return NextResponse.json({ error: "No fields to update." }, { status: 400 });
   }
 
-  // Update all events in the series — scoped to the current user
+  // Fetch all events in the series to apply time shifts individually
+  if (timeShiftMs !== null || durationDeltaMs !== 0) {
+    const allEvents = await db
+      .select({ id: schema.events.id, startAt: schema.events.startAt, endAt: schema.events.endAt })
+      .from(schema.events)
+      .where(and(eq(schema.events.userId, session.userId), eq(schema.events.seriesId, seriesId)));
+
+    if (allEvents.length === 0) {
+      return NextResponse.json({ error: "No events found for this series." }, { status: 404 });
+    }
+
+    // Update each event individually with its shifted time
+    let updatedCount = 0;
+    for (const ev of allEvents) {
+      const newStart = timeShiftMs !== null ? new Date(ev.startAt.getTime() + timeShiftMs) : ev.startAt;
+      const oldDuration = ev.endAt.getTime() - ev.startAt.getTime();
+      const newEnd = new Date(newStart.getTime() + oldDuration + durationDeltaMs);
+
+      await db.update(schema.events)
+        .set({
+          ...updates,
+          startAt: newStart,
+          endAt: newEnd,
+        })
+        .where(and(eq(schema.events.id, ev.id), eq(schema.events.userId, session.userId)));
+      updatedCount++;
+    }
+
+    return NextResponse.json({ updated: updatedCount });
+  }
+
+  // No time shift — just update the non-time fields in bulk
   const updated = await db
     .update(schema.events)
     .set(updates)

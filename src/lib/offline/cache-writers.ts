@@ -7,6 +7,7 @@ import { getOfflineDB } from "./db";
 interface EventLike {
   id: string;
   title: string;
+  details?: string | null;
   startAt: string;
   endAt?: string | null;
   type: string;
@@ -31,6 +32,7 @@ export function syncEventsToCache(date: string, events: EventLike[]): void {
           id: e.id,
           userId: "",
           title: e.title,
+          details: e.details ?? null,
           startAt: e.startAt,
           endAt: e.endAt ?? null,
           type: e.type,
@@ -58,6 +60,7 @@ export function addEventToCache(date: string, event: EventLike): void {
       id: event.id,
       userId: "",
       title: event.title,
+      details: event.details ?? null,
       startAt: event.startAt,
       endAt: event.endAt ?? null,
       type: event.type,
@@ -86,6 +89,7 @@ export function updateEventInCache(event: EventLike): void {
       id: event.id,
       userId: "",
       title: event.title,
+      details: event.details ?? null,
       startAt: event.startAt,
       endAt: event.endAt ?? null,
       type: event.type,

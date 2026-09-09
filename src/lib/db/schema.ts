@@ -270,6 +270,8 @@ export const events = pgTable('events', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
+  // Optional details/note shown under the title in the calendar (smaller, grayer text).
+  details: text('details'),
   startAt: timestamp('start_at', { withTimezone: true }).notNull(),
   endAt: timestamp('end_at', { withTimezone: true }).notNull(),
   type: eventType('type').default('block').notNull(),

@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 const EVENT_COLUMNS = {
   id: schema.events.id,
   title: schema.events.title,
+  details: schema.events.details,
   startAt: schema.events.startAt,
   endAt: schema.events.endAt,
   type: schema.events.type,
@@ -141,8 +142,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, startAt, endAt, type, color, notify, recurrenceEndDate, recurrenceDays } = body as {
+  const { title, details, startAt, endAt, type, color, notify, recurrenceEndDate, recurrenceDays } = body as {
     title?: string;
+    details?: string;
     startAt?: string;
     endAt?: string;
     type?: string;
@@ -158,6 +160,8 @@ export async function POST(request: NextRequest) {
   if (title.length > 200) {
     return NextResponse.json({ error: "Title must be 200 characters or less." }, { status: 400 });
   }
+  // Details — optional, max 1000 chars, trimmed
+  const validDetails = details !== undefined ? details.trim().slice(0, 1000) || null : null;
   if (!startAt) {
     return NextResponse.json({ error: "Start time is required." }, { status: 400 });
   }
@@ -297,6 +301,7 @@ export async function POST(request: NextRequest) {
         capped.map((occ) => ({
           userId: session.userId,
           title: title.trim(),
+          details: validDetails,
           startAt: occ.startAt,
           endAt: occ.endAt,
           type: eventType,
@@ -318,6 +323,7 @@ export async function POST(request: NextRequest) {
     .values({
       userId: session.userId,
       title: title.trim(),
+      details: validDetails,
       startAt: startDate,
       endAt: effectiveEnd,
       type: eventType,

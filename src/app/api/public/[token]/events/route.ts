@@ -59,6 +59,7 @@ export async function GET(
       .select({
         id: schema.events.id,
         title: schema.events.title,
+        details: schema.events.details,
         startAt: schema.events.startAt,
         endAt: schema.events.endAt,
         type: schema.events.type,
@@ -100,6 +101,7 @@ export async function GET(
     .select({
       id: schema.events.id,
       title: schema.events.title,
+      details: schema.events.details,
       startAt: schema.events.startAt,
       endAt: schema.events.endAt,
       type: schema.events.type,

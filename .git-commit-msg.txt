@@ -1,28 +1,33 @@
-fix: block prayer check-in on future days + homework tab infinite loop
+fix: event details field, short event height, bulk time-shift, remove tap-to-create
 
-Bug 1: Prayer check-in allowed on future days
-- At Tuesday Isha time, tapping tomorrow's Fajr let you log it even though
-  the prayer window hadn't started yet.
-- Root cause: getPrayerWindowState compares currentMinutes (today's clock)
-  against the target day's prayer times. For a future day, the comparison
-  is meaningless — tomorrow's Fajr (5 AM) appears as "ended" because the
-  current time (9 PM = 1260 min) is past 5 AM (300 min).
-- Fix: Added isFutureDay check in PrayerCheckinPopup. If the viewed date
-  is after today, windowState is forced to "before" so the popup shows
-  "hasn't started yet" and blocks logging.
+1. Event details field (new feature)
+   - Added optional `details` text column to events table + migration 0022
+   - Details shown under the title in the calendar as smaller, grayer text
+   - Only shown when event duration >= 45 min (enough vertical room)
+   - Added textarea input to the add/edit event form
+   - Wired through all API routes: POST, PATCH, bulk PATCH, GET projections
+   - Added to offline IndexedDB cache + all CalendarEvent interfaces
 
-Bug 2: Bottom nav frozen after visiting Homework from daily view
-- Tapping "Go to homework" from DayView navigates to /goals#homework.
-  The Homework tab renders HomeworkTab → HomeworkClient. HomeworkClient
-  has a useEffect that calls onHomeworkChange(homework) with deps
-  [homework, onHomeworkChange]. HomeworkTab wrapped the callback in an
-  inline arrow (new identity every render). The effect fired → setHomework
-  in parent → re-render → new callback → effect fired again → infinite
-  loop → frozen UI / dead bottom nav.
-- Fix: Wrapped the HomeworkTab callback in useCallback (stable identity)
-  AND removed onHomeworkChange from the effect deps in HomeworkClient
-  (only depend on homework). Either fix alone stops the loop; both make
-  it robust. Also exported HomeworkItem type for correct typing.
+2. Short event box height (bug fix)
+   - Events shorter than 30 min had boxes too small to read (min was 22px)
+   - Increased minimum height to 44px so title + time are always visible
+   - Box overlaps slightly into next slot but text remains readable
+
+3. Bulk time-shift for recurring series (bug fix)
+   - When editing a recurring event and choosing "apply to all", time
+     changes (startAt/endAt) were silently dropped — the bulk PATCH only
+     updated title/type/color/notify, not times.
+   - Root cause: bulk PATCH explicitly excluded startAt/endAt with a comment
+     saying "each occurrence has its own timestamp."
+   - Fix: bulk PATCH now accepts startAt/endAt, computes the time delta
+     from the first event, and shifts ALL events in the series by the same
+     delta. Each occurrence keeps its calendar date; only the time-of-day
+     changes. Duration changes are also applied.
+
+4. Remove tap-to-create on calendar slots (UX change)
+   - Removed the invisible tap-to-add zone buttons on every hour slot
+   - Events can now only be created via the + FAB button
+   - Prevents accidental event creation when scrolling/tapping the calendar
 
 Generated with [Devin](https://devin.ai)
 

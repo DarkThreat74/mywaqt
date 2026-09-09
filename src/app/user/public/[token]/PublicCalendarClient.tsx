@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Eye, Calendar, ChevronDown, ChevronUp } from
 interface CalendarEvent {
   id: string;
   title: string;
+  details?: string | null;
   startAt: string;
   endAt: string;
   type: "block" | "task" | "reminder";

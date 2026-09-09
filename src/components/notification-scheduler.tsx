@@ -44,6 +44,7 @@ interface PrayerTimes {
 interface CalendarEvent {
   id: string;
   title: string;
+  details?: string | null;
   startAt: string;
   type: "block" | "task" | "reminder";
   notify?: boolean;

@@ -35,8 +35,9 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, startAt, endAt, type, color, notify, recurrenceRule } = body as {
+  const { title, details, startAt, endAt, type, color, notify, recurrenceRule } = body as {
     title?: string;
+    details?: string | null;
     startAt?: string;
     endAt?: string;
     type?: string;
@@ -68,6 +69,10 @@ export async function PATCH(
       return NextResponse.json({ error: "Title must be 200 characters or less." }, { status: 400 });
     }
     updates.title = title.trim();
+  }
+
+  if (details !== undefined) {
+    updates.details = details !== null ? details.trim().slice(0, 1000) || null : null;
   }
 
   if (startAt !== undefined) {

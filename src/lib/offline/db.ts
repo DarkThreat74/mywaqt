@@ -4,6 +4,7 @@ export interface CachedEvent {
   id: string;
   userId: string;
   title: string;
+  details?: string | null;
   startAt: string;
   endAt: string | null;
   type: string;

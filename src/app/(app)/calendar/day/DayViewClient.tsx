@@ -14,6 +14,7 @@ import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFrom
 interface CalendarEvent {
   id: string;
   title: string;
+  details?: string | null;
   startAt: string;
   endAt: string;
   type: "block" | "task" | "reminder";
@@ -161,6 +162,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [newDetails, setNewDetails] = useState("");
   const [newStart, setNewStart] = useState("09:00");
   const [newEnd, setNewEnd] = useState("10:00");
   const [newType, setNewType] = useState<"block" | "task" | "reminder">("block");
@@ -221,6 +223,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setEvents(cachedEvents.map((e) => ({
             id: e.id,
             title: e.title,
+            details: e.details,
             startAt: e.startAt,
             endAt: e.endAt ?? "",
             type: e.type as "block" | "task" | "reminder",
@@ -288,6 +291,7 @@ export default function DayViewClient({ date }: { date: string }) {
               id: e.id,
               userId: "", // not needed for client-side cache
               title: e.title,
+              details: e.details || null,
               startAt: e.startAt,
               endAt: e.endAt,
               type: e.type,
@@ -689,6 +693,7 @@ export default function DayViewClient({ date }: { date: string }) {
     // Add recurrence end date if enabled
     const body: Record<string, unknown> = {
       title: newTitle,
+      details: newDetails,
       startAt: startISO,
       endAt: endISO,
       type: newType,
@@ -719,6 +724,7 @@ export default function DayViewClient({ date }: { date: string }) {
           const tempEvent: CalendarEvent = {
             id: data.id,
             title: data.title,
+            details: data.details,
             startAt: data.startAt,
             endAt: data.endAt,
             type: data.type,
@@ -737,6 +743,7 @@ export default function DayViewClient({ date }: { date: string }) {
           play("success");
           setShowAddForm(false);
           setNewTitle("");
+          setNewDetails("");
           setNewColor(null);
           setNewNotify(true);
           setEnableRecurrence(false);
@@ -777,6 +784,7 @@ export default function DayViewClient({ date }: { date: string }) {
         }
         setShowAddForm(false);
         setNewTitle("");
+          setNewDetails("");
         setNewColor(null);
         setNewNotify(true);
         setEnableRecurrence(false);
@@ -854,9 +862,13 @@ export default function DayViewClient({ date }: { date: string }) {
           body: JSON.stringify({
             seriesId: editingEvent.seriesId,
             title: newTitle,
+            details: newDetails,
             type: newType,
             color: newColor,
             notify: newNotify,
+            // Send startAt/endAt so the server can shift all events in the series
+            startAt: startISO,
+            endAt: endISO,
           }),
         });
 
@@ -882,6 +894,7 @@ export default function DayViewClient({ date }: { date: string }) {
           play("success");
           setEditingEvent(null);
           setNewTitle("");
+          setNewDetails("");
           setNewColor(null);
           setNewNotify(true);
           setEditAllInSeries(false);
@@ -904,6 +917,7 @@ export default function DayViewClient({ date }: { date: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: newTitle,
+          details: newDetails,
           startAt: startISO,
           endAt: endISO,
           type: newType,
@@ -921,6 +935,7 @@ export default function DayViewClient({ date }: { date: string }) {
           const localUpdated: CalendarEvent = {
             ...editingEvent,
             title: newTitle,
+            details: newDetails,
             startAt: startISO,
             endAt: endISO,
             type: newType,
@@ -934,6 +949,7 @@ export default function DayViewClient({ date }: { date: string }) {
           play("success");
           setEditingEvent(null);
           setNewTitle("");
+          setNewDetails("");
           setNewColor(null);
           setNewNotify(true);
           setEditAllInSeries(false);
@@ -950,6 +966,7 @@ export default function DayViewClient({ date }: { date: string }) {
         }
         setEditingEvent(null);
         setNewTitle("");
+          setNewDetails("");
         setNewColor(null);
         setNewNotify(true);
         setEditAllInSeries(false);
@@ -968,6 +985,7 @@ export default function DayViewClient({ date }: { date: string }) {
     const endStr = isoToLocalTime(event.endAt);
     setEditingEvent(event);
     setNewTitle(event.title);
+    setNewDetails(event.details || "");
     setNewStart(startStr);
     setNewEnd(endStr);
     setNewType(event.type);
@@ -996,6 +1014,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setShowAddForm(false);
     setEditingEvent(null);
     setNewTitle("");
+          setNewDetails("");
     setNewColor(null);
     setNewNotify(true);
     setError(null);
@@ -1029,6 +1048,7 @@ export default function DayViewClient({ date }: { date: string }) {
           .map((e) => ({
             id: e.id,
             title: e.title,
+            details: e.details,
             startAt: e.startAt,
             endAt: e.endAt || e.startAt,
             type: e.type as CalendarEvent["type"],
@@ -1391,34 +1411,6 @@ export default function DayViewClient({ date }: { date: string }) {
             );
           })}
 
-          {/* Tap-to-add zones — 44px touch targets */}
-          {HOURS.map((hour, i) => (
-            <button
-              key={`add-${hour}`}
-              className="absolute flex items-center justify-center opacity-0 transition-opacity hover:opacity-100"
-              style={{
-                top: i * HOUR_HEIGHT,
-                height: HOUR_HEIGHT,
-                left: TIME_COL,
-                right: 0,
-              }}
-              onClick={() => {
-                setNewStart(`${String(hour).padStart(2, "0")}:00`);
-                setNewEnd(`${String(hour + 1).padStart(2, "0")}:00`);
-                setNewType("block");
-                setShowAddForm(true);
-              }}
-              aria-label={`Add event at ${hour}:00`}
-            >
-              <span
-                className="flex h-6 w-6 items-center justify-center rounded-full"
-                style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </span>
-            </button>
-          ))}
-
           {/* Block events — take up time slots */}
           {blockEvents.map((event) => {
             const startStr = isoToLocalTime(event.startAt);
@@ -1426,7 +1418,11 @@ export default function DayViewClient({ date }: { date: string }) {
             const startMin = timeToMinutes(startStr);
             const endMin = timeToMinutes(endStr);
             const top = minutesToTop(startMin);
-            const height = Math.max(((endMin - startMin) / 60) * HOUR_HEIGHT, 22);
+            const durationMin = endMin - startMin;
+            // Min height 44px so short events (<30min) still show title + time
+            const height = Math.max((durationMin / 60) * HOUR_HEIGHT, 44);
+            // Show details only when there's enough vertical room (>= 45 min)
+            const showDetails = durationMin >= 45 && event.details;
 
             const layout = overlapLayout.get(event.id) ?? { colIndex: 0, colCount: 1 };
             const widthPct = 100 / layout.colCount;
@@ -1467,6 +1463,11 @@ export default function DayViewClient({ date }: { date: string }) {
                       {formatTime(startStr)} – {formatTime(endStr)}
                     </p>
                   )}
+                  {showDetails && (
+                    <p className="w-full truncate text-center text-[10px] font-normal leading-tight sm:text-[10px]" style={{ color: "var(--color-ink-muted)", opacity: 0.7 }}>
+                      {event.details}
+                    </p>
+                  )}
                   <button
                     onClick={(e) => { e.stopPropagation(); setDeleteConfirm(event); }}
                     className="absolute right-0.5 top-0.5 shrink-0 rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 sm:opacity-40"
@@ -1487,6 +1488,7 @@ export default function DayViewClient({ date }: { date: string }) {
       <button
         onClick={() => {
           setNewTitle("");
+          setNewDetails("");
           setNewStart("09:00");
           setNewEnd("10:00");
           setNewType("block");
@@ -1554,6 +1556,17 @@ export default function DayViewClient({ date }: { date: string }) {
                 required
                 aria-label="Event title"
                 className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[var(--color-accent)]"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)", minHeight: 44 }}
+              />
+
+              {/* Details — optional note shown under the title in the calendar */}
+              <textarea
+                placeholder="Add details (optional)"
+                value={newDetails}
+                onChange={(e) => setNewDetails(e.target.value)}
+                aria-label="Event details"
+                rows={2}
+                className="w-full resize-none rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)", minHeight: 44 }}
               />
 
