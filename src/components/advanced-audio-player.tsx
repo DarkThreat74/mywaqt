@@ -659,7 +659,7 @@ export default function AdvancedAudioPlayer({
           break;
         case "f":
           e.preventDefault();
-          setView((v) => v === "full" ? "mini" : "full");
+          setView((v) => v === "full" ? "fab" : v === "fab" ? "mini" : "full");
           break;
       }
     };
@@ -847,9 +847,10 @@ export default function AdvancedAudioPlayer({
       {view === "fab" && (
         <button
           onClick={() => setView("mini")}
-          className="fixed z-50 flex items-center justify-center rounded-full shadow-lg transition-transform active:scale-95"
+          className="fixed z-50 flex items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 lg:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)]"
           style={{
             right: "calc(env(safe-area-inset-right) + 1rem)",
+            // Mobile: above the bottom nav (4rem). Desktop: overridden by lg: class.
             bottom: "calc(env(safe-area-inset-bottom) + 5rem)",
             width: 56,
             height: 56,
@@ -893,11 +894,14 @@ export default function AdvancedAudioPlayer({
       {/* ─── Mini Player (bottom bar) ─── */}
       {view === "mini" && (
         <div
-          className="fixed bottom-0 left-0 right-0 z-50 border-t backdrop-blur-md"
+          className="fixed left-0 right-0 z-50 border-t backdrop-blur-md lg:bottom-[calc(env(safe-area-inset-bottom)+0px)]"
           style={{
+            // Mobile: sit above the bottom nav (~64px / 4rem tall).
+            // Desktop: overridden by lg: class to sit at the bottom.
+            bottom: "calc(4rem + env(safe-area-inset-bottom))",
+            paddingBottom: 0,
             backgroundColor: "color-mix(in oklab, var(--color-paper) 96%, transparent)",
             borderColor: "var(--color-paper-3)",
-            paddingBottom: "env(safe-area-inset-bottom)",
             animation: "player-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
           }}
         >

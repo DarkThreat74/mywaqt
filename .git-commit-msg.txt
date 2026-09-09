@@ -1,23 +1,19 @@
-fix: remove stale code + fix progress API position bug + lint errors
+fix: mini player overlapping bottom nav + FAB/keyboard view cycling
 
-Bugs fixed:
-- Progress API: `pos || existing.position` treated position:0 as "not sent",
-  so handleEnded's position:0 reset was silently ignored. Now tracks
-  whether position was explicitly provided via `hasPosition` flag.
-- handleToggleComplete: only reverted on network error (catch), not on
-  HTTP error (401/500). Now checks `res.ok` and reverts on any failure.
-  Also preserves the original progress object for clean revert.
-- Track-change effect: synchronous setState calls caused cascading renders
-  (react-hooks/set-state-in-effect). Now deferred via Promise.resolve().
+Layout fixes:
+- Mini player was at bottom:0 z-50, overlapping the bottom nav (z-40).
+  Now sits at bottom: calc(4rem + safe-area) on mobile (above the nav),
+  and at the bottom on desktop (lg: class overrides to bottom:0).
+- FAB was at bottom: 5rem on all viewports — too high on desktop where
+  there's no bottom nav. Now uses lg: class to sit at 1.5rem on desktop.
+- CSS --player-bar-h was set to 0px on desktop, but the mini bar still
+  appears on desktop. Now keeps 64px on desktop so content padding works.
+- Removed overly complex lg: positioning classes on mini bar (simplified
+  to a single lg:bottom override).
 
-Stale code removed:
-- TalksClient: removed unused `useRef` and `CheckCircle2` imports.
-- TalksClient: removed dead `?? idx` fallback (sortOrder is always a number).
-- audio-player-context: removed unused `CachedTalkDownload` import.
-- process route: removed unused `useFastPath` variable (recomputed as `useFast`).
-- audio process: removed unused `probe` variable assignment.
-- AdminTalks: escaped quotes in JSX text (pre-existing lint error).
-- fun-fact-popup: deferred setState in effect (pre-existing lint error).
+Keyboard fix:
+- "f" shortcut toggled between full and mini only, ignoring the new fab
+  state. Now cycles fab → mini → full → fab.
 
 Generated with [Devin](https://devin.ai)
 

@@ -150,24 +150,25 @@ textarea {
 /* ── Player-aware layout ──
  * When the audio player is active (--player-active: 1), add extra bottom
  * padding to the main content so the mini bar doesn't cover content.
- * The mini bar is ~64px tall. On desktop (lg+), the sidebar layout means
- * no extra padding is needed.
+ * The mini bar sits above the bottom nav on mobile (~64px tall).
+ * On desktop (lg+), there's no bottom nav, but the mini bar still appears
+ * at the bottom of the viewport, so we still need padding.
  */
 :root {
   --player-active: 0;
   --player-bar-h: 64px;
 }
-@media (min-width: 1024px) {
-  :root {
-    --player-bar-h: 0px;
-  }
-}
 main#main-content {
-  /* When player is active, add player bar height to the existing bottom padding */
+  /* Mobile: nav (4rem) + safe-area + player bar (64px when active) */
   padding-bottom: calc(4rem + env(safe-area-inset-bottom) + var(--player-active, 0) * var(--player-bar-h, 0px));
 }
 @media (min-width: 1024px) {
+  :root {
+    /* On desktop, no bottom nav, but mini bar still needs space */
+    --player-bar-h: 64px;
+  }
   main#main-content {
+    /* Desktop: just the player bar height when active */
     padding-bottom: calc(var(--player-active, 0) * var(--player-bar-h, 0px));
   }
 }
