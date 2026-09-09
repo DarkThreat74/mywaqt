@@ -233,20 +233,24 @@ export default function AdvancedAudioPlayer({
   }, [track.streamUrl]);
 
   // ─── Media Session position state helper ───
+  // Called on loadedmetadata, play, seeked, ratechange, and a throttled interval.
+  // The OS extrapolates from the last state, so we don't need per-frame updates.
   const updatePositionState = useCallback(() => {
     const audio = audioRef.current;
     if (!audio || !("mediaSession" in navigator) || !("setPositionState" in navigator.mediaSession)) return;
-    // Guard: duration must be positive and finite, position must be 0..duration
     const dur = audio.duration;
-    if (!dur || !isFinite(dur) || dur <= 0) return;
-    const pos = Math.max(0, Math.min(audio.currentTime || 0, dur));
+    // Guard: duration must be positive and finite (or Infinity for live), position must be 0..duration
+    if (!dur || (!isFinite(dur) && dur !== Infinity) || dur <= 0) return;
+    const rate = audio.playbackRate || 1;
+    if (rate <= 0) return; // playbackRate must be > 0 or setPositionState throws
+    const pos = Math.max(0, Math.min(audio.currentTime || 0, dur === Infinity ? Infinity : dur));
     try {
       navigator.mediaSession.setPositionState({
         duration: dur,
-        playbackRate: audio.playbackRate || 1,
+        playbackRate: rate,
         position: pos,
       });
-    } catch { /* non-critical */ }
+    } catch { /* non-critical — some browsers throw on edge cases */ }
   }, []);
 
   // ─── Restore playback position ───
@@ -334,48 +338,97 @@ export default function AdvancedAudioPlayer({
 
   // ─── Media Session API ───
   // Provides lock-screen / notification / media-hub metadata + controls.
-  // Key fixes:
-  //  - Artwork uses folder image (if available) at multiple sizes, falling back to app icons.
-  //  - "artist" shows speaker, or folder name, or empty (never "Unknown speaker").
+  //
+  // Premium notification design:
+  //  - Artwork: folder image (if available) at 512/384/256/192/128/96 sizes,
+  //    falling back to app icons. MIME type detected from URL extension.
+  //    Highest-quality image first (iOS picks the first element pre-18).
+  //  - "artist" shows speaker, or folder name, or empty (never "Unknown").
   //  - "album" shows folder name, or "Waqt Talks".
-  //  - setPositionState is called on timeupdate so the notification seek bar tracks + is draggable.
+  //  - setPositionState called on loadedmetadata, play, seeked, ratechange,
+  //    and a 1s interval during playback (OS extrapolates between updates).
   //  - seekto uses fastSeek when available for smooth scrubbing.
+  //  - navigator.audioSession.type = 'playback' for iOS background audio.
+  //  - Full cleanup on unmount: metadata cleared, playbackState = "none",
+  //    all action handlers removed.
+
+  // Detect MIME type from URL extension for artwork
+  const artworkMimeType = useCallback((src: string): string => {
+    const ext = src.split("?")[0].split(".").pop()?.toLowerCase();
+    switch (ext) {
+      case "jpg":
+      case "jpeg": return "image/jpeg";
+      case "webp": return "image/webp";
+      case "svg": return "image/svg+xml";
+      default: return "image/png";
+    }
+  }, []);
+
+  // Build artwork array — folder image first (highest quality), then app icons
+  const buildArtwork = useCallback((folderImageUrl: string | null, mimeType: (s: string) => string) => {
+    const artwork: { src: string; sizes: string; type: string }[] = [];
+
+    if (folderImageUrl) {
+      // Folder image — provide at all common sizes. iOS pre-18 picks the first
+      // element, so we put 512x512 first. Android uses `sizes` to pick the best.
+      const sizes = ["512x512", "384x384", "256x256", "192x192", "128x128", "96x96"];
+      for (const size of sizes) {
+        artwork.push({ src: folderImageUrl, sizes: size, type: mimeType(folderImageUrl) });
+      }
+    }
+
+    // App icons as fallback — always include so the notification never shows
+    // a generic/missing artwork icon.
+    const icons = [
+      { src: "/icon-512.png", sizes: "512x512" },
+      { src: "/icon-192.png", sizes: "192x192" },
+      { src: "/icon-maskable-512.png", sizes: "512x512" },
+      { src: "/icon-maskable-192.png", sizes: "192x192" },
+    ];
+    for (const icon of icons) {
+      artwork.push({ src: icon.src, sizes: icon.sizes, type: "image/png" });
+    }
+
+    return artwork;
+  }, []);
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
 
-    // Build artwork array — prefer folder image, fall back to app icons.
-    const artwork: { src: string; sizes: string; type: string }[] = [];
-    if (track.folderImageUrl) {
-      // Folder image — provide as the primary artwork at common sizes.
-      // The browser picks the best size; one src is enough but we declare multiple sizes
-      // so Android Chrome can choose the right resolution for the notification.
-      artwork.push({ src: track.folderImageUrl, sizes: "512x512", type: "image/png" });
-      artwork.push({ src: track.folderImageUrl, sizes: "256x256", type: "image/png" });
-      artwork.push({ src: track.folderImageUrl, sizes: "192x192", type: "image/png" });
-    }
-    // Always include app icons as fallback (Android Chrome needs multiple sizes).
-    artwork.push({ src: "/icon-192.png", sizes: "192x192", type: "image/png" });
-    artwork.push({ src: "/icon-512.png", sizes: "512x512", type: "image/png" });
-    artwork.push({ src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png" });
-    artwork.push({ src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png" });
+    // iOS: set audio session type to 'playback' so audio survives backgrounding
+    try {
+      const nav = navigator as Navigator & { audioSession?: { type: string } };
+      if (nav.audioSession) {
+        nav.audioSession.type = "playback";
+      }
+    } catch { /* non-critical */ }
 
+    // Set metadata BEFORE play — some platforms won't update if set after
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
-      // Never show "Unknown speaker" — use folder name or empty string.
       artist: track.speaker || track.folderName || "",
       album: track.folderName || "Waqt Talks",
-      artwork,
+      artwork: buildArtwork(track.folderImageUrl ?? null, artworkMimeType),
     });
+
+    // Set initial playback state
+    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
 
     const setAction = (action: MediaSessionAction, handler: ((details: MediaSessionActionDetails) => void) | null) => {
       try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* not supported */ }
     };
 
-    setAction("play", () => { audioRef.current?.play().catch(() => {}); });
-    setAction("pause", () => { audioRef.current?.pause(); });
+    setAction("play", () => {
+      audioRef.current?.play().catch(() => {});
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
+    });
+    setAction("pause", () => {
+      audioRef.current?.pause();
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+    });
     setAction("stop", () => {
       if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "none";
     });
     setAction("seekbackward", (e) => {
       if (audioRef.current) {
@@ -405,6 +458,9 @@ export default function AdvancedAudioPlayer({
     setAction("previoustrack", goPrev);
     setAction("nexttrack", goNext);
 
+    // Update position state on track change
+    updatePositionState();
+
     return () => {
       setAction("play", null);
       setAction("pause", null);
@@ -415,7 +471,24 @@ export default function AdvancedAudioPlayer({
       setAction("previoustrack", null);
       setAction("nexttrack", null);
     };
-  }, [track, goNext, goPrev, updatePositionState]);
+  }, [track, goNext, goPrev, updatePositionState, buildArtwork, artworkMimeType, isPlaying]);
+
+  // ─── Media Session cleanup on unmount ───
+  // When the player closes entirely, clear metadata and reset playback state
+  // so the lock-screen notification disappears cleanly.
+  useEffect(() => {
+    return () => {
+      if (!("mediaSession" in navigator)) return;
+      try {
+        navigator.mediaSession.metadata = null;
+        navigator.mediaSession.playbackState = "none";
+        // Clear position state by setting to null (supported in Chrome)
+        if ("setPositionState" in navigator.mediaSession) {
+          try { navigator.mediaSession.setPositionState(null as unknown as MediaPositionState); } catch { /* non-critical */ }
+        }
+      } catch { /* non-critical */ }
+    };
+  }, []);
 
   // ─── AirPlay availability ───
   useEffect(() => {
@@ -561,19 +634,12 @@ export default function AdvancedAudioPlayer({
       if (audio.currentTime >= audio.duration - 0.5) {
         handleEnded();
       }
-      // Keep Media Session position state fresh for lock-screen scrubbing
-      if ("mediaSession" in navigator && "setPositionState" in navigator.mediaSession) {
-        try {
-          navigator.mediaSession.setPositionState({
-            duration: audio.duration,
-            playbackRate: audio.playbackRate,
-            position: Math.min(audio.currentTime, audio.duration),
-          });
-        } catch { /* not supported */ }
-      }
-    }, 500);
+      // Keep Media Session position state fresh for lock-screen scrubbing.
+      // OS extrapolates from the last state, so 1s is sufficient and efficient.
+      updatePositionState();
+    }, 1000);
     return () => clearInterval(interval);
-  }, [isPlaying, handleEnded]);
+  }, [isPlaying, handleEnded, updatePositionState]);
 
   // ─── Sleep timer logic (deadline-based with fade) ───
   useEffect(() => {
@@ -812,6 +878,8 @@ export default function AdvancedAudioPlayer({
           updatePositionState();
         }}
         onLoadedMetadata={(e) => { setDuration(e.currentTarget.duration); setIsLoading(false); updatePositionState(); }}
+        onSeeked={(e) => { setCurrentTime(e.currentTarget.currentTime); updatePositionState(); }}
+        onRateChange={() => updatePositionState()}
         onWaiting={() => setIsBuffering(true)}
         onPlaying={() => setIsBuffering(false)}
         onCanPlay={() => setIsBuffering(false)}

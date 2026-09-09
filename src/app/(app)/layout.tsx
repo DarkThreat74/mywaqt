@@ -83,9 +83,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         aria-label="Primary navigation"
       >
         <div className="flex items-center px-6 py-6">
-          <span className="text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+          <Link href="/calendar" className="text-lg font-semibold tracking-tight transition-opacity hover:opacity-70" style={{ color: "var(--color-ink)" }}>
             Waqt
-          </span>
+          </Link>
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 px-3" aria-label="Main">
@@ -112,9 +112,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             paddingTop: "calc(0.75rem + env(safe-area-inset-top))",
           }}
         >
-          <span className="text-base font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+          <Link href="/calendar" className="text-base font-semibold tracking-tight transition-opacity hover:opacity-70" style={{ color: "var(--color-ink)" }}>
             Waqt
-          </span>
+          </Link>
           <div className="flex items-center gap-1">
             <ToolsMenu />
           </div>

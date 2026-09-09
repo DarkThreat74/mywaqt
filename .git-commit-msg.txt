@@ -1,17 +1,47 @@
-fix: talks page crash (missing talk_progress table) + mini player minimize button
+feat: Waqt header links to calendar + premium Media Session notification
 
-1. Talks page crash — root cause: missing database tables
-   The talk_progress table and talk_folders.folder_color column were
-   defined in schema and migration 0021 but never applied to the Neon
-   database. The /api/talks GET route queries talk_progress on every
-   load, causing a 500 error and "something went wrong" on the talks page.
-   Applied migration 0021 to production Neon database via MCP.
+1. Waqt header text now links to /calendar
+   Both mobile top bar and desktop sidebar "Waqt" text are now clickable
+   links that navigate back to the calendar day view.
 
-2. Mini player minimize button
-   The mini bar had no way to go back to the bubble (FAB) view — only
-   expand to full or close entirely. Added a Bubble button (ChevronDown)
-   next to the Close button that minimizes the mini bar back to the
-   floating circle.
+2. Redesigned Media Session notification for iOS + Android
+   Deep research into Media Session API best practices applied:
+
+   Artwork:
+   - Folder image provided at 6 sizes (512/384/256/192/128/96) so both
+     iOS and Android can pick the optimal resolution
+   - MIME type auto-detected from URL extension (png/jpeg/webp/svg)
+   - Highest-quality image first (iOS pre-18 picks the first element)
+   - App icons (512/192 + maskable variants) always included as fallback
+   - Never shows a generic/missing artwork icon
+
+   Metadata:
+   - title: talk title
+   - artist: speaker, or folder name, or empty (never "Unknown")
+   - album: folder name, or "Waqt Talks"
+   - Set BEFORE play to avoid "unknown" metadata on some platforms
+
+   Position state:
+   - Updated on loadedmetadata, play, seeked, ratechange, and a
+     throttled 1s interval during playback (OS extrapolates between)
+   - Proper guards: duration must be positive/finite, playbackRate > 0,
+     position clamped to [0, duration]
+   - seekto uses fastSeek() when available for smooth scrubbing
+
+   Playback state:
+   - "playing" on play, "paused" on pause, "none" on stop/close
+   - Full cleanup on unmount: metadata cleared, playbackState = "none",
+     all action handlers removed, position state reset
+
+   iOS-specific:
+   - navigator.audioSession.type = 'playback' for background audio
+   - playsInline + crossOrigin on audio element
+   - Artwork sizes array for iOS 18 sizes-aware selection
+
+   Android-specific:
+   - Multiple artwork sizes for Chrome's 512/256 px ideal sizes
+   - setPositionState for notification seek bar
+   - All action handlers registered (play/pause/stop/seek/skip)
 
 Generated with [Devin](https://devin.ai)
 
