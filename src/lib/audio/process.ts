@@ -379,8 +379,8 @@ export async function processAudioFile(
   const outputPath = join(tmpDir, `output-${id}.mp3`);
 
   try {
-    // Probe the original audio
-    const probe = await probeAudioPath(inputPath);
+    // Probe the original audio (validates the file is readable)
+    await probeAudioPath(inputPath);
 
     // ── Pass 1: Measure loudness (if normalization AND measurement enabled) ──
     // The measurement pass reads the entire audio file to calculate true

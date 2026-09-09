@@ -200,8 +200,11 @@ export default function FunFactPopup() {
 
     const initial = getInitialFact();
     if (!initial.shouldShow || !initial.fact) return;
-    setFact(initial.fact);
-    setFactIndex(initial.factIndex);
+    // Defer setState to avoid cascading renders (react-hooks/set-state-in-effect)
+    Promise.resolve().then(() => {
+      setFact(initial.fact!);
+      setFactIndex(initial.factIndex);
+    });
     const timer = setTimeout(() => setShow(true), 800);
     return () => clearTimeout(timer);
   }, []);

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
-import { getOfflineDB, type CachedTalkDownload } from "@/lib/offline/db";
+import { getOfflineDB } from "@/lib/offline/db";
 
 export const AUDIO_CACHE_NAME = "waqt-audio";
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { ExternalLink, Folder, ChevronLeft, ChevronRight, Play, Clock, Headphones, Download, Search, X, Mic2, Check, Loader2, History, CheckCircle2, Circle } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { ExternalLink, Folder, ChevronLeft, ChevronRight, Play, Clock, Headphones, Download, Search, X, Mic2, Check, Loader2, History, Circle } from "lucide-react";
 import { audioCacheKey, getCachedAudioKeys, removeAudioOffline, saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
 import { getFolderColor } from "@/lib/folder-colors";
@@ -232,6 +232,7 @@ export default function TalksClient() {
   // Toggle completed state (manual checkmark)
   const handleToggleComplete = useCallback(async (talk: Talk) => {
     const newCompleted = !talk.progress?.completed;
+    const originalProgress = talk.progress;
     // Optimistic update
     setTalks((prev) => prev.map((t) =>
       t.id === talk.id
@@ -239,16 +240,17 @@ export default function TalksClient() {
         : t
     ));
     try {
-      await fetch("/api/talks/progress", {
+      const res = await fetch("/api/talks/progress", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ talkId: talk.id, completed: newCompleted }),
       });
+      if (!res.ok) throw new Error("Failed to update progress");
     } catch {
-      // Revert on failure
+      // Revert on failure (network error or non-OK response)
       setTalks((prev) => prev.map((t) =>
         t.id === talk.id
-          ? { ...t, progress: { position: t.progress?.position ?? 0, completed: !newCompleted } }
+          ? { ...t, progress: originalProgress }
           : t
       ));
     }
@@ -581,11 +583,11 @@ export default function TalksClient() {
             <section>
               <h2 className="mb-3 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Folders</h2>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {folders.map((folder, idx) => {
+                {folders.map((folder) => {
                   const folderTalks = talksInFolder(folder.id);
                   const count = folderTalks.length;
                   const completedCount = folderTalks.filter((t) => t.progress?.completed).length;
-                  const colorTokens = getFolderColor(folder.folderColor, folder.sortOrder ?? idx);
+                  const colorTokens = getFolderColor(folder.folderColor, folder.sortOrder);
                   return (
                     <button
                       key={folder.id}

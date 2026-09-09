@@ -76,7 +76,6 @@ export async function POST(request: NextRequest) {
     const fileBytes = talk.fileSize ?? 0;
     const MAX_FULL_PROCESS_BYTES = 40 * 1024 * 1024;  // 40MB — full 10-stage chain
     const MAX_FAST_PROCESS_BYTES = 150 * 1024 * 1024; // 150MB — fast bare transcode
-    const useFastPath = fileBytes > MAX_FULL_PROCESS_BYTES && fileBytes <= MAX_FAST_PROCESS_BYTES;
     const isTooLarge = fileBytes > MAX_FAST_PROCESS_BYTES;
 
     if (isTooLarge) {

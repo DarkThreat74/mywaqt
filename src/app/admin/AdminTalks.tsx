@@ -951,7 +951,7 @@ export function AdminTalks() {
           </div>
           <p className="-mt-2 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
             Select a folder of audio files. Files are sorted by name (natural sort — handles
-            "Episode 2" before "Episode 10"). Each file becomes a talk, numbered automatically.
+            &ldquo;Episode 2&rdquo; before &ldquo;Episode 10&rdquo;). Each file becomes a talk, numbered automatically.
             Files are processed in batches of 10 to handle large folders without overloading the server.
           </p>
 

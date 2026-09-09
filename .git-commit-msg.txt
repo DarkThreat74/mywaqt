@@ -1,23 +1,23 @@
-fix: redesign media notification with proper metadata + draggable seek bar
+fix: remove stale code + fix progress API position bug + lint errors
 
-Media Session API fixes:
-- Artwork now uses the folder image (if available) at 512/256/192 sizes,
-  falling back to app icons. Previously only showed the Waqt logo.
-- "artist" field shows speaker, or folder name, or empty string —
-  never the ugly "Unknown speaker" fallback.
-- "album" field shows the folder name, or "Waqt Talks".
-- setPositionState is now called on every timeupdate (browser-throttled
-  to ~4Hz) so the notification seek bar tracks playback in real time
-  and is draggable. Previously only updated near whole seconds.
-- setPositionState guards against non-finite/zero duration and clamps
-  position to 0..duration (fixes TypeError on live streams).
-- seekto handler now uses fastSeek() when available for smooth scrubbing.
-- seekbackward/seekforward now respect the seekOffset from the OS
-  instead of hardcoding 15s/30s.
-- PlayerTrack interface now carries folderName + folderImageUrl so the
-  notification can show them.
-- Closing the player clears Media Session metadata + position state so
-  the notification doesn't linger with stale data.
+Bugs fixed:
+- Progress API: `pos || existing.position` treated position:0 as "not sent",
+  so handleEnded's position:0 reset was silently ignored. Now tracks
+  whether position was explicitly provided via `hasPosition` flag.
+- handleToggleComplete: only reverted on network error (catch), not on
+  HTTP error (401/500). Now checks `res.ok` and reverts on any failure.
+  Also preserves the original progress object for clean revert.
+- Track-change effect: synchronous setState calls caused cascading renders
+  (react-hooks/set-state-in-effect). Now deferred via Promise.resolve().
+
+Stale code removed:
+- TalksClient: removed unused `useRef` and `CheckCircle2` imports.
+- TalksClient: removed dead `?? idx` fallback (sortOrder is always a number).
+- audio-player-context: removed unused `CachedTalkDownload` import.
+- process route: removed unused `useFastPath` variable (recomputed as `useFast`).
+- audio process: removed unused `probe` variable assignment.
+- AdminTalks: escaped quotes in JSX text (pre-existing lint error).
+- fun-fact-popup: deferred setState in effect (pre-existing lint error).
 
 Generated with [Devin](https://devin.ai)
 

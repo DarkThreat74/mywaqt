@@ -170,14 +170,17 @@ export default function AdvancedAudioPlayer({
   const wasPlayingRef = useRef(false);
   useEffect(() => {
     wasPlayingRef.current = isPlaying;
-    setCurrentTime(0);
-    setDuration(0);
-    setBuffered(0);
-    setIsLoading(true);
-    setIsBuffering(false);
-    setError(null);
-    setRetryCount(0);
-    setIsPlaying(false); // reset — the onPlay handler will set it back
+    // Defer setState to avoid cascading renders (react-hooks/set-state-in-effect)
+    Promise.resolve().then(() => {
+      setCurrentTime(0);
+      setDuration(0);
+      setBuffered(0);
+      setIsLoading(true);
+      setIsBuffering(false);
+      setError(null);
+      setRetryCount(0);
+      setIsPlaying(false); // reset — the onPlay handler will set it back
+    });
     const audio = audioRef.current;
     if (audio) {
       audio.load();

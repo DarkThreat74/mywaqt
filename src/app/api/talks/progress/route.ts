@@ -26,8 +26,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Valid talkId is required." }, { status: 400 });
   }
 
-  // Clamp position to non-negative
-  const pos = typeof position === "number" && position >= 0 ? Math.floor(position) : 0;
+  // Track whether position was explicitly provided (0 is a valid position — don't conflate with "not sent")
+  const hasPosition = typeof position === "number";
+  const pos = hasPosition && position >= 0 ? Math.floor(position) : 0;
 
   try {
     // Check the talk exists (prevents progress on deleted talks)
@@ -52,9 +53,11 @@ export async function POST(request: NextRequest) {
       // Only transition completed from false→true (don't un-complete via position updates)
       const newCompleted = completed !== undefined ? completed : existing.completed;
       const newCompletedAt = newCompleted && !existing.completed ? now : existing.completedAt;
+      // Only update position if it was explicitly provided; otherwise keep existing
+      const newPosition = hasPosition ? pos : existing.position;
 
       await db.update(schema.talkProgress).set({
-        position: pos || existing.position,
+        position: newPosition,
         completed: newCompleted,
         completedAt: newCompletedAt,
         updatedAt: now,

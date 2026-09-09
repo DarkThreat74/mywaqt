@@ -389,8 +389,9 @@ export default function SettingsClient({
         const [count, sizeBytes] = await Promise.all([getAudioCacheCount(), getAudioCacheSize()]);
         if (!cancelled) setAudioCacheInfo({ count, sizeBytes });
       } catch { /* non-critical */ }
+      // Defer to avoid cascading renders (react-hooks/set-state-in-effect)
+      if (!cancelled) setDownloadLimitMBState(getDownloadLimitMB());
     })();
-    setDownloadLimitMBState(getDownloadLimitMB());
     return () => { cancelled = true; };
   }, []);
 
