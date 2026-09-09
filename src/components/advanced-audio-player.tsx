@@ -364,16 +364,21 @@ export default function AdvancedAudioPlayer({
     }
   }, []);
 
-  // Build artwork array — folder image first (highest quality), then app icons
+  // Build artwork array — folder image first (highest quality), then app icons.
+  // Media Session API requires ABSOLUTE URLs for artwork — relative URLs may not
+  // resolve correctly on all browsers, causing the default notification to appear.
   const buildArtwork = useCallback((folderImageUrl: string | null, mimeType: (s: string) => string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const toAbsolute = (src: string) => src.startsWith("http") ? src : `${origin}${src}`;
     const artwork: { src: string; sizes: string; type: string }[] = [];
 
     if (folderImageUrl) {
       // Folder image — provide at all common sizes. iOS pre-18 picks the first
       // element, so we put 512x512 first. Android uses `sizes` to pick the best.
+      const absFolderUrl = toAbsolute(folderImageUrl);
       const sizes = ["512x512", "384x384", "256x256", "192x192", "128x128", "96x96"];
       for (const size of sizes) {
-        artwork.push({ src: folderImageUrl, sizes: size, type: mimeType(folderImageUrl) });
+        artwork.push({ src: absFolderUrl, sizes: size, type: mimeType(folderImageUrl) });
       }
     }
 
@@ -386,11 +391,11 @@ export default function AdvancedAudioPlayer({
       { src: "/icon-maskable-192.png", sizes: "192x192" },
     ];
     for (const icon of icons) {
-      artwork.push({ src: icon.src, sizes: icon.sizes, type: "image/png" });
+      artwork.push({ src: toAbsolute(icon.src), sizes: icon.sizes, type: "image/png" });
     }
 
     return artwork;
-  }, []);
+  }, []); // mimeType passed as param, not closed over
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
@@ -403,7 +408,9 @@ export default function AdvancedAudioPlayer({
       }
     } catch { /* non-critical */ }
 
-    // Set metadata BEFORE play — some platforms won't update if set after
+    // Set metadata BEFORE play — some platforms won't update if set after.
+    // This is the critical step: without metadata, Chrome shows the default
+    // notification with the page title instead of track info + artwork.
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: track.speaker || track.folderName || "",
@@ -411,8 +418,11 @@ export default function AdvancedAudioPlayer({
       artwork: buildArtwork(track.folderImageUrl ?? null, artworkMimeType),
     });
 
-    // Set initial playback state
-    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+    // NOTE: Do NOT set playbackState here. The audio element's onPlay/onPause
+    // handlers set it. Setting it in this effect with isPlaying would add
+    // isPlaying to the dependency array, causing the entire effect to re-run
+    // (cleanup + re-setup) on every play/pause toggle, which briefly clears
+    // all action handlers and can cause the default notification to flash.
 
     const setAction = (action: MediaSessionAction, handler: ((details: MediaSessionActionDetails) => void) | null) => {
       try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* not supported */ }
@@ -471,7 +481,7 @@ export default function AdvancedAudioPlayer({
       setAction("previoustrack", null);
       setAction("nexttrack", null);
     };
-  }, [track, goNext, goPrev, updatePositionState, buildArtwork, artworkMimeType, isPlaying]);
+  }, [track, goNext, goPrev, updatePositionState, buildArtwork, artworkMimeType]);
 
   // ─── Media Session cleanup on unmount ───
   // When the player closes entirely, clear metadata and reset playback state
