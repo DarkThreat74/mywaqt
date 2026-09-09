@@ -1,33 +1,17 @@
-fix: event details field, short event height, bulk time-shift, remove tap-to-create
+fix: talks page crash (missing talk_progress table) + mini player minimize button
 
-1. Event details field (new feature)
-   - Added optional `details` text column to events table + migration 0022
-   - Details shown under the title in the calendar as smaller, grayer text
-   - Only shown when event duration >= 45 min (enough vertical room)
-   - Added textarea input to the add/edit event form
-   - Wired through all API routes: POST, PATCH, bulk PATCH, GET projections
-   - Added to offline IndexedDB cache + all CalendarEvent interfaces
+1. Talks page crash — root cause: missing database tables
+   The talk_progress table and talk_folders.folder_color column were
+   defined in schema and migration 0021 but never applied to the Neon
+   database. The /api/talks GET route queries talk_progress on every
+   load, causing a 500 error and "something went wrong" on the talks page.
+   Applied migration 0021 to production Neon database via MCP.
 
-2. Short event box height (bug fix)
-   - Events shorter than 30 min had boxes too small to read (min was 22px)
-   - Increased minimum height to 44px so title + time are always visible
-   - Box overlaps slightly into next slot but text remains readable
-
-3. Bulk time-shift for recurring series (bug fix)
-   - When editing a recurring event and choosing "apply to all", time
-     changes (startAt/endAt) were silently dropped — the bulk PATCH only
-     updated title/type/color/notify, not times.
-   - Root cause: bulk PATCH explicitly excluded startAt/endAt with a comment
-     saying "each occurrence has its own timestamp."
-   - Fix: bulk PATCH now accepts startAt/endAt, computes the time delta
-     from the first event, and shifts ALL events in the series by the same
-     delta. Each occurrence keeps its calendar date; only the time-of-day
-     changes. Duration changes are also applied.
-
-4. Remove tap-to-create on calendar slots (UX change)
-   - Removed the invisible tap-to-add zone buttons on every hour slot
-   - Events can now only be created via the + FAB button
-   - Prevents accidental event creation when scrolling/tapping the calendar
+2. Mini player minimize button
+   The mini bar had no way to go back to the bubble (FAB) view — only
+   expand to full or close entirely. Added a Bubble button (ChevronDown)
+   next to the Close button that minimizes the mini bar back to the
+   floating circle.
 
 Generated with [Devin](https://devin.ai)
 

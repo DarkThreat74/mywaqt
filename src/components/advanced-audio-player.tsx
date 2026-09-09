@@ -953,7 +953,11 @@ export default function AdvancedAudioPlayer({
               </button>
             </div>
 
-            {/* Close button with "Close" label — stops playback entirely */}
+            {/* Minimize to bubble + Close */}
+            <button onClick={() => setView("fab")} className="flex shrink-0 flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Minimize to bubble">
+              <ChevronDown className="h-4 w-4" />
+              <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>Bubble</span>
+            </button>
             <button onClick={onClose} className="flex shrink-0 flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close player">
               <X className="h-4 w-4" />
               <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>Close</span>
