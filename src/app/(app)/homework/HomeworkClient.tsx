@@ -14,7 +14,7 @@ import {
 } from "@/lib/offline/cache-writers";
 import { formatDueBadge, urgencyColors, urgencyCardTint, isTimeOverdue, daysUntilDate } from "@/lib/homework/due-format";
 
-interface HomeworkItem {
+export interface HomeworkItem {
   id: string;
   title: string;
   description: string | null;
@@ -98,10 +98,15 @@ export default function HomeworkClient({
   const [completeConfirm, setCompleteConfirm] = useState<HomeworkItem | null>(null);
   const [showClasses, setShowClasses] = useState(false);
 
-  // Propagate homework state changes to parent (so Today tab stays in sync)
+  // Propagate homework state changes to parent (so Today tab stays in sync).
+  // Only depend on `homework` — the callback identity may change every render
+  // (HomeworkTab wraps it in an inline arrow), so including it would cause an
+  // infinite loop: effect fires → setHomework in parent → re-render → new callback
+  // → effect fires again → freeze.
   useEffect(() => {
     if (onHomeworkChange) onHomeworkChange(homework);
-  }, [homework, onHomeworkChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homework]);
 
   // Add form state
   const [title, setTitle] = useState("");
