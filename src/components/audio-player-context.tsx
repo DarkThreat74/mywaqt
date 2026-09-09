@@ -309,6 +309,16 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
 
   const close = useCallback(() => {
     setCurrentTrack(null);
+    // Clear Media Session metadata so the notification doesn't linger with stale data.
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      try {
+        navigator.mediaSession.metadata = null;
+        navigator.mediaSession.playbackState = "none";
+        if ("setPositionState" in navigator.mediaSession) {
+          navigator.mediaSession.setPositionState({ duration: 0, playbackRate: 1, position: 0 });
+        }
+      } catch { /* non-critical */ }
+    }
   }, []);
 
   const next = useCallback(() => {

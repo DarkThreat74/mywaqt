@@ -1,45 +1,23 @@
-feat: redesign talks library + morphing player + progress tracking
+fix: redesign media notification with proper metadata + draggable seek bar
 
-Talks Library Redesign:
-- New TalkCard with checkmark box (left), play button, small download
-  button (top-right). Completed talks get green tint + strikethrough.
-- Folder cards now show progress bar (X/Y listened) with distinct
-  colors from an 8-color palette (auto-assigned by order, admin can
-  override via folderColor column).
-- Folder detail view shows completion fraction and progress bar.
-
-Morphing Audio Player:
-- Three states: floating circle FAB → mini bar → full player.
-- FAB shows animated equalizer bars + progress ring around the circle.
-- Mini bar has X button with "Close" label that stops playback entirely.
-- Full player has minimize-to-circle (chevron down) + close (X) buttons.
-- Tapping outside the full player minimizes to mini bar (doesn't close).
-- Site layout adapts: main content gets extra bottom padding when
-  player is active via --player-active CSS variable.
-
-Track Switching Bug Fix:
-- Fixed bug where switching talks failed: the <audio> remounts via
-  key={track.id} but isPlaying state stayed true and play() was never
-  called on the new element. Now auto-plays the new track when one
-  was already playing.
-
-Progress Tracking:
-- New talk_progress table (userId, talkId, position, completed, updatedAt).
-- Auto-marks talks as completed at 100% (onEnded).
-- Manual checkmark to mark/unmark anytime.
-- Progress synced to server every 5s for cross-device resume.
-- Migration: 0021_talk_progress_folder_color.sql.
-
-Configurable Download Limit:
-- Settings page now has download limit selector (500MB/1GB/2GB/3GB/Unlimited).
-- LRU eviction uses the configured limit instead of hardcoded 500MB.
-- Progress bar in Settings reflects the configured limit.
-
-Schema Changes:
-- talk_folders: added folderColor column (nullable, auto-assigned if null).
-- New talk_progress table with unique (userId, talkId) index.
-- GET /api/talks now returns folderColor, sortOrder, and per-talk progress.
-- POST /api/talks/progress for upserting listening state.
+Media Session API fixes:
+- Artwork now uses the folder image (if available) at 512/256/192 sizes,
+  falling back to app icons. Previously only showed the Waqt logo.
+- "artist" field shows speaker, or folder name, or empty string —
+  never the ugly "Unknown speaker" fallback.
+- "album" field shows the folder name, or "Waqt Talks".
+- setPositionState is now called on every timeupdate (browser-throttled
+  to ~4Hz) so the notification seek bar tracks playback in real time
+  and is draggable. Previously only updated near whole seconds.
+- setPositionState guards against non-finite/zero duration and clamps
+  position to 0..duration (fixes TypeError on live streams).
+- seekto handler now uses fastSeek() when available for smooth scrubbing.
+- seekbackward/seekforward now respect the seekOffset from the OS
+  instead of hardcoding 15s/30s.
+- PlayerTrack interface now carries folderName + folderImageUrl so the
+  notification can show them.
+- Closing the player clears Media Session metadata + position state so
+  the notification doesn't linger with stale data.
 
 Generated with [Devin](https://devin.ai)
 

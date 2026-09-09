@@ -58,7 +58,8 @@ function formatDuration(seconds: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function talkToTrack(talk: Talk): PlayerTrack {
+function talkToTrack(talk: Talk, folders: Folder[]): PlayerTrack {
+  const folder = folders.find((f) => f.id === talk.folderId);
   return {
     id: talk.id,
     title: talk.title,
@@ -69,6 +70,8 @@ function talkToTrack(talk: Talk): PlayerTrack {
     fileSize: talk.fileSize,
     duration: talk.duration,
     folderId: talk.folderId,
+    folderName: folder?.name || null,
+    folderImageUrl: folder?.imageUrl || null,
   };
 }
 
@@ -254,7 +257,7 @@ export default function TalksClient() {
   // Play a talk — builds the queue from siblings, saves to recent
   const playTalk = useCallback((talk: Talk) => {
     const siblings = talk.folderId ? talksInFolder(talk.folderId) : uncategorized;
-    play(talkToTrack(talk), siblings.map(talkToTrack));
+    play(talkToTrack(talk, folders), siblings.map((t) => talkToTrack(t, folders)));
     // Save to recently played
     const folder = folders.find((f) => f.id === talk.folderId);
     saveRecent({

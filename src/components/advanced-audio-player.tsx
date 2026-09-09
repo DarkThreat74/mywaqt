@@ -22,6 +22,8 @@ export interface PlayerTrack {
   fileSize: number | null;
   duration: number | null;
   folderId: string | null;
+  folderName?: string | null;
+  folderImageUrl?: string | null;
 }
 
 interface Bookmark {
@@ -230,12 +232,16 @@ export default function AdvancedAudioPlayer({
   // ─── Media Session position state helper ───
   const updatePositionState = useCallback(() => {
     const audio = audioRef.current;
-    if (!audio || !("setPositionState" in navigator.mediaSession)) return;
+    if (!audio || !("mediaSession" in navigator) || !("setPositionState" in navigator.mediaSession)) return;
+    // Guard: duration must be positive and finite, position must be 0..duration
+    const dur = audio.duration;
+    if (!dur || !isFinite(dur) || dur <= 0) return;
+    const pos = Math.max(0, Math.min(audio.currentTime || 0, dur));
     try {
       navigator.mediaSession.setPositionState({
-        duration: audio.duration || 0,
+        duration: dur,
         playbackRate: audio.playbackRate || 1,
-        position: audio.currentTime || 0,
+        position: pos,
       });
     } catch { /* non-critical */ }
   }, []);
@@ -324,20 +330,39 @@ export default function AdvancedAudioPlayer({
   }, [currentIndex, effectiveQueue, onPrev, onTrackChange, repeatMode]);
 
   // ─── Media Session API ───
+  // Provides lock-screen / notification / media-hub metadata + controls.
+  // Key fixes:
+  //  - Artwork uses folder image (if available) at multiple sizes, falling back to app icons.
+  //  - "artist" shows speaker, or folder name, or empty (never "Unknown speaker").
+  //  - "album" shows folder name, or "Waqt Talks".
+  //  - setPositionState is called on timeupdate so the notification seek bar tracks + is draggable.
+  //  - seekto uses fastSeek when available for smooth scrubbing.
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
 
+    // Build artwork array — prefer folder image, fall back to app icons.
+    const artwork: { src: string; sizes: string; type: string }[] = [];
+    if (track.folderImageUrl) {
+      // Folder image — provide as the primary artwork at common sizes.
+      // The browser picks the best size; one src is enough but we declare multiple sizes
+      // so Android Chrome can choose the right resolution for the notification.
+      artwork.push({ src: track.folderImageUrl, sizes: "512x512", type: "image/png" });
+      artwork.push({ src: track.folderImageUrl, sizes: "256x256", type: "image/png" });
+      artwork.push({ src: track.folderImageUrl, sizes: "192x192", type: "image/png" });
+    }
+    // Always include app icons as fallback (Android Chrome needs multiple sizes).
+    artwork.push({ src: "/icon-192.png", sizes: "192x192", type: "image/png" });
+    artwork.push({ src: "/icon-512.png", sizes: "512x512", type: "image/png" });
+    artwork.push({ src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png" });
+    artwork.push({ src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png" });
+
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
-      artist: track.speaker || "Unknown speaker",
-      album: "Waqt Talks",
-      artwork: [
-        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-        { src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png" },
-        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-        { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png" },
-      ],
+      // Never show "Unknown speaker" — use folder name or empty string.
+      artist: track.speaker || track.folderName || "",
+      album: track.folderName || "Waqt Talks",
+      artwork,
     });
 
     const setAction = (action: MediaSessionAction, handler: ((details: MediaSessionActionDetails) => void) | null) => {
@@ -349,21 +374,28 @@ export default function AdvancedAudioPlayer({
     setAction("stop", () => {
       if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
     });
-    setAction("seekbackward", () => {
+    setAction("seekbackward", (e) => {
       if (audioRef.current) {
-        audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 15);
+        const offset = e.seekOffset ?? 15;
+        audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - offset);
         updatePositionState();
       }
     });
-    setAction("seekforward", () => {
+    setAction("seekforward", (e) => {
       if (audioRef.current) {
-        audioRef.current.currentTime = Math.min(audioRef.current.duration, audioRef.current.currentTime + 30);
+        const offset = e.seekOffset ?? 30;
+        audioRef.current.currentTime = Math.min(audioRef.current.duration || Infinity, audioRef.current.currentTime + offset);
         updatePositionState();
       }
     });
     setAction("seekto", (e) => {
       if (audioRef.current && e.seekTime !== undefined) {
-        audioRef.current.currentTime = e.seekTime;
+        const audio = audioRef.current as HTMLAudioElement & { fastSeek?: (t: number) => void };
+        if (e.fastSeek && typeof audio.fastSeek === "function") {
+          audio.fastSeek(e.seekTime);
+        } else {
+          audioRef.current.currentTime = e.seekTime;
+        }
         updatePositionState();
       }
     });
@@ -772,8 +804,9 @@ export default function AdvancedAudioPlayer({
           if (e.currentTarget.buffered.length > 0) {
             setBuffered(e.currentTarget.buffered.end(e.currentTarget.buffered.length - 1));
           }
-          // Throttled position state update
-          if (Math.abs(t - (Math.floor(t))) < 0.1) updatePositionState();
+          // Update Media Session position state so the notification seek bar tracks + is draggable.
+          // The browser throttles timeupdate to ~4Hz so this is cheap.
+          updatePositionState();
         }}
         onLoadedMetadata={(e) => { setDuration(e.currentTarget.duration); setIsLoading(false); updatePositionState(); }}
         onWaiting={() => setIsBuffering(true)}
