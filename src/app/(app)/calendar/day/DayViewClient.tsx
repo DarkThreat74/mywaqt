@@ -6,7 +6,7 @@ import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { useUISFX } from "@/components/uisfx-provider";
 import { getDisplayAsrTime, type PrayerKey } from "@/lib/prayer/checkin";
-import { clearApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFromCache, upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
@@ -716,7 +716,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
-        clearApiCache();
+        invalidateApiCache("/api/events");
 
         // Offline response — event was queued in the SW outbox
         if (data.offline && data._pending) {
@@ -820,7 +820,7 @@ export default function DayViewClient({ date }: { date: string }) {
       const res = await fetch(`/api/events/${id}`, { method: "DELETE" });
       if (res.ok) {
         play("delete");
-        clearApiCache();
+        invalidateApiCache("/api/events");
       } else {
         // Delete failed — refetch to restore the event
         const refetch = await fetch(`/api/events?date=${date}`);
@@ -874,7 +874,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
-          clearApiCache();
+          invalidateApiCache("/api/events");
           // Refetch events for this date to reflect the bulk update
           if ("caches" in window) {
             await caches.keys().then((names) => Promise.all(names.filter((n) => n.includes("-api")).map((n) => caches.delete(n))));
@@ -928,7 +928,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
       if (res.ok) {
         const updated = await res.json().catch(() => ({}));
-        clearApiCache();
+        invalidateApiCache("/api/events");
         // Offline response — update was queued in the SW outbox
         if (updated.offline) {
           // Update the local event with the new values and mark as pending
@@ -1068,7 +1068,7 @@ export default function DayViewClient({ date }: { date: string }) {
     try {
       const res = await fetch(`/api/events/${eventId}`, { method: "DELETE" });
       if (res.ok) {
-        clearApiCache();
+        invalidateApiCache("/api/events");
         if ("caches" in window) {
           await caches.keys().then((names) => Promise.all(names.filter((n) => n.includes("-api")).map((n) => caches.delete(n))));
         }
@@ -1993,7 +1993,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       });
                       if (res.ok) {
                         const data = await res.json().catch(() => ({}));
-                        clearApiCache();
+                        invalidateApiCache("/api/events");
                         if ("caches" in window) {
                           await caches.keys().then((names) => Promise.all(names.filter((n) => n.includes("-api")).map((n) => caches.delete(n))));
                         }

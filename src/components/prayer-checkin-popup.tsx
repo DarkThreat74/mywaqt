@@ -5,7 +5,7 @@ import { Check, X, Loader2, MapPin } from "lucide-react";
 import { shouldShowMasjidQuestion, getPrayerWindowState, getPrayerWindowStart, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
 import { getSunnahsForFard, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { useUISFX } from "@/components/uisfx-provider";
-import { clearApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 import { hapticNotification, hapticImpact } from "@/lib/native-bridge";
 import { upsertSunnahLogToCache } from "@/lib/offline/cache-writers";
 
@@ -120,7 +120,7 @@ export default function PrayerCheckinPopup({
 
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
-        clearApiCache();
+        invalidateApiCache("/api/prayer-log");
         // Only show sunnah step if:
         // 1. There are sunnahs for this prayer
         // 2. This is NOT a late log (window was open when user confirmed)
@@ -157,7 +157,7 @@ export default function PrayerCheckinPopup({
         body: JSON.stringify({ date, sunnahKey: sunnah.key, prayed: !isLogged }),
       });
       if (res.ok) {
-        clearApiCache();
+        invalidateApiCache("/api/prayer-log");
         setSunnahLogs((prev) => ({ ...prev, [sunnah.key]: !isLogged }));
         upsertSunnahLogToCache(date, sunnah.key, !isLogged);
         void hapticImpact("light");
@@ -204,7 +204,7 @@ export default function PrayerCheckinPopup({
     })
       .then((res) => res.json().catch(() => ({})))
       .then(() => {
-        clearApiCache();
+        invalidateApiCache("/api/prayer-log");
         play("undo");
         void hapticImpact("light");
         onCheckedIn({ status: "pending", wentToMasjid: null });

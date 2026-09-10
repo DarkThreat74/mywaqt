@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Flame, MapPin, Users, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
-import { clearApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
 import { getOfflineDB } from "@/lib/offline/db";
 import { upsertSunnahLogToCache, cacheBlob } from "@/lib/offline/cache-writers";
@@ -562,7 +562,7 @@ export default function PrayerDashboard() {
         setTimeout(() => setFriendSuccess(null), 5000);
       } else if (res.ok && !data.offline && data.friend && !data.pending) {
         // Auto-accepted (e.g. they had already sent us a request)
-        clearApiCache();
+        invalidateApiCache("/api/prayer-friends");
         setFriends((prev) => {
           const updated = [...prev, data.friend];
           cacheBlob("friends", updated);
@@ -622,7 +622,7 @@ export default function PrayerDashboard() {
     try {
       const res = await fetch(`/api/prayer-friends/remove?friendId=${friendId}`, { method: "DELETE" });
       if (res.ok) {
-        clearApiCache();
+        invalidateApiCache("/api/prayer-friends");
         setFriends((prev) => {
           const updated = prev.filter((f) => f.id !== friendId);
           cacheBlob("friends", updated);
@@ -663,7 +663,7 @@ export default function PrayerDashboard() {
         body: JSON.stringify({ date: todayStr, sunnahKey, prayed: !isLogged }),
       });
       if (res.ok) {
-        clearApiCache();
+        invalidateApiCache("/api/prayer-log");
         setTodaySunnahs((prev) =>
           !isLogged ? [...prev, sunnahKey] : prev.filter((k) => k !== sunnahKey),
         );
@@ -696,7 +696,7 @@ export default function PrayerDashboard() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && !data.offline) {
-        clearApiCache();
+        invalidateApiCache("/api/prayer-log");
         setQadaa(data);
         cacheBlob("qadaa", data);
         setQadaaMsg("Qadaa set up successfully.");
@@ -734,7 +734,7 @@ export default function PrayerDashboard() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        clearApiCache();
+        invalidateApiCache("/api/qadaa");
         void hapticNotification("success");
         if (data.offline) {
           if (qadaa) {

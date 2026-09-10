@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useRef } from "react";
 import { Target, Plus, Check, ChevronRight, ChevronDown, Trash2, Loader2, List, GitBranch, GripVertical } from "lucide-react";
 import type { Goal } from "@/lib/db/schema";
 import { buildGoalTree, countCompleted, type GoalNode } from "@/lib/goals/tree";
-import { clearApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 import { syncGoalsToCache } from "@/lib/offline/cache-writers";
 
 type View = "list" | "tree";
@@ -111,7 +111,7 @@ export default function GoalsTab({
             syncGoalsToCache(updated);
             return updated;
           });
-          void clearApiCache();
+          void invalidateApiCache("/api/goals");
         } else {
           setError(data.error || "Failed to create goal");
         }
@@ -153,7 +153,7 @@ export default function GoalsTab({
             syncGoalsToCache(updated);
             return updated;
           });
-          void clearApiCache();
+          void invalidateApiCache("/api/goals");
         }
       } catch {
         // Offline or network error — keep optimistic state (already updated above)
@@ -182,7 +182,7 @@ export default function GoalsTab({
           syncGoalsToCache(remaining);
           return remaining;
         });
-        void clearApiCache();
+        void invalidateApiCache("/api/goals");
       }
     } catch {
       // keep state

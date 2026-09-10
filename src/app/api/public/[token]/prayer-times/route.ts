@@ -67,5 +67,8 @@ export async function GET(
     );
   }
 
-  return NextResponse.json(cached);
+  const response = NextResponse.json(cached);
+  // Cache publicly — prayer times don't change within a day
+  response.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+  return response;
 }

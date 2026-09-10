@@ -110,13 +110,12 @@ export default function ListViewClient({ today }: { today: string }) {
     // Load from IndexedDB cache first for instant display
     try {
       const db = getOfflineDB();
-      const cached = await db.events.toArray();
-      const filtered = cached.filter((e) => {
-        const eventDate = getEventLocalDate(e.startAt);
-        return eventDate >= weekStart && eventDate <= weekEnd;
-      });
-      if (filtered.length > 0) {
-        setEvents(filtered.map((e) => ({
+      // Use the _dateKey index instead of loading ALL events into memory.
+      // This is critical at scale — toArray() on thousands of events is slow.
+      const weekDateKeys = weekDays; // already YYYY-MM-DD strings
+      const cached = await db.events.where("_dateKey").anyOf(weekDateKeys).toArray();
+      if (cached.length > 0) {
+        setEvents(cached.map((e) => ({
           id: e.id,
           title: e.title,
           startAt: e.startAt,
@@ -142,7 +141,7 @@ export default function ListViewClient({ today }: { today: string }) {
     } finally {
       setLoading(false);
     }
-  }, [weekStart, weekEnd]);
+  }, [weekStart, weekEnd, weekDays]);
 
   // Fetch prayer times for the week
   const fetchPrayerTimes = useCallback(async () => {

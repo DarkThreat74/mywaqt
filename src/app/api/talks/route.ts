@@ -66,9 +66,8 @@ export async function GET(request: NextRequest) {
         fileSize: schema.talks.fileSize,
         duration: schema.talks.duration,
         externalUrl: schema.talks.externalUrl,
-        storageKey: schema.talks.storageKey,
-        processedStorageKey: schema.talks.processedStorageKey,
         addedAt: schema.talks.addedAt,
+        hasAudio: schema.talks.storageKey,
       }).from(schema.talks)
         .where(eq(schema.talks.processingStatus, "published"))
         .orderBy(asc(schema.talks.title))
@@ -91,9 +90,9 @@ export async function GET(request: NextRequest) {
         ...folder,
         imageUrl: imageKey ? `/api/talks?folderImage=${folder.id}` : null,
       })),
-      talks: talks.map(({ storageKey, processedStorageKey, ...talk }) => ({
+      talks: talks.map(({ hasAudio, ...talk }) => ({
         ...talk,
-        streamUrl: storageKey || processedStorageKey ? `/api/talks?stream=${talk.id}` : null,
+        streamUrl: hasAudio ? `/api/talks?stream=${talk.id}` : null,
         progress: progressMap.get(talk.id) || null,
       })),
     });

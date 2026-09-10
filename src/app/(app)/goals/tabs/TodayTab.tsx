@@ -4,7 +4,7 @@ import { useMemo, useState, useCallback } from "react";
 import { Target, BookOpen, CheckCircle2, Repeat, ChevronRight, Sunrise, Sun, Sunset, Moon, Telescope, AlertTriangle, Check, Clock, Flame } from "lucide-react";
 import type { Goal, Homework, Habit, HabitLog, Class } from "@/lib/db/schema";
 import { syncGoalsToCache } from "@/lib/offline/cache-writers";
-import { clearApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 import { toggleHabitLogInCache } from "@/lib/offline/cache-writers";
 import { formatDueBadge, urgencyColors, urgencyCardTint } from "@/lib/homework/due-format";
 
@@ -136,7 +136,7 @@ export default function TodayTab({
             syncGoalsToCache(updated);
             return updated;
           });
-          void clearApiCache();
+          void invalidateApiCache("/api/goals");
         }
       } catch {
         // Offline: optimistic state + cache already updated, keep it
@@ -223,7 +223,7 @@ export default function TodayTab({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ habitId, date: todayDateStr }),
         });
-        void clearApiCache();
+        void invalidateApiCache("/api/habit-logs");
       } catch {
         // revert on failure
         if (wasCompleted) {

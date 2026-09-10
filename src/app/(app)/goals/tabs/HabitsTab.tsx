@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useRef } from "react";
 import { Repeat, Plus, Check, Trash2, Flame, GripVertical } from "lucide-react";
 import type { Habit, HabitLog } from "@/lib/db/schema";
-import { clearApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 import { upsertHabitToCache, deleteHabitFromCache, toggleHabitLogInCache } from "@/lib/offline/cache-writers";
 
 const HABIT_COLORS = [
@@ -157,7 +157,7 @@ export default function HabitsTab({
         const newHabit = await res.json();
         setHabits((prev) => [...prev, newHabit]);
         upsertHabitToCache(newHabit);
-        clearApiCache();
+        invalidateApiCache("/api/habits");
         setName("");
         setColor(HABIT_COLORS[habits.length % HABIT_COLORS.length]);
         setTimeOfDay(null);
@@ -198,7 +198,7 @@ export default function HabitsTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ habitId, date: today }),
       });
-      clearApiCache();
+      invalidateApiCache("/api/habits");
     } catch {
       // revert on failure
       if (wasCompleted) {
@@ -217,7 +217,7 @@ export default function HabitsTab({
     deleteHabitFromCache(habitId);
     try {
       await fetch(`/api/habits/${habitId}`, { method: "DELETE" });
-      clearApiCache();
+      invalidateApiCache("/api/habits");
     } catch {
       // keep state
     }

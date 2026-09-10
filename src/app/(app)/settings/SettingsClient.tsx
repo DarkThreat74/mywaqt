@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2, Headphones } from "lucide-react";
-import { clearApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache, clearApiCache } from "@/lib/sw-helpers";
 import { isNativeApp } from "@/lib/native-bridge";
 import { clearOfflineCache } from "@/lib/offline/db";
 import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
@@ -581,7 +581,8 @@ export default function SettingsClient({
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
-        clearApiCache();
+        invalidateApiCache("/api/prayer-times");
+        invalidateApiCache("/api/settings");
         // Use functional setState to avoid overwriting concurrent method/madhab updates
         setPrayerSettings((prev) => ({
           latitude: locationResult.lat,
@@ -638,7 +639,8 @@ export default function SettingsClient({
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
-        clearApiCache();
+        invalidateApiCache("/api/prayer-times");
+        invalidateApiCache("/api/settings");
         // Use functional setState to avoid overwriting concurrent updates
         setPrayerSettings((prev) =>
           prev ? {
@@ -712,7 +714,7 @@ export default function SettingsClient({
       const res = await fetch("/api/prayer-times/sync", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        clearApiCache();
+        invalidateApiCache("/api/prayer-times");
         setSyncMsg({ ok: true, text: `Synced ${data.daysCached ?? 0} days of prayer times.` });
         await refreshPrayerTimes();
       } else {
@@ -732,7 +734,7 @@ export default function SettingsClient({
       const res = await fetch("/api/share/generate", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.token) {
-        clearApiCache();
+        invalidateApiCache("/api/share");
         setShareEnabled(true);
         setShareUrl(`${window.location.origin}${data.url}`);
       } else {
@@ -750,7 +752,7 @@ export default function SettingsClient({
     try {
       const res = await fetch("/api/share/generate", { method: "DELETE" });
       if (res.ok) {
-        clearApiCache();
+        invalidateApiCache("/api/share");
         setShareEnabled(false);
         setShareUrl(null);
       } else {
@@ -1115,7 +1117,7 @@ export default function SettingsClient({
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
-        clearApiCache();
+        invalidateApiCache("/api/settings");
         setDisplayName(data.displayName);
         setEditingName(false);
         setNameMsg({ ok: true, text: "Name updated." });

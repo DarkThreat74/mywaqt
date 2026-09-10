@@ -1,47 +1,70 @@
-feat: Waqt header links to calendar + premium Media Session notification
+perf: PWA tab switching + offline data audit fixes
 
-1. Waqt header text now links to /calendar
-   Both mobile top bar and desktop sidebar "Waqt" text are now clickable
-   links that navigate back to the calendar day view.
+Two parallel subagent audits (tab-switching + offline/data-usage) identified
+15 issues. All fixed in this commit.
 
-2. Redesigned Media Session notification for iOS + Android
-   Deep research into Media Session API best practices applied:
+Service worker (public/sw.js):
+- Per-endpoint API cache invalidation: new INVALIDATE_API_PREFIX message
+  deletes only matching cache entries instead of wiping the entire API
+  cache. After an event write, only /api/events entries are deleted, not
+  /api/prayer-times, /api/homework, /api/talks, etc. Saves 50-500KB of
+  redundant re-downloads per mutation.
+- API cache TTL: per-endpoint expiry (events 1min, prayer-times 1hr,
+  talks 6hr, homework 2min, prayer-log 1min, default 5min). Fresh cache
+  is served without revalidation; stale cache triggers background SWR.
+- Cache version bumped to v37.
 
-   Artwork:
-   - Folder image provided at 6 sizes (512/384/256/192/128/96) so both
-     iOS and Android can pick the optimal resolution
-   - MIME type auto-detected from URL extension (png/jpeg/webp/svg)
-   - Highest-quality image first (iOS pre-18 picks the first element)
-   - App icons (512/192 + maskable variants) always included as fallback
-   - Never shows a generic/missing artwork icon
+sw-helpers.ts:
+- New invalidateApiCache(prefix) helper for targeted invalidation.
+- clearApiCache() kept for logout/cross-user data leakage prevention.
 
-   Metadata:
-   - title: talk title
-   - artist: speaker, or folder name, or empty (never "Unknown")
-   - album: folder name, or "Waqt Talks"
-   - Set BEFORE play to avoid "unknown" metadata on some platforms
+All 40 clearApiCache() call sites replaced with targeted invalidateApiCache:
+- DayViewClient → /api/events
+- HomeworkClient → /api/homework, /api/classes
+- prayer-checkin-popup → /api/prayer-log
+- GoalsTab → /api/goals
+- HabitsTab → /api/habits
+- NotesTab → /api/notes
+- TodayTab → /api/goals, /api/habit-logs
+- SettingsClient → /api/prayer-times, /api/settings, /api/share
+- PrayerDashboardClient → /api/prayer-friends, /api/prayer-log, /api/qadaa
 
-   Position state:
-   - Updated on loadedmetadata, play, seeked, ratechange, and a
-     throttled 1s interval during playback (OS extrapolates between)
-   - Proper guards: duration must be positive/finite, playbackRate > 0,
-     position clamped to [0, duration]
-   - seekto uses fastSeek() when available for smooth scrubbing
+API routes:
+- /api/talks: dropped storageKey/processedStorageKey from response
+  (internal fields not needed by client). Saves bandwidth per request.
+- /api/classes: SELECT * → projected only id, name, color, archived,
+  sortOrder. Drops createdAt from the wire.
+- /api/prayer-times/sync: SELECT * → projected only latitude, longitude,
+  timezone, calculationMethod, madhab. Drops privacy flags from the read.
+- /api/public/[token]/prayer-times: added Cache-Control public headers
+  (s-maxage=60, stale-while-revalidate=300) matching the events endpoint.
 
-   Playback state:
-   - "playing" on play, "paused" on pause, "none" on stop/close
-   - Full cleanup on unmount: metadata cleared, playbackState = "none",
-     all action handlers removed, position state reset
+Client components:
+- ListViewClient: replaced unbounded db.events.toArray() with indexed
+  query using db.events.where("_dateKey").anyOf(weekDateKeys). Prevents
+  loading thousands of events into memory at scale.
+- HomeworkClient: skip IndexedDB load + API fetch on mount when
+  initialHomework/initialClasses props are non-empty (server-rendered).
+  Avoids duplicate network requests on every tab switch.
+- ToolsMenu: removed prefetch={true} from tool links. Was forcing full
+  dynamic page prefetch for every tool when the menu opened.
+- goals/page.tsx: habitLogs query now filters by date in SQL
+  (gte(date, cutoff)) instead of fetching all logs and filtering in JS.
 
-   iOS-specific:
-   - navigator.audioSession.type = 'playback' for background audio
-   - playsInline + crossOrigin on audio element
-   - Artwork sizes array for iOS 18 sizes-aware selection
+Loading states:
+- Added loading.tsx to /goals, /talks, /dhikr, /qibla. Enables Next.js
+  partial prefetch of the app shell for these dynamic routes.
 
-   Android-specific:
-   - Multiple artwork sizes for Chrome's 512/256 px ideal sizes
-   - setPositionState for notification seek bar
-   - All action handlers registered (play/pause/stop/seek/skip)
+Database indexes (drizzle/0023_performance_indexes.sql):
+- homeworks_user_due_time_idx (user_id, due_date, due_time)
+- homeworks_user_completed_at_idx (user_id, completed_at)
+- talks_processing_status_title_idx (processing_status, title)
+- talk_folders_sort_name_idx (sort_order, name)
+- classes_user_sort_created_idx (user_id, sort_order, created_at)
+- events_user_series_start_idx (user_id, series_id, start_at)
+
+NOTE: Run drizzle/0023_performance_indexes.sql against the production
+Neon database to activate the new indexes.
 
 Generated with [Devin](https://devin.ai)
 

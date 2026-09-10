@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { Plus, Check, Trash2, X, Clock, AlertCircle, BookOpen, ChevronDown, ChevronRight, Filter, Layers, ArrowDownWideNarrow, CalendarClock, CalendarDays, Pencil } from "lucide-react";
-import { clearApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 import { getOfflineDB } from "@/lib/offline/db";
 import {
   syncHomeworkToCache,
@@ -139,67 +139,79 @@ export default function HomeworkClient({
   }, []);
 
   // ── Offline-first: load from IndexedDB on mount, then refresh from API ──
+  // Skip the API fetch entirely if we already have initial data from the server
+  // (GoalsPageClient passes it as props). This avoids duplicate network requests
+  // on every tab switch. The SWR-style background revalidation in the service
+  // worker API cache will keep the data fresh.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const db = getOfflineDB();
-        const [cachedHw, cachedClasses] = await Promise.all([
-          db.homework.toArray(),
-          db.classes.toArray(),
-        ]);
-        if (cancelled) return;
-        if (cachedHw.length > 0) {
-          setHomework(cachedHw.map((h) => ({
-            id: h.id,
-            title: h.title,
-            description: h.description,
-            classId: h.classId,
-            dueDate: h.dueDate,
-            dueTime: h.dueTime,
-            priority: h.priority as HomeworkItem["priority"],
-            status: h.status as HomeworkItem["status"],
-            kind: h.kind as HomeworkItem["kind"],
-            completedAt: h.completedAt ? new Date(h.completedAt) : null,
-          })));
+      // Only load from IndexedDB if we don't already have server-rendered data
+      if (initialHomework.length === 0 && initialClasses.length === 0) {
+        try {
+          const db = getOfflineDB();
+          const [cachedHw, cachedClasses] = await Promise.all([
+            db.homework.toArray(),
+            db.classes.toArray(),
+          ]);
+          if (cancelled) return;
+          if (cachedHw.length > 0) {
+            setHomework(cachedHw.map((h) => ({
+              id: h.id,
+              title: h.title,
+              description: h.description,
+              classId: h.classId,
+              dueDate: h.dueDate,
+              dueTime: h.dueTime,
+              priority: h.priority as HomeworkItem["priority"],
+              status: h.status as HomeworkItem["status"],
+              kind: h.kind as HomeworkItem["kind"],
+              completedAt: h.completedAt ? new Date(h.completedAt) : null,
+            })));
+          }
+          if (cachedClasses.length > 0) {
+            setClasses(cachedClasses.map((c) => ({
+              id: c.id,
+              name: c.name,
+              color: c.color,
+              archived: c.archived,
+            })));
+          }
+        } catch {
+          // IndexedDB not available — continue to API
         }
-        if (cachedClasses.length > 0) {
-          setClasses(cachedClasses.map((c) => ({
-            id: c.id,
-            name: c.name,
-            color: c.color,
-            archived: c.archived,
-          })));
-        }
-      } catch {
-        // IndexedDB not available — continue to API
       }
 
-      try {
-        const [hwRes, clsRes] = await Promise.all([
-          fetch("/api/homework"),
-          fetch("/api/classes"),
-        ]);
-        if (cancelled) return;
-        if (hwRes.ok) {
-          const hwData = await hwRes.json();
-          if (Array.isArray(hwData)) {
-            setHomework(hwData);
-            syncHomeworkToCache(hwData);
+      // Only fetch from API if we don't have server-rendered initial data.
+      // The SW API cache (stale-while-revalidate with TTL) handles freshness.
+      if (initialHomework.length === 0 && initialClasses.length === 0) {
+        try {
+          const [hwRes, clsRes] = await Promise.all([
+            fetch("/api/homework"),
+            fetch("/api/classes"),
+          ]);
+          if (cancelled) return;
+          if (hwRes.ok) {
+            const hwData = await hwRes.json();
+            if (Array.isArray(hwData)) {
+              setHomework(hwData);
+              syncHomeworkToCache(hwData);
+            }
           }
-        }
-        if (clsRes.ok) {
-          const clsData = await clsRes.json();
-          if (Array.isArray(clsData)) {
-            setClasses(clsData);
-            syncClassesToCache(clsData);
+          if (clsRes.ok) {
+            const clsData = await clsRes.json();
+            if (Array.isArray(clsData)) {
+              setClasses(clsData);
+              syncClassesToCache(clsData);
+            }
           }
+        } catch {
+          // Offline — cached data is already showing
         }
-      } catch {
-        // Offline — cached data is already showing
       }
     })();
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -296,7 +308,7 @@ export default function HomeworkClient({
             );
             upsertHomeworkToCache(optimisticHw);
           }
-          clearApiCache();
+          invalidateApiCache("/api/homework");
           resetForm();
           setShowAddForm(false);
         } else {
@@ -316,7 +328,7 @@ export default function HomeworkClient({
           // the echoed fields. This is enough to render the item in the list.
           setHomework((prev) => [...prev, newHw].sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
           upsertHomeworkToCache(newHw);
-          clearApiCache();
+          invalidateApiCache("/api/homework");
           resetForm();
           setShowAddForm(false);
         } else {
@@ -343,7 +355,7 @@ export default function HomeworkClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-      clearApiCache();
+      invalidateApiCache("/api/homework");
     } catch {
       // Offline: keep optimistic state + cache as-is (don't revert)
     }
@@ -364,7 +376,7 @@ export default function HomeworkClient({
     deleteHomeworkFromCache(id);
     try {
       await fetch(`/api/homework/${id}`, { method: "DELETE" });
-      clearApiCache();
+      invalidateApiCache("/api/homework");
     } catch {
       refreshHomework();
     }
@@ -408,7 +420,7 @@ export default function HomeworkClient({
     setDeleteClassConfirm(null);
     try {
       await fetch(`/api/classes?id=${cls.id}`, { method: "DELETE" });
-      clearApiCache();
+      invalidateApiCache("/api/classes");
     } catch {
       // Re-fetch on failure
       try {

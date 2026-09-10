@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Plus, Trash2, Pin, BookText, X } from "lucide-react";
 import type { Note } from "@/lib/db/schema";
-import { clearApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 import { upsertNoteToCache, deleteNoteFromCache } from "@/lib/offline/cache-writers";
 
 function timeAgo(date: Date | string): string {
@@ -66,7 +66,7 @@ export default function NotesTab({
         const newNote = await res.json();
         setNotes((prev) => [newNote, ...prev]);
         upsertNoteToCache(newNote);
-        clearApiCache();
+        invalidateApiCache("/api/notes");
         setTitle("");
         setContent("");
         setShowNewNote(false);
@@ -92,7 +92,7 @@ export default function NotesTab({
           const updated = await res.json();
           setNotes((prev) => prev.map((n) => (n.id === noteId ? updated : n)));
           upsertNoteToCache(updated);
-          clearApiCache();
+          invalidateApiCache("/api/notes");
         }
       } catch {
         // keep state
@@ -128,7 +128,7 @@ export default function NotesTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pinned: !note.pinned }),
       });
-      clearApiCache();
+      invalidateApiCache("/api/notes");
     } catch {
       // keep state
     }
@@ -144,7 +144,7 @@ export default function NotesTab({
     }
     try {
       await fetch(`/api/notes/${id}`, { method: "DELETE" });
-      clearApiCache();
+      invalidateApiCache("/api/notes");
     } catch {
       // keep state
     }

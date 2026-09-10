@@ -16,7 +16,13 @@ export async function GET(request: NextRequest) {
     }
 
     const classes = await db
-      .select()
+      .select({
+        id: schema.classes.id,
+        name: schema.classes.name,
+        color: schema.classes.color,
+        archived: schema.classes.archived,
+        sortOrder: schema.classes.sortOrder,
+      })
       .from(schema.classes)
       .where(eq(schema.classes.userId, session.userId))
       .orderBy(schema.classes.sortOrder, schema.classes.createdAt)

@@ -196,7 +196,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                   <Link
                     key={tool.href}
                     href={tool.href}
-                    prefetch
+                    prefetch={false}
                     onClick={() => setOpen(false)}
                     className={`group relative flex flex-col overflow-hidden rounded-2xl border transition-transform active:scale-[0.97] ${isFull ? "col-span-2" : "col-span-1"}`}
                     style={{

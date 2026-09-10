@@ -21,9 +21,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many sync requests." }, { status: 429 });
   }
 
-  // Get user's prayer settings (location)
+  // Get user's prayer settings (location only — not privacy flags)
   const [settings] = await db
-    .select()
+    .select({
+      latitude: schema.prayerSettings.latitude,
+      longitude: schema.prayerSettings.longitude,
+      timezone: schema.prayerSettings.timezone,
+      calculationMethod: schema.prayerSettings.calculationMethod,
+      madhab: schema.prayerSettings.madhab,
+    })
     .from(schema.prayerSettings)
     .where(eq(schema.prayerSettings.userId, session.userId))
     .limit(1);

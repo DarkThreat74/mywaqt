@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v36";
+const CACHE_VERSION = "waqt-v37";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -657,20 +657,44 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // ── API GET requests (events, prayer-times, homework): stale-while-revalidate ──
+  // ── API GET requests (events, prayer-times, homework): stale-while-revalidate with TTL ──
+  // Per-endpoint TTL prevents stale data from being served indefinitely.
+  // The cachedAt timestamp is stored in a custom response header.
   if (url.pathname.startsWith("/api/") && !(url.pathname === "/api/talks" && url.searchParams.has("stream"))) {
+    // TTL per endpoint (in ms). Prayer times change daily, events change frequently,
+    // talks change rarely. Default 5 min for unknown endpoints.
+    const API_TTL = (() => {
+      if (url.pathname.startsWith("/api/prayer-times")) return 60 * 60 * 1000;      // 1 hour
+      if (url.pathname.startsWith("/api/talks")) return 6 * 60 * 60 * 1000;        // 6 hours
+      if (url.pathname.startsWith("/api/events")) return 60 * 1000;                // 1 minute
+      if (url.pathname.startsWith("/api/homework")) return 2 * 60 * 1000;           // 2 minutes
+      if (url.pathname.startsWith("/api/prayer-log")) return 60 * 1000;             // 1 minute
+      return 5 * 60 * 1000;                                                          // 5 minutes default
+    })();
+
     event.respondWith(
       (async () => {
-        const cached = await caches.match(request);
+        const cache = await caches.open(API_CACHE);
+        const cached = await cache.match(request);
         if (cached) {
-          // Revalidate in background — keep SW alive during cache write
+          const cachedAt = Number(cached.headers.get("x-waqt-cached-at") || 0);
+          const age = Date.now() - cachedAt;
+          // If cache is fresh, serve without revalidation
+          if (age < API_TTL) return cached;
+          // Stale — serve immediately but revalidate in background
           event.waitUntil(
             fetch(request)
               .then(async (response) => {
                 if (response.ok) {
-                  const responseClone = response.clone();
-                  const cache = await caches.open(API_CACHE);
-                  await cache.put(request, responseClone);
+                  const body = await response.blob();
+                  const headers = new Headers(response.headers);
+                  headers.set("x-waqt-cached-at", String(Date.now()));
+                  const cachedRes = new Response(body, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers,
+                  });
+                  await cache.put(request, cachedRes);
                 }
               })
               .catch(() => {})
@@ -681,9 +705,16 @@ self.addEventListener("fetch", (event) => {
         try {
           const response = await fetch(request);
           if (response.ok) {
-            const responseClone = response.clone();
-            const cache = await caches.open(API_CACHE);
-            await cache.put(request, responseClone);
+            const body = await response.blob();
+            const headers = new Headers(response.headers);
+            headers.set("x-waqt-cached-at", String(Date.now()));
+            const cachedRes = new Response(body, {
+              status: response.status,
+              statusText: response.statusText,
+              headers,
+            });
+            await cache.put(request, cachedRes.clone());
+            return cachedRes;
           }
           return response;
         } catch {
@@ -812,6 +843,28 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "CLEAR_API_CACHE") {
     // Clear API cache to prevent cross-user data leakage
     event.waitUntil(caches.delete(API_CACHE).catch(() => {}));
+  }
+  if (event.data && event.data.type === "INVALIDATE_API_PREFIX") {
+    // Per-endpoint invalidation — delete only cache entries matching the prefix.
+    // This avoids the global wipe that forces ALL cached API responses to be
+    // re-downloaded on the next view. e.g. after an event write, only /api/events
+    // entries are deleted, not /api/prayer-times, /api/homework, /api/talks, etc.
+    const prefix = event.data.prefix || "";
+    event.waitUntil(
+      (async () => {
+        const cache = await caches.open(API_CACHE);
+        const keys = await cache.keys();
+        const toDelete = keys.filter((key) => {
+          try {
+            const u = new URL(key.url);
+            return u.pathname.startsWith(prefix);
+          } catch {
+            return false;
+          }
+        });
+        await Promise.all(toDelete.map((key) => cache.delete(key)));
+      })()
+    );
   }
   if (event.data && event.data.type === "CLEAR_USER_CACHE") {
     // Clear user-specific caches on logout (keep STATIC_CACHE — shared assets)
