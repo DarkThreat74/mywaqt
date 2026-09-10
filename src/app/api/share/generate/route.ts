@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import { randomBytes } from "crypto";
+import { randomInt } from "crypto";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -9,11 +9,19 @@ import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
 
-// Generate a cryptographically secure 128-bit share token (32-char hex).
-// The previous 5-digit numeric code was enumerable (100k possibilities) and
-// allowed IDOR-style access to any user's shared calendar/prayer times.
-function generateShareToken(): string {
-  return randomBytes(16).toString("hex");
+// Generate a short 6-character share code using an unambiguous alphabet
+// (no I, O, 0, 1). 32^6 ≈ 1 billion possibilities — collision-resistant at
+// 100k users with a DB uniqueness check. The code is URL-friendly and
+// easy to share verbally.
+const SHARE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const SHARE_CODE_LENGTH = 6;
+
+function generateShareCode(): string {
+  let code = "";
+  for (let i = 0; i < SHARE_CODE_LENGTH; i++) {
+    code += SHARE_ALPHABET[randomInt(SHARE_ALPHABET.length)];
+  }
+  return code;
 }
 
 // POST /api/share/generate — create or regenerate the public share code.
@@ -39,25 +47,25 @@ export async function POST(request: NextRequest) {
 
   const nameSlug = slugifyName(userRow?.displayName || "shared");
 
-  // Generate a unique 128-bit token (collisions checked against DB)
-  let token = generateShareToken();
+  // Generate a unique 6-char code (collisions checked against DB)
+  let code = generateShareCode();
   for (let attempt = 0; attempt < 10; attempt++) {
     const [existing] = await db
       .select({ id: schema.users.id })
       .from(schema.users)
-      .where(eq(schema.users.publicShareToken, token))
+      .where(eq(schema.users.publicShareToken, code))
       .limit(1);
     if (!existing) break;
-    token = generateShareToken();
+    code = generateShareCode();
   }
 
   // Overwrite the old token — this deactivates any previously shared link
   await db
     .update(schema.users)
-    .set({ publicShareToken: token })
+    .set({ publicShareToken: code })
     .where(eq(schema.users.id, session.userId));
 
-  return NextResponse.json({ token, url: `/${nameSlug}/${token}/public` });
+  return NextResponse.json({ token: code, url: `/${nameSlug}/${code}/public` });
 }
 
 // DELETE /api/share/generate — disable sharing (clears the token)

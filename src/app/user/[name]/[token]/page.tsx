@@ -13,8 +13,9 @@ export default async function LegacyNamedPublicCalendarPage({
 }) {
   const { token } = await params;
 
-  // Token may be an old 32-char hex string or a new 5-digit code
-  if (!token || !(/^([a-f0-9]{32}|\d{5})$/.test(token))) {
+  // Token is a 6-char share code (unambiguous alphabet). Legacy 32-char hex
+  // and old 5-digit numeric codes are also accepted so existing links don't break.
+  if (!token || (!/^[A-Z2-9]{6}$/.test(token) && !/^[a-f0-9]{32}$/.test(token) && !/^\d{5}$/.test(token))) {
     notFound();
   }
 

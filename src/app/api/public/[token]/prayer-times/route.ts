@@ -18,9 +18,9 @@ export async function GET(
   }
 
   const { token } = await params;
-  // Token is a 128-bit hex string (32 chars). Legacy 5-digit codes are no
-  // longer accepted — they were enumerable and allowed IDOR access.
-  if (!token || !/^[a-f0-9]{32}$/.test(token)) {
+  // Token is a 6-char share code (unambiguous alphabet). Legacy 32-char hex
+  // tokens are also accepted so existing shared links don't break.
+  if (!token || (!/^[A-Z2-9]{6}$/.test(token) && !/^[a-f0-9]{32}$/.test(token))) {
     return NextResponse.json({ error: "Invalid link." }, { status: 400 });
   }
 

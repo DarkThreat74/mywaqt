@@ -71,9 +71,9 @@ export default async function PublicCalendarPage({
 }) {
   const { name, code } = await params;
 
-  // Code is a 128-bit hex string (32 chars). Legacy 5-digit codes are no
-  // longer accepted — they were enumerable and allowed IDOR access.
-  if (!code || !/^[a-f0-9]{32}$/.test(code)) {
+  // Code is a 6-char share code (unambiguous alphabet). Legacy 32-char hex
+  // tokens are also accepted so existing shared links don't break.
+  if (!code || !/^[A-Z2-9]{6}$/.test(code) && !/^[a-f0-9]{32}$/.test(code)) {
     notFound();
   }
 
