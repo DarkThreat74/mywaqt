@@ -175,7 +175,8 @@ export async function saveAudioOffline(
   // Download and cache
   await cache.add(url);
 
-  // Get the actual cached size
+  // Get the actual cached size — try arrayBuffer first, then content-length
+  // header, then metadata fileSize as fallback
   const response = await cache.match(new Request(url), { ignoreVary: true });
   let actualSize = metadata?.fileSize || 0;
   if (response) {
@@ -183,7 +184,11 @@ export async function saveAudioOffline(
       const buffer = await response.clone().arrayBuffer();
       actualSize = buffer.byteLength;
     } catch {
-      // fall back to metadata size
+      // Fall back to content-length header if arrayBuffer fails
+      const contentLength = response.headers.get("content-length");
+      if (contentLength) {
+        actualSize = parseInt(contentLength, 10) || actualSize;
+      }
     }
   }
 
@@ -207,6 +212,9 @@ export async function saveAudioOffline(
 
   // Evict old entries if over the limit
   await evictLRUIfNeeded();
+
+  // Notify listeners (e.g. settings page) that the download manifest changed
+  window.dispatchEvent(new CustomEvent("waqt:audio-cache-changed"));
 }
 
 /**
@@ -230,6 +238,9 @@ export async function removeAudioOffline(url: string): Promise<void> {
   } catch {
     // best-effort
   }
+
+  // Notify listeners that the download manifest changed
+  window.dispatchEvent(new CustomEvent("waqt:audio-cache-changed"));
 }
 
 /**

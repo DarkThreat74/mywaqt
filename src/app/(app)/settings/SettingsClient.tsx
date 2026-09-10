@@ -381,18 +381,29 @@ export default function SettingsClient({
   const [audioCacheInfo, setAudioCacheInfo] = useState<{ count: number; sizeBytes: number } | null>(null);
   const [downloadLimitMB, setDownloadLimitMBState] = useState<number>(500);
 
-  // Load audio cache info + download limit on mount
+  // Load audio cache info + download limit on mount, and refresh when
+  // the download manifest changes (e.g. user downloads/removes a talk on
+  // the talks page, then navigates to settings). Uses a custom event
+  // dispatched by saveAudioOffline/removeAudioOffline.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+
+    const refresh = async () => {
       try {
         const [count, sizeBytes] = await Promise.all([getAudioCacheCount(), getAudioCacheSize()]);
         if (!cancelled) setAudioCacheInfo({ count, sizeBytes });
       } catch { /* non-critical */ }
-      // Defer to avoid cascading renders (react-hooks/set-state-in-effect)
       if (!cancelled) setDownloadLimitMBState(getDownloadLimitMB());
-    })();
-    return () => { cancelled = true; };
+    };
+
+    refresh();
+
+    const handleCacheChange = () => refresh();
+    window.addEventListener("waqt:audio-cache-changed", handleCacheChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("waqt:audio-cache-changed", handleCacheChange);
+    };
   }, []);
 
   // Handle download limit change

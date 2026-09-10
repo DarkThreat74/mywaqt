@@ -1,17 +1,16 @@
-fix: old share tokens show "no longer available" instead of redirecting
+fix: offline talks download bar not updating after downloads
 
-Old-format share links (32-char hex, 5-digit numeric) now show a clear
-"This link is no longer available" message instead of redirecting to
-the new URL format or showing a generic 404. When a user regenerates
-their share code, the old link immediately stops working.
+The settings page loaded audio cache info once on mount and never
+refreshed. When the user downloaded talks on the talks page and
+navigated back to settings, the bar showed stale data.
 
-- Created ShareLinkExpired component with clear messaging and a link
-  back to Waqt
-- Legacy routes (/user/[token], /user/[name]/[token]) now render the
-  expired message — no more redirects
-- Main route (/[name]/[code]/public) shows the expired message when
-  the token doesn't match anyone in the DB (regenerated or disabled)
-  instead of a generic notFound()
+- Dispatch a "waqt:audio-cache-changed" custom event from
+  saveAudioOffline and removeAudioOffline
+- Settings page listens for this event and refreshes the cache info
+  (count, size, progress bar) when it fires
+- Also improved size calculation: if response.arrayBuffer() fails
+  (streaming responses), fall back to content-length header before
+  using the metadata fileSize
 
 Generated with [Devin](https://devin.ai)
 
