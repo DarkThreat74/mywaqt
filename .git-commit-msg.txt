@@ -1,16 +1,18 @@
-fix: offline talks download bar not updating after downloads
+fix: offline talks download bar — opaque response was zeroing the size
 
-The settings page loaded audio cache info once on mount and never
-refreshed. When the user downloaded talks on the talks page and
-navigated back to settings, the bar showed stale data.
+Root cause: the stream endpoint returns a 307 redirect to a cross-origin
+R2 URL. The Cache API follows the redirect and stores an opaque response.
+response.clone().arrayBuffer() on an opaque response succeeds but returns
+0 bytes, overwriting the correct metadata.fileSize with 0. The manifest
+recorded size: 0 for every download, so the bar stayed at 0%.
 
-- Dispatch a "waqt:audio-cache-changed" custom event from
-  saveAudioOffline and removeAudioOffline
-- Settings page listens for this event and refreshes the cache info
-  (count, size, progress bar) when it fires
-- Also improved size calculation: if response.arrayBuffer() fails
-  (streaming responses), fall back to content-length header before
-  using the metadata fileSize
+- Only overwrite actualSize from the response if it's non-opaque and > 0
+  bytes. Otherwise keep metadata.fileSize (from the DB, populated during
+  upload/processing).
+- Add backfillAudioCacheSizes() to fix existing manifest entries with
+  size: 0 using the talk's DB fileSize. Called when the talks page loads.
+- Settings page now also listens for pageshow (navigate-back refresh)
+  in addition to the custom cache-changed event.
 
 Generated with [Devin](https://devin.ai)
 

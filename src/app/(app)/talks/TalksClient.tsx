@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { ExternalLink, Folder, ChevronLeft, ChevronRight, Play, Clock, Headphones, Download, Search, X, Mic2, Check, Loader2, History, Circle } from "lucide-react";
-import { audioCacheKey, getCachedAudioKeys, removeAudioOffline, saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
+import { audioCacheKey, backfillAudioCacheSizes, getCachedAudioKeys, removeAudioOffline, saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
 import { getFolderColor } from "@/lib/folder-colors";
 
@@ -140,6 +140,8 @@ export default function TalksClient() {
               .filter((talk) => talk.streamUrl && cachedKeys.has(audioCacheKey(talk.streamUrl)))
               .map((talk) => talk.id)));
           }
+          // Backfill any manifest entries with size: 0 (from the opaque-response bug)
+          await backfillAudioCacheSizes(loadedTalks);
         } catch { /* Cache Storage is unavailable */ }
       } catch {
         if (!cancelled) setError("We couldn't load the talks library. Check your connection and try again.");

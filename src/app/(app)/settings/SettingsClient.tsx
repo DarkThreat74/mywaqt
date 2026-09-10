@@ -382,9 +382,10 @@ export default function SettingsClient({
   const [downloadLimitMB, setDownloadLimitMBState] = useState<number>(500);
 
   // Load audio cache info + download limit on mount, and refresh when
-  // the download manifest changes (e.g. user downloads/removes a talk on
-  // the talks page, then navigates to settings). Uses a custom event
-  // dispatched by saveAudioOffline/removeAudioOffline.
+  // the download manifest changes or when the page is revisited.
+  // Next.js unmounts the component when navigating away, so the custom
+  // event listener won't fire while on another page — the pageshow
+  // listener catches the "navigate back" case.
   useEffect(() => {
     let cancelled = false;
 
@@ -399,10 +400,13 @@ export default function SettingsClient({
     refresh();
 
     const handleCacheChange = () => refresh();
+    const handlePageShow = () => refresh();
     window.addEventListener("waqt:audio-cache-changed", handleCacheChange);
+    window.addEventListener("pageshow", handlePageShow);
     return () => {
       cancelled = true;
       window.removeEventListener("waqt:audio-cache-changed", handleCacheChange);
+      window.removeEventListener("pageshow", handlePageShow);
     };
   }, []);
 

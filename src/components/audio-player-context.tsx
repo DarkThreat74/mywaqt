@@ -63,6 +63,38 @@ export async function getCachedAudioKeys(): Promise<Set<string>> {
   return new Set((await cache.keys()).map((request) => audioCacheKey(request.url)));
 }
 
+/**
+ * Backfill manifest entries that have size: 0 (from the opaque-response bug
+ * where cross-origin R2 redirects couldn't be read). Uses the talk's DB
+ * fileSize from the API response. Called when the talks page loads.
+ */
+export async function backfillAudioCacheSizes(
+  talks: Array<{ id: string; fileSize: number | null; streamUrl: string | null }>,
+): Promise<void> {
+  try {
+    const db = getOfflineDB();
+    const entries = await db.talkDownloads.toArray();
+    const needsFix = entries.filter((e) => !e.size);
+    if (needsFix.length === 0) return;
+
+    const sizeMap = new Map<string, number>();
+    for (const talk of talks) {
+      if (talk.streamUrl && talk.fileSize) {
+        sizeMap.set(talk.id, talk.fileSize);
+      }
+    }
+
+    for (const entry of needsFix) {
+      const size = sizeMap.get(entry.talkId);
+      if (size) {
+        await db.talkDownloads.update(entry.cacheKey, { size });
+      }
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 export async function isAudioCached(url: string): Promise<boolean> {
   return (await getCachedAudioKeys()).has(audioCacheKey(url));
 }
@@ -175,19 +207,23 @@ export async function saveAudioOffline(
   // Download and cache
   await cache.add(url);
 
-  // Get the actual cached size — try arrayBuffer first, then content-length
-  // header, then metadata fileSize as fallback
+  // Get the actual cached size. The stream endpoint returns a 307 redirect
+  // to a cross-origin R2 URL, so the cached response is often opaque.
+  // Opaque responses can't be read — arrayBuffer() returns 0 bytes and
+  // headers are empty. So: start with metadata.fileSize, only overwrite
+  // from the response if it's a readable (non-opaque) response with > 0 bytes.
   const response = await cache.match(new Request(url), { ignoreVary: true });
   let actualSize = metadata?.fileSize || 0;
-  if (response) {
+  if (response && response.type !== "opaque") {
     try {
       const buffer = await response.clone().arrayBuffer();
-      actualSize = buffer.byteLength;
+      if (buffer.byteLength > 0) actualSize = buffer.byteLength;
     } catch {
       // Fall back to content-length header if arrayBuffer fails
       const contentLength = response.headers.get("content-length");
       if (contentLength) {
-        actualSize = parseInt(contentLength, 10) || actualSize;
+        const parsed = parseInt(contentLength, 10);
+        if (parsed > 0) actualSize = parsed;
       }
     }
   }
