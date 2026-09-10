@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, lt } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { verifyCronAuth } from "@/lib/cronAuth";
 import { isWindowClosed, getPrayerWindow } from "@/lib/prayer/stateMachine";
@@ -15,11 +15,13 @@ export const maxDuration = 300;
 // Real-time prayer notifications are handled by the client-side NotificationScheduler
 // while the app is open or in a background tab.
 //
-// This cron does two things:
+// This cron does four things:
 // 1. Sends a daily morning push with today's prayer times (so users start the
 //    day knowing when each prayer is)
 // 2. Resolves any prayers from yesterday whose windows have closed as
 //    assumed_prayed (the "never assume the worst" principle)
+// 3. Cleans up login_attempts older than 24 hours (per-account brute-force table)
+// 4. Cleans up trusted_devices unused for 90 days (stale device hygiene)
 //
 // Idempotent — safe to run multiple times.
 //
@@ -29,6 +31,8 @@ export const maxDuration = 300;
 // - Memory exhaustion from loading all data at once
 // - Single-function timeout from processing too many users sequentially
 const BATCH_SIZE = 500;
+const STALE_DEVICE_DAYS = 90;
+const LOGIN_ATTEMPT_RETENTION_HOURS = 24;
 
 export async function POST(request: NextRequest) {
   if (!verifyCronAuth(request.headers.get("authorization"), request.headers.get("x-vercel-cron") === "1")) {
@@ -66,7 +70,30 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, notificationsSent, assumedResolved });
+  // ── Cleanup: prune stale login attempts and trusted devices ──
+  // Best-effort — failures don't affect the main response.
+  let loginAttemptsDeleted = 0;
+  let staleDevicesDeleted = 0;
+  try {
+    const loginCutoff = new Date(Date.now() - LOGIN_ATTEMPT_RETENTION_HOURS * 60 * 60 * 1000);
+    const deletedAttempts = await db
+      .delete(schema.loginAttempts)
+      .where(lt(schema.loginAttempts.failedAt, loginCutoff));
+    loginAttemptsDeleted = deletedAttempts?.rowCount ?? 0;
+  } catch (err) {
+    logError(err, { route: "cron/checkin-scheduler", phase: "cleanup-login-attempts" });
+  }
+  try {
+    const deviceCutoff = new Date(Date.now() - STALE_DEVICE_DAYS * 24 * 60 * 60 * 1000);
+    const deletedDevices = await db
+      .delete(schema.trustedDevices)
+      .where(lt(schema.trustedDevices.lastUsedAt, deviceCutoff));
+    staleDevicesDeleted = deletedDevices?.rowCount ?? 0;
+  } catch (err) {
+    logError(err, { route: "cron/checkin-scheduler", phase: "cleanup-stale-devices" });
+  }
+
+  return NextResponse.json({ ok: true, notificationsSent, assumedResolved, loginAttemptsDeleted, staleDevicesDeleted });
 }
 
 async function processUserBatch(
@@ -229,28 +256,39 @@ async function processUserBatch(
         renotify: true,
       });
 
-      for (const sub of subs) {
-        try {
-          const result = await sendPrayerPush(
-            { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
-            payload,
-            { topic: `prayer-times-${today}` },
-          );
-          if (result.delivered) {
-            notificationsSent++;
-          } else if (result.expired) {
+      // Send pushes with concurrency (10 parallel) instead of sequential.
+      // At 100k users this reduces push time from ~2.8h to ~17min.
+      const PUSH_CONCURRENCY = 10;
+      const subChunks: typeof subs[] = [];
+      for (let si = 0; si < subs.length; si += PUSH_CONCURRENCY) {
+        subChunks.push(subs.slice(si, si + PUSH_CONCURRENCY));
+      }
+      for (const subChunk of subChunks) {
+        await Promise.allSettled(
+          subChunk.map(async (sub) => {
             try {
-              await db
-                .delete(schema.pushSubscriptions)
-                .where(eq(schema.pushSubscriptions.id, sub.id));
-            } catch (deleteErr) {
-              logError(deleteErr, { route: "cron/checkin-scheduler", phase: "delete-expired-sub", subId: sub.id });
+              const result = await sendPrayerPush(
+                { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+                payload,
+                { topic: `prayer-times-${today}` },
+              );
+              if (result.delivered) {
+                notificationsSent++;
+              } else if (result.expired) {
+                try {
+                  await db
+                    .delete(schema.pushSubscriptions)
+                    .where(eq(schema.pushSubscriptions.id, sub.id));
+                } catch (deleteErr) {
+                  logError(deleteErr, { route: "cron/checkin-scheduler", phase: "delete-expired-sub", subId: sub.id });
+                }
+              }
+            } catch (err) {
+              const e = err as { statusCode?: number };
+              logError(err, { route: "cron/checkin-scheduler", phase: "push", subId: sub.id, statusCode: e.statusCode });
             }
-          }
-        } catch (err) {
-          const e = err as { statusCode?: number };
-          logError(err, { route: "cron/checkin-scheduler", phase: "push", subId: sub.id, statusCode: e.statusCode });
-        }
+          }),
+        );
       }
     } catch (userErr) {
       logError(userErr, { route: "cron/checkin-scheduler", phase: "user", userId: s.userId });

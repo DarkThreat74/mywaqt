@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { setSessionCookie } from "@/lib/auth/session";
 import { isValidEmail, isHoneypotTripped, isTimeTrapTripped, isValidFingerprintHash } from "@/lib/validation";
@@ -9,6 +9,12 @@ import { getDeviceLabel } from "@/lib/auth/device-label";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
+
+// Per-account brute-force protection: after 10 failed attempts in 15 min,
+// the account is locked. This is DB-backed so it survives serverless cold
+// starts and is shared across all Vercel function instances.
+const MAX_FAILED_ATTEMPTS = 10;
+const LOCKOUT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,6 +66,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Per-account brute-force check (DB-backed) ──
+  // Count recent failed attempts for this email. If >= MAX, lock the account.
+  const lockoutCutoff = new Date(Date.now() - LOCKOUT_WINDOW_MS);
+  const recentFailures = await db
+    .select({ id: schema.loginAttempts.id })
+    .from(schema.loginAttempts)
+    .where(
+      and(
+        eq(schema.loginAttempts.email, normalizedEmail),
+        gt(schema.loginAttempts.failedAt, lockoutCutoff),
+      ),
+    )
+    .limit(MAX_FAILED_ATTEMPTS + 1);
+
+  if (recentFailures.length >= MAX_FAILED_ATTEMPTS) {
+    return NextResponse.json(
+      { error: "Too many failed attempts. Please try again in 15 minutes." },
+      { status: 429 },
+    );
+  }
+
   // ── Look up user ──
   const [user] = await db
     .select({ id: schema.users.id, email: schema.users.email, passwordHash: schema.users.passwordHash, role: schema.users.role, firstName: schema.users.firstName })
@@ -68,6 +95,8 @@ export async function POST(request: NextRequest) {
     .limit(1);
 
   if (!user) {
+    // Record failed attempt for email enumeration protection
+    await db.insert(schema.loginAttempts).values({ email: normalizedEmail });
     return NextResponse.json(
       { error: "Invalid email or password." },
       { status: 401 },
@@ -96,6 +125,9 @@ export async function POST(request: NextRequest) {
         .then(() => {})
         .catch(() => {});
 
+      // Clear failed attempts on successful trusted-device login
+      await db.delete(schema.loginAttempts).where(eq(schema.loginAttempts.email, normalizedEmail));
+
       await setSessionCookie({ id: user.id, email: user.email });
       return NextResponse.json({ ok: true, trustedDevice: true });
     }
@@ -103,6 +135,7 @@ export async function POST(request: NextRequest) {
 
   // ── Password verification ──
   if (!password) {
+    await db.insert(schema.loginAttempts).values({ email: normalizedEmail });
     return NextResponse.json(
       { error: "Invalid email or password." },
       { status: 401 },
@@ -110,11 +143,15 @@ export async function POST(request: NextRequest) {
   }
 
   if (!(await bcrypt.compare(password, user.passwordHash))) {
+    await db.insert(schema.loginAttempts).values({ email: normalizedEmail });
     return NextResponse.json(
       { error: "Invalid email or password." },
       { status: 401 },
     );
   }
+
+  // ── Clear failed attempts on successful password login ──
+  await db.delete(schema.loginAttempts).where(eq(schema.loginAttempts.email, normalizedEmail));
 
   // ── Set session ──
   await setSessionCookie({ id: user.id, email: user.email });
@@ -124,6 +161,23 @@ export async function POST(request: NextRequest) {
   if (validFingerprint) {
     try {
       const deviceLabel = getDeviceLabel(request.headers.get('user-agent'));
+
+      // ── Trusted device limit: max 10 per user ──
+      // If at limit, delete the oldest device before adding the new one
+      const existingDevices = await db
+        .select({ id: schema.trustedDevices.id })
+        .from(schema.trustedDevices)
+        .where(eq(schema.trustedDevices.userId, user.id))
+        .orderBy(schema.trustedDevices.lastUsedAt)
+        .limit(1);
+
+      if (existingDevices.length >= 10) {
+        // Delete the least recently used device
+        await db
+          .delete(schema.trustedDevices)
+          .where(eq(schema.trustedDevices.id, existingDevices[0].id));
+      }
+
       await db
         .insert(schema.trustedDevices)
         .values({

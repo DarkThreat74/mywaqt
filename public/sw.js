@@ -79,10 +79,13 @@ function openDB() {
 
 async function addToOutbox(operation) {
   const db = await openDB();
+  // Generate an idempotency key so retries don't double-apply mutations.
+  // The server can use this to deduplicate replays of the same operation.
+  const idempotencyKey = "off-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(OUTBOX_STORE, "readwrite");
     const store = tx.objectStore(OUTBOX_STORE);
-    const req = store.add({ ...operation, timestamp: Date.now() });
+    const req = store.add({ ...operation, timestamp: Date.now(), idempotencyKey });
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
@@ -131,9 +134,15 @@ async function syncOutbox() {
           ? JSON.stringify({ ...item.body, _offlineTimestamp: item.timestamp })
           : undefined;
 
+        // Include idempotency key so the server can deduplicate replays
+        const headers = { ...(item.headers || { "Content-Type": "application/json" }) };
+        if (item.idempotencyKey) {
+          headers["Idempotency-Key"] = item.idempotencyKey;
+        }
+
         const res = await fetch(item.url, {
           method: item.method,
-          headers: item.headers || { "Content-Type": "application/json" },
+          headers,
           body: bodyToSend,
           credentials: "include",
         });

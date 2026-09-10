@@ -405,6 +405,20 @@ export const trustedDevices = pgTable('trusted_devices', {
   userDeviceIdx: uniqueIndex('trusted_devices_user_hash_idx').on(t.userId, t.fingerprintHash),
 }));
 
+// ─── Login Attempts (per-account brute-force protection) ───
+// DB-backed so it survives serverless cold starts and is shared across instances.
+// Tracks failed login attempts per email. After 10 failures in 15 min, the
+// account is locked. Successful login clears the counter.
+
+export const loginAttempts = pgTable('login_attempts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: text('email').notNull(),
+  failedAt: timestamp('failed_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  // Index for fast lookup of recent attempts by email
+  emailFailedAtIdx: index('login_attempts_email_failed_at_idx').on(t.email, t.failedAt),
+}));
+
 // ─── Goals (hierarchical goal tracking with tree/list views) ───
 
 export const goals = pgTable('goals', {
@@ -593,6 +607,7 @@ export type TalkProgress = typeof talkProgress.$inferSelect;
 export type PrayerFriend = typeof prayerFriends.$inferSelect;
 export type PrayerBlock = typeof prayerBlocks.$inferSelect;
 export type TrustedDevice = typeof trustedDevices.$inferSelect;
+export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type Goal = typeof goals.$inferSelect;
 export type NewGoal = typeof goals.$inferInsert;
 export type GoalShareToken = typeof goalShareTokens.$inferSelect;

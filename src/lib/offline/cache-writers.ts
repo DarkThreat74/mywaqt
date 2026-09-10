@@ -318,8 +318,11 @@ export function syncHomeworkToCache(homework: HomeworkLike[]): void {
         }))
       )
     ).catch(() => {});
-    // Prune old completed homework
-    import("./db").then(({ pruneOldHomeworkCache }) => pruneOldHomeworkCache()).catch(() => {});
+    // Prune old completed homework + old cache data (events, prayer logs, prayer times)
+    import("./db").then(({ pruneOldHomeworkCache, pruneOldCache }) => Promise.all([
+      pruneOldHomeworkCache(),
+      pruneOldCache(),
+    ])).catch(() => {});
   } catch {
     // non-critical
   }

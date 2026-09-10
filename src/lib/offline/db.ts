@@ -288,3 +288,52 @@ export async function pruneOldHomeworkCache(): Promise<void> {
     // non-critical
   }
 }
+
+// ─── Prune old events, prayer logs, and prayer times to prevent unbounded growth ───
+// Events older than 90 days are deleted.
+// Prayer logs older than 90 days are deleted.
+// Prayer times older than 60 days (keep current + last month) are deleted.
+// Run this on app mount to keep the cache bounded.
+export async function pruneOldCache(): Promise<void> {
+  try {
+    const db = getOfflineDB();
+    const now = Date.now();
+    const eventCutoff = new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const logCutoff = new Date(now - 90 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0]; // YYYY-MM-DD
+    const timesCutoff = new Date(now - 60 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0]; // YYYY-MM-DD
+
+    await Promise.all([
+      // Events: delete by _dateKey older than 90 days
+      db.events
+        .where("_dateKey")
+        .below(eventCutoff.split("T")[0])
+        .delete(),
+      // Prayer logs: delete by date older than 90 days
+      db.prayerLogs
+        .where("date")
+        .below(logCutoff)
+        .delete(),
+      // Prayer times: delete by date older than 60 days
+      db.prayerTimes
+        .where("date")
+        .below(timesCutoff)
+        .delete(),
+      // Sunnah logs: delete by date older than 90 days
+      db.sunnahLogs
+        .where("date")
+        .below(logCutoff)
+        .delete(),
+      // Habit logs: delete by date older than 90 days
+      db.habitLogs
+        .where("date")
+        .below(logCutoff)
+        .delete(),
+    ]);
+  } catch {
+    // non-critical
+  }
+}
