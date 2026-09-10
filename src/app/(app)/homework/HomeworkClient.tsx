@@ -55,8 +55,6 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: "var(--color-accent)",
 };
 
-const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
-
 function todayStr(): string {
   return new Date().toLocaleDateString("en-CA");
 }
@@ -91,7 +89,8 @@ export default function HomeworkClient({
   const [showAddClass, setShowAddClass] = useState(false);
   const [filterClassId, setFilterClassId] = useState<string | null>(null);
   const [filterPriority, setFilterPriority] = useState<"all" | "high" | "medium" | "low">("all");
-  const [sortBy, setSortBy] = useState<"soonest" | "latest" | "priority">("soonest");
+  const [sortBy, setSortBy] = useState<"soonest" | "latest" | "type">("soonest");
+  const [sortTypeKind, setSortTypeKind] = useState<HomeworkItem["kind"]>("homework");
   const [showCompleted, setShowCompleted] = useState(false);
   const [deleteClassConfirm, setDeleteClassConfirm] = useState<ClassItem | null>(null);
   const [deleteHwConfirm, setDeleteHwConfirm] = useState<HomeworkItem | null>(null);
@@ -452,12 +451,11 @@ export default function HomeworkClient({
         if (dateCmp !== 0) return dateCmp;
         return (b.dueTime || "00:00").localeCompare(a.dueTime || "00:00");
       }
-      case "priority":
-      default: {
-        // By priority (high first), then by due date
-        const pa = PRIORITY_ORDER[a.priority] ?? 1;
-        const pb = PRIORITY_ORDER[b.priority] ?? 1;
-        if (pa !== pb) return pa - pb;
+      case "type": {
+        // Items matching the selected kind go to the top, then by due date
+        const aMatch = a.kind === sortTypeKind ? 0 : 1;
+        const bMatch = b.kind === sortTypeKind ? 0 : 1;
+        if (aMatch !== bMatch) return aMatch - bMatch;
         return a.dueDate.localeCompare(b.dueDate);
       }
     }
@@ -828,8 +826,8 @@ export default function HomeworkClient({
             <div className="flex items-center gap-1 rounded-full p-0.5" style={{ backgroundColor: "var(--color-paper-2)" }}>
               {([
                 { key: "soonest" as const, label: "Soonest", icon: CalendarClock },
-                { key: "priority" as const, label: "Priority", icon: ArrowDownWideNarrow },
                 { key: "latest" as const, label: "Latest", icon: CalendarDays },
+                { key: "type" as const, label: "Type", icon: Layers },
               ]).map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
@@ -856,6 +854,30 @@ export default function HomeworkClient({
               </button>
             )}
           </div>
+
+          {/* Type sub-selector — only shown when Sort = Type */}
+          {sortBy === "type" && (
+            <div className="flex items-center gap-1.5 flex-wrap pl-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                Top:
+              </span>
+              <div className="flex items-center gap-1 rounded-full p-0.5" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                {(["homework", "quiz", "test", "project", "reading", "other"] as const).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setSortTypeKind(k)}
+                    className="rounded-full px-2.5 py-1 text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: sortTypeKind === k ? "var(--color-ink)" : "transparent",
+                      color: sortTypeKind === k ? "var(--color-paper)" : "var(--color-ink-muted)",
+                    }}
+                  >
+                    {KIND_LABELS[k]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
