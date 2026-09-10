@@ -441,9 +441,11 @@ export default function HomeworkClient({
     return homework.filter((h) => {
       if (filterClassId && h.classId !== filterClassId) return false;
       if (filterPriority !== "all" && h.priority !== filterPriority) return false;
+      // When sorting by type, filter to only the selected kind
+      if (sortBy === "type" && h.kind !== sortTypeKind) return false;
       return true;
     });
-  }, [homework, filterClassId, filterPriority]);
+  }, [homework, filterClassId, filterPriority, sortBy, sortTypeKind]);
 
   const pending = filtered.filter((h) => h.status === "pending");
   const completed = filtered.filter((h) => h.status === "completed");
@@ -481,6 +483,23 @@ export default function HomeworkClient({
     return d >= 2 && d <= 6;
   });
   const later = sortedPending.filter((h) => daysUntil(h.dueDate) >= 7);
+
+  // For "latest" mode: group thisWeek + later items by exact date, sorted latest-first
+  const dateGroupedItems = (() => {
+    const groups = new Map<string, HomeworkItem[]>();
+    for (const h of [...thisWeek, ...later]) {
+      if (!groups.has(h.dueDate)) groups.set(h.dueDate, []);
+      groups.get(h.dueDate)!.push(h);
+    }
+    // Sort dates latest-first (reverse chronological)
+    return Array.from(groups.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  })();
+
+  // Format a date string (YYYY-MM-DD) as a readable label
+  function formatDateLabel(dateStr: string): string {
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  }
 
   function getClassInfo(id: string | null): ClassItem | null {
     if (!id) return null;
@@ -869,16 +888,16 @@ export default function HomeworkClient({
 
           {/* Type sub-selector — only shown when Sort = Type */}
           {sortBy === "type" && (
-            <div className="flex items-center gap-1.5 flex-wrap pl-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                Top:
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                Type:
               </span>
-              <div className="flex items-center gap-1 rounded-full p-0.5" style={{ backgroundColor: "var(--color-paper-2)" }}>
+              <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
                 {(["homework", "quiz", "test", "project", "reading", "other"] as const).map((k) => (
                   <button
                     key={k}
                     onClick={() => setSortTypeKind(k)}
-                    className="rounded-full px-2.5 py-1 text-xs font-medium transition-colors"
+                    className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors"
                     style={{
                       backgroundColor: sortTypeKind === k ? "var(--color-ink)" : "transparent",
                       color: sortTypeKind === k ? "var(--color-paper)" : "var(--color-ink-muted)",
@@ -1067,18 +1086,68 @@ export default function HomeworkClient({
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <BookOpen className="mb-3 h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />
           <p className="text-sm font-medium" style={{ color: "var(--color-ink-muted)" }}>
-            {filterClassId || filterPriority !== "all"
+            {filterClassId || filterPriority !== "all" || sortBy === "type"
               ? "No homework matches your filters."
               : "No homework yet. Tap \u201CAdd\u201D to create your first assignment."}
           </p>
         </div>
       ) : (
         <>
-          {renderSection("Overdue", overdue)}
-          {renderSection("Today", today)}
-          {renderSection("Tomorrow", tomorrow)}
-          {renderSection("This Week", thisWeek)}
-          {renderSection("Later", later)}
+          {sortBy === "type" ? (
+            // Type sort: flat list, no date grouping
+            sortedPending.length > 0 && (
+              <div className="mb-5">
+                <div className="mb-2 flex items-center gap-2">
+                  <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                    {KIND_LABELS[sortTypeKind]}
+                  </h2>
+                  <span
+                    className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                    style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
+                  >
+                    {sortedPending.length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {sortedPending.map(renderHomeworkCard)}
+                </div>
+              </div>
+            )
+          ) : sortBy === "latest" ? (
+            // Latest sort: reverse section order (Later → dates → Tomorrow → Today → Overdue)
+            <>
+              {dateGroupedItems.map(([dateStr, items]) => (
+                <div key={dateStr} className="mb-5">
+                  <div className="mb-2 flex items-center gap-2">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                      {formatDateLabel(dateStr)}
+                    </h2>
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                      style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
+                    >
+                      {items.length}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {items.map(renderHomeworkCard)}
+                  </div>
+                </div>
+              ))}
+              {renderSection("Tomorrow", tomorrow)}
+              {renderSection("Today", today)}
+              {renderSection("Overdue", overdue)}
+            </>
+          ) : (
+            // Soonest sort: normal order (Overdue → Today → Tomorrow → This Week → Later)
+            <>
+              {renderSection("Overdue", overdue)}
+              {renderSection("Today", today)}
+              {renderSection("Tomorrow", tomorrow)}
+              {renderSection("This Week", thisWeek)}
+              {renderSection("Later", later)}
+            </>
+          )}
 
           {/* Completed section — collapsed by default */}
           {completed.length > 0 && (

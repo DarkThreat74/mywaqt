@@ -1,14 +1,9 @@
-perf: 100k-user scalability + auth hardening
+fix: homework filter/sort — Latest reverses sections + exact dates, Type filters, mobile scroll
 
-- AlAdhan location dedup: 100k users to ~1k API calls via (lat,lng,method,madhab,month,year) grouping
-- Prayer-times sync staleness fix: query prayer_times_cache instead of comparing month strings
-- DB-backed per-account brute-force lockout (10 failures/15min, survives cold starts)
-- Trusted device limit (10/user) + stale device cleanup (90 days unused)
-- IndexedDB cache pruning: events/prayer logs/prayer times/sunnah/habit logs >90 days
-- Cron push parallelization: 10 concurrent instead of sequential (2.8h to 17min)
-- Offline outbox idempotency keys to prevent double-apply on replay
-- Daily cron cleanup: prune login_attempts >24h + trusted_devices >90 days
-- Migration 0024: login_attempts table + index
+- Latest sort: reverse section order (furthest dates first, today last)
+- Latest sort: show exact date labels instead of "This Week"
+- Type sort: actually filter to only the selected type (flat list, no date grouping)
+- Type sub-selector: horizontally scrollable on mobile (all 6 options reachable)
 
 Generated with [Devin](https://devin.ai)
 
