@@ -1,7 +1,11 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useCallback, useState, type ReactNode } from "react";
-import { createUISFX, type UISFXPlayer, type CueName, type PlayOptions, type PlayingSFX } from "uisfx";
+
+// Type-only import — the actual uisfx library is loaded lazily in useEffect
+// so it doesn't enter the initial bundle. This keeps the provider lightweight
+// and lets it render synchronously (no hydration mismatch from ssr:false).
+import type { UISFXPlayer, CueName, PlayOptions, PlayingSFX } from "uisfx";
 
 interface UISFXContextValue {
   play: (cue: CueName, options?: PlayOptions) => PlayingSFX | null;
@@ -31,26 +35,39 @@ export function UISFXProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const player = createUISFX({
-      pack: "soft",
-      volume: 0.5,
-      preferences: { key: "waqt:sound" },
-    });
-    playerRef.current = player;
+    let cancelled = false;
+    // Lazy-load the uisfx audio engine AFTER hydration — keeps it out of
+    // the initial bundle and the critical path.
+    import("uisfx").then(({ createUISFX }) => {
+      if (cancelled) return;
+      const player = createUISFX({
+        pack: "soft",
+        volume: 0.5,
+        preferences: { key: "waqt:sound" },
+      });
+      playerRef.current = player;
 
-    // Unlock on first user interaction (required by browsers)
-    const handleFirstInteraction = () => {
-      player.unlock().catch(() => {});
-      window.removeEventListener("pointerdown", handleFirstInteraction);
-      window.removeEventListener("keydown", handleFirstInteraction);
-    };
-    window.addEventListener("pointerdown", handleFirstInteraction, { once: true });
-    window.addEventListener("keydown", handleFirstInteraction, { once: true });
+      // Unlock on first user interaction (required by browsers)
+      const handleFirstInteraction = () => {
+        player.unlock().catch(() => {});
+        window.removeEventListener("pointerdown", handleFirstInteraction);
+        window.removeEventListener("keydown", handleFirstInteraction);
+      };
+      window.addEventListener("pointerdown", handleFirstInteraction, { once: true });
+      window.addEventListener("keydown", handleFirstInteraction, { once: true });
+
+      // Store cleanup on the player ref for the teardown below
+      (playerRef as unknown as { _cleanup?: () => void })._cleanup = () => {
+        window.removeEventListener("pointerdown", handleFirstInteraction);
+        window.removeEventListener("keydown", handleFirstInteraction);
+        player.destroy().catch(() => {});
+      };
+    }).catch(() => { /* uisfx failed to load — sound is best-effort */ });
 
     return () => {
-      window.removeEventListener("pointerdown", handleFirstInteraction);
-      window.removeEventListener("keydown", handleFirstInteraction);
-      player.destroy().catch(() => {});
+      cancelled = true;
+      const cleanup = (playerRef as unknown as { _cleanup?: () => void })._cleanup;
+      cleanup?.();
     };
   }, []);
 

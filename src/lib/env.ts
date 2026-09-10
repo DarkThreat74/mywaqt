@@ -55,6 +55,20 @@ export const env = {
   vapidPrivateKey: required('VAPID_PRIVATE_KEY'),
   vapidSubject: required('VAPID_SUBJECT', SITE_URL),
 
+  // Native Push — APNs (iOS). All optional: if absent, iOS push is a no-op.
+  // APNS_PRIVATE_KEY is the p8 file content (PEM string), not a file path.
+  apnsKeyId: process.env.APNS_KEY_ID ?? '',
+  apnsTeamId: process.env.APNS_TEAM_ID ?? '',
+  apnsPrivateKey: process.env.APNS_PRIVATE_KEY ?? '',
+  apnsBundleId: process.env.APNS_BUNDLE_ID ?? '',
+  apnsProduction: process.env.APNS_PRODUCTION !== 'false', // default true
+
+  // Native Push — FCM (Android). All optional: if absent, Android push is a no-op.
+  // FCM_PRIVATE_KEY is the service account's private_key (PEM string).
+  fcmProjectId: process.env.FCM_PROJECT_ID ?? '',
+  fcmClientEmail: process.env.FCM_CLIENT_EMAIL ?? '',
+  fcmPrivateKey: (process.env.FCM_PRIVATE_KEY ?? '').replace(/\\n/g, '\n'),
+
   // Cloudflare Turnstile (bot protection)
   turnstileSecretKey: required('TURNSTILE_SECRET_KEY'),
 

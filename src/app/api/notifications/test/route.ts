@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   const results = await Promise.allSettled(
     subs.map((sub) =>
       sendPrayerPush(
-        { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+        sub,
         payload,
         { topic: "waqt-test" },
       ),

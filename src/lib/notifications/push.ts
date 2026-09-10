@@ -1,5 +1,6 @@
 import webpush, { type RequestOptions } from "web-push";
 import { env } from "@/lib/env";
+import { sendNativePush, type NativePushPayload } from "@/lib/notifications/native-push";
 
 /**
  * Configure web-push VAPID details once at module load.
@@ -31,14 +32,48 @@ export const PRAYER_PUSH_OPTIONS: RequestOptions = {
 };
 
 /**
- * Send a push notification to a single subscription, with proper TTL/urgency.
+ * Unified push subscription — covers web (endpoint/p256dh/auth) and
+ * native (platform/token) rows from the push_subscriptions table.
+ */
+export interface PushSubscriptionRow {
+  id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  platform: string; // 'web' | 'ios' | 'android'
+  token: string | null;
+}
+
+/**
+ * Send a push notification to a single subscription, routing to the correct
+ * transport (Web Push, APNs, or FCM) based on the platform field.
  * Cleans up expired subscriptions (404/410) by returning a flag.
  */
 export async function sendPrayerPush(
-  subscription: { endpoint: string; p256dh: string; auth: string },
+  subscription: PushSubscriptionRow,
   payload: string,
   options?: { topic?: string },
 ): Promise<{ delivered: boolean; expired: boolean }> {
+  // ── Native push (iOS / Android) ──
+  if (subscription.platform === 'ios' || subscription.platform === 'android') {
+    if (!subscription.token) return { delivered: false, expired: false };
+
+    const webPayload = JSON.parse(payload) as { title?: string; body?: string; data?: Record<string, unknown>; tag?: string };
+    const nativePayload: NativePushPayload = {
+      title: webPayload.title ?? 'Waqt',
+      body: webPayload.body ?? '',
+      data: webPayload.data,
+      tag: webPayload.tag ?? options?.topic,
+    };
+
+    try {
+      return await sendNativePush(subscription.platform, subscription.token, nativePayload);
+    } catch {
+      return { delivered: false, expired: false };
+    }
+  }
+
+  // ── Web Push (default) ──
   ensureVapidConfigured();
 
   const pushOptions: RequestOptions = {

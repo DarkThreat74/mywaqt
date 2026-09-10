@@ -1,13 +1,25 @@
-perf: defer uisfx + capacitor from initial bundle, fix brand text selection
+feat: native push pipeline (APNs + FCM) + fix theme toggle
 
-- Lazy-load UISFXProvider via next/dynamic (saves ~30KB uisfx from initial bundle)
-- Read window.Capacitor directly instead of importing @capacitor/core (saves ~10KB)
-- Add browserslist config targeting modern browsers
-- Add ::selection style using accent hue (browser default flashed like theme switch)
-- Make landing page brand text non-selectable (select-none)
-- Add Cookie Policy, Data Deletion, legal layout, sitemap entries
-- Fix apostrophe entities in legal pages for ESLint
-- Add terms acceptance step to onboarding
+Native push (iOS/Android) was broken end-to-end: the client sent native
+tokens to an endpoint that only accepted web-push format, and the cron
+sent via the web-push library (VAPID) which can't deliver to APNs/FCM.
+
+- Add platform + token columns to push_subscriptions (migration 0025)
+- Create native-push.ts: APNs via node:http2 + crypto, FCM via fetch
+  + JWT — zero new dependencies
+- Update push.ts to route between web/APNs/FCM based on platform field
+- Update subscribe endpoint to accept { platform, token, native: true }
+- Update unsubscribe endpoint to handle native token deletion
+- Update cron and test routes to pass full subscription row
+- Add APNS_* and FCM_* env vars (optional — no-op if absent)
+
+Fix theme toggle button not working:
+- LazyUISFXProvider used next/dynamic with ssr:false, which prevented
+  children from rendering during SSR, causing a hydration mismatch
+  that broke event handlers on the settings page
+- Replaced with a type-only import + dynamic import() inside useEffect
+  in UISFXProvider itself — the provider renders synchronously, the
+  audio engine loads after hydration, uisfx stays out of initial bundle
 
 Generated with [Devin](https://devin.ai)
 

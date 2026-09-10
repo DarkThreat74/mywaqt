@@ -268,7 +268,7 @@ async function processUserBatch(
           subChunk.map(async (sub) => {
             try {
               const result = await sendPrayerPush(
-                { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+                sub,
                 payload,
                 { topic: `prayer-times-${today}` },
               );

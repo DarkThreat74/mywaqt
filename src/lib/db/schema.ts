@@ -165,14 +165,18 @@ export const notificationPrefs = pgTable('notification_prefs', {
   otherReminders: text('other_reminders').default('push').notNull(),
 });
 
-// ─── Web Push Subscriptions ───
+// ─── Push Subscriptions (web + native) ───
 
 export const pushSubscriptions = pgTable('push_subscriptions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  endpoint: text('endpoint').notNull(),
-  p256dh: text('p256dh').notNull(),
-  auth: text('auth').notNull(),
+  // Web Push fields (used when platform = 'web')
+  endpoint: text('endpoint').notNull().default(''),
+  p256dh: text('p256dh').notNull().default(''),
+  auth: text('auth').notNull().default(''),
+  // Native push fields (used when platform = 'ios' or 'android')
+  platform: text('platform').notNull().default('web'), // 'web' | 'ios' | 'android'
+  token: text('token'), // APNs token (iOS) or FCM token (Android)
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   // Hot path: cron fetches all subs for a user to send push notifications

@@ -6,7 +6,10 @@ import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
-// POST — remove a push subscription (scoped to current user)
+// POST — remove a push subscription (scoped to current user).
+// Accepts:
+//   1. Web Push: { endpoint }
+//   2. Native:   { token, platform }
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
@@ -25,8 +28,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { endpoint } = body as { endpoint?: string };
+  const { endpoint, token, platform } = body as {
+    endpoint?: string;
+    token?: string;
+    platform?: string;
+  };
 
+  // Native token deletion
+  if (token && platform) {
+    await db
+      .delete(schema.pushSubscriptions)
+      .where(
+        and(
+          eq(schema.pushSubscriptions.userId, session.userId),
+          eq(schema.pushSubscriptions.platform, platform),
+          eq(schema.pushSubscriptions.token, token),
+        ),
+      );
+    return NextResponse.json({ ok: true });
+  }
+
+  // Web Push endpoint deletion (existing behavior)
   if (!endpoint) {
     return NextResponse.json({ error: "Missing endpoint." }, { status: 400 });
   }
