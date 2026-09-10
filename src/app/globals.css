@@ -133,6 +133,13 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Text selection — use the accent hue instead of the browser default
+ * (blue/gray), which flashes like a theme switch on a warm palette. */
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 30%, transparent);
+  color: var(--color-ink);
+}
+
 /* Prevent iOS input zoom — inputs must be >= 16px font */
 input,
 select,
@@ -202,6 +209,18 @@ a,
   0%, 100% { opacity: 0.15; transform: scaleY(0.7); }
   50% { opacity: 0.4; transform: scaleY(1); }
 }
+
+/* ── Landing page CSS-only animations (replaces motion/react) ── */
+@keyframes waqt-fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes waqt-scale-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+.waqt-fade-up { animation: waqt-fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.waqt-scale-in { animation: waqt-scale-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
 /* ── Current prayer pulse (timeline "now" indicator) ── */
 @keyframes pulse {

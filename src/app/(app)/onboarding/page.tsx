@@ -1,16 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
-import { MapPin, Bell, ArrowRight, Check, Loader2, User } from "lucide-react";
+import { MapPin, Bell, ArrowRight, Check, Loader2, User, Shield } from "lucide-react";
 
-type Step = "name" | "location" | "madhab" | "notifications" | "done";
+type Step = "terms" | "name" | "location" | "madhab" | "notifications" | "done";
 
 export default function OnboardingWizard() {
-  const [step, setStep] = useState<Step>("name");
+  const [step, setStep] = useState<Step>("terms");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // router removed — using window.location.href for reliable hard navigation
+
+  // Terms acceptance
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   // Name state
   const [displayName, setDisplayName] = useState("");
@@ -181,7 +185,7 @@ export default function OnboardingWizard() {
     }
   }
 
-  const steps: Step[] = ["name", "location", "madhab", "notifications", "done"];
+  const steps: Step[] = ["terms", "name", "location", "madhab", "notifications", "done"];
   const currentIdx = steps.indexOf(step);
 
   return (
@@ -206,6 +210,88 @@ export default function OnboardingWizard() {
         <p className="mb-6 text-center text-sm" style={{ color: "var(--color-error)" }}>
           {error}
         </p>
+      )}
+
+      {/* ── Step 0: Terms acceptance ── */}
+      {step === "terms" && (
+        <div className="flex flex-col items-center text-center">
+          <div
+            className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
+            style={{ backgroundColor: "var(--color-accent-faint)" }}
+          >
+            <Shield className="h-7 w-7" style={{ color: "var(--color-accent)" }} />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+            Before you begin
+          </h1>
+          <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+            Waqt is a prayer-centered life tracker. Please review and accept our
+            terms to continue.
+          </p>
+
+          <div className="mt-8 w-full max-w-sm space-y-3 text-left">
+            <label
+              className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors"
+              style={{
+                borderColor: acceptedTerms ? "var(--color-accent)" : "var(--color-paper-3)",
+                backgroundColor: acceptedTerms ? "color-mix(in oklab, var(--color-accent) 6%, transparent)" : "transparent",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-[var(--color-accent)]"
+              />
+              <span className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+                I have read and agree to the{" "}
+                <Link
+                  href="/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium underline"
+                  style={{ color: "var(--color-accent)" }}
+                >
+                  Terms of Service
+                </Link>
+                {" "}and{" "}
+                <Link
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium underline"
+                  style={{ color: "var(--color-accent)" }}
+                >
+                  Privacy Policy
+                </Link>
+                .
+              </span>
+            </label>
+          </div>
+
+          {error && (
+            <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }}>
+              {error}
+            </p>
+          )}
+
+          <button
+            onClick={() => {
+              if (!acceptedTerms) {
+                setError("Please accept the Terms of Service and Privacy Policy to continue.");
+                return;
+              }
+              setError(null);
+              setStep("name");
+            }}
+            disabled={pending}
+            className="mt-6 inline-flex w-full max-w-sm items-center justify-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+          >
+            Continue
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
       )}
 
       {/* ── Step 1: Name ── */}

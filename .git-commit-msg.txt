@@ -1,9 +1,13 @@
-fix: homework filter/sort — Latest reverses sections + exact dates, Type filters, mobile scroll
+perf: defer uisfx + capacitor from initial bundle, fix brand text selection
 
-- Latest sort: reverse section order (furthest dates first, today last)
-- Latest sort: show exact date labels instead of "This Week"
-- Type sort: actually filter to only the selected type (flat list, no date grouping)
-- Type sub-selector: horizontally scrollable on mobile (all 6 options reachable)
+- Lazy-load UISFXProvider via next/dynamic (saves ~30KB uisfx from initial bundle)
+- Read window.Capacitor directly instead of importing @capacitor/core (saves ~10KB)
+- Add browserslist config targeting modern browsers
+- Add ::selection style using accent hue (browser default flashed like theme switch)
+- Make landing page brand text non-selectable (select-none)
+- Add Cookie Policy, Data Deletion, legal layout, sitemap entries
+- Fix apostrophe entities in legal pages for ESLint
+- Add terms acceptance step to onboarding
 
 Generated with [Devin](https://devin.ai)
 

@@ -1,22 +1,19 @@
 import type { Metadata } from "next";
-import { SUPPORT_EMAIL } from "@/lib/site-config";
+import { SUPPORT_EMAIL, SITE_URL } from "@/lib/site-config";
+import LegalLayout from "@/components/legal-layout";
 
 export const metadata: Metadata = {
   title: "Support — Waqt",
   description: "Get help with Waqt, report issues, and find answers to common questions.",
   robots: { index: true, follow: true },
+  alternates: { canonical: `${SITE_URL}/support` },
 };
 
 export const dynamic = "force-static";
 
 export default function SupportPage() {
   return (
-    <article className="mx-auto max-w-2xl px-6 py-12" style={{ color: "var(--color-ink)" }}>
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Support</h1>
-      <p className="mb-4 text-sm" style={{ color: "var(--color-ink-muted)" }}>
-        Last updated: {new Date().getFullYear()}
-      </p>
-
+    <LegalLayout title="Support" updatedAt="September 2025">
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">Contact</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
@@ -74,33 +71,32 @@ export default function SupportPage() {
         <h2 className="mb-2 text-lg font-semibold">Delete Your Account</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           You can delete your account at any time from Settings &rarr; Account
-          &rarr; Delete Account. This anonymizes your personal information (email
-          and name are replaced with [deleted]) and revokes your session. Your
-          prayer logs and analytics data are retained in anonymized form.
+          &rarr; Delete Account. See our{" "}
+          <a href="/data-deletion" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+            Data Deletion guide
+          </a>{" "}
+          for full details on what is deleted and what is retained.
         </p>
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">Privacy</h2>
+        <h2 className="mb-2 text-lg font-semibold">Privacy & Terms</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           See our{" "}
           <a href="/privacy" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
             Privacy Policy
-          </a>{" "}
-          for details on how we handle your data.
-        </p>
-      </section>
-
-      <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">Terms</h2>
-        <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          See our{" "}
+          </a>
+          ,{" "}
+          <a href="/cookies" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+            Cookie Policy
+          </a>
+          , and{" "}
           <a href="/terms" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
             Terms of Service
-          </a>{" "}
-          for the terms governing your use of Waqt.
+          </a>
+          .
         </p>
       </section>
-    </article>
+    </LegalLayout>
   );
 }

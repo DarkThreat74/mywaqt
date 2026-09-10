@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Spectral, Amiri } from "next/font/google";
 import "./globals.css";
-import { UISFXProvider } from "@/components/uisfx-provider";
+import LazyUISFXProvider from "@/components/lazy-uisfx-provider";
 import NativeShellEnhancements from "@/components/native-shell-enhancements";
 import { SITE_URL } from "@/lib/site-config";
 
@@ -94,7 +94,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-dvh flex flex-col" style={{ fontFamily: "var(--font-spectral), Georgia, serif" }}>
         <NativeShellEnhancements />
-        <UISFXProvider>{children}</UISFXProvider>
+        <LazyUISFXProvider>{children}</LazyUISFXProvider>
       </body>
     </html>
   );

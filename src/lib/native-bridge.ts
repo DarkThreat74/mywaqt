@@ -1,15 +1,29 @@
-import { Capacitor } from "@capacitor/core";
-
 // ── Platform detection (synchronous, safe during SSR) ──
+// Avoid importing @capacitor/core at the top level — it adds ~10KB to the
+// initial bundle on every page including the marketing page. The Capacitor
+// global is injected by the native shell; on web it's undefined.
+// Plugin imports (haptics, share, etc.) still pull @capacitor/core lazily.
+
+// Minimal type for the Capacitor global we read from window
+interface CapacitorGlobal {
+  isNativePlatform(): boolean;
+  getPlatform(): string;
+}
+
+function getCapacitor(): CapacitorGlobal | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (window as unknown as { Capacitor?: CapacitorGlobal }).Capacitor;
+}
 
 export function isNativeApp(): boolean {
-  if (typeof window === "undefined") return false;
-  return Capacitor.isNativePlatform();
+  const cap = getCapacitor();
+  return !!cap && typeof cap.isNativePlatform === "function" && cap.isNativePlatform();
 }
 
 export function getPlatform(): "ios" | "android" | "web" {
-  if (typeof window === "undefined") return "web";
-  return Capacitor.getPlatform() as "ios" | "android" | "web";
+  const cap = getCapacitor();
+  if (!cap || typeof cap.getPlatform !== "function") return "web";
+  return cap.getPlatform() as "ios" | "android" | "web";
 }
 
 // ── Haptics ──

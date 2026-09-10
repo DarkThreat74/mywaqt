@@ -71,5 +71,10 @@
     "tsx": "^4.23.12",
     "typescript": "^5"
   },
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "browserslist": [
+    "defaults and fully supports es6-module",
+    "last 2 versions",
+    "not dead"
+  ]
 }

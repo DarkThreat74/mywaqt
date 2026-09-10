@@ -4,20 +4,17 @@
  * Spectral for editorial Latin text, Amiri for Arabic.
  * Warm contemplative palette. No gradients. No AI-slop patterns.
  *
- * Animation: scroll-triggered fade-ins, staggered reveals, blur-in for
- * Arabic background text, scale-in for focal elements.
+ * Animation: CSS-only fade-ins (no motion/react) for instant first paint.
  */
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
-import { FadeIn, StaggerGroup, StaggerItem, ScaleIn } from "@/components/animations";
-import { getSession } from "@/lib/auth/session";
 
-export default async function MarketingPage() {
-  // If already logged in, skip the marketing page and go straight to the calendar
-  const session = await getSession();
-  if (session) redirect("/calendar/day");
+// Static — the proxy (src/proxy.ts) already redirects logged-in users
+// from / to /calendar/day, so this page only renders for logged-out visitors.
+// Prerendered at build time and served from the CDN edge for instant first load.
+export const dynamic = "force-static";
 
+export default function MarketingPage() {
   return (
     <div className="flex min-h-dvh flex-col" style={{ fontFamily: "var(--font-spectral), Georgia, serif" }}>
       {/* ── Nav ── */}
@@ -29,7 +26,7 @@ export default async function MarketingPage() {
         }}
       >
         <div className="flex items-center justify-between px-6 py-4 sm:px-10 lg:px-16">
-          <div className="flex items-baseline gap-3">
+          <div className="flex items-baseline gap-3 select-none">
             <span className="text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
               Waqt
             </span>
@@ -123,35 +120,33 @@ export default async function MarketingPage() {
 
         <div className="relative z-10 w-full px-6 sm:px-10 lg:px-16">
           <div className="max-w-2xl">
-            <FadeIn delay={0.05} y={12} duration={0.35}>
+            <div className="waqt-fade-up" style={{ animationDelay: "0.05s" }}>
               <p
                 className="mb-8 text-xs font-medium uppercase tracking-[0.2em]"
                 style={{ color: "var(--color-accent)" }}
               >
                 Prayer-centered life tracker
               </p>
-            </FadeIn>
+            </div>
 
-            <StaggerGroup stagger={0.08}>
-              <StaggerItem>
-                <h1
-                  className="text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl"
-                  style={{
-                    color: "var(--color-ink)",
-                    overflowWrap: "anywhere",
-                    minWidth: 0,
-                  }}
-                >
-                  The five prayers
-                  <br />
-                  are the fixed
-                  <br />
-                  anchor.
-                </h1>
-              </StaggerItem>
-            </StaggerGroup>
+            <div className="waqt-fade-up" style={{ animationDelay: "0.13s" }}>
+              <h1
+                className="text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl"
+                style={{
+                  color: "var(--color-ink)",
+                  overflowWrap: "anywhere",
+                  minWidth: 0,
+                }}
+              >
+                The five prayers
+                <br />
+                are the fixed
+                <br />
+                anchor.
+              </h1>
+            </div>
 
-            <FadeIn delay={0.2} y={16} duration={0.4}>
+            <div className="waqt-fade-up" style={{ animationDelay: "0.25s" }}>
               <p
                 className="mt-10 max-w-lg text-lg leading-relaxed"
                 style={{ color: "var(--color-ink-soft)" }}
@@ -160,9 +155,9 @@ export default async function MarketingPage() {
                 prayer times as the structure of your day — not a reminder
                 you dismiss.
               </p>
-            </FadeIn>
+            </div>
 
-            <FadeIn delay={0.3} y={16} duration={0.4}>
+            <div className="waqt-fade-up" style={{ animationDelay: "0.35s" }}>
               <div className="mt-12 flex flex-wrap items-center gap-4">
                 <Link
                   href="/signup"
@@ -183,12 +178,12 @@ export default async function MarketingPage() {
                   I have an account
                 </Link>
               </div>
-            </FadeIn>
+            </div>
           </div>
         </div>
 
         {/* Scroll indicator — animated bounce */}
-        <FadeIn delay={0.5} duration={0.4}>
+        <div className="waqt-fade-up" style={{ animationDelay: "0.55s" }}>
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2">
             <div
               className="h-12 w-px"
@@ -199,7 +194,7 @@ export default async function MarketingPage() {
               }}
             />
           </div>
-        </FadeIn>
+        </div>
       </section>
 
       {/* ── Features section — what Waqt actually has right now ── */}
@@ -211,163 +206,119 @@ export default async function MarketingPage() {
         }}
       >
         <div className="mx-auto max-w-5xl">
-          <FadeIn y={20}>
-            <div className="mb-16 flex items-center gap-4">
-              <p
-                className="text-xs font-medium uppercase tracking-[0.2em]"
-                style={{ color: "var(--color-ink-muted)" }}
-              >
-                What&apos;s inside
-              </p>
-              <span
-                style={{
-                  fontFamily: "var(--font-amiri)",
-                  fontSize: "1.5rem",
-                  color: "var(--color-accent)",
-                  opacity: 0.5,
-                }}
-                dir="rtl"
-              >
-                الميزات
-              </span>
-            </div>
-          </FadeIn>
+          <div className="waqt-fade-up mb-16 flex items-center gap-4">
+            <p
+              className="text-xs font-medium uppercase tracking-[0.2em]"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              What&apos;s inside
+            </p>
+            <span
+              style={{
+                fontFamily: "var(--font-amiri)",
+                fontSize: "1.5rem",
+                color: "var(--color-accent)",
+                opacity: 0.5,
+              }}
+              dir="rtl"
+            >
+              الميزات
+            </span>
+          </div>
 
-          <StaggerGroup className="grid gap-x-12 gap-y-16 sm:grid-cols-2 lg:grid-cols-3" stagger={0.1}>
-            <StaggerItem>
-              <Feature
-                title="Prayer-anchored calendar"
-                body="Day, month, and list views with the five daily prayers as fixed background bands. Events, tasks, and reminders sit on top. Overlaps stack side-by-side — nothing blocks."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="One-tap prayer check-in"
-                body="Tap any prayer label to log it. The app asks if you went to the masjid, records the exact time, and shows green completion marks in month view."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Prayer analytics"
-                body="See your consistency percentage, average prayer time, and masjid attendance rate for each of the five prayers — all on one dashboard."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Qadaa tracker"
-                body="Set how many of each prayer you owe — individually, per salah. Log prayed qadaa one at a time. The tracker counts down per prayer, not as a vague total."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Prayer friends"
-                body="Share your six-character prayer code. Send and accept friend requests, see your streaks side-by-side, and hold each other accountable through companionship."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Homework & classes"
-                body="Track assignments by class with due dates, times, priority, and type. Overdue and due-today items surface on the Today tab so nothing slips past you."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Goals — weekly & long-term"
-                body="Set short-term goals for this week and long-term goals with target dates. Check them off with a tap. The Today tab shows what's due and what you've completed."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Recurring events & reminders"
-                body="Create events that repeat on selected weekdays. Edit or delete a single occurrence without touching the rest. Custom colors for every event type."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Public calendar sharing"
-                body="Generate a shareable link with a named URL. Anyone can see your prayer schedule without an account — perfect for family and study groups."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Works fully offline"
-                body="Open the app, add events, log prayers, adjust qadaa — all without internet. Edits queue locally and sync automatically the moment you reconnect."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Prayer time notifications"
-                body="Get a notification when each prayer window opens, and a reminder 15 minutes before your scheduled events. Asr is automatically adjusted for your calculation method."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Trusted device login"
-                body="Sign in instantly on your own phone or laptop — no password needed. Your device is remembered with a fingerprint, and you can revoke access anytime."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="365-day fact bank"
-                body="A human-curated Islamic fact, glossary term, and Arabic citation for every day of the year. No AI-generated rulings — just vetted content from authentic sources."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Calendar list view"
-                body="See your upcoming events across multiple days in a single scrollable list with dates, time slots, and color tags. Filter what's in progress from what's ended."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Dhikr counter"
-                body="A beautiful tap-based tasbih counter with curated dhikr sequences from authenticated sources. Vibration feedback on each count, auto-advances through the sequence, and tracks your progress."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Hijri calendar"
-                body="See the Islamic date alongside the Gregorian date everywhere — on the calendar, day view, and prayer pages. The Hijri date is computed locally and stays in sync as you navigate."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Qibla compass"
-                body="Find the direction to the Kaaba from anywhere in the world. Smooth live compass on mobile with device sensors, static bearing on desktop. Shows exact degrees, cardinal direction, and distance to Mecca."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Akhirah Card"
-                body="Track your charitable giving on your personal Akhirah Card. Log sadaqah, zakat, fidyah, or general charity. See your balance invested in the hereafter with a full history of every contribution."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="99 Names of Allah"
-                body="Browse all 99 beautiful names of Allah (Asma ul Husna) with Arabic script, transliteration, and English meanings. Search by name or meaning."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Talks library"
-                body="Browse curated lectures and khutbahs from trusted speakers. External links only — no self-hosted audio. Filter by category and listen on the original platform."
-              />
-            </StaggerItem>
-            <StaggerItem>
-              <Feature
-                title="Bot-proof signup"
-                body="A claw-machine mini-game verifies you're human — no boring checkbox, no privacy-invading tracking. Falls back automatically if the challenge doesn't load."
-              />
-            </StaggerItem>
-          </StaggerGroup>
+          <div className="waqt-fade-up grid gap-x-12 gap-y-16 sm:grid-cols-2 lg:grid-cols-3" style={{ animationDelay: "0.1s" }}>
+            <Feature
+              title="Prayer-anchored calendar"
+              body="Day, month, and list views with the five daily prayers as fixed background bands. Events, tasks, and reminders sit on top. Overlaps stack side-by-side — nothing blocks."
+            />
+            <Feature
+              title="One-tap prayer check-in"
+              body="Tap any prayer label to log it. The app asks if you went to the masjid, records the exact time, and shows green completion marks in month view."
+            />
+            <Feature
+              title="Prayer analytics"
+              body="See your consistency percentage, average prayer time, and masjid attendance rate for each of the five prayers — all on one dashboard."
+            />
+            <Feature
+              title="Qadaa tracker"
+              body="Set how many of each prayer you owe — individually, per salah. Log prayed qadaa one at a time. The tracker counts down per prayer, not as a vague total."
+            />
+            <Feature
+              title="Prayer friends"
+              body="Share your six-character prayer code. Send and accept friend requests, see your streaks side-by-side, and hold each other accountable through companionship."
+            />
+            <Feature
+              title="Homework & classes"
+              body="Track assignments by class with due dates, times, priority, and type. Overdue and due-today items surface on the Today tab so nothing slips past you."
+            />
+            <Feature
+              title="Goals — weekly & long-term"
+              body="Set short-term goals for this week and long-term goals with target dates. Check them off with a tap. The Today tab shows what's due and what you've completed."
+            />
+            <Feature
+              title="Recurring events & reminders"
+              body="Create events that repeat on selected weekdays. Edit or delete a single occurrence without touching the rest. Custom colors for every event type."
+            />
+            <Feature
+              title="Public calendar sharing"
+              body="Generate a shareable link with a named URL. Anyone can see your prayer schedule without an account — perfect for family and study groups."
+            />
+            <Feature
+              title="Works fully offline"
+              body="Open the app, add events, log prayers, adjust qadaa — all without internet. Edits queue locally and sync automatically the moment you reconnect."
+            />
+            <Feature
+              title="Prayer time notifications"
+              body="Get a notification when each prayer window opens, and a reminder 15 minutes before your scheduled events. Asr is automatically adjusted for your calculation method."
+            />
+            <Feature
+              title="Trusted device login"
+              body="Sign in instantly on your own phone or laptop — no password needed. Your device is remembered with a fingerprint, and you can revoke access anytime."
+            />
+            <Feature
+              title="365-day fact bank"
+              body="A human-curated Islamic fact, glossary term, and Arabic citation for every day of the year. No AI-generated rulings — just vetted content from authentic sources."
+            />
+            <Feature
+              title="Calendar list view"
+              body="See your upcoming events across multiple days in a single scrollable list with dates, time slots, and color tags. Filter what's in progress from what's ended."
+            />
+            <Feature
+              title="Dhikr counter"
+              body="A beautiful tap-based tasbih counter with curated dhikr sequences from authenticated sources. Vibration feedback on each count, auto-advances through the sequence, and tracks your progress."
+            />
+            <Feature
+              title="Hijri calendar"
+              body="See the Islamic date alongside the Gregorian date everywhere — on the calendar, day view, and prayer pages. The Hijri date is computed locally and stays in sync as you navigate."
+            />
+            <Feature
+              title="Qibla compass"
+              body="Find the direction to the Kaaba from anywhere in the world. Smooth live compass on mobile with device sensors, static bearing on desktop. Shows exact degrees, cardinal direction, and distance to Mecca."
+            />
+            <Feature
+              title="Akhirah Card"
+              body="Track your charitable giving on your personal Akhirah Card. Log sadaqah, zakat, fidyah, or general charity. See your balance invested in the hereafter with a full history of every contribution."
+            />
+            <Feature
+              title="99 Names of Allah"
+              body="Browse all 99 beautiful names of Allah (Asma ul Husna) with Arabic script, transliteration, and English meanings. Search by name or meaning."
+            />
+            <Feature
+              title="Talks library"
+              body="Browse curated lectures and khutbahs from trusted speakers. External links only — no self-hosted audio. Filter by category and listen on the original platform."
+            />
+            <Feature
+              title="Bot-proof signup"
+              body="A claw-machine mini-game verifies you're human — no boring checkbox, no privacy-invading tracking. Falls back automatically if the challenge doesn't load."
+            />
+          </div>
         </div>
       </section>
 
       {/* ── Quote band — full width, Arabic + translation ── */}
       <section className="px-6 py-24 sm:px-10 sm:py-32 lg:px-16">
         <div className="mx-auto max-w-4xl text-center">
-          <ScaleIn delay={0.05} duration={0.4}>
+          <div className="waqt-scale-in" style={{ animationDelay: "0.05s" }}>
             <p
               className="mb-8 text-4xl font-semibold leading-tight sm:text-5xl lg:text-6xl"
               style={{ color: "var(--color-ink)", fontFamily: "var(--font-amiri)" }}
@@ -375,20 +326,20 @@ export default async function MarketingPage() {
             >
               حي على الصلاة
             </p>
-          </ScaleIn>
-          <FadeIn delay={0.15} y={12} duration={0.35}>
+          </div>
+          <div className="waqt-fade-up" style={{ animationDelay: "0.15s" }}>
             <p
               className="text-2xl font-semibold leading-tight tracking-tight sm:text-3xl lg:text-4xl"
               style={{ color: "var(--color-ink-soft)" }}
             >
               &ldquo;Come to prayer.&rdquo;
             </p>
-          </FadeIn>
-          <FadeIn delay={0.25} y={8} duration={0.3}>
+          </div>
+          <div className="waqt-fade-up" style={{ animationDelay: "0.25s" }}>
             <p className="mt-6 text-sm" style={{ color: "var(--color-ink-muted)" }}>
               — The call to prayer, heard five times daily
             </p>
-          </FadeIn>
+          </div>
         </div>
       </section>
 
@@ -401,7 +352,7 @@ export default async function MarketingPage() {
         }}
       >
         <div className="mx-auto max-w-4xl text-center">
-          <ScaleIn delay={0.05} duration={0.4}>
+          <div className="waqt-scale-in" style={{ animationDelay: "0.05s" }}>
             <p
               className="mb-6 text-3xl leading-relaxed sm:text-4xl"
               style={{ color: "var(--color-ink)", fontFamily: "var(--font-amiri)" }}
@@ -409,20 +360,20 @@ export default async function MarketingPage() {
             >
               إن الصلاة كانت على المؤمنين كتاباً موقوتاً
             </p>
-          </ScaleIn>
-          <FadeIn delay={0.15} y={12} duration={0.35}>
+          </div>
+          <div className="waqt-fade-up" style={{ animationDelay: "0.15s" }}>
             <p
               className="text-xl font-semibold leading-tight tracking-tight sm:text-2xl"
               style={{ color: "var(--color-ink-soft)" }}
             >
               &ldquo;Prayer has been prescribed for the believers at fixed times.&rdquo;
             </p>
-          </FadeIn>
-          <FadeIn delay={0.25} y={8} duration={0.3}>
+          </div>
+          <div className="waqt-fade-up" style={{ animationDelay: "0.25s" }}>
             <p className="mt-6 text-sm" style={{ color: "var(--color-ink-muted)" }}>
               — Quran, An-Nisa 4:103
             </p>
-          </FadeIn>
+          </div>
         </div>
       </section>
 
@@ -432,7 +383,7 @@ export default async function MarketingPage() {
         style={{ borderColor: "var(--color-paper-3)" }}
       >
         <div className="mx-auto max-w-2xl">
-          <FadeIn y={20} duration={0.4}>
+          <div className="waqt-fade-up">
             <p
               className="text-xl leading-relaxed"
               style={{ color: "var(--color-ink-soft)" }}
@@ -442,8 +393,8 @@ export default async function MarketingPage() {
               bank. Prayer tracking will always be free. Create an account and
               start building your routine around the five prayers today.
             </p>
-          </FadeIn>
-          <FadeIn delay={0.1} y={16} duration={0.35}>
+          </div>
+          <div className="waqt-fade-up" style={{ animationDelay: "0.1s" }}>
             <div className="mt-10">
               <Link
                 href="/signup"
@@ -454,7 +405,7 @@ export default async function MarketingPage() {
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-          </FadeIn>
+          </div>
         </div>
       </section>
 
@@ -468,20 +419,37 @@ export default async function MarketingPage() {
           paddingBottom: "calc(2rem + env(safe-area-inset-bottom))",
         }}
       >
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-baseline gap-2">
             <span>Waqt — a prayer-centered life tracker.</span>
             <span style={{ fontFamily: "var(--font-amiri)", opacity: 0.6 }} dir="rtl">
               وقت
             </span>
           </div>
-          <Link
-            href="/admin/login"
-            className="transition-opacity hover:opacity-70"
-            style={{ color: "var(--color-ink-muted)" }}
-          >
-            Admin
-          </Link>
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-2" aria-label="Legal">
+            <Link href="/privacy" className="transition-opacity hover:opacity-70" style={{ color: "var(--color-ink-muted)" }}>
+              Privacy
+            </Link>
+            <Link href="/terms" className="transition-opacity hover:opacity-70" style={{ color: "var(--color-ink-muted)" }}>
+              Terms
+            </Link>
+            <Link href="/cookies" className="transition-opacity hover:opacity-70" style={{ color: "var(--color-ink-muted)" }}>
+              Cookies
+            </Link>
+            <Link href="/data-deletion" className="transition-opacity hover:opacity-70" style={{ color: "var(--color-ink-muted)" }}>
+              Data Deletion
+            </Link>
+            <Link href="/support" className="transition-opacity hover:opacity-70" style={{ color: "var(--color-ink-muted)" }}>
+              Support
+            </Link>
+            <Link
+              href="/admin/login"
+              className="transition-opacity hover:opacity-70"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Admin
+            </Link>
+          </nav>
         </div>
       </footer>
     </div>

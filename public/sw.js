@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v37";
+const CACHE_VERSION = "waqt-v38";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -38,24 +38,13 @@ const PRECACHE_URLS = [
   "/offline.html",
 ];
 
-// All authenticated app pages — prefetched and cached for offline use.
-// These are force-dynamic (server-rendered per user), but we cache the
-// HTML so the app shell loads instantly offline. The client components
-// then hydrate from IndexedDB cached data.
+// Core app pages — prefetched on install for offline boot.
+// Only the 3 most-visited pages; the rest are cached on-demand when visited.
+// Warming all 13 pages on install contends with critical hydration requests.
 const APP_PAGES = [
   "/calendar/day",
-  "/calendar/month",
   "/prayer",
-  "/homework",
-  "/goals",
   "/settings",
-  "/learn",
-  "/onboarding",
-  "/qibla",
-  "/dhikr",
-  "/sadaqah",
-  "/names",
-  "/talks",
 ];
 
 // ─── IndexedDB helpers for offline event outbox ───
@@ -537,26 +526,31 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     const pathname = url.pathname;
 
-    // When offline and navigating to "/", redirect to the cached calendar
+    // Landing page "/" — stale-while-revalidate (now static, safe to serve from cache first)
     if (pathname === "/") {
       event.respondWith(
         (async () => {
-          // Try network first for "/" (landing page may have changed)
+          const cache = await caches.open(RUNTIME_CACHE);
+          const cached = await cache.match(request);
+          // Fetch fresh in background (don't await — return cached immediately)
+          const fetchPromise = fetch(request)
+            .then((response) => {
+              if (response.ok) cache.put(request, response.clone());
+              return response;
+            })
+            .catch(() => {});
+          // Serve cached instantly if available, otherwise wait for network
+          if (cached) {
+            return cached;
+          }
           try {
-            const response = await fetch(request);
-            const responseClone = response.clone();
-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, responseClone));
-            return response;
+            return await fetchPromise;
           } catch {
-            // Offline — serve cached calendar (the app shell)
+            // Offline with no cache — serve cached calendar (app shell)
             const pageCache = await caches.open(PAGE_CACHE);
             const calendarCached = await pageCache.match("/calendar/day");
             if (calendarCached) return calendarCached;
-            const runtimeCached = await caches.match("/calendar/day");
-            if (runtimeCached) return runtimeCached;
-            // Fallback to any cached page
-            const anyCached = await caches.match(request);
-            return anyCached || new Response(
+            return new Response(
               "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#f5f0e8;color:#1a1815;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}</style></head><body><div><h1>You're offline</h1><p>Open the app again once you're back online to reload cached pages.</p></div></body></html>",
               { status: 200, headers: { "Content-Type": "text/html" } }
             );

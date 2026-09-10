@@ -1,22 +1,19 @@
 import type { Metadata } from "next";
-import { SUPPORT_EMAIL } from "@/lib/site-config";
+import { SUPPORT_EMAIL, SITE_URL } from "@/lib/site-config";
+import LegalLayout from "@/components/legal-layout";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Waqt",
   description: "How Waqt handles your data",
   robots: { index: true, follow: true },
+  alternates: { canonical: `${SITE_URL}/privacy` },
 };
 
 export const dynamic = "force-static";
 
 export default function PrivacyPolicyPage() {
   return (
-    <article className="mx-auto max-w-2xl px-6 py-12" style={{ color: "var(--color-ink)" }}>
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Privacy Policy</h1>
-      <p className="mb-4 text-sm" style={{ color: "var(--color-ink-muted)" }}>
-        Last updated: {new Date().getFullYear()}
-      </p>
-
+    <LegalLayout title="Privacy Policy" updatedAt="September 2025">
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">1. What We Collect</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
@@ -51,12 +48,17 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">4. Data Retention &amp; Deletion</h2>
+        <h2 className="mb-2 text-lg font-semibold">4. Data Retention & Deletion</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           You can delete your account at any time from Settings. This anonymizes all
           personally identifiable information (email, name, phone) and revokes your
           session. Anonymized prayer logs may be retained for aggregate analytics.
-          You can request complete data export by contacting {SUPPORT_EMAIL}.
+          You can request complete data export by contacting {SUPPORT_EMAIL}. See
+          our{" "}
+          <a href="/data-deletion" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+            Data Deletion guide
+          </a>{" "}
+          for step-by-step instructions.
         </p>
       </section>
 
@@ -80,11 +82,50 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">7. Contact</h2>
+        <h2 className="mb-2 text-lg font-semibold">7. Cookies & Local Storage</h2>
+        <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+          Waqt uses a single session cookie to keep you logged in. We also use
+          browser local storage and IndexedDB to cache your data for offline use.
+          See our{" "}
+          <a href="/cookies" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+            Cookie Policy
+          </a>{" "}
+          for details.
+        </p>
+      </section>
+
+      <section className="mb-6">
+        <h2 className="mb-2 text-lg font-semibold">8. Your Rights (GDPR & CCPA)</h2>
+        <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+          If you are in the EU, UK, or California, you have the right to access,
+          correct, export, or delete your personal data. To exercise any of these
+          rights, email {SUPPORT_EMAIL}. We respond within 30 days.
+        </p>
+      </section>
+
+      <section className="mb-6">
+        <h2 className="mb-2 text-lg font-semibold">9. Children&apos;s Privacy</h2>
+        <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+          Waqt is not directed to children under 13. We do not knowingly collect
+          data from children under 13. If you believe a child has provided us
+          personal data, contact {SUPPORT_EMAIL} and we will delete it.
+        </p>
+      </section>
+
+      <section className="mb-6">
+        <h2 className="mb-2 text-lg font-semibold">10. Changes to This Policy</h2>
+        <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+          We may update this policy as the app evolves. Material changes will be
+          announced in-app at least 7 days before they take effect.
+        </p>
+      </section>
+
+      <section className="mb-6">
+        <h2 className="mb-2 text-lg font-semibold">11. Contact</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Questions about privacy? Email {SUPPORT_EMAIL}.
         </p>
       </section>
-    </article>
+    </LegalLayout>
   );
 }
