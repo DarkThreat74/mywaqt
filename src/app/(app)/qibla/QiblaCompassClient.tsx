@@ -45,7 +45,7 @@ export default function QiblaCompassClient() {
   // ── Fetch Qibla data ──
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const fetchData = async () => {
       try {
         const res = await fetch("/api/qibla").catch(() => null);
         if (cancelled) return;
@@ -67,8 +67,15 @@ export default function QiblaCompassClient() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
+    };
+    fetchData();
+    // Re-fetch when returning to the page (e.g. after changing location in Settings)
+    const onPageShow = () => fetchData();
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pageshow", onPageShow);
+    };
   }, []);
 
   // ── Shortest-path angular delta: returns the smallest signed delta ──

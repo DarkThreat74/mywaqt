@@ -283,6 +283,13 @@ export default function PrayerDashboard() {
     }
   }, [todayStr]);
 
+  // ── Refresh data when coming back online ──
+  useEffect(() => {
+    const onOnline = () => void fetchTodayData();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [fetchTodayData]);
+
   useEffect(() => {
     // Skip fetching until todayStr is resolved (prevents 1970-01-01 double-fetch)
     if (!todayStr) return;
@@ -483,9 +490,9 @@ export default function PrayerDashboard() {
     return () => { cancelled = true; };
   }, [todayStr, statsRange]);
 
-  // Update current time every minute for the progress bar
+  // Update current time every second for the countdown (shows seconds)
   useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(new Date()), 60000);
+    const interval = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -638,17 +645,19 @@ export default function PrayerDashboard() {
     key: keyof typeof visibility,
     value: boolean,
   ) {
+    const prev = visibility;
     const next = { ...visibility, [key]: value };
     setVisibility(next);
     try {
-      await fetch("/api/settings/prayer-settings", {
+      const res = await fetch("/api/settings/prayer-settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [key]: value }),
       });
+      if (!res.ok) throw new Error("Server rejected the change");
     } catch {
-      // revert on failure
-      setVisibility(visibility);
+      // revert on failure (network error or non-OK response)
+      setVisibility(prev);
     }
   }
 
@@ -656,6 +665,10 @@ export default function PrayerDashboard() {
     if (!todayStr) return; // Not ready yet
     const isLogged = todaySunnahs.includes(sunnahKey);
     setSunnahError(null);
+    // Optimistic update for immediate feedback
+    const prevSunnahs = todaySunnahs;
+    setTodaySunnahs(!isLogged ? [...prevSunnahs, sunnahKey] : prevSunnahs.filter((k) => k !== sunnahKey));
+    upsertSunnahLogToCache(todayStr, sunnahKey, !isLogged);
     try {
       const res = await fetch("/api/prayer-log/sunnah", {
         method: "POST",
@@ -664,18 +677,16 @@ export default function PrayerDashboard() {
       });
       if (res.ok) {
         invalidateApiCache("/api/prayer-log");
-        setTodaySunnahs((prev) =>
-          !isLogged ? [...prev, sunnahKey] : prev.filter((k) => k !== sunnahKey),
-        );
-        upsertSunnahLogToCache(todayStr, sunnahKey, !isLogged);
       } else {
+        // Revert optimistic update on server rejection
+        setTodaySunnahs(prevSunnahs);
+        upsertSunnahLogToCache(todayStr, sunnahKey, isLogged);
         const data = await res.json().catch(() => ({}));
         setSunnahError(data.error || "Failed to update sunnah.");
         setTimeout(() => setSunnahError(null), 4000);
       }
     } catch {
-      setSunnahError("Network error.");
-      setTimeout(() => setSunnahError(null), 4000);
+      // Network error — keep optimistic state (SW will queue the write)
     }
   }
 

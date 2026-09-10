@@ -168,8 +168,7 @@ export async function POST(request: NextRequest) {
         .select({ id: schema.trustedDevices.id })
         .from(schema.trustedDevices)
         .where(eq(schema.trustedDevices.userId, user.id))
-        .orderBy(schema.trustedDevices.lastUsedAt)
-        .limit(1);
+        .orderBy(schema.trustedDevices.lastUsedAt);
 
       if (existingDevices.length >= 10) {
         // Delete the least recently used device

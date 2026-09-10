@@ -86,6 +86,20 @@ export default function GoalsPageClient({
     }
   }, [activeTab]);
 
+  // ── Sync tab from URL on back/forward navigation ──
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.slice(1) as TabId;
+      if (hash && TABS.some((t) => t.id === hash)) {
+        setActiveTab(hash);
+      } else if (!hash) {
+        setActiveTab("today");
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   // ── Cache initial data in IndexedDB for offline use ──
   useEffect(() => {
     try {

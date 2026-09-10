@@ -255,7 +255,7 @@ export async function POST(request: NextRequest) {
     while (true) {
       // Check if we've passed the recurrence end date
       const currentDateObj = new Date(currentYear, currentMonth - 1, currentDay);
-      if (currentDateObj.getTime() > recurEndMs + 24 * 60 * 60 * 1000) break;
+      if (currentDateObj.getTime() > recurEndMs) break;
 
       const dow = currentDateObj.getDay(); // Correct day-of-week for this calendar date
 

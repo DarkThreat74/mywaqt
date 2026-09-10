@@ -193,11 +193,12 @@ export default function HabitsTab({
     }
     toggleHabitLogInCache(habitId, today, !wasCompleted);
     try {
-      await fetch("/api/habit-logs", {
+      const res = await fetch("/api/habit-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ habitId, date: today }),
       });
+      if (!res.ok) throw new Error("Server rejected the change");
       invalidateApiCache("/api/habits");
     } catch {
       // revert on failure

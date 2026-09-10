@@ -52,15 +52,55 @@ const DEFAULT_SEQUENCES: DhikrSequence[] = [
 ];
 
 export default function DhikrCounterClient() {
+  // ── Restore dhikr session from localStorage so navigating away and back
+  //    doesn't lose the current count/position ──
   const [sequences, setSequences] = useState<DhikrSequence[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [count, setCount] = useState(0);
-  const [completedSequences, setCompletedSequences] = useState<Set<number>>(new Set());
+  const [currentIndex, setCurrentIndex] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("waqt:dhikr-session");
+      if (saved) {
+        const { idx } = JSON.parse(saved);
+        if (typeof idx === "number") return idx;
+      }
+    } catch { /* non-critical */ }
+    return 0;
+  });
+  const [count, setCount] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("waqt:dhikr-session");
+      if (saved) {
+        const { cnt } = JSON.parse(saved);
+        if (typeof cnt === "number") return cnt;
+      }
+    } catch { /* non-critical */ }
+    return 0;
+  });
+  const [completedSequences, setCompletedSequences] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem("waqt:dhikr-session");
+      if (saved) {
+        const { completed } = JSON.parse(saved);
+        if (Array.isArray(completed)) return new Set(completed);
+      }
+    } catch { /* non-critical */ }
+    return new Set();
+  });
   const [pulseKey, setPulseKey] = useState(0);
   const [showOverlay, setShowOverlay] = useState(false); // controls/settings overlay
   const ringRef = useRef<SVGCircleElement>(null);
   const countRef = useRef<HTMLSpanElement>(null);
+
+  // ── Persist dhikr session to localStorage on every change ──
+  useEffect(() => {
+    try {
+      localStorage.setItem("waqt:dhikr-session", JSON.stringify({
+        idx: currentIndex,
+        cnt: count,
+        completed: [...completedSequences],
+      }));
+    } catch { /* non-critical */ }
+  }, [currentIndex, count, completedSequences]);
 
   // Load dhikr sequences — fall back to defaults if table is empty
   useEffect(() => {

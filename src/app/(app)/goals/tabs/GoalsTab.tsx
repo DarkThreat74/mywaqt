@@ -126,10 +126,10 @@ export default function GoalsTab({
 
   const updateGoal = useCallback(
     async (id: string, updates: Partial<Goal>) => {
-      // Optimistic update for ALL fields — not just title/description.
-      // This ensures status toggles, targetDate edits, color changes, etc.
-      // reflect immediately in the UI, even when offline.
+      // Save previous state for rollback on server rejection
+      let prevGoals: Goal[] = [];
       setGoals((prev) => {
+        prevGoals = prev;
         const updated = prev.map((g) =>
           g.id === id ? { ...g, ...updates, updatedAt: new Date() } : g,
         );
@@ -154,9 +154,13 @@ export default function GoalsTab({
             return updated;
           });
           void invalidateApiCache("/api/goals");
+        } else if (!res.ok && res.status !== 202) {
+          // Server rejected the change (validation error, etc.) — revert
+          setGoals(prevGoals);
+          syncGoalsToCache(prevGoals);
         }
       } catch {
-        // Offline or network error — keep optimistic state (already updated above)
+        // Offline or network error — keep optimistic state (SW will queue)
       }
     },
     [setGoals],
