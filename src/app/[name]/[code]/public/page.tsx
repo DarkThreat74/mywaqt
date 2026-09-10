@@ -1,7 +1,8 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import PublicCalendarClient from "@/app/user/public/[token]/PublicCalendarClient";
+import ShareLinkExpired from "@/components/share-link-expired";
 import { slugifyName } from "@/lib/slugify";
 import type { Metadata } from "next";
 
@@ -73,8 +74,8 @@ export default async function PublicCalendarPage({
 
   // Code is a 6-char share code (unambiguous alphabet). Legacy 32-char hex
   // tokens are also accepted so existing shared links don't break.
-  if (!code || !/^[A-Z2-9]{6}$/.test(code) && !/^[a-f0-9]{32}$/.test(code)) {
-    notFound();
+  if (!code || (!/^[A-Z2-9]{6}$/.test(code) && !/^[a-f0-9]{32}$/.test(code))) {
+    return <ShareLinkExpired />;
   }
 
   // Verify the code exists and get the display name
@@ -86,11 +87,11 @@ export default async function PublicCalendarPage({
       .where(eq(schema.users.publicShareToken, code))
       .limit(1);
   } catch {
-    // DB error — treat as not found
+    // DB error — treat as expired
   }
 
   if (!user) {
-    notFound();
+    return <ShareLinkExpired />;
   }
 
   // If the name in the URL doesn't match the user's slugified name,
@@ -99,6 +100,5 @@ export default async function PublicCalendarPage({
   if (name !== expectedSlug) {
     redirect(`/${expectedSlug}/${code}/public`);
   }
-
   return <PublicCalendarClient token={code} displayName={user.displayName || "Shared"} />;
 }

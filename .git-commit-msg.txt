@@ -1,18 +1,17 @@
-fix: calendar share code back to 6 chars, old tokens invalidated on regenerate
+fix: old share tokens show "no longer available" instead of redirecting
 
-The calendar share link had reverted to a 32-char hex token (128-bit)
-which is ugly and hard to share. Fixed to use the same 6-char
-unambiguous alphabet as the prayer code (ABCDEFGHJKLMNPQRSTUVWXYZ23456789,
-no I/O/0/1). 32^6 ≈ 1 billion possibilities — collision-resistant at
-100k users with a DB uniqueness check.
+Old-format share links (32-char hex, 5-digit numeric) now show a clear
+"This link is no longer available" message instead of redirecting to
+the new URL format or showing a generic 404. When a user regenerates
+their share code, the old link immediately stops working.
 
-- Share token generation now uses crypto.randomInt for unbiased selection
-- All token validation sites accept both new 6-char codes and legacy
-  32-char hex tokens (existing links don't break)
-- Regenerating overwrites the old token in the DB, which deactivates
-  the previous link immediately
-- DB unique constraint on publicShareToken prevents overlap with
-  another user's code
+- Created ShareLinkExpired component with clear messaging and a link
+  back to Waqt
+- Legacy routes (/user/[token], /user/[name]/[token]) now render the
+  expired message — no more redirects
+- Main route (/[name]/[code]/public) shows the expired message when
+  the token doesn't match anyone in the DB (regenerated or disabled)
+  instead of a generic notFound()
 
 Generated with [Devin](https://devin.ai)
 
