@@ -56,7 +56,7 @@ export default function DhikrCounterClient() {
   //    doesn't lose the current count/position ──
   const [sequences, setSequences] = useState<DhikrSequence[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentIndex, setCurrentIndex] = useState<number>(() => {
+  const [savedIndex, setSavedIndex] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("waqt:dhikr-session");
       if (saved) {
@@ -90,17 +90,23 @@ export default function DhikrCounterClient() {
   const [showOverlay, setShowOverlay] = useState(false); // controls/settings overlay
   const ringRef = useRef<SVGCircleElement>(null);
   const countRef = useRef<HTMLSpanElement>(null);
+  const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear any pending auto-advance on unmount
+  useEffect(() => () => {
+    if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+  }, []);
 
   // ── Persist dhikr session to localStorage on every change ──
   useEffect(() => {
     try {
       localStorage.setItem("waqt:dhikr-session", JSON.stringify({
-        idx: currentIndex,
+        idx: savedIndex,
         cnt: count,
         completed: [...completedSequences],
       }));
     } catch { /* non-critical */ }
-  }, [currentIndex, count, completedSequences]);
+  }, [savedIndex, count, completedSequences]);
 
   // Load dhikr sequences — fall back to defaults if table is empty
   useEffect(() => {
@@ -128,12 +134,23 @@ export default function DhikrCounterClient() {
     return () => { cancelled = true; };
   }, []);
 
+  // Clamp the restored index — a stale session can hold an index beyond the
+  // current list length, leaving `current` undefined. Derive the clamped
+  // value rather than setState-ing inside an effect.
+  const currentIndex = sequences.length > 0
+    ? Math.min(savedIndex, sequences.length - 1)
+    : 0;
   const current = sequences[currentIndex];
   const isLast = currentIndex === sequences.length - 1;
   const allComplete = completedSequences.size === sequences.length && sequences.length > 0;
 
   const goToSequence = useCallback((newIndex: number) => {
-    setCurrentIndex(newIndex);
+    // Cancel any pending auto-advance so it can't fire over a manual jump
+    if (advanceTimerRef.current) {
+      clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
+    }
+    setSavedIndex(newIndex);
     setCount(0);
     void hapticImpact("light");
   }, []);
@@ -157,10 +174,13 @@ export default function DhikrCounterClient() {
         try { navigator.vibrate([40, 20, 60]); } catch { /* no-op */ }
       }
 
-      // Auto-advance after a brief pause
-      setTimeout(() => {
+      // Auto-advance after a brief pause — tracked so manual navigation or
+      // unmount can cancel it
+      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = setTimeout(() => {
+        advanceTimerRef.current = null;
         if (!isLast) {
-          setCurrentIndex((i) => i + 1);
+          setSavedIndex((i) => i + 1);
           setCount(0);
         }
       }, 700);
@@ -182,7 +202,7 @@ export default function DhikrCounterClient() {
 
   const handleRestartAll = useCallback(() => {
     setCompletedSequences(new Set());
-    setCurrentIndex(0);
+    setSavedIndex(0);
     setCount(0);
     void hapticNotification("warning");
   }, []);

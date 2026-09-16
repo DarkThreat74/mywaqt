@@ -26,6 +26,19 @@ export function getPlatform(): "ios" | "android" | "web" {
   return cap.getPlatform() as "ios" | "android" | "web";
 }
 
+/**
+ * True on iOS/iPadOS — including iPadOS 13+ which sends a "Macintosh" UA
+ * with touch support. Use instead of a bare /iPad|iPhone|iPod/ UA test.
+ */
+export function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  if (getPlatform() === "ios") return true;
+  const ua = navigator.userAgent;
+  if (/iPad|iPhone|iPod/.test(ua)) return true;
+  // iPadOS 13+ desktop-mode UA: "Macintosh" + multi-touch
+  return ua.includes("Macintosh") && (navigator.maxTouchPoints ?? 0) > 1;
+}
+
 // ── Haptics ──
 
 export async function hapticImpact(

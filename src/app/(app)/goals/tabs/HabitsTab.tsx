@@ -213,14 +213,23 @@ export default function HabitsTab({
   };
 
   const handleDelete = async (habitId: string) => {
+    const removedHabit = habits.find((h) => h.id === habitId);
+    const removedLogs = habitLogs.filter((l) => l.habitId === habitId);
     setHabits((prev) => prev.filter((h) => h.id !== habitId));
     setHabitLogs((prev) => prev.filter((l) => l.habitId !== habitId));
     deleteHabitFromCache(habitId);
     try {
-      await fetch(`/api/habits/${habitId}`, { method: "DELETE" });
+      const res = await fetch(`/api/habits/${habitId}`, { method: "DELETE" });
+      // 202 = queued offline — keep. Other failures — restore.
+      if (!res.ok && res.status !== 202 && removedHabit) {
+        setHabits((prev) => [...prev, removedHabit]);
+        setHabitLogs((prev) => [...prev, ...removedLogs]);
+        upsertHabitToCache(removedHabit);
+        return;
+      }
       invalidateApiCache("/api/habits");
     } catch {
-      // keep state
+      // offline — keep state
     }
   };
 

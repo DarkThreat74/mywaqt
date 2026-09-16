@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
-import { isNativeApp, requestPushPermission, getPushToken, getPlatform } from "@/lib/native-bridge";
+import { isNativeApp, isIOS, requestPushPermission, getPushToken, getPlatform } from "@/lib/native-bridge";
 import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 
@@ -84,7 +84,7 @@ export default function NotificationScheduler() {
           requireInteraction: false,
           ...(/* vibrate + renotify are valid but not in DOM lib types */ { vibrate: [200, 100, 200], renotify: true } as NotificationOptions),
         });
-      } else if (!/iPad|iPhone|iPod|Android/i.test(navigator.userAgent)) {
+      } else if (!isIOS() && !/Android/i.test(navigator.userAgent)) {
         // new Notification() only works reliably on desktop — mobile requires SW
         new Notification(title, { body, tag, data: { url }, icon: "/icon-192.png" });
       }

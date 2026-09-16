@@ -19,15 +19,20 @@ export default function BacklogTab({
   );
 
   const moveToActive = async (id: string) => {
+    const original = goals.find((g) => g.id === id);
     setGoals((prev) => prev.map((g) => (g.id === id ? { ...g, status: "active" as const, updatedAt: new Date() } : g)));
     try {
-      await fetch("/api/goals", {
+      const res = await fetch("/api/goals", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, status: "active" }),
       });
+      // 202 = queued offline — keep. Other failures — revert.
+      if (!res.ok && res.status !== 202 && original) {
+        setGoals((prev) => prev.map((g) => (g.id === id ? original : g)));
+      }
     } catch {
-      // keep state
+      // offline — keep state
     }
   };
 

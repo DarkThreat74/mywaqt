@@ -134,13 +134,26 @@ export async function POST(request: NextRequest) {
       isha: cache.isha,
     };
 
+    // Time-of-day checks only make sense for "today". A past date is being
+    // backfilled (the fard check above already ran) — allow it. A future
+    // date's window hasn't happened — block it outright.
+    const todayInTz = new Date().toLocaleDateString("en-CA", { timeZone: settings.timezone });
+    if (date > todayInTz) {
+      return NextResponse.json(
+        { error: "You can't log a sunnah for a future date." },
+        { status: 403 },
+      );
+    }
+    const isToday = date === todayInTz;
+
     // Use offline timestamp if present (outbox sync), otherwise current time
     const currentMinutes = _offlineTimestamp
       ? (() => {
           const d = new Date(_offlineTimestamp);
           const localStr = d.toLocaleString("en-US", { timeZone: settings.timezone, hour12: false });
           const match = localStr.match(/(\d+):(\d+)/);
-          return match ? parseInt(match[1]) * 60 + parseInt(match[2]) : getCurrentMinutesInTimezone(settings.timezone);
+          // hour12:false emits "24:MM" for midnight hour — normalize to 0
+          return match ? (parseInt(match[1]) % 24) * 60 + parseInt(match[2]) : getCurrentMinutesInTimezone(settings.timezone);
         })()
       : getCurrentMinutesInTimezone(settings.timezone);
 
@@ -153,7 +166,7 @@ export async function POST(request: NextRequest) {
     };
 
     // 2a. "before" sunnahs: the associated fard's time must have started
-    if (sunnah.position === "before") {
+    if (isToday && sunnah.position === "before") {
       const fardStartMinutes = prayerMinutes[sunnah.associatedFard];
       if (currentMinutes < fardStartMinutes) {
         const fardLabel = sunnah.associatedFard.charAt(0).toUpperCase() + sunnah.associatedFard.slice(1);
@@ -166,7 +179,7 @@ export async function POST(request: NextRequest) {
 
     // 2b. Lock check: can't log after the lock prayer starts (window closed)
     //     EXCEPT Duha — user wants late Duha logging allowed
-    if (sunnah.locksAt && sunnah.key !== "duha") {
+    if (isToday && sunnah.locksAt && sunnah.key !== "duha") {
       const lockMinutes = prayerMinutes[sunnah.locksAt];
       // Witr locks at Fajr — Isha's window ends when Fajr starts
       // Special case: if current time is after midnight but before Fajr,
@@ -191,28 +204,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Upsert sunnah log
-  const [existing] = await db
-    .select()
-    .from(schema.sunnahLog)
-    .where(
-      and(
-        eq(schema.sunnahLog.userId, session.userId),
-        eq(schema.sunnahLog.date, date),
-        eq(schema.sunnahLog.sunnahKey, sunnahKey),
-      ),
-    )
-    .limit(1);
-
-  if (existing) {
-    const [updated] = await db
-      .update(schema.sunnahLog)
-      .set({ prayed: true, loggedAt: new Date() })
-      .where(eq(schema.sunnahLog.id, existing.id))
-      .returning();
-    return NextResponse.json(updated);
-  }
-
+  // Upsert sunnah log — atomic to survive retries/double-taps (the unique
+  // index on (userId, date, sunnahKey) makes this a true upsert)
   const [entry] = await db
     .insert(schema.sunnahLog)
     .values({
@@ -222,6 +215,10 @@ export async function POST(request: NextRequest) {
       associatedFard: sunnah.associatedFard as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha",
       prayed: true,
       loggedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [schema.sunnahLog.userId, schema.sunnahLog.date, schema.sunnahLog.sunnahKey],
+      set: { prayed: true, loggedAt: new Date() },
     })
     .returning();
 

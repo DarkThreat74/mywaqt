@@ -45,37 +45,50 @@ export default function DoneTab({
   );
 
   const restoreGoal = async (id: string) => {
+    const original = goals.find((g) => g.id === id);
     setGoals((prev) => prev.map((g) => (g.id === id ? { ...g, status: "active" as const, completedAt: null, updatedAt: new Date() } : g)));
     try {
-      await fetch("/api/goals", {
+      const res = await fetch("/api/goals", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, status: "active", completedAt: null }),
       });
+      // 202 = queued offline — keep. Other failures — revert.
+      if (!res.ok && res.status !== 202 && original) {
+        setGoals((prev) => prev.map((g) => (g.id === id ? original : g)));
+      }
     } catch {
-      // keep state
+      // offline — keep state
     }
   };
 
   const deleteGoal = async (id: string) => {
+    const original = goals.find((g) => g.id === id);
     setGoals((prev) => prev.filter((g) => g.id !== id));
     try {
-      await fetch(`/api/goals?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/goals?id=${id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 202 && original) {
+        setGoals((prev) => [...prev, original]);
+      }
     } catch {
-      // keep state
+      // offline — keep state
     }
   };
 
   const restoreHomework = async (id: string) => {
+    const original = homework.find((h) => h.id === id);
     setHomework((prev) => prev.map((h) => (h.id === id ? { ...h, status: "pending" as const, completedAt: null } : h)));
     try {
-      await fetch(`/api/homework/${id}`, {
+      const res = await fetch(`/api/homework/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "pending" }),
       });
+      if (!res.ok && res.status !== 202 && original) {
+        setHomework((prev) => prev.map((h) => (h.id === id ? original : h)));
+      }
     } catch {
-      // keep state
+      // offline — keep state
     }
   };
 

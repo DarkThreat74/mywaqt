@@ -171,6 +171,15 @@ export async function PATCH(request: NextRequest) {
       if (body.parentId === body.id) {
         return NextResponse.json({ error: "A goal cannot be its own parent" }, { status: 400 });
       }
+      // Verify the parent belongs to this user (IDOR)
+      const [parent] = await db
+        .select({ id: schema.goals.id })
+        .from(schema.goals)
+        .where(and(eq(schema.goals.id, body.parentId), eq(schema.goals.userId, session.userId)))
+        .limit(1);
+      if (!parent) {
+        return NextResponse.json({ error: "Invalid parent goal" }, { status: 400 });
+      }
       // Check the potential parent isn't a descendant of this goal
       let currentParent: string | null = body.parentId;
       const visited = new Set<string>();

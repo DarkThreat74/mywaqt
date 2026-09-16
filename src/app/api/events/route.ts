@@ -62,15 +62,18 @@ export async function GET(request: NextRequest) {
   }
 
   if (fromStr && toStr) {
-    // Use user's timezone for range boundaries
-    const fromDate = new Date(fromStr + "T00:00:00");
-    const toDate = new Date(toStr + "T23:59:59.999");
+    // Use the same wide timezone buffer as ?date= — server-local midnight
+    // boundaries would drop edge events for users far from UTC.
+    // from: earliest local midnight (UTC+14) = fromStr - 1 day T10:00 UTC
+    // to:   latest local end (UTC-12)      = toStr + 1 day T11:59:59.999 UTC
+    const fromDate = new Date(fromStr + "T00:00:00+14:00");
+    const toDate = new Date(toStr + "T23:59:59.999-12:00");
     if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
       return NextResponse.json({ error: "Invalid date range." }, { status: 400 });
     }
 
     // Cap range to 31 days to prevent unbounded queries
-    const maxRange = 31 * 24 * 60 * 60 * 1000;
+    const maxRange = 32 * 24 * 60 * 60 * 1000; // 31-day range + tz buffer
     if (toDate.getTime() - fromDate.getTime() > maxRange) {
       return NextResponse.json({ error: "Date range cannot exceed 31 days." }, { status: 400 });
     }

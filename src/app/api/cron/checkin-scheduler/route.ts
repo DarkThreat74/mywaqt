@@ -34,6 +34,34 @@ const BATCH_SIZE = 500;
 const STALE_DEVICE_DAYS = 90;
 const LOGIN_ATTEMPT_RETENTION_HOURS = 24;
 
+/**
+ * Returns a Date whose SERVER-LOCAL fields equal the user's current wall
+ * clock in `timezone`. This is what isWindowClosed() expects — it builds
+ * comparison times with setHours() in the same server-local frame, so both
+ * sides must be interpreted in that frame.
+ *
+ * Never use `new Date(new Date().toLocaleString("en-US", { timeZone }))`
+ * followed by .toISOString() — that roundtrip shifts the date by the
+ * server's own UTC offset near midnight.
+ */
+function userNowAsLocalDate(timezone: string): { now: Date; today: string; yesterdayStr: string } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const now = new Date(
+    get("year"), get("month") - 1, get("day"),
+    get("hour") % 24, get("minute"), get("second"),
+  );
+  const today = `${get("year")}-${String(get("month")).padStart(2, "0")}-${String(get("day")).padStart(2, "0")}`;
+  const yest = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const yesterdayStr = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, "0")}-${String(yest.getDate()).padStart(2, "0")}`;
+  return { now, today, yesterdayStr };
+}
+
 export async function POST(request: NextRequest) {
   if (!verifyCronAuth(request.headers.get("authorization"), request.headers.get("x-vercel-cron") === "1")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -107,10 +135,7 @@ async function processUserBatch(
   const allDates = new Set<string>();
   const yesterdayDates = new Set<string>();
   for (const s of settings) {
-    const userNow = new Date(new Date().toLocaleString("en-US", { timeZone: s.timezone }));
-    const today = userNow.toISOString().split("T")[0];
-    const yesterday = new Date(userNow.getTime() - 24 * 60 * 60 * 1000);
-    const yesterdayStr = yesterday.toISOString().split("T")[0];
+    const { today, yesterdayStr } = userNowAsLocalDate(s.timezone);
     allDates.add(today);
     allDates.add(yesterdayStr);
     yesterdayDates.add(yesterdayStr);
@@ -173,10 +198,8 @@ async function processUserBatch(
   // Process each user using the batched data
   for (const s of settings) {
     try {
-      const userNow = new Date(new Date().toLocaleString("en-US", { timeZone: s.timezone }));
-      const today = userNow.toISOString().split("T")[0];
-      const yesterday = new Date(userNow.getTime() - 24 * 60 * 60 * 1000);
-      const yesterdayStr = yesterday.toISOString().split("T")[0];
+      const userNow = userNowAsLocalDate(s.timezone).now;
+      const { today, yesterdayStr } = userNowAsLocalDate(s.timezone);
 
       // 1. Resolve yesterday's unmarked prayers as assumed_prayed
       const yesterdayCached = cachedTimesMap.get(s.userId)?.get(yesterdayStr);
@@ -192,6 +215,15 @@ async function processUserBatch(
 
         const prayers: Array<"fajr" | "dhuhr" | "asr" | "maghrib" | "isha"> = ["fajr", "dhuhr", "asr", "maghrib", "isha"];
         const logIdsToUpdate: string[] = [];
+        const rowsToInsert: Array<{
+          userId: string;
+          date: string;
+          prayerName: "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
+          status: "assumed_prayed";
+          wentToMasjid: boolean;
+          markedAt: Date;
+          lastCheckinAt: Date;
+        }> = [];
 
         for (const prayerName of prayers) {
           const window = getPrayerWindow(prayerName, yesterdayTimings);
@@ -202,6 +234,20 @@ async function processUserBatch(
           const existingLog = pendingLogsMap.get(s.userId)?.get(yesterdayStr)?.get(prayerName);
           if (existingLog) {
             logIdsToUpdate.push(existingLog.id);
+          } else {
+            // No row at all — the user never touched this prayer. Insert an
+            // assumed_prayed row so analytics/streaks see a complete day.
+            // onConflictDoNothing makes it safe if a row exists in another
+            // status (manually marked between our read and write).
+            rowsToInsert.push({
+              userId: s.userId,
+              date: yesterdayStr,
+              prayerName,
+              status: "assumed_prayed",
+              wentToMasjid: false,
+              markedAt: new Date(),
+              lastCheckinAt: new Date(),
+            });
           }
         }
 
@@ -218,6 +264,16 @@ async function processUserBatch(
               ),
             );
           assumedResolved += logIdsToUpdate.length;
+        }
+
+        if (rowsToInsert.length > 0) {
+          await db
+            .insert(schema.prayerLog)
+            .values(rowsToInsert)
+            .onConflictDoNothing({
+              target: [schema.prayerLog.userId, schema.prayerLog.date, schema.prayerLog.prayerName],
+            });
+          assumedResolved += rowsToInsert.length;
         }
       }
 

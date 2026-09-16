@@ -45,7 +45,7 @@ export default function PrayerCheckinPopup({
   const now = new Date();
   const localStr = now.toLocaleString("en-US", { timeZone: timezone, hour12: false });
   const timeMatch = localStr.match(/(\d+):(\d+)/);
-  const currentMinutes = timeMatch ? parseInt(timeMatch[1]) * 60 + parseInt(timeMatch[2]) : now.getHours() * 60 + now.getMinutes();
+  const currentMinutes = timeMatch ? (parseInt(timeMatch[1]) % 24) * 60 + parseInt(timeMatch[2]) : now.getHours() * 60 + now.getMinutes();
 
   // Today's date in the user's timezone (YYYY-MM-DD)
   const todayInTz = now.toLocaleDateString("en-CA", { timeZone: timezone });
@@ -202,8 +202,17 @@ export default function PrayerCheckinPopup({
         wentToMasjid: false,
       }),
     })
-      .then((res) => res.json().catch(() => ({})))
-      .then(() => {
+      .then(async (res) => {
+        // Check res.ok — previously the undo marked the prayer pending in the
+        // UI even when the server rejected the write, leaving DB and UI out
+        // of sync. 202 = offline-queued by the SW — still apply the undo.
+        if (!res.ok && res.status !== 202) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error || "Could not undo. Please try again.");
+          play("error");
+          setLoading(false);
+          return;
+        }
         invalidateApiCache("/api/prayer-log");
         play("undo");
         void hapticImpact("light");

@@ -138,7 +138,20 @@ export default function TodayTab({
             return updated;
           });
           void invalidateApiCache("/api/goals");
+        } else if (!res.ok && res.status !== 202) {
+          // Rejected (not offline-queued) — revert the optimistic toggle
+          setAnimatingOut((prev) => {
+            const next = new Set(prev);
+            next.delete(goal.id);
+            return next;
+          });
+          setGoals((prev) => {
+            const updated = prev.map((g) => (g.id === goal.id ? goal : g));
+            syncGoalsToCache(updated);
+            return updated;
+          });
         }
+        // 202 = queued offline by the SW — keep optimistic state
       } catch {
         // Offline: optimistic state + cache already updated, keep it
       }
@@ -213,15 +226,7 @@ export default function TodayTab({
         }]);
       }
       toggleHabitLogInCache(habitId, todayDateStr, !wasCompleted);
-      try {
-        await fetch("/api/habit-logs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ habitId, date: todayDateStr }),
-        });
-        void invalidateApiCache("/api/habit-logs");
-      } catch {
-        // revert on failure
+      const revert = () => {
         if (wasCompleted) {
           setHabitLogs((prev) => [...prev, {
             id: `temp_${habitId}_${todayDateStr}`, userId: "", habitId, date: todayDateStr, count: 1, completedAt: new Date(),
@@ -229,6 +234,23 @@ export default function TodayTab({
         } else {
           setHabitLogs((prev) => prev.filter((l) => !(l.habitId === habitId && l.date === todayDateStr)));
         }
+        toggleHabitLogInCache(habitId, todayDateStr, wasCompleted);
+      };
+      try {
+        const res = await fetch("/api/habit-logs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ habitId, date: todayDateStr }),
+        });
+        // 202 = queued offline by the SW — keep the optimistic toggle.
+        // Any other non-ok response means the server rejected it — revert.
+        if (!res.ok && res.status !== 202) {
+          revert();
+          return;
+        }
+        void invalidateApiCache("/api/habit-logs");
+      } catch {
+        revert();
       }
     },
     [habitsCompletedToday, setHabitLogs, todayDateStr],

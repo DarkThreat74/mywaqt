@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v38";
+const CACHE_VERSION = "waqt-v39";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -114,6 +114,7 @@ async function syncOutbox() {
     if (outbox.length === 0) return;
 
     let syncedCount = 0;
+    const syncedPrefixes = new Set();
 
     for (const item of outbox) {
       try {
@@ -139,6 +140,7 @@ async function syncOutbox() {
         if (res.ok) {
           await removeFromOutbox(item.id);
           syncedCount++;
+          if (item.pathname) syncedPrefixes.add(item.pathname);
         } else if (res.status === 401 || res.status === 403) {
           // Session expired — keep the item in the outbox so it can retry
           // after the user re-authenticates. Don't drop queued writes.
@@ -150,8 +152,9 @@ async function syncOutbox() {
           }));
           break; // Stop — remaining items will also fail with 401
         } else if (res.status >= 500) {
-          // Server error — leave in outbox for retry, don't delete
-          continue;
+          // Server error — stop replay to preserve FIFO ordering (later items
+          // may depend on this one, e.g. PATCH on a POSTed entity)
+          break;
         } else {
           // 4xx (validation error, conflict) — remove from outbox to avoid
           // retrying forever, but notify client so UI can surface the failure
@@ -164,8 +167,40 @@ async function syncOutbox() {
           }));
         }
       } catch {
-        // Network error on this item — leave it in the outbox for next sync
-        continue;
+        // Network error — stop replay to preserve FIFO ordering and retry
+        // the whole queue on the next sync
+        break;
+      }
+    }
+
+    // Invalidate stale API cache entries for synced endpoints so the next
+    // read doesn't serve pre-sync data (stale-while-revalidate could
+    // otherwise show the old state for up to the TTL). We bust the whole
+    // collection prefix (e.g. a write to /api/events/123 busts /api/events*).
+    if (syncedCount > 0) {
+      try {
+        const cache = await caches.open(API_CACHE);
+        const keys = await cache.keys();
+        const collections = new Set(
+          [...syncedPrefixes].map((p) => p.split("/").slice(0, 3).join("/"))
+        );
+        await Promise.all(
+          keys
+            .filter((key) => {
+              try {
+                const p = new URL(key.url).pathname;
+                for (const c of collections) {
+                  if (p === c || p.startsWith(c + "/")) return true;
+                }
+                return false;
+              } catch {
+                return false;
+              }
+            })
+            .map((key) => cache.delete(key))
+        );
+      } catch {
+        // non-critical — stale data will refresh on next TTL expiry
       }
     }
 
@@ -378,7 +413,10 @@ self.addEventListener("fetch", (event) => {
     !url.pathname.startsWith("/api/goals/share") &&
     !url.pathname.startsWith("/api/goals/shared") &&
     !url.pathname.startsWith("/api/learn/") &&
-    !url.pathname.startsWith("/api/prayer-times/sync")
+    !url.pathname.startsWith("/api/prayer-times/sync") &&
+    // Talk progress writes fire on a timer — a queued old position would
+    // overwrite newer progress on replay, so let them fail when offline.
+    !url.pathname.startsWith("/api/talks/progress")
   ) {
     // Clone the request body before consuming it
     const bodyPromise = request.clone().json().catch(() => null);
@@ -880,8 +918,35 @@ self.addEventListener("message", (event) => {
       ])
     );
   }
+  if (event.data && event.data.type === "REMOVE_OUTBOX_ITEM") {
+    // Remove a single queued write — e.g. the user deletes an event that was
+    // created offline and hasn't synced yet. Matching is by tempId (queued
+    // items carry it) or by exact url+method for member-path writes.
+    event.waitUntil(
+      (async () => {
+        const { tempId, url: targetUrl, method: targetMethod } = event.data;
+        const outbox = await getOutbox();
+        for (const item of outbox) {
+          if (tempId && item.tempId === tempId) {
+            await removeFromOutbox(item.id);
+            // Also remove dependent writes targeting the temp entity
+            // (PATCH/DELETE urls contain the tempId in the path)
+            for (const dep of outbox) {
+              if (dep.id !== item.id && typeof dep.url === "string" && dep.url.includes(tempId)) {
+                await removeFromOutbox(dep.id);
+              }
+            }
+          } else if (targetUrl && item.url === targetUrl && item.method === targetMethod) {
+            await removeFromOutbox(item.id);
+          }
+        }
+      })().catch(() => {})
+    );
+  }
   if (event.data && event.data.type === "CLEAR_OUTBOX") {
-    // Clear the offline outbox + all caches to prevent cross-user data leakage
+    // Clear ONLY the offline outbox. User-scoped caches are handled by
+    // CLEAR_USER_CACHE — deleting every cache here would wipe the static
+    // app shell (breaking offline boot) and downloaded talk audio.
     event.waitUntil(
       (async () => {
         try {
@@ -895,9 +960,6 @@ self.addEventListener("message", (event) => {
         } catch {
           // non-critical
         }
-        // Also clear all caches (page cache may contain user-specific HTML)
-        const names = await caches.keys();
-        await Promise.all(names.map((n) => caches.delete(n)));
       })()
     );
   }

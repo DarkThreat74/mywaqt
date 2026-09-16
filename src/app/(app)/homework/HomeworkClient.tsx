@@ -350,11 +350,18 @@ export default function HomeworkClient({
     setHomework((prev) => prev.map((h) => (h.id === hw.id ? updatedHw : h)));
     upsertHomeworkToCache(updatedHw);
     try {
-      await fetch(`/api/homework/${hw.id}`, {
+      const res = await fetch(`/api/homework/${hw.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
+      // 202 = queued offline by the SW — keep optimistic state.
+      // Other non-ok responses mean the server rejected the change — revert.
+      if (!res.ok && res.status !== 202) {
+        setHomework((prev) => prev.map((h) => (h.id === hw.id ? hw : h)));
+        upsertHomeworkToCache(hw);
+        return;
+      }
       invalidateApiCache("/api/homework");
     } catch {
       // Offline: keep optimistic state + cache as-is (don't revert)
@@ -375,7 +382,12 @@ export default function HomeworkClient({
     setHomework((prev) => prev.filter((h) => h.id !== id));
     deleteHomeworkFromCache(id);
     try {
-      await fetch(`/api/homework/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/homework/${id}`, { method: "DELETE" });
+      // 202 = queued offline — keep it removed. Other failures — refetch.
+      if (!res.ok && res.status !== 202) {
+        refreshHomework();
+        return;
+      }
       invalidateApiCache("/api/homework");
     } catch {
       refreshHomework();
@@ -418,11 +430,7 @@ export default function HomeworkClient({
     deleteClassFromCache(cls.id);
     if (filterClassId === cls.id) setFilterClassId(null);
     setDeleteClassConfirm(null);
-    try {
-      await fetch(`/api/classes?id=${cls.id}`, { method: "DELETE" });
-      invalidateApiCache("/api/classes");
-    } catch {
-      // Re-fetch on failure
+    const refetchClasses = async () => {
       try {
         const res = await fetch("/api/classes");
         if (res.ok) {
@@ -433,6 +441,17 @@ export default function HomeworkClient({
           }
         }
       } catch { /* offline */ }
+    };
+    try {
+      const res = await fetch(`/api/classes?id=${cls.id}`, { method: "DELETE" });
+      // 202 = queued offline — keep removal. Other failures — refetch.
+      if (!res.ok && res.status !== 202) {
+        await refetchClasses();
+        return;
+      }
+      invalidateApiCache("/api/classes");
+    } catch {
+      await refetchClasses();
     }
   }
 

@@ -26,6 +26,34 @@ export default function UnregisterServiceWorker() {
         const registrations = await navigator.serviceWorker.getRegistrations();
         if (cancelled || registrations.length === 0) return;
 
+        // ── Check for unsynced offline writes BEFORE wiping anything ──
+        // If the user was redirected to /login by a session expiry (not an
+        // explicit logout), the outbox may still hold queued writes. Deleting
+        // it would permanently destroy that data.
+        let hasPendingOutbox = false;
+        try {
+          hasPendingOutbox = await new Promise<boolean>((resolve) => {
+            const req = indexedDB.open("waqt-offline");
+            req.onsuccess = () => {
+              const db = req.result;
+              if (!db.objectStoreNames.contains("event-outbox")) {
+                db.close();
+                resolve(false);
+                return;
+              }
+              const countReq = db.transaction("event-outbox", "readonly").objectStore("event-outbox").count();
+              countReq.onsuccess = () => {
+                db.close();
+                resolve(countReq.result > 0);
+              };
+              countReq.onerror = () => { db.close(); resolve(false); };
+            };
+            req.onerror = () => resolve(false);
+          });
+        } catch {
+          // Can't read — assume empty, proceed with cleanup
+        }
+
         // Unregister all SWs
         await Promise.all(
           registrations.map((r) => r.unregister().catch(() => {}))
@@ -38,8 +66,13 @@ export default function UnregisterServiceWorker() {
         }
 
         // Clear IndexedDB databases (offline data + outbox)
-        // This prevents cross-user data leakage on shared devices
-        for (const dbName of ["waqt-offline-data", "waqt-offline"]) {
+        // This prevents cross-user data leakage on shared devices.
+        // EXCEPT: when the outbox still holds unsynced writes, keep
+        // "waqt-offline" so they can replay after the user re-authenticates.
+        const dbsToDelete = hasPendingOutbox
+          ? ["waqt-offline-data"] // keep the outbox DB
+          : ["waqt-offline-data", "waqt-offline"];
+        for (const dbName of dbsToDelete) {
           await new Promise<void>((resolve) => {
             try {
               const req = indexedDB.deleteDatabase(dbName);
@@ -52,11 +85,16 @@ export default function UnregisterServiceWorker() {
           });
         }
 
-        // Clear all waqt-* localStorage keys
+        // Clear waqt-* localStorage keys — but preserve theme preference and
+        // the push-endpoint dedup key (both are user-agnostic and losing them
+        // causes a theme flash + a redundant subscribe POST on next login).
+        const PRESERVE_KEYS = new Set(["waqt:theme", "waqt:push-endpoint"]);
         try {
           for (let i = localStorage.length - 1; i >= 0; i--) {
             const key = localStorage.key(i);
-            if (key && key.startsWith("waqt")) localStorage.removeItem(key);
+            if (key && key.startsWith("waqt") && !PRESERVE_KEYS.has(key)) {
+              localStorage.removeItem(key);
+            }
           }
         } catch {
           // non-critical

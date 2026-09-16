@@ -52,7 +52,40 @@ export function getCurrentMinutesInTimezone(timezone: string): number {
   const localStr = now.toLocaleString("en-US", { timeZone: timezone, hour12: false });
   const parts = localStr.match(/(\d+):(\d+):(\d+)/);
   if (!parts) return now.getHours() * 60 + now.getMinutes();
-  return parseInt(parts[1]) * 60 + parseInt(parts[2]);
+  // hour12:false emits "24:MM" for midnight hour in Node/Chromium — normalize
+  const h = parseInt(parts[1], 10) % 24;
+  return h * 60 + parseInt(parts[2], 10);
+}
+
+/**
+ * Get the current time in minutes since midnight for a given timezone,
+ * including fractional minutes (seconds) for countdown precision.
+ */
+export function getCurrentMinutesInTimezonePrecise(timezone: string): number {
+  const now = new Date();
+  try {
+    const localStr = now.toLocaleString("en-US", { timeZone: timezone, hour12: false });
+    const parts = localStr.match(/(\d+):(\d+):(\d+)/);
+    if (!parts) throw new Error("no match");
+    const h = parseInt(parts[1], 10) % 24;
+    return h * 60 + parseInt(parts[2], 10) + parseInt(parts[3], 10) / 60;
+  } catch {
+    return now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  }
+}
+
+/**
+ * Today's date as "YYYY-MM-DD" in a given IANA timezone.
+ * Uses en-CA (ISO format) — never reparse a locale string through `new Date()`,
+ * which converts through device/UTC time and shifts the date near midnight.
+ */
+export function todayInTimezone(timezone?: string | null): string {
+  try {
+    return new Date().toLocaleDateString("en-CA", timezone ? { timeZone: timezone } : undefined);
+  } catch {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
 }
 
 /**

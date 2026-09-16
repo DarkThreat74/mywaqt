@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2, Headphones } from "lucide-react";
 import { invalidateApiCache, clearApiCache } from "@/lib/sw-helpers";
-import { isNativeApp } from "@/lib/native-bridge";
+import { isNativeApp, isIOS as isIOSDevice } from "@/lib/native-bridge";
 import { clearOfflineCache } from "@/lib/offline/db";
 import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
 import { HTTP_USER_AGENT } from "@/lib/site-config";
@@ -861,7 +861,7 @@ export default function SettingsClient({
       // iOS Safari requires requestPermission() to be called synchronously
       // inside the user gesture — any await before it consumes the gesture
       // and the prompt is silently suppressed. So we ask FIRST.
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isIOS = isIOSDevice();
       const isStandalone =
         window.matchMedia("(display-mode: standalone)").matches ||
         (navigator as unknown as { standalone?: boolean }).standalone === true;
@@ -1664,7 +1664,7 @@ export default function SettingsClient({
             <div className="space-y-0.5 text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
               <p><span style={{ color: "var(--color-ink-muted)" }}>SW:</span> {swStatus}</p>
               <p><span style={{ color: "var(--color-ink-muted)" }}>Push:</span> {pushStatus}</p>
-              <p><span style={{ color: "var(--color-ink-muted)" }}>Platform:</span> {isNativeApp() ? "Native app" : typeof navigator !== "undefined" ? (navigator.userAgent.includes("iPhone") || navigator.userAgent.includes("iPad") ? "iOS Web" : "Desktop/Android Web") : "unknown"}</p>
+              <p><span style={{ color: "var(--color-ink-muted)" }}>Platform:</span> {isNativeApp() ? "Native app" : typeof navigator !== "undefined" ? (isIOSDevice() ? "iOS Web" : "Desktop/Android Web") : "unknown"}</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">

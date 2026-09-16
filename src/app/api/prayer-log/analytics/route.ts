@@ -224,7 +224,7 @@ export async function GET(request: NextRequest) {
         const localStr = marked.toLocaleString("en-US", { timeZone: timezone, hour12: false });
         const match = localStr.match(/(\d+):(\d+)/);
         if (!match) continue;
-        const markedMinutes = parseInt(match[1]) * 60 + parseInt(match[2]);
+        const markedMinutes = (parseInt(match[1]) % 24) * 60 + parseInt(match[2]);
 
         const dateStr = typeof log.date === "string" ? log.date : String(log.date);
         const times = prayerTimesByDate.get(dateStr);
@@ -249,7 +249,9 @@ export async function GET(request: NextRequest) {
             windowEnd = times.isha >= 0 ? times.isha : prayerStart + 90;
             break;
           case "isha":
-            windowEnd = 24 * 60; // midnight
+            // Isha's window runs until NEXT day's Fajr — it crosses midnight.
+            // Represented as >1440 so post-midnight marks stay in-window.
+            windowEnd = times.fajr >= 0 ? times.fajr + 1440 : prayerStart + 360;
             break;
           default:
             windowEnd = prayerStart + 120;
@@ -260,22 +262,16 @@ export async function GET(request: NextRequest) {
         const windowDuration = windowEnd - windowStart;
         if (windowDuration <= 0) continue;
 
-        // Check in-window (handle wrap for Isha)
-        const inWindow =
-          windowEnd < windowStart
-            ? markedMinutes >= windowStart || markedMinutes <= windowEnd
-            : markedMinutes >= windowStart && markedMinutes <= windowEnd;
+        // Normalize the marked time onto the window's timeline: a mark before
+        // window start may be a post-midnight mark of a window that began the
+        // previous evening (Isha) — shift it +1440 before comparing.
+        const markedAdj = markedMinutes >= windowStart ? markedMinutes : markedMinutes + 1440;
+        const inWindow = markedAdj >= windowStart && markedAdj <= windowEnd;
 
         if (!inWindow) continue;
 
         // Calculate percentage within the window
-        let elapsed: number;
-        if (markedMinutes >= windowStart) {
-          elapsed = markedMinutes - windowStart;
-        } else {
-          // Wrap-around case (Isha past midnight)
-          elapsed = (1440 - windowStart) + markedMinutes;
-        }
+        const elapsed = markedAdj - windowStart;
         const pct = (elapsed / windowDuration) * 100;
         const clampedPct = Math.max(0, Math.min(100, pct));
         windowPcts.push(clampedPct);

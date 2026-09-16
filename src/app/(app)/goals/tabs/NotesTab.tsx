@@ -123,18 +123,25 @@ export default function NotesTab({
     setNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)));
     upsertNoteToCache(updated);
     try {
-      await fetch(`/api/notes/${note.id}`, {
+      const res = await fetch(`/api/notes/${note.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pinned: !note.pinned }),
       });
+      // 202 = queued offline — keep. Other failures — revert.
+      if (!res.ok && res.status !== 202) {
+        setNotes((prev) => prev.map((n) => (n.id === note.id ? note : n)));
+        upsertNoteToCache(note);
+        return;
+      }
       invalidateApiCache("/api/notes");
     } catch {
-      // keep state
+      // offline — keep state
     }
   };
 
   const handleDelete = async (id: string) => {
+    const removed = notes.find((n) => n.id === id);
     setNotes((prev) => prev.filter((n) => n.id !== id));
     deleteNoteFromCache(id);
     if (activeNoteId === id) {
@@ -143,10 +150,15 @@ export default function NotesTab({
       setContent("");
     }
     try {
-      await fetch(`/api/notes/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/notes/${id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 202 && removed) {
+        setNotes((prev) => [removed, ...prev]);
+        upsertNoteToCache(removed);
+        return;
+      }
       invalidateApiCache("/api/notes");
     } catch {
-      // keep state
+      // offline — keep state
     }
   };
 

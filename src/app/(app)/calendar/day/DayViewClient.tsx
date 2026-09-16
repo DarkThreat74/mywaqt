@@ -6,7 +6,7 @@ import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { useUISFX } from "@/components/uisfx-provider";
 import { getDisplayAsrTime, type PrayerKey } from "@/lib/prayer/checkin";
-import { invalidateApiCache } from "@/lib/sw-helpers";
+import { invalidateApiCache, removeOutboxItem } from "@/lib/sw-helpers";
 import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFromCache, upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
@@ -143,6 +143,16 @@ function formatWeekdayShortDate(d: Date): string {
   return `${DAY_SHORT[d.getDay()]}, ${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`;
 }
 
+// YYYY-MM-DD in a given IANA timezone (falls back to device tz on bad input).
+// en-CA formats as ISO — avoids locale-string reparsing bugs.
+function localDateStrInTz(d: Date, timeZone?: string): string {
+  try {
+    return d.toLocaleDateString("en-CA", timeZone ? { timeZone } : undefined);
+  } catch {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+}
+
 // Deterministic color assignment for reminders based on title
 // Falls back to user-chosen color if set
 function getReminderColor(title: string, chosenColor?: string | null): string {
@@ -203,6 +213,18 @@ export default function DayViewClient({ date }: { date: string }) {
       });
     }
   }, []);
+
+  // Lock body scroll while any fixed modal is open (iOS Safari especially —
+  // without this the page scrolls behind the overlay)
+  const anyModalOpen = showAddForm || !!editingEvent || !!deleteConfirm || !!checkinPopup || showSeriesList;
+  useEffect(() => {
+    if (!anyModalOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [anyModalOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -277,9 +299,7 @@ export default function DayViewClient({ date }: { date: string }) {
         if (eventsRes?.ok) {
           const eventsData = await eventsRes.json();
           const filtered = eventsData.filter((e: { startAt: string }) => {
-            const d = new Date(e.startAt);
-            const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-            return localDateStr === date;
+            return localDateStrInTz(new Date(e.startAt), userTimezone) === date;
           });
           if (!cancelled) setEvents(filtered);
 
@@ -453,7 +473,8 @@ export default function DayViewClient({ date }: { date: string }) {
     })();
 
     return () => { cancelled = true; };
-  }, [date]);
+    // userTimezone: re-filter refetched events when the cached tz resolves
+  }, [date, userTimezone]);
 
   // ── Online/offline + sync listeners ──
   useEffect(() => {
@@ -808,9 +829,12 @@ export default function DayViewClient({ date }: { date: string }) {
   }
 
   async function handleDeleteEvent(id: string) {
-    // If it's a pending offline event, just remove it from local state
+    // If it's a pending offline event, remove it from local state, IndexedDB,
+    // AND the SW outbox — otherwise the queued POST would recreate it on sync.
     if (id.startsWith("offline-")) {
       setEvents((prev) => prev.filter((e) => e.id !== id));
+      deleteEventFromCache(id);
+      removeOutboxItem(id); // event.id IS the SW tempId for offline creates
       play("delete");
       return;
     }
@@ -828,9 +852,7 @@ export default function DayViewClient({ date }: { date: string }) {
         if (refetch.ok) {
           const data = await refetch.json();
           const filtered = data.filter((e: { startAt: string }) => {
-            const d = new Date(e.startAt);
-            const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-            return localDateStr === date;
+            return localDateStrInTz(new Date(e.startAt), userTimezone) === date;
           });
           setEvents(filtered);
         }
@@ -2031,13 +2053,12 @@ export default function DayViewClient({ date }: { date: string }) {
                         if (refetch.ok) {
                           const refreshed = await refetch.json();
                           const filtered = refreshed.filter((ev: { startAt: string }) => {
-                            const d = new Date(ev.startAt);
-                            const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-                            return localDateStr === date;
+                            return localDateStrInTz(new Date(ev.startAt), userTimezone) === date;
                           });
                           setEvents(filtered);
                         }
                         setSuccessMsg(`Deleted ${data.deleted} future events. Past events preserved.`);
+                        setTimeout(() => setSuccessMsg(null), 3000);
                         play("delete");
                       } else {
                         const data = await res.json().catch(() => ({}));

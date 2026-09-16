@@ -28,3 +28,20 @@ export function invalidateApiCache(prefix: string) {
     });
   }
 }
+
+/**
+ * Remove a queued offline write from the service worker outbox.
+ * Use when the user deletes something that was created offline and hasn't
+ * synced yet — the queued POST (and any PATCH/DELETE targeting its tempId)
+ * must be dropped or it will recreate the entity on the next sync.
+ *
+ * @param tempId - The tempId assigned by the SW when the write was queued
+ */
+export function removeOutboxItem(tempId: string) {
+  if (typeof navigator !== "undefined" && navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: "REMOVE_OUTBOX_ITEM",
+      tempId,
+    });
+  }
+}

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="flex min-h-full flex-col"
+      className="flex min-h-dvh flex-col"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       <UnregisterServiceWorker />

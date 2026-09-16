@@ -64,14 +64,32 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
       updates.description = desc.trim() || null;
     }
-    if (body.classId !== undefined) updates.classId = body.classId || null;
+    if (body.classId !== undefined) {
+      if (body.classId) {
+        // Verify the class belongs to this user before linking (IDOR)
+        const [cls] = await db
+          .select({ id: schema.classes.id })
+          .from(schema.classes)
+          .where(and(eq(schema.classes.id, body.classId), eq(schema.classes.userId, session.userId)))
+          .limit(1);
+        if (!cls) {
+          return NextResponse.json({ error: "Class not found" }, { status: 400 });
+        }
+      }
+      updates.classId = body.classId || null;
+    }
     if (body.dueDate !== undefined) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate)) {
         return NextResponse.json({ error: "Invalid due date" }, { status: 400 });
       }
       updates.dueDate = body.dueDate;
     }
-    if (body.dueTime !== undefined) updates.dueTime = body.dueTime || null;
+    if (body.dueTime !== undefined) {
+      if (body.dueTime !== null && body.dueTime !== "" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(body.dueTime)) {
+        return NextResponse.json({ error: "Invalid due time" }, { status: 400 });
+      }
+      updates.dueTime = body.dueTime || null;
+    }
     if (body.priority !== undefined) {
       if (!["low", "medium", "high"].includes(body.priority)) {
         return NextResponse.json({ error: "Invalid priority" }, { status: 400 });

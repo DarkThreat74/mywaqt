@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { Flame, MapPin, Users, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
+import { getCurrentMinutesInTimezonePrecise, todayInTimezone } from "@/lib/prayer/checkin";
+import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
 import { getOfflineDB } from "@/lib/offline/db";
@@ -229,6 +231,17 @@ export default function PrayerDashboard() {
   const [sunnahError, setSunnahError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [isOnline, setIsOnline] = useState(true);
+  // Configured prayer timezone — seeded from localStorage so first render is
+  // correct; analytics.timezone takes over once loaded (derived, no effect).
+  const cachedTimezone = getCachedPrayerSettings()?.timezone ?? null;
+  const userTimezone = analytics?.timezone ?? cachedTimezone;
+  // Current wall-clock minutes in the configured timezone — device-local
+  // getHours() is wrong whenever the device is in a different timezone.
+  const nowMinutesInTz = currentTime
+    ? (userTimezone
+        ? getCurrentMinutesInTimezonePrecise(userTimezone)
+        : currentTime.getHours() * 60 + currentTime.getMinutes() + currentTime.getSeconds() / 60)
+    : 0;
 
   // Track online/offline status + initialize time on client only (avoids hydration mismatch)
   useEffect(() => {
@@ -248,7 +261,7 @@ export default function PrayerDashboard() {
   }, []);
 
   const todayStr = currentTime
-    ? currentTime.toLocaleDateString("en-CA")
+    ? todayInTimezone(userTimezone)
     : null; // null until client mounts — prevents fetching with 1970-01-01
 
   const fetchTodayData = useCallback(async () => {
@@ -910,7 +923,7 @@ export default function PrayerDashboard() {
             {/* ── Next Prayer Countdown ── */}
             {prayerTimes && currentTime && (() => {
               const PRAYER_LABELS: Record<string, string> = { fajr: "Fajr", dhuhr: "Dhuhr", asr: "Asr", maghrib: "Maghrib", isha: "Isha" };
-              const nowMin = currentTime.getHours() * 60 + currentTime.getMinutes() + currentTime.getSeconds() / 60;
+              const nowMin = nowMinutesInTz;
               let next: { name: string; minutes: number } | null = null;
               for (const p of PRAYER_ORDER) {
                 const [h, m] = prayerTimes[p].split(" ")[0].split(":").map(Number);
@@ -958,7 +971,7 @@ export default function PrayerDashboard() {
                   const [ih, im] = prayerTimes.isha.split(" ")[0].split(":").map(Number);
                   const fajrMin = fh * 60 + fm;
                   const ishaMin = ih * 60 + im;
-                  const curMin = (currentTime ?? new Date(0)).getHours() * 60 + (currentTime ?? new Date(0)).getMinutes();
+                  const curMin = nowMinutesInTz;
                   const dayDuration = ishaMin - fajrMin;
                   const dayElapsed = Math.min(Math.max(curMin - fajrMin, 0), dayDuration);
                   const dayPct = dayDuration > 0 ? (dayElapsed / dayDuration) * 100 : 0;
@@ -1021,7 +1034,7 @@ export default function PrayerDashboard() {
                   // Parse prayer start time
                   const [h, m] = time.split(" ")[0].split(":").map(Number);
                   const prayerMinutes = h * 60 + m;
-                  const currentMinutes = (currentTime ?? new Date(0)).getHours() * 60 + (currentTime ?? new Date(0)).getMinutes();
+                  const currentMinutes = nowMinutesInTz;
 
                   // ── Determine window END ──
                   // Fajr's window ends at Sunrise (not Dhuhr)

@@ -77,6 +77,9 @@ export const viewport: Viewport = {
   // on web (users must be able to zoom). NativeShellEnhancements applies them
   // only inside the Capacitor shell via the viewport meta tag override.
   viewportFit: "cover",
+  // Android Chrome: resize the layout viewport when the on-screen keyboard
+  // opens so fixed bottom bars don't cover the focused input.
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

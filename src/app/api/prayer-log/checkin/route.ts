@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -48,42 +47,22 @@ export async function POST(request: NextRequest) {
   }
 
   const validStatuses = ["prayed", "missed", "pending", "assumed_prayed"];
-  const finalStatus = validStatuses.includes(status || "") ? status : "prayed";
+  // Reject invalid statuses — defaulting to "prayed" would record a prayer
+  // the user never confirmed. Missing status defaults to prayed (the client
+  // omits it for the common check-in).
+  if (status !== undefined && !validStatuses.includes(status)) {
+    return NextResponse.json({ error: "Invalid status." }, { status: 400 });
+  }
+  const finalStatus = status ?? "prayed";
 
   // Note: No window check — users can log prayers at any time.
   // This is essential for offline use (when the outbox syncs, the window
   // may have passed) and for users who prayed but couldn't log at the time.
   // The cron job handles auto-resolution (assumed_prayed) for unmarked prayers.
 
-  // Upsert prayer log entry
-  const [existing] = await db
-    .select()
-    .from(schema.prayerLog)
-    .where(
-      and(
-        eq(schema.prayerLog.userId, session.userId),
-        eq(schema.prayerLog.date, date),
-        eq(schema.prayerLog.prayerName, prayerName as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"),
-      ),
-    )
-    .limit(1);
-
-  if (existing) {
-    const [updated] = await db
-      .update(schema.prayerLog)
-      .set({
-        status: finalStatus as "prayed" | "missed" | "pending" | "assumed_prayed",
-        wentToMasjid: wentToMasjid ?? existing.wentToMasjid,
-        markedAt: new Date(),
-        lastCheckinAt: new Date(),
-        // Reset checkin stage when user manually marks as prayed
-        checkinStage: 0,
-      })
-      .where(eq(schema.prayerLog.id, existing.id))
-      .returning();
-    return NextResponse.json(updated);
-  }
-
+  // Upsert prayer log entry — atomic so retries/double-taps don't 500 on the
+  // unique index (userId, date, prayerName). wentToMasjid uses COALESCE so an
+  // omitted field keeps the stored value.
   const [entry] = await db
     .insert(schema.prayerLog)
     .values({
@@ -94,6 +73,16 @@ export async function POST(request: NextRequest) {
       wentToMasjid: wentToMasjid ?? false,
       markedAt: new Date(),
       lastCheckinAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [schema.prayerLog.userId, schema.prayerLog.date, schema.prayerLog.prayerName],
+      set: {
+        status: finalStatus as "prayed" | "missed" | "pending" | "assumed_prayed",
+        ...(wentToMasjid !== undefined ? { wentToMasjid } : {}),
+        markedAt: new Date(),
+        lastCheckinAt: new Date(),
+        checkinStage: 0,
+      },
     })
     .returning();
 

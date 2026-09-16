@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { todayInTimezone } from "@/lib/prayer/checkin";
 
 /**
  * Client-side date header for the day calendar.
@@ -33,9 +34,7 @@ export default function DayDateHeader({ date }: { date: string }) {
     // Defer setState to avoid cascading renders (react-hooks/set-state-in-effect)
     Promise.resolve().then(() => {
       try {
-        const nowInTz = new Date().toLocaleString("en-US", { timeZone: tz });
-        const computed = new Date(nowInTz).toISOString().split("T")[0];
-        setToday(computed);
+        setToday(todayInTimezone(tz));
       } catch {
         const now = new Date();
         setToday(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`);

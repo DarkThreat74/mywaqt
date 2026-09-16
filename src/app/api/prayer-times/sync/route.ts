@@ -45,9 +45,24 @@ export async function POST(request: NextRequest) {
   // This prevents wrong-month fetches at timezone boundaries.
   const tz = settings.timezone || "UTC";
   const nowInTz = new Date().toLocaleDateString("en-CA", { timeZone: tz });
-  const [yearStr, monthStr] = nowInTz.split("-");
+  const [yearStr, monthStr, dayStr] = nowInTz.split("-");
   const month = parseInt(monthStr);
   const year = parseInt(yearStr);
+  const dayOfMonth = parseInt(dayStr);
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  // Near a month boundary the adjacent month is needed too — e.g. on the
+  // 1st, yesterday's times live in the previous month; on the 30th, Isha's
+  // window extends into the 1st of next month.
+  const monthsToFetch: Array<{ month: number; year: number }> = [{ month, year }];
+  if (dayOfMonth <= 7) {
+    const prev = month === 1 ? { month: 12, year: year - 1 } : { month: month - 1, year };
+    monthsToFetch.push(prev);
+  }
+  if (dayOfMonth > daysInMonth - 7) {
+    const next = month === 12 ? { month: 1, year: year + 1 } : { month: month + 1, year };
+    monthsToFetch.push(next);
+  }
 
   // Validate coordinates before calling AlAdhan
   const latNum = parseFloat(settings.latitude);
@@ -60,15 +75,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const days = await fetchMonthPrayerTimes(
-      latNum,
-      lngNum,
-      month,
-      year,
-      settings.calculationMethod,
-      settings.madhab === "hanafi" ? 1 : 0,
-      tz,
+    const allDays = await Promise.all(
+      monthsToFetch.map((m) =>
+        fetchMonthPrayerTimes(
+          latNum,
+          lngNum,
+          m.month,
+          m.year,
+          settings.calculationMethod,
+          settings.madhab === "hanafi" ? 1 : 0,
+          tz,
+        ),
+      ),
     );
+    const days = allDays.flat();
 
     // Batch upsert — single query instead of N+1 select+insert per day
     const values = days.map((day) => {

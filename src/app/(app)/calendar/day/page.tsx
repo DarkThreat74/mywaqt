@@ -2,6 +2,7 @@ import { getSession } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db/client";
 import { eq } from "drizzle-orm";
+import { todayInTimezone } from "@/lib/prayer/checkin";
 import DayViewClient from "./DayViewClient";
 import DayDateHeader from "./DayDateHeader";
 
@@ -36,9 +37,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
   }
 
   // Compute today's date in the user's timezone.
-  // Use a manual format to avoid locale-dependent output.
-  const nowInTz = new Date().toLocaleString("en-US", { timeZone: userTimezone });
-  const today = new Date(nowInTz).toISOString().split("T")[0];
+  const today = todayInTimezone(userTimezone);
 
   const params = await searchParams;
   const date = params.date || today;

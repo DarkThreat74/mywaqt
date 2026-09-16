@@ -51,8 +51,13 @@ export default function ServiceWorkerRegister() {
     // On first install, skipWaiting + clients.claim fires controllerchange,
     // but the page was never controlled by an old SW, so no reload needed.
     let wasControlled = !!navigator.serviceWorker.controller;
+    let didReload = false;
     const handleControllerChange = () => {
-      if (wasControlled) {
+      // Guard: both controllerchange and the SW_UPDATED message can fire for
+      // the same update — without this, two reloads race and the second can
+      // interrupt hydration of the first.
+      if (wasControlled && !didReload) {
+        didReload = true;
         window.location.reload();
       }
       wasControlled = true;
