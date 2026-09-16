@@ -66,7 +66,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { seriesId, title, details, type, color, notify, startAt, endAt } = body as {
+  const { seriesId, title, details, type, color, notify, startAt, endAt, recurrenceEndDate, fromDate } = body as {
     seriesId?: string;
     title?: string;
     details?: string | null;
@@ -75,10 +75,26 @@ export async function PATCH(request: NextRequest) {
     notify?: boolean;
     startAt?: string;
     endAt?: string;
+    recurrenceEndDate?: string;
+    fromDate?: string;
   };
 
   if (!seriesId || !isValidUUID(seriesId)) {
     return NextResponse.json({ error: "Valid seriesId is required." }, { status: 400 });
+  }
+
+  // Scope: when the client sends fromDate, only events on/after that date are
+  // modified — matches the "all N events in this series" count shown in the UI
+  // (which counts from the viewed date forward).
+  const scopeConds = [
+    eq(schema.events.userId, session.userId),
+    eq(schema.events.seriesId, seriesId),
+  ];
+  if (fromDate) {
+    const cutoff = new Date(fromDate + "T00:00:00");
+    if (!isNaN(cutoff.getTime())) {
+      scopeConds.push(gte(schema.events.startAt, cutoff));
+    }
   }
 
   // Build update object — only update provided fields
@@ -114,63 +130,174 @@ export async function PATCH(request: NextRequest) {
     updates.color = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
   }
 
+  // Events in a recurring series share the same UTC time-of-day (occurrences
+  // are whole-day shifts of the first event). Compare time-of-day only —
+  // comparing absolute timestamps would include the date gap between the
+  // first and edited occurrence and shift every event to a different day.
+  const MS_DAY = 24 * 60 * 60 * 1000;
+  const todMs = (d: Date) => ((d.getTime() % MS_DAY) + MS_DAY) % MS_DAY;
+
+  // Fetch the series once (ordered) when we need a reference event for the
+  // time-of-day/duration delta or when extending the series end date.
+  const needsSeries =
+    startAt !== undefined || endAt !== undefined || !!recurrenceEndDate;
+  const seriesRows = needsSeries
+    ? await db
+        .select({
+          id: schema.events.id,
+          startAt: schema.events.startAt,
+          endAt: schema.events.endAt,
+          type: schema.events.type,
+          title: schema.events.title,
+          details: schema.events.details,
+          color: schema.events.color,
+          notify: schema.events.notify,
+          recurrenceRule: schema.events.recurrenceRule,
+        })
+        .from(schema.events)
+        .where(
+          and(
+            eq(schema.events.userId, session.userId),
+            eq(schema.events.seriesId, seriesId),
+          ),
+        )
+        .orderBy(schema.events.startAt)
+    : null;
+
+  if (needsSeries && (!seriesRows || seriesRows.length === 0)) {
+    return NextResponse.json({ error: "No events found for this series." }, { status: 404 });
+  }
+
+  const refEvent = seriesRows?.[0];
+  const lastEvent = seriesRows?.[seriesRows.length - 1];
+
   // Time-shift: if startAt and/or endAt are provided, shift all events in the
   // series by the same time-of-day delta. This preserves each occurrence's
   // calendar date while updating the time.
   let timeShiftMs: number | null = null;
   let durationDeltaMs = 0;
 
-  if (startAt !== undefined || endAt !== undefined) {
-    // Fetch the edited event to compute the delta
-    const [firstEvent] = await db
-      .select({
-        startAt: schema.events.startAt,
-        endAt: schema.events.endAt,
-        type: schema.events.type,
-      })
-      .from(schema.events)
-      .where(and(eq(schema.events.userId, session.userId), eq(schema.events.seriesId, seriesId)))
+  if (startAt !== undefined && refEvent) {
+    const newStart = new Date(startAt);
+    if (isNaN(newStart.getTime())) {
+      return NextResponse.json({ error: "Invalid start time." }, { status: 400 });
+    }
+    const delta = todMs(newStart) - todMs(refEvent.startAt);
+    timeShiftMs = delta !== 0 ? delta : null;
+  }
+
+  if (endAt !== undefined && refEvent) {
+    const newEnd = new Date(endAt);
+    if (isNaN(newEnd.getTime())) {
+      return NextResponse.json({ error: "Invalid end time." }, { status: 400 });
+    }
+    const oldDuration = refEvent.endAt.getTime() - refEvent.startAt.getTime();
+    const newDuration =
+      todMs(newEnd) -
+      todMs(startAt !== undefined ? new Date(startAt) : refEvent.startAt);
+    // For blocks/tasks, duration must be positive
+    const effectiveType = (updates.type as string) || refEvent.type;
+    if (effectiveType !== "reminder" && newDuration <= 0) {
+      return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
+    }
+    durationDeltaMs = newDuration - oldDuration;
+  }
+
+  // ── Series extension: generate new occurrences up to a later end date ──
+  // Parses the stored recurrenceRule "WEEKLY_{days}_UNTIL_{date}" and creates
+  // occurrences for matching weekdays after the last existing occurrence.
+  let extendedBy = 0;
+  if (recurrenceEndDate && lastEvent) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(recurrenceEndDate)) {
+      return NextResponse.json({ error: "Invalid recurrence end date." }, { status: 400 });
+    }
+    const ruleMatch = /^WEEKLY_([0-6](?:,[0-6])*)_UNTIL_(\d{4}-\d{2}-\d{2})$/.exec(
+      lastEvent.recurrenceRule ?? "",
+    );
+    if (!ruleMatch) {
+      return NextResponse.json({ error: "This series cannot be extended." }, { status: 400 });
+    }
+    const newEnd = new Date(recurrenceEndDate + "T23:59:59");
+    if (isNaN(newEnd.getTime())) {
+      return NextResponse.json({ error: "Invalid recurrence end date." }, { status: 400 });
+    }
+
+    const days = ruleMatch[1].split(",").map(Number);
+
+    // Get user's timezone to compute the last occurrence's local calendar date
+    const [settings] = await db
+      .select({ timezone: schema.prayerSettings.timezone })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, session.userId))
       .limit(1);
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: settings?.timezone || "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const lp = fmt.formatToParts(lastEvent.startAt);
+    const lastY = parseInt(lp.find((p) => p.type === "year")?.value ?? "0", 10);
+    const lastMo = parseInt(lp.find((p) => p.type === "month")?.value ?? "1", 10);
+    const lastD = parseInt(lp.find((p) => p.type === "day")?.value ?? "1", 10);
+    const lastLocalDate = new Date(lastY, lastMo - 1, lastD);
+    const occDurationMs = lastEvent.endAt.getTime() - lastEvent.startAt.getTime();
 
-    if (!firstEvent) {
-      return NextResponse.json({ error: "No events found for this series." }, { status: 404 });
+    // Generate occurrences for matching weekdays after the last occurrence
+    const newOccs: Array<{ startAt: Date; endAt: Date }> = [];
+    let cursor = new Date(lastY, lastMo - 1, lastD + 1);
+    while (cursor.getTime() <= newEnd.getTime() && newOccs.length < 365) {
+      if (days.includes(cursor.getDay())) {
+        const dayDiff = Math.round((cursor.getTime() - lastLocalDate.getTime()) / MS_DAY);
+        const occStart = new Date(lastEvent.startAt.getTime() + dayDiff * MS_DAY);
+        newOccs.push({ startAt: occStart, endAt: new Date(occStart.getTime() + occDurationMs) });
+      }
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
     }
 
-    if (startAt !== undefined) {
-      const newStart = new Date(startAt);
-      if (isNaN(newStart.getTime())) {
-        return NextResponse.json({ error: "Invalid start time." }, { status: 400 });
-      }
-      // Compute the delta in milliseconds — applied to every event in the series
-      timeShiftMs = newStart.getTime() - firstEvent.startAt.getTime();
-    }
-
-    if (endAt !== undefined) {
-      const newEnd = new Date(endAt);
-      if (isNaN(newEnd.getTime())) {
-        return NextResponse.json({ error: "Invalid end time." }, { status: 400 });
-      }
-      const oldDuration = firstEvent.endAt.getTime() - firstEvent.startAt.getTime();
-      const newDuration = newEnd.getTime() - (startAt !== undefined ? new Date(startAt).getTime() : firstEvent.startAt.getTime());
-      // For blocks/tasks, duration must be positive
-      const effectiveType = (updates.type as string) || firstEvent.type;
-      if (effectiveType !== "reminder" && newDuration <= 0) {
-        return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
-      }
-      durationDeltaMs = newDuration - oldDuration;
+    if (newOccs.length > 0) {
+      const newRule = `WEEKLY_${days.join(",")}_UNTIL_${recurrenceEndDate}`;
+      await db.insert(schema.events).values(
+        newOccs.map((occ) => ({
+          userId: session.userId,
+          title: (updates.title as string | undefined) ?? lastEvent.title,
+          details: "details" in updates ? (updates.details as string | null) : lastEvent.details,
+          startAt: occ.startAt,
+          endAt: occ.endAt,
+          type: ((updates.type as string | undefined) ?? lastEvent.type) as "block" | "task" | "reminder",
+          color: "color" in updates ? (updates.color as string | null) : lastEvent.color,
+          notify: "notify" in updates ? (updates.notify as boolean) : lastEvent.notify,
+          recurrenceRule: newRule,
+          seriesId,
+          createdVia: "manual",
+        })),
+      );
+      extendedBy = newOccs.length;
+      // Update the rule string on all existing series events (unscoped — the
+      // rule describes the whole series regardless of the edit's fromDate)
+      await db
+        .update(schema.events)
+        .set({ recurrenceRule: newRule })
+        .where(
+          and(
+            eq(schema.events.userId, session.userId),
+            eq(schema.events.seriesId, seriesId),
+          ),
+        );
     }
   }
 
-  if (Object.keys(updates).length === 0 && timeShiftMs === null) {
+  if (Object.keys(updates).length === 0 && timeShiftMs === null && extendedBy === 0) {
     return NextResponse.json({ error: "No fields to update." }, { status: 400 });
   }
 
-  // Fetch all events in the series to apply time shifts individually
+  // Fetch all events in scope to apply time shifts individually.
+  // Runs AFTER extension so newly inserted occurrences are shifted too.
   if (timeShiftMs !== null || durationDeltaMs !== 0) {
     const allEvents = await db
       .select({ id: schema.events.id, startAt: schema.events.startAt, endAt: schema.events.endAt })
       .from(schema.events)
-      .where(and(eq(schema.events.userId, session.userId), eq(schema.events.seriesId, seriesId)));
+      .where(and(...scopeConds));
 
     if (allEvents.length === 0) {
       return NextResponse.json({ error: "No events found for this series." }, { status: 404 });
@@ -193,26 +320,26 @@ export async function PATCH(request: NextRequest) {
       updatedCount++;
     }
 
-    return NextResponse.json({ updated: updatedCount });
+    return NextResponse.json({ updated: updatedCount, extended: extendedBy || undefined });
   }
 
   // No time shift — just update the non-time fields in bulk
-  const updated = await db
-    .update(schema.events)
-    .set(updates)
-    .where(
-      and(
-        eq(schema.events.userId, session.userId),
-        eq(schema.events.seriesId, seriesId),
-      ),
-    )
-    .returning({ id: schema.events.id });
+  if (Object.keys(updates).length > 0) {
+    const updated = await db
+      .update(schema.events)
+      .set(updates)
+      .where(and(...scopeConds))
+      .returning({ id: schema.events.id });
 
-  if (updated.length === 0) {
-    return NextResponse.json({ error: "No events found for this series." }, { status: 404 });
+    if (updated.length === 0 && extendedBy === 0) {
+      return NextResponse.json({ error: "No events found for this series." }, { status: 404 });
+    }
+
+    return NextResponse.json({ updated: updated.length, extended: extendedBy || undefined });
   }
 
-  return NextResponse.json({ updated: updated.length });
+  // Extension-only request
+  return NextResponse.json({ updated: 0, extended: extendedBy });
 }
 
 // DELETE /api/events/bulk — delete future events in a recurring series

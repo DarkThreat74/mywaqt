@@ -176,6 +176,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [newNotify, setNewNotify] = useState(true);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [editAllInSeries, setEditAllInSeries] = useState(false);
+  const [extendEndDate, setExtendEndDate] = useState("");
   const [seriesCount, setSeriesCount] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<CalendarEvent | null>(null);
   const [showSeriesList, setShowSeriesList] = useState(false);
@@ -869,6 +870,11 @@ export default function DayViewClient({ date }: { date: string }) {
             // Send startAt/endAt so the server can shift all events in the series
             startAt: startISO,
             endAt: endISO,
+            // Scope to events on/after the viewed date — past occurrences keep
+            // their original values (matches the "all N events" count shown).
+            fromDate: date,
+            // Extend the series end date — generates new occurrences
+            recurrenceEndDate: extendEndDate || undefined,
           }),
         });
 
@@ -890,7 +896,7 @@ export default function DayViewClient({ date }: { date: string }) {
             setEvents(filtered);
             syncEventsToCache(date, filtered);
           }
-          setSuccessMsg(`Updated ${data.updated} events in series.`);
+          setSuccessMsg(`Updated ${data.updated} events in series.${data.extended ? ` Added ${data.extended} new.` : ""}`);
           play("success");
           setEditingEvent(null);
           setNewTitle("");
@@ -898,6 +904,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewColor(null);
           setNewNotify(true);
           setEditAllInSeries(false);
+          setExtendEndDate("");
           setError(null);
           setTimeout(() => setSuccessMsg(null), 3000);
         } else {
@@ -995,6 +1002,9 @@ export default function DayViewClient({ date }: { date: string }) {
     setRecurrenceEndDate("");
     setRecurrenceDays([]);
     setEditAllInSeries(false);
+    // Prefill the "Repeat until" date from the series' recurrence rule
+    const untilMatch = /_UNTIL_(\d{4}-\d{2}-\d{2})$/.exec(event.recurrenceRule ?? "");
+    setExtendEndDate(untilMatch?.[1] ?? "");
     setSeriesCount(null);
     setError(null);
     setShowAddForm(false);
@@ -1022,6 +1032,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setRecurrenceEndDate("");
     setRecurrenceDays([]);
     setEditAllInSeries(false);
+    setExtendEndDate("");
     setShowSeriesList(false);
     setSeriesEvents([]);
   }
@@ -1838,6 +1849,25 @@ export default function DayViewClient({ date }: { date: string }) {
                       {showSeriesList ? "Hide list" : "View all"}
                     </button>
                   </label>
+
+                  {/* Extend series end date — generates new occurrences */}
+                  {editAllInSeries && extendEndDate && (
+                    <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                      <label className="mb-1.5 block text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                        Repeat until
+                      </label>
+                      <input
+                        type="date"
+                        value={extendEndDate}
+                        onChange={(e) => setExtendEndDate(e.target.value)}
+                        className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
+                      />
+                      <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                        Set a later date to add more occurrences to this series.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Series events list — expandable list of all occurrences */}
                   {showSeriesList && (
