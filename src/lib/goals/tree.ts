@@ -6,6 +6,20 @@ export interface GoalNode extends Goal {
 }
 
 /**
+ * Canonical goal ordering: manual sortOrder wins; ties fall back to
+ * target date (dated goals first, soonest first), then creation order.
+ * Used by the Goals tabs and the Today tab so ordering is consistent.
+ */
+export function compareGoals(a: Goal, b: Goal): number {
+  return (
+    (a.sortOrder || 0) - (b.sortOrder || 0) ||
+    (a.targetDate ? 0 : 1) - (b.targetDate ? 0 : 1) ||
+    (a.targetDate || "").localeCompare(b.targetDate || "") ||
+    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+}
+
+/**
  * Build a tree from a flat array of goals.
  * Root goals have parentId = null.
  */

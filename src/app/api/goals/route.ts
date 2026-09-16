@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { db, schema } from "@/lib/db/client";
-import { eq, and } from "drizzle-orm";
+import { eq, and, count } from "drizzle-orm";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { logError } from "@/lib/logError";
 
@@ -96,6 +96,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // New goals append to the end of their type's list
+    const [{ value: goalCount }] = await db
+      .select({ value: count() })
+      .from(schema.goals)
+      .where(and(eq(schema.goals.userId, session.userId), eq(schema.goals.goalType, goalType)));
+
     const [goal] = await db
       .insert(schema.goals)
       .values({
@@ -106,6 +112,7 @@ export async function POST(request: NextRequest) {
         color: body.color || null,
         goalType,
         targetDate,
+        sortOrder: goalCount,
       })
       .returning();
 

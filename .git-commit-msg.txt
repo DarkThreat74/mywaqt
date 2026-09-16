@@ -1,39 +1,16 @@
-fix: 11 small UI/state bugs found by parallel audit
+fix: stale cache entries and missing goal fields in offline cache
 
-Prayer dashboard:
-- Countdown was updating every 60s but showing seconds — now updates
-  every 1s so the seconds actually tick
-- Friend-visibility toggle stayed flipped when server rejected the
-  change (4xx) — now checks res.ok and reverts
-- Sunnah pills waited for server response before updating — now
-  optimistic with rollback on rejection
-- Coming back online didn't refresh stale prayer data — now re-fetches
-  on the "online" event
-
-Goals:
-- Habit check-off stayed checked when server rejected the change —
-  now checks res.ok and reverts
-- Goal edits stayed applied on 4xx (validation error) — now reverts
-  on non-OK, non-202 responses (202 = offline queue, keeps optimistic)
-- Goals tab URL hash got out of sync with browser back/forward — now
-  listens for hashchange
-
-Qibla:
-- Direction didn't refresh when returning to the page after changing
-  location in Settings — now re-fetches on pageshow
-
-Dhikr:
-- Counter reset entirely when navigating away and back — now persists
-  currentIndex, count, and completedSequences to localStorage
-
-Auth:
-- Trusted-device limit (max 10) was never enforced because the query
-  had .limit(1), so existingDevices.length was always 0 or 1 — removed
-  the limit so it fetches all devices
-
-Events:
-- Recurring event generation could create one occurrence past the end
-  date due to a +24h buffer in the break condition — removed the buffer
+- updateEventInCache: when an event is moved to a different date, the
+  old IndexedDB entry with the old _dateKey was never deleted, leaving
+  a stale ghost event on the old date. Now checks for existing entry
+  and deletes it if the _dateKey changed.
+- syncGoalsToCache: goalType and targetDate fields were missing from
+  the CachedGoal interface and the cache writer, so offline goals
+  lost their type and due date. The Today tab filters by targetDate,
+  so offline due-date filtering was broken.
+- Month view: classes fetch was sequential (nested inside homework
+  handler) instead of parallel — moved into the main Promise.all for
+  faster page load.
 
 Generated with [Devin](https://devin.ai)
 

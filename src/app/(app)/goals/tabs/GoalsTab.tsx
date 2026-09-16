@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useRef } from "react";
 import { Target, Plus, Check, ChevronRight, ChevronDown, Trash2, Loader2, List, GitBranch, GripVertical } from "lucide-react";
 import type { Goal } from "@/lib/db/schema";
-import { buildGoalTree, countCompleted, type GoalNode } from "@/lib/goals/tree";
+import { buildGoalTree, countCompleted, compareGoals, type GoalNode } from "@/lib/goals/tree";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { syncGoalsToCache } from "@/lib/offline/cache-writers";
 
@@ -43,7 +43,7 @@ export default function GoalsTab({
 
   // Sort goals by sortOrder for display
   const sortedGoals = useMemo(
-    () => [...filteredGoals].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+    () => [...filteredGoals].sort(compareGoals),
     [filteredGoals],
   );
 

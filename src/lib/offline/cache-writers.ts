@@ -77,27 +77,35 @@ export function addEventToCache(date: string, event: EventLike): void {
 
 /**
  * Update a single event in the IndexedDB cache. Fire-and-forget.
+ * If the event moved to a different date, the old _dateKey entry is deleted.
  */
 export function updateEventInCache(event: EventLike): void {
   if (typeof window === "undefined") return;
   try {
     const db = getOfflineDB();
-    // Derive _dateKey from startAt
+    // Derive new _dateKey from startAt
     const d = new Date(event.startAt);
     const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    db.events.put({
-      id: event.id,
-      userId: "",
-      title: event.title,
-      details: event.details ?? null,
-      startAt: event.startAt,
-      endAt: event.endAt ?? null,
-      type: event.type,
-      color: event.color ?? null,
-      recurrenceRule: event.recurrenceRule ?? null,
-      seriesId: event.seriesId ?? null,
-      _dateKey: dateKey,
-      _cachedAt: Date.now(),
+    // First, check if the event already exists with a different _dateKey.
+    // If so, delete the old entry to avoid stale ghost events on the old date.
+    db.events.get(event.id).then((existing) => {
+      if (existing && existing._dateKey !== dateKey) {
+        db.events.delete(event.id).catch(() => {});
+      }
+      db.events.put({
+        id: event.id,
+        userId: "",
+        title: event.title,
+        details: event.details ?? null,
+        startAt: event.startAt,
+        endAt: event.endAt ?? null,
+        type: event.type,
+        color: event.color ?? null,
+        recurrenceRule: event.recurrenceRule ?? null,
+        seriesId: event.seriesId ?? null,
+        _dateKey: dateKey,
+        _cachedAt: Date.now(),
+      }).catch(() => {});
     }).catch(() => {});
   } catch {
     // non-critical
@@ -245,6 +253,8 @@ export function syncGoalsToCache(goals: GoalLike[]): void {
           title: g.title,
           description: g.description,
           status: g.status,
+          goalType: g.goalType,
+          targetDate: g.targetDate,
           sortOrder: g.sortOrder,
           color: g.color,
           createdAt: typeof g.createdAt === "string" ? g.createdAt : g.createdAt.toISOString(),

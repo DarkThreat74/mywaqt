@@ -145,10 +145,11 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
 
       // ── Step 2: Fetch from API in background ──
       try {
-        const [eventsRes, logRes, hwRes] = await Promise.all([
+        const [eventsRes, logRes, hwRes, clsRes] = await Promise.all([
           fetch(`/api/events?from=${fromStr}&to=${toStr}`),
           fetch(`/api/prayer-log/range?from=${fromStr}&to=${toStr}`).catch(() => null),
           fetch(`/api/homework?from=${fromStr}&to=${toStr}`).catch(() => null),
+          fetch("/api/classes").catch(() => null),
         ]);
 
         if (eventsRes.ok && !cancelled) {
@@ -230,19 +231,16 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
         if (hwRes?.ok && !cancelled) {
           const hwData = await hwRes.json().catch(() => []);
           if (Array.isArray(hwData)) {
-            // Fetch classes to get colors
+            // Use classes fetched in parallel above
             const classColors: Record<string, string> = {};
-            try {
-              const clsRes = await fetch("/api/classes");
-              if (clsRes.ok) {
-                const clsData = await clsRes.json();
-                if (Array.isArray(clsData)) {
-                  for (const c of clsData) {
-                    classColors[c.id] = c.color;
-                  }
+            if (clsRes?.ok) {
+              const clsData = await clsRes.json().catch(() => []);
+              if (Array.isArray(clsData)) {
+                for (const c of clsData) {
+                  classColors[c.id] = c.color;
                 }
               }
-            } catch { /* non-critical */ }
+            }
 
             const grouped: Record<string, HomeworkDot[]> = {};
             for (const hw of hwData) {

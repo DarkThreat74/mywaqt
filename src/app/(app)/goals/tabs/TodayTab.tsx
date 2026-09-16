@@ -4,6 +4,7 @@ import { useMemo, useState, useCallback } from "react";
 import { Target, BookOpen, CheckCircle2, Repeat, ChevronRight, Sunrise, Sun, Sunset, Moon, Telescope, AlertTriangle, Check, Clock, Flame } from "lucide-react";
 import type { Goal, Homework, Habit, HabitLog, Class } from "@/lib/db/schema";
 import { syncGoalsToCache } from "@/lib/offline/cache-writers";
+import { compareGoals } from "@/lib/goals/tree";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { toggleHabitLogInCache } from "@/lib/offline/cache-writers";
 import { formatDueBadge, urgencyColors, urgencyCardTint } from "@/lib/homework/due-format";
@@ -154,13 +155,7 @@ export default function TodayTab({
         (g.goalType || "short_term") === "short_term" &&
         (g.status === "active" || animatingOut.has(g.id)),
       )
-      .sort((a, b) => {
-        // Goals with target dates first, sorted by closest date
-        if (a.targetDate && b.targetDate) return a.targetDate.localeCompare(b.targetDate);
-        if (a.targetDate && !b.targetDate) return -1;
-        if (!a.targetDate && b.targetDate) return 1;
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      }),
+      .sort(compareGoals),
     [goals, animatingOut],
   );
 
@@ -170,7 +165,8 @@ export default function TodayTab({
       .filter((g) =>
         g.goalType === "long_term" &&
         (g.status === "active" || animatingOut.has(g.id)),
-      ),
+      )
+      .sort(compareGoals),
     [goals, animatingOut],
   );
 

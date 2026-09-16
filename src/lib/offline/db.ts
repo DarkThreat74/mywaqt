@@ -73,6 +73,8 @@ export interface CachedGoal {
   title: string;
   description: string | null;
   status: string;
+  goalType?: string;
+  targetDate?: string | null;
   sortOrder: number;
   color: string | null;
   createdAt: string;
