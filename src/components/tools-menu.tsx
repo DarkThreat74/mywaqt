@@ -3,65 +3,58 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Compass, Heart, HandHeart, BookOpen, PlayCircle, Wrench, X, Sparkles } from "lucide-react";
+import { Compass, Heart, HandHeart, BookOpen, PlayCircle, X, Sparkles, LayoutGrid, ArrowUpRight } from "lucide-react";
 
 interface Tool {
   href: string;
   label: string;
+  arabic: string;
   description: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
-  color: string;
-  span?: "full" | "half";
 }
 
 const TOOLS: Tool[] = [
   {
     href: "/qibla",
-    label: "Qibla Compass",
-    description: "Find the direction to the Kaaba from wherever you are",
+    label: "Qibla",
+    arabic: "قبلة",
+    description: "Direction to the Kaaba",
     icon: Compass,
-    color: "var(--color-accent)",
-    span: "full",
   },
   {
     href: "/dhikr",
-    label: "Dhikr Counter",
-    description: "Tasbih counter with curated sequences",
+    label: "Dhikr",
+    arabic: "ذكر",
+    description: "Tasbih counter",
     icon: Heart,
-    color: "var(--color-warmth)",
-    span: "half",
   },
   {
     href: "/sadaqah",
-    label: "Akhirah Card",
-    description: "Track your charitable giving",
+    label: "Sadaqah",
+    arabic: "صدقة",
+    description: "Track your giving",
     icon: HandHeart,
-    color: "var(--color-success)",
-    span: "half",
   },
   {
     href: "/names",
     label: "99 Names",
-    description: "Learn the beautiful names of Allah",
+    arabic: "أسماء الله",
+    description: "Names of Allah",
     icon: Sparkles,
-    color: "var(--color-accent)",
-    span: "half",
   },
   {
     href: "/learn",
     label: "Learn",
-    description: "Prayer knowledge library",
+    arabic: "علم",
+    description: "Prayer knowledge",
     icon: BookOpen,
-    color: "var(--color-ink-soft)",
-    span: "half",
   },
   {
     href: "/talks",
     label: "Talks",
-    description: "Curated lectures and khutbahs",
+    arabic: "دروس",
+    description: "Lectures & khutbahs",
     icon: PlayCircle,
-    color: "var(--color-ink-soft)",
-    span: "half",
   },
 ];
 
@@ -118,7 +111,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
           className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-soft)" }}
         >
-          <Wrench className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
+          <LayoutGrid className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
           Tools
         </button>
       ) : (
@@ -128,7 +121,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
           style={{ color: "var(--color-ink-soft)", minHeight: 44, minWidth: 44 }}
           aria-label="Open tools menu"
         >
-          <Wrench className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
+          <LayoutGrid className="h-[18px] w-[18px]" style={{ color: "var(--color-ink-soft)" }} />
         </button>
       )}
 
@@ -148,11 +141,13 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
             role="dialog"
             aria-modal="true"
             aria-label="Tools"
-            className="w-full overflow-hidden rounded-t-3xl border sm:max-w-md sm:rounded-3xl"
+            className="w-full overflow-hidden border sm:max-w-md"
             style={{
               backgroundColor: "var(--color-paper)",
               borderColor: "var(--color-paper-3)",
-              paddingTop: "env(safe-area-inset-top)",
+              // Sheet on mobile (top corners only), floating card on desktop
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
               paddingBottom: "env(safe-area-inset-bottom)",
               maxHeight: "88dvh",
               overflowY: "auto",
@@ -167,15 +162,19 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
               <div className="h-1 w-9 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
             </div>
 
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-3 pb-3 sm:pt-5 sm:pb-4">
+            {/* Header — editorial: Arabic wordmark + close */}
+            <div className="flex items-start justify-between px-5 pt-4 pb-4 sm:pt-5">
               <div>
-                <h2 className="text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+                <p
+                  className="text-xl leading-none"
+                  style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}
+                  aria-hidden="true"
+                >
+                  أدوات
+                </p>
+                <h2 className="mt-1.5 text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
                   Tools
                 </h2>
-                <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  Islamic utilities and resources
-                </p>
               </div>
               <button
                 onClick={dismiss}
@@ -187,69 +186,54 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
               </button>
             </div>
 
-            {/* Bento grid — asymmetric tiles, not equal columns */}
-            <div className="grid grid-cols-2 gap-2.5 px-4 pb-5">
+            {/* Divider */}
+            <div className="mx-5 h-px" style={{ backgroundColor: "var(--color-paper-3)" }} />
+
+            {/* Tool list — clean rows, consistent with the rest of the app */}
+            <div className="flex flex-col px-3 py-2 pb-5">
               {TOOLS.map((tool, i) => {
                 const Icon = tool.icon;
-                const isFull = tool.span === "full";
                 return (
                   <Link
                     key={tool.href}
                     href={tool.href}
                     prefetch={false}
                     onClick={() => setOpen(false)}
-                    className={`group relative flex flex-col overflow-hidden rounded-2xl border transition-transform active:scale-[0.97] ${isFull ? "col-span-2" : "col-span-1"}`}
+                    className="group flex items-center gap-3.5 rounded-xl px-2.5 py-3 transition-colors hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
                     style={{
-                      borderColor: "color-mix(in oklab, var(--color-paper-3) 60%, transparent)",
-                      backgroundColor: `color-mix(in oklab, ${tool.color} 5%, var(--color-paper))`,
-                      animation: `tools-item-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) ${0.05 * i + 0.06}s both`,
-                      minHeight: isFull ? 96 : 88,
+                      animation: `tools-item-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) ${0.035 * i + 0.05}s both`,
                     }}
                   >
-                    {/* Subtle top accent line in the tool's color */}
-                    <div
-                      className="absolute inset-x-0 top-0 h-px opacity-40"
-                      style={{ backgroundColor: tool.color }}
+                    <span
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border"
+                      style={{
+                        backgroundColor: "var(--color-paper-2)",
+                        borderColor: "var(--color-paper-3)",
+                        color: "var(--color-ink-soft)",
+                      }}
+                    >
+                      <Icon className="h-[18px] w-[18px]" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline gap-2">
+                        <span className="text-[15px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
+                          {tool.label}
+                        </span>
+                        <span
+                          className="text-[13px] leading-none"
+                          style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}
+                        >
+                          {tool.arabic}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                        {tool.description}
+                      </span>
+                    </span>
+                    <ArrowUpRight
+                      className="h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                      style={{ color: "var(--color-ink-muted)" }}
                     />
-
-                    {/* Icon + content */}
-                    {isFull ? (
-                      // Full-width feature tile: horizontal layout
-                      <div className="flex h-full items-center gap-4 px-4 py-3.5">
-                        <div
-                          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl"
-                          style={{ backgroundColor: `color-mix(in oklab, ${tool.color} 14%, transparent)` }}
-                        >
-                          <Icon className="h-6 w-6" style={{ color: tool.color }} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
-                            {tool.label}
-                          </p>
-                          <p className="mt-1 text-xs leading-snug" style={{ color: "var(--color-ink-muted)" }}>
-                            {tool.description}
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      // Half-width tiles: vertical layout
-                      <div className="flex h-full flex-col gap-2 px-3.5 py-3">
-                        <div
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-                          style={{ backgroundColor: `color-mix(in oklab, ${tool.color} 14%, transparent)` }}
-                        >
-                          <Icon className="h-[18px] w-[18px]" style={{ color: tool.color }} />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-[13px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
-                            {tool.label}
-                          </p>
-                          <p className="mt-0.5 text-[11px] leading-tight" style={{ color: "var(--color-ink-muted)" }}>
-                            {tool.description}
-                          </p>
-                        </div>
-                      </div>
-                    )}
                   </Link>
                 );
               })}
@@ -261,6 +245,11 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
 
       {/* Animations */}
       <style>{`
+        @media (min-width: 640px) {
+          [role="dialog"][aria-label="Tools"] {
+            border-radius: 20px !important;
+          }
+        }
         @keyframes tools-fade-in {
           from { opacity: 0; }
           to { opacity: 1; }
@@ -278,8 +267,8 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
           to { transform: translateY(100%); }
         }
         @keyframes tools-item-in {
-          from { opacity: 0; transform: translateY(12px) scale(0.96); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         @media (min-width: 640px) {
           @keyframes tools-slide-up {
