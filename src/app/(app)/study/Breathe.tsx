@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Play, Square } from "lucide-react";
+import { useUISFX } from "@/components/uisfx-provider";
 
 /**
  * Guided breathing — box breathing (4-4-4-4) and 4-7-8.
@@ -17,6 +18,7 @@ const PATTERNS = [
 type Step = { name: string; secs: number };
 
 export default function Breathe() {
+  const { play } = useUISFX();
   const [patternId, setPatternId] = useState<"box" | "478">("box");
   const [running, setRunning] = useState(false);
   const [stepName, setStepName] = useState("Ready");
@@ -63,7 +65,7 @@ export default function Breathe() {
         {PATTERNS.map((p) => (
           <button
             key={p.id}
-            onClick={() => { setPatternId(p.id); setCycles(0); }}
+            onClick={() => { play("select"); setPatternId(p.id); setCycles(0); }}
             disabled={running}
             className="flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50"
             style={{
@@ -104,6 +106,7 @@ export default function Breathe() {
 
         <button
           onClick={() => {
+            play(running ? "stop" : "play");
             if (running) {
               // Stopping — reset the display immediately
               setStepName("Ready");

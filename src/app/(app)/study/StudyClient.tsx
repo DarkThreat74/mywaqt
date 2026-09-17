@@ -7,6 +7,7 @@ import FocusTimer from "./FocusTimer";
 import Soundscape from "./Soundscape";
 import Breathe from "./Breathe";
 import Fidget from "./Fidget";
+import { useUISFX } from "@/components/uisfx-provider";
 
 type Tab = "focus" | "sounds" | "breathe" | "fidget";
 
@@ -18,10 +19,11 @@ const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: st
 ];
 
 export default function StudyClient() {
+  const { play } = useUISFX();
   const [tab, setTab] = useState<Tab>("focus");
 
   return (
-    <div className="mx-auto max-w-md">
+    <div className="mx-auto w-full max-w-md px-4">
       {/* Header */}
       <div className="mb-5 flex items-start justify-between gap-3">
         <div>
@@ -48,7 +50,7 @@ export default function StudyClient() {
               key={id}
               role="tab"
               aria-selected={active}
-              onClick={() => setTab(id)}
+              onClick={() => { if (id !== tab) play("select"); setTab(id); }}
               className="flex flex-col items-center gap-1 rounded-lg py-2 text-[11px] font-medium transition-colors"
               style={{
                 backgroundColor: active ? "var(--color-paper)" : "transparent",

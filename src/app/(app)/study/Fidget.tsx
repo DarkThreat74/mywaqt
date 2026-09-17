@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { RotateCcw, Eraser } from "lucide-react";
+import { useUISFX } from "@/components/uisfx-provider";
 
 /**
  * Fidget — a pop-it bubble grid and a doodle pad.
@@ -12,18 +13,23 @@ import { RotateCcw, Eraser } from "lucide-react";
 const GRID = 6; // 6x6 bubbles
 
 function PopGrid() {
+  const { play } = useUISFX();
   const [popped, setPopped] = useState<boolean[]>(() => Array(GRID * GRID).fill(false));
-  const [flipped, setFlipped] = useState(false);
 
   function pop(i: number) {
-    if (flipped) return;
     setPopped((prev) => {
       if (prev[i]) return prev;
       const next = [...prev];
       next[i] = true;
       return next;
     });
+    play("press");
     if (navigator.vibrate) navigator.vibrate(12);
+  }
+
+  function reset() {
+    setPopped(Array(GRID * GRID).fill(false));
+    play("swipe");
   }
 
   const allPopped = popped.every(Boolean);
@@ -35,7 +41,7 @@ function PopGrid() {
           Pop-it — {popped.filter(Boolean).length}/{GRID * GRID}
         </p>
         <button
-          onClick={() => { setFlipped((f) => !f); setPopped(Array(GRID * GRID).fill(false)); }}
+          onClick={reset}
           className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 36 }}
         >
@@ -77,6 +83,7 @@ function PopGrid() {
 }
 
 function DoodlePad() {
+  const { play } = useUISFX();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const lastRef = useRef<{ x: number; y: number } | null>(null);
@@ -131,6 +138,7 @@ function DoodlePad() {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    play("delete");
   }
 
   return (

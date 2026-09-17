@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Volume2, VolumeX } from "lucide-react";
+import { useUISFX } from "@/components/uisfx-provider";
 
 /**
  * Focus soundscapes — generated live with the Web Audio API.
@@ -14,13 +15,16 @@ import { Volume2, VolumeX } from "lucide-react";
  * - Night: brown through a gentle low-pass — muffled wind.
  */
 
-type SoundId = "white" | "pink" | "brown" | "night";
+type SoundId = "white" | "pink" | "brown" | "night" | "waves" | "fan" | "storm";
 
 const SOUNDS: { id: SoundId; label: string; hint: string }[] = [
   { id: "brown", label: "Deep", hint: "Ocean rumble — most calming" },
   { id: "pink", label: "Rain", hint: "Heavy rain — best studied" },
   { id: "white", label: "Static", hint: "Full masking — sharpest focus" },
   { id: "night", label: "Night", hint: "Soft wind — gentlest" },
+  { id: "waves", label: "Waves", hint: "Slow rolling surf" },
+  { id: "fan", label: "Fan", hint: "Warm air, steady hum" },
+  { id: "storm", label: "Storm", hint: "Distant rolling thunder" },
 ];
 
 function makeNoiseBuffer(ctx: AudioContext, kind: SoundId): AudioBuffer {
@@ -44,8 +48,11 @@ function makeNoiseBuffer(ctx: AudioContext, kind: SoundId): AudioBuffer {
       out[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
       b6 = w * 0.115926;
     }
+  } else if (kind === "fan") {
+    // White noise, softened — low-passed later in the chain too
+    for (let i = 0; i < out.length; i++) out[i] = (Math.random() * 2 - 1) * 0.7;
   } else {
-    // Brown / night: integrate white noise, then normalize
+    // Brown / night / waves / storm: integrate white noise, then normalize
     let last = 0;
     for (let i = 0; i < out.length; i++) {
       const w = Math.random() * 2 - 1;
@@ -57,18 +64,22 @@ function makeNoiseBuffer(ctx: AudioContext, kind: SoundId): AudioBuffer {
 }
 
 export default function Soundscape() {
+  const { play: cue } = useUISFX();
   const [active, setActive] = useState<SoundId | null>(null);
   const [volume, setVolume] = useState(0.5);
   const ctxRef = useRef<AudioContext | null>(null);
   const gainRef = useRef<GainNode | null>(null);
-  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const nodesRef = useRef<AudioNode[]>([]);
 
   function stop() {
-    try { sourceRef.current?.stop(); } catch { /* already stopped */ }
-    sourceRef.current = null;
+    for (const n of nodesRef.current) {
+      try { (n as AudioBufferSourceNode | OscillatorNode).stop?.(); } catch { /* already stopped */ }
+      try { n.disconnect(); } catch { /* not connected */ }
+    }
+    nodesRef.current = [];
   }
 
-  function play(id: SoundId) {
+  function startSound(id: SoundId) {
     if (!ctxRef.current) {
       ctxRef.current = new AudioContext();
       gainRef.current = ctxRef.current.createGain();
@@ -79,31 +90,85 @@ export default function Soundscape() {
     if (ctx.state === "suspended") void ctx.resume();
 
     stop();
+    const nodes: AudioNode[] = [];
     const source = ctx.createBufferSource();
     source.buffer = makeNoiseBuffer(ctx, id);
     source.loop = true;
+    nodes.push(source);
 
-    // "Night" = brown noise through a low-pass for a muffled wind feel
-    if (id === "night") {
-      const lp = ctx.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.value = 320;
-      source.connect(lp);
-      lp.connect(gainRef.current!);
-    } else {
-      source.connect(gainRef.current!);
+    // Per-sound coloration chain
+    let head: AudioNode = source;
+    const addFilter = (type: BiquadFilterType, freq: number, q = 0.7) => {
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      head.connect(f);
+      head = f;
+      nodes.push(f);
+      return f;
+    };
+    const addLfo = (rate: number, depth: number, target: AudioParam) => {
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      lfo.frequency.value = rate;
+      lfoGain.gain.value = depth;
+      lfo.connect(lfoGain);
+      lfoGain.connect(target);
+      lfo.start();
+      nodes.push(lfo, lfoGain);
+    };
+
+    switch (id) {
+      case "night":
+        addFilter("lowpass", 320);
+        break;
+      case "fan": {
+        // Steady hum: softened white noise with a faint band resonance
+        addFilter("lowpass", 900);
+        addFilter("peaking", 120, 2);
+        break;
+      }
+      case "waves": {
+        // Rolling surf: brown noise + a slow amplitude swell (~8s cycle)
+        const g = ctx.createGain();
+        head.connect(g);
+        head = g;
+        nodes.push(g);
+        addLfo(0.12, 0.55, g.gain);
+        addFilter("lowpass", 1400);
+        break;
+      }
+      case "storm": {
+        // Distant thunder: heavily low-passed brown with a slow, deep swell
+        const lp = addFilter("lowpass", 220);
+        addLfo(0.07, 90, lp.frequency);
+        const g = ctx.createGain();
+        g.gain.value = 0.8;
+        head.connect(g);
+        head = g;
+        nodes.push(g);
+        addLfo(0.09, 0.35, g.gain);
+        break;
+      }
+      default:
+        break;
     }
+
+    head.connect(gainRef.current!);
     source.start();
-    sourceRef.current = source;
+    nodesRef.current = nodes;
   }
 
   function toggle(id: SoundId) {
     if (active === id) {
       stop();
       setActive(null);
+      cue("toggle-off");
     } else {
-      play(id);
+      startSound(id);
       setActive(id);
+      cue("toggle-on");
     }
   }
 

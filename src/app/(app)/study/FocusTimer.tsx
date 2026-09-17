@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Play, Pause, RotateCcw, Plus } from "lucide-react";
+import { useUISFX } from "@/components/uisfx-provider";
 
 type Mode = "pomodoro" | "stopwatch";
 
@@ -18,6 +19,7 @@ function fmt(s: number): string {
 }
 
 export default function FocusTimer() {
+  const { play } = useUISFX();
   const [mode, setMode] = useState<Mode>("pomodoro");
   const [preset, setPreset] = useState(0);
   const [phase, setPhase] = useState<"work" | "rest">("work");
@@ -25,7 +27,9 @@ export default function FocusTimer() {
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0); // stopwatch
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const secondsRef = useRef(seconds);
   const phaseRef = useRef(phase);
+  useEffect(() => { secondsRef.current = seconds; }, [seconds]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   // Tick
@@ -37,22 +41,27 @@ export default function FocusTimer() {
     intervalRef.current = setInterval(() => {
       if (mode === "stopwatch") {
         setElapsed((e) => e + 1);
-      } else {
-        setSeconds((s) => {
-          if (s > 1) return s - 1;
-          // Phase complete — switch work↔rest, notify
-          if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
-          const p = PRESETS[preset];
-          const next = phaseRef.current === "work" ? "rest" : "work";
-          setPhase(next);
-          return next === "work" ? p.work : p.rest;
-        });
+        return;
       }
+      const s = secondsRef.current;
+      if (s > 1) {
+        setSeconds(s - 1);
+        return;
+      }
+      // Phase complete — switch work↔rest and notify
+      if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
+      play("complete");
+      const p = PRESETS[preset];
+      const next = phaseRef.current === "work" ? "rest" : "work";
+      setPhase(next);
+      setSeconds(next === "work" ? p.work : p.rest);
     }, 1000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs carry the mutable countdown state
   }, [running, mode, preset]);
 
   function selectPreset(i: number) {
+    play("select");
     setPreset(i);
     setPhase("work");
     setSeconds(PRESETS[i].work);
@@ -60,6 +69,7 @@ export default function FocusTimer() {
   }
 
   function reset() {
+    play("undo");
     setRunning(false);
     if (mode === "stopwatch") {
       setElapsed(0);
@@ -80,7 +90,7 @@ export default function FocusTimer() {
         {(["pomodoro", "stopwatch"] as const).map((m) => (
           <button
             key={m}
-            onClick={() => { setMode(m); setRunning(false); }}
+            onClick={() => { play("select"); setMode(m); setRunning(false); }}
             className="flex-1 rounded-lg border px-3 py-2 text-xs font-medium capitalize transition-colors"
             style={{
               borderColor: mode === m ? "var(--color-accent)" : "var(--color-paper-3)",
@@ -151,7 +161,7 @@ export default function FocusTimer() {
             <RotateCcw className="h-4 w-4" />
           </button>
           <button
-            onClick={() => setRunning((r) => !r)}
+            onClick={() => { play(running ? "pause" : "play"); setRunning((r) => !r); }}
             className="flex h-14 w-14 items-center justify-center rounded-full transition-opacity hover:opacity-90"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
             aria-label={running ? "Pause" : "Start"}
@@ -160,7 +170,7 @@ export default function FocusTimer() {
           </button>
           {mode === "pomodoro" && phase === "work" ? (
             <button
-              onClick={() => setSeconds((s) => s + 5 * 60)}
+              onClick={() => { play("check"); setSeconds((s) => s + 5 * 60); }}
               className="flex h-11 w-11 items-center justify-center rounded-full border transition-colors hover:bg-[var(--color-paper-3)]"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
               aria-label="Add 5 minutes"

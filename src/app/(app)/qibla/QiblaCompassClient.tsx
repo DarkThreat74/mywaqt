@@ -283,7 +283,7 @@ export default function QiblaCompassClient() {
   const size = "min(78vw, 300px)";
 
   return (
-    <div className="mx-auto max-w-md">
+    <div className="mx-auto w-full max-w-md px-4">
       {/* ── Header ── */}
       <div className="mb-6 flex items-start justify-between gap-3">
         <div>
