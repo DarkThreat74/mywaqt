@@ -6,14 +6,14 @@ import { Fingerprint, Loader2, Eye, EyeOff } from "lucide-react";
 import { getHashedFingerprint } from "@/lib/auth/fingerprint";
 import { useUISFX } from "@/components/uisfx-provider";
 
-type Mode = "login" | "forgot-email" | "forgot-reset" | "forgot-done";
+type Mode = "login" | "forgot" | "forgot-done";
 
 export default function LoginForm() {
   const { play } = useUISFX();
   const [mode, setMode] = useState<Mode>("login");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [confirmedEmail, setConfirmedEmailState] = useState<string>("");
+
 
   // Trusted device state
   const [fingerprintHash, setFingerprintHash] = useState<string | null>(null);
@@ -178,8 +178,10 @@ export default function LoginForm() {
     }
   }
 
-  // ── Forgot password: check email existence ──
-  async function handleCheckEmail(e: React.FormEvent) {
+  // ── Forgot password: request a reset link ──
+  // The response is generic by design — it never reveals whether the email
+  // belongs to an account (enumeration oracle).
+  async function handleRequestReset(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setPending(true);
@@ -195,97 +197,20 @@ export default function LoginForm() {
       const res = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "check", email, renderedAt: renderedAtRef.current }),
+        body: JSON.stringify({ action: "request", email, renderedAt: renderedAtRef.current }),
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
-      const data: { exists?: boolean; error?: string } = await res.json().catch(() => ({}));
-
       if (!res.ok) {
+        const data: { error?: string } = await res.json().catch(() => ({}));
         setError(data.error || "Something went wrong. Please try again.");
         return;
       }
 
-      if (data.exists) {
-        // Stash the confirmed email so the reset step uses the same one
-        setConfirmedEmailState(email);
-        setMode("forgot-reset");
-      } else {
-        setError("No account found with that email.");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        setError("Request timed out. Check your connection and try again.");
-      } else {
-        setError("Network error. Check your connection and try again.");
-      }
-    } finally {
-      clearTimeout(timeoutId);
-      setPending(false);
-    }
-  }
-
-  // ── Forgot password: set new password ──
-  async function handleResetPassword(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setPending(true);
-
-    const form = e.currentTarget as HTMLFormElement;
-    const formData = new FormData(form);
-    const password = String(formData.get("password") || "");
-    const confirm = String(formData.get("confirm") || "");
-
-    // Client-side validation (matches signup rules)
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      setPending(false);
-      return;
-    }
-    if (!/[a-zA-Z]/.test(password)) {
-      setError("Password must contain at least one letter.");
-      setPending(false);
-      return;
-    }
-    if (!/[0-9]/.test(password)) {
-      setError("Password must contain at least one number.");
-      setPending(false);
-      return;
-    }
-    if (password !== confirm) {
-      setError("Passwords do not match.");
-      setPending(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    try {
-      const res = await fetch("/api/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "reset",
-          email: confirmedEmail,
-          password,
-          confirm,
-          renderedAt: renderedAtRef.current,
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      const data: { ok?: boolean; error?: string } = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setError(data.error || "Something went wrong. Please try again.");
-        return;
-      }
-
+      // Always show the "email sent" screen — we never say whether the
+      // account exists.
       setMode("forgot-done");
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -304,10 +229,11 @@ export default function LoginForm() {
     return (
       <div className="flex flex-col gap-4">
         <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
-          Password updated
+          Check your email
         </h1>
         <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-          Your password has been changed. You can now log in with your new password.
+          If an account exists for that email, a reset link is on its way.
+          The link expires in 30 minutes.
         </p>
         <button
           type="button"
@@ -327,88 +253,35 @@ export default function LoginForm() {
     );
   }
 
-  if (mode === "forgot-email" || mode === "forgot-reset") {
+  if (mode === "forgot") {
     return (
-      <form
-        onSubmit={mode === "forgot-email" ? handleCheckEmail : handleResetPassword}
-        className="flex flex-col gap-4"
-      >
+      <form onSubmit={handleRequestReset} className="flex flex-col gap-4">
         <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
-          {mode === "forgot-email" ? "Forgot password" : "Set a new password"}
+          Forgot password
         </h1>
         <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-          {mode === "forgot-email"
-            ? "Enter your email and we'll check if an account exists."
-            : "Enter your new password below. Make it something you'll remember."}
+          Enter your email and we&apos;ll send you a link to reset your password.
         </p>
 
-        {mode === "forgot-email" ? (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="email" className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
-              Email
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              autoFocus
-              className="rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
-              style={{
-                borderColor: "var(--color-paper-3)",
-                backgroundColor: "var(--color-paper)",
-                color: "var(--color-ink)",
-              }}
-            />
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="password" className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
-                New password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                required
-                autoFocus
-                minLength={8}
-                className="rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
-                style={{
-                  borderColor: "var(--color-paper-3)",
-                  backgroundColor: "var(--color-paper)",
-                  color: "var(--color-ink)",
-                }}
-              />
-              <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                At least 8 characters, with one letter and one number.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="confirm" className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
-                Confirm new password
-              </label>
-              <input
-                id="confirm"
-                name="confirm"
-                type="password"
-                autoComplete="new-password"
-                required
-                minLength={8}
-                className="rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
-                style={{
-                  borderColor: "var(--color-paper-3)",
-                  backgroundColor: "var(--color-paper)",
-                  color: "var(--color-ink)",
-                }}
-              />
-            </div>
-          </>
-        )}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="email" className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+            Email
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            autoFocus
+            className="rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
+            style={{
+              borderColor: "var(--color-paper-3)",
+              backgroundColor: "var(--color-paper)",
+              color: "var(--color-ink)",
+            }}
+          />
+        </div>
 
         {error && <p className="text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
 
@@ -421,9 +294,7 @@ export default function LoginForm() {
             color: "var(--color-paper)",
           }}
         >
-          {pending
-            ? mode === "forgot-email" ? "Checking..." : "Updating..."
-            : mode === "forgot-email" ? "Continue" : "Update password"}
+          {pending ? "Sending..." : "Send reset link"}
         </button>
 
         <button
@@ -570,7 +441,7 @@ export default function LoginForm() {
         <button
           type="button"
           onClick={() => {
-            setMode("forgot-email");
+            setMode("forgot");
             setError(null);
           }}
           className="font-medium underline underline-offset-4"

@@ -2,7 +2,9 @@ import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import type { NextRequest } from 'next/server';
+import { eq } from 'drizzle-orm';
 import { env } from '@/lib/env';
+import { db, schema } from '@/lib/db/client';
 import type { User } from '@/lib/db/schema';
 
 const SESSION_COOKIE = 'waqt-session';
@@ -65,6 +67,30 @@ export async function clearSessionCookie(): Promise<void> {
 }
 
 /**
+ * A valid signature isn't enough — a JWT stays valid after the user resets
+ * their password or their account is otherwise revoked. `sessionsValidAfter`
+ * on the user row is a cutoff: tokens issued before it are rejected.
+ * One indexed PK lookup per authenticated request.
+ */
+async function isSessionActive(payload: SessionPayload): Promise<boolean> {
+  try {
+    const [u] = await db
+      .select({ sessionsValidAfter: schema.users.sessionsValidAfter })
+      .from(schema.users)
+      .where(eq(schema.users.id, payload.userId))
+      .limit(1);
+    if (!u) return false; // user deleted
+    if (!u.sessionsValidAfter) return true;
+    const issuedAtMs = typeof payload.iat === 'number' ? payload.iat * 1000 : 0;
+    return issuedAtMs >= u.sessionsValidAfter.getTime();
+  } catch {
+    // DB unreachable — treat the cryptographically-valid token as active
+    // rather than logging every user out on a transient error.
+    return true;
+  }
+}
+
+/**
  * Get the current session payload from the cookie.
  * Returns null if not authenticated or token invalid.
  */
@@ -72,7 +98,9 @@ export async function getSession(): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  return decryptSession(token);
+  const payload = await decryptSession(token);
+  if (!payload || !(await isSessionActive(payload))) return null;
+  return payload;
 }
 
 /**
@@ -83,7 +111,9 @@ export async function getSession(): Promise<SessionPayload | null> {
 export async function getSessionFromRequest(request: NextRequest): Promise<SessionPayload | null> {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  return decryptSession(token);
+  const payload = await decryptSession(token);
+  if (!payload || !(await isSessionActive(payload))) return null;
+  return payload;
 }
 
 /**

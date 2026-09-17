@@ -71,6 +71,10 @@ export const users = pgTable('users', {
   shareShowEvents: boolean('share_show_events').default(true).notNull(),
   shareShowEventDetails: boolean('share_show_event_details').default(true).notNull(),
   shareShowPrayerTimes: boolean('share_show_prayer_times').default(true).notNull(),
+  // Sessions (JWTs) issued before this instant are rejected — set on password
+  // reset/change so a stolen session dies immediately instead of living out
+  // its 7-day expiry.
+  sessionsValidAfter: timestamp('sessions_valid_after', { withTimezone: true }),
   // 6-character prayer share code — share with friends to let them see your prayer streaks
   prayerCode: text('prayer_code').unique(),
 }, (table) => [
@@ -427,6 +431,21 @@ export const loginAttempts = pgTable('login_attempts', {
 }, (t) => ({
   // Index for fast lookup of recent attempts by email
   emailFailedAtIdx: index('login_attempts_email_failed_at_idx').on(t.email, t.failedAt),
+}));
+
+// ─── Password Reset Tokens ───
+// Single-use, expiring, SHA-256 hashed tokens for the email-link reset flow.
+// The raw token only ever exists in the emailed URL — never stored or logged.
+
+export const passwordResetTokens = pgTable('password_reset_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  userIdx: index('password_reset_tokens_user_idx').on(t.userId),
 }));
 
 // ─── Goals (hierarchical goal tracking with tree/list views) ───

@@ -1,34 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { eq } from "drizzle-orm";
+import crypto from "crypto";
+import { eq, and, isNull, gt } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { isValidEmail, isHoneypotTripped, isTimeTrapTripped } from "@/lib/validation";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { sendEmail } from "@/lib/email";
+import { env } from "@/lib/env";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
 
 /**
- * In-page password reset.
+ * Token-based password reset — email-link flow.
  *
- * SECURITY NOTE: This flow lets anyone who knows an email address reset that
- * account's password without inbox verification. This is intentionally less
- * secure than an email-link reset and was approved by the user with the
- * tradeoff acknowledged. Mitigations in place:
- *   - Rate limited: 5 attempts / 15 min per IP (same as login).
- *   - Honeypot + time-trap bot guards (same as login/signup).
- *   - Password strength validated server-side (min 8 chars, 1 letter, 1 number).
- *   - Generic "email not found" message does NOT reveal whether an email is
- *     registered — the UI flow confirms existence separately only after
- *     submission, and the existence check itself is rate-limited.
+ * The previous flow let anyone reset any account's password knowing only the
+ * email (unauthenticated account takeover). Now:
+ *   - "request" → creates a single-use token (SHA-256 hashed at rest, 30-min
+ *     expiry), emails a reset link. Response is identical whether or not the
+ *     account exists — no enumeration oracle.
+ *   - "reset" → requires the emailed token; on success it invalidates ALL
+ *     existing sessions (sessionsValidAfter cutoff) and revokes every trusted
+ *     device, so a compromised account is actually recovered.
  *
- * The route handles two actions via the `action` field:
- *   - "check"  → returns { exists: boolean } for the entered email.
- *   - "reset"  → updates the passwordHash for the entered email.
+ * Mitigations: IP rate limit, honeypot, time-trap, password strength rules.
  */
+
+const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const GENERIC_OK = { ok: true, message: "If an account exists for that email, a reset link is on its way." };
+
+function sha256(s: string): string {
+  return crypto.createHash("sha256").update(s).digest("hex");
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // ── Rate limit: 5 attempts per 15 min per IP (covers both check + reset) ──
     const ip = getClientIp(request.headers);
     if (!checkRateLimit("reset-password", ip, 5, 15 * 60 * 1000)) {
       return NextResponse.json(
@@ -37,7 +43,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Parse body ──
     let body: unknown;
     try {
       body = await request.json();
@@ -45,17 +50,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     }
 
-    const {
-      action,
-      email,
-      password,
-      confirm,
-      website,
-      company,
-      renderedAt,
-    } = body as {
+    const { action, email, token, password, confirm, website, company, renderedAt } = body as {
       action?: string;
       email?: string;
+      token?: string;
       password?: string;
       confirm?: string;
       website?: string;
@@ -63,17 +61,9 @@ export async function POST(request: NextRequest) {
       renderedAt?: number;
     };
 
-    // ── Honeypot check — if filled, reject as bot ──
     if (isHoneypotTripped({ website, company })) {
-      return NextResponse.json(
-        { error: "Invalid request." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     }
-
-    // ── Time-trap — bots submit in <2s ──
-    // Note: renderedAt = -1 means the client hasn't mounted yet (useEffect hasn't run).
-    // Treat -1 as valid (not a bot) to avoid false positives on fast connections.
     if (renderedAt !== undefined && renderedAt !== -1 && isTimeTrapTripped(renderedAt, 2)) {
       return NextResponse.json(
         { error: "Please take a moment to fill out the form." },
@@ -81,78 +71,121 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Validate email ──
-    const normalizedEmail = email?.trim().toLowerCase();
-    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
-      return NextResponse.json(
-        { error: "Please enter a valid email." },
-        { status: 400 },
-      );
-    }
+    // ── Action: request a reset link ──
+    if (action === "request") {
+      const normalizedEmail = email?.trim().toLowerCase();
+      if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+        // Same response shape — don't reveal anything about validity/existence
+        return NextResponse.json(GENERIC_OK);
+      }
 
-    // ── Action: check existence ──
-    if (action === "check") {
       const [user] = await db
         .select({ id: schema.users.id })
         .from(schema.users)
         .where(eq(schema.users.email, normalizedEmail))
         .limit(1);
 
-      return NextResponse.json({ exists: !!user });
+      if (user) {
+        // Invalidate older unused tokens for this user (only one live link)
+        await db
+          .delete(schema.passwordResetTokens)
+          .where(
+            and(
+              eq(schema.passwordResetTokens.userId, user.id),
+              isNull(schema.passwordResetTokens.usedAt),
+            ),
+          );
+
+        const rawToken = crypto.randomBytes(32).toString("hex");
+        await db.insert(schema.passwordResetTokens).values({
+          userId: user.id,
+          tokenHash: sha256(rawToken),
+          expiresAt: new Date(Date.now() + TOKEN_TTL_MS),
+        });
+
+        const resetUrl = `${env.appUrl}/reset?token=${rawToken}`;
+        const sent = await sendEmail({
+          to: normalizedEmail,
+          subject: "Reset your Waqt password",
+          text:
+            `Someone requested a password reset for your Waqt account.\n\n` +
+            `Reset link (expires in 30 minutes):\n${resetUrl}\n\n` +
+            `If this wasn't you, you can ignore this email — your password hasn't changed.`,
+        });
+        if (!sent) {
+          logError(new Error("Reset email not sent — email provider unconfigured or failed"), {
+            route: "auth/reset-password",
+          });
+        }
+      }
+
+      return NextResponse.json(GENERIC_OK);
     }
 
-    // ── Action: reset password ──
+    // ── Action: consume a reset token ──
     if (action === "reset") {
-      if (!password || password.length < 8) {
+      if (!token || typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token)) {
         return NextResponse.json(
-          { error: "Password must be at least 8 characters." },
+          { error: "This reset link is invalid or has expired." },
           { status: 400 },
         );
       }
-      if (!/[a-zA-Z]/.test(password)) {
+      if (!password || password.length < 8 || !/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
         return NextResponse.json(
-          { error: "Password must contain at least one letter." },
-          { status: 400 },
-        );
-      }
-      if (!/[0-9]/.test(password)) {
-        return NextResponse.json(
-          { error: "Password must contain at least one number." },
+          { error: "Password must be at least 8 characters with a letter and a number." },
           { status: 400 },
         );
       }
       if (!confirm || confirm !== password) {
+        return NextResponse.json({ error: "Passwords do not match." }, { status: 400 });
+      }
+
+      const [row] = await db
+        .select({
+          id: schema.passwordResetTokens.id,
+          userId: schema.passwordResetTokens.userId,
+        })
+        .from(schema.passwordResetTokens)
+        .where(
+          and(
+            eq(schema.passwordResetTokens.tokenHash, sha256(token)),
+            isNull(schema.passwordResetTokens.usedAt),
+            gt(schema.passwordResetTokens.expiresAt, new Date()),
+          ),
+        )
+        .limit(1);
+
+      if (!row) {
         return NextResponse.json(
-          { error: "Passwords do not match." },
+          { error: "This reset link is invalid or has expired." },
           { status: 400 },
         );
       }
 
-      // Look up the user — don't reveal existence on the reset path
-      const [user] = await db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.email, normalizedEmail))
-        .limit(1);
-
-      if (!user) {
-        return NextResponse.json(
-          { error: "No account found with that email." },
-          { status: 404 },
-        );
-      }
-
       const passwordHash = await bcrypt.hash(password, 10);
-      await db
-        .update(schema.users)
-        .set({ passwordHash })
-        .where(eq(schema.users.id, user.id));
+      const now = new Date();
+
+      // Mark token used, set new password, invalidate all existing sessions,
+      // and revoke trusted devices — a real recovery, not just a password swap.
+      await Promise.all([
+        db
+          .update(schema.passwordResetTokens)
+          .set({ usedAt: now })
+          .where(eq(schema.passwordResetTokens.id, row.id)),
+        db
+          .update(schema.users)
+          .set({ passwordHash, sessionsValidAfter: now })
+          .where(eq(schema.users.id, row.userId)),
+        db
+          .delete(schema.trustedDevices)
+          .where(eq(schema.trustedDevices.userId, row.userId)),
+      ]);
 
       return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json(
-      { error: "Invalid action. Use 'check' or 'reset'." },
+      { error: "Invalid action. Use 'request' or 'reset'." },
       { status: 400 },
     );
   } catch (err) {

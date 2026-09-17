@@ -72,6 +72,11 @@ export const env = {
   // Cloudflare Turnstile (bot protection)
   turnstileSecretKey: required('TURNSTILE_SECRET_KEY'),
 
+  // Transactional email (Resend) — used for password reset links.
+  // If unset, reset requests silently no-op (and log a warning).
+  resendApiKey: process.env.RESEND_API_KEY ?? '',
+  emailFrom: process.env.EMAIL_FROM ?? 'Waqt <no-reply@waqt.app>',
+
   // Cloudflare R2 (talks audio storage)
   r2AccountId: required('R2_ACCOUNT_ID'),
   r2AccessKeyId: required('R2_ACCESS_KEY_ID'),
