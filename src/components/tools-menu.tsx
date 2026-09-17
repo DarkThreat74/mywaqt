@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Compass, Heart, HandHeart, BookOpen, PlayCircle, X, Sparkles, LayoutGrid, ArrowUpRight } from "lucide-react";
+import { Compass, Heart, HandHeart, BookOpen, PlayCircle, X, Sparkles, LayoutGrid, ArrowUpRight, Timer } from "lucide-react";
 
 interface Tool {
   href: string;
@@ -41,6 +41,13 @@ const TOOLS: Tool[] = [
     arabic: "أسماء الله",
     description: "Names of Allah",
     icon: Sparkles,
+  },
+  {
+    href: "/study",
+    label: "Study",
+    arabic: "دراسة",
+    description: "Focus timer, sounds & fidgets",
+    icon: Timer,
   },
   {
     href: "/learn",
