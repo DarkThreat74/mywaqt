@@ -39,6 +39,8 @@ export default function QiblaCompassClient() {
   const [sensorState, setSensorState] = useState<"idle" | "live" | "relative-only" | "unavailable">("idle");
   const [aligned, setAligned] = useState(false);
   const [headingDeg, setHeadingDeg] = useState<number | null>(null);
+  // Signed delta from current heading to the Qibla: + = turn right, - = turn left
+  const [turnDelta, setTurnDelta] = useState<number | null>(null);
 
   // Refs for the rAF render loop — never trigger re-renders per frame
   const filteredHeadingRef = useRef<number | null>(null);
@@ -120,8 +122,8 @@ export default function QiblaCompassClient() {
 
         // Alignment: Qibla marker sits at bearing on the dial; when the dial's
         // rotation puts it under the top lubber line, the user faces Qibla.
-        const qiblaOffset = Math.abs(angleDelta(currentHeadingRef.current, bearingRef.current));
-        const isAligned = qiblaOffset <= 4;
+        const deltaToQibla = angleDelta(currentHeadingRef.current, bearingRef.current);
+        const isAligned = Math.abs(deltaToQibla) <= 4;
         if (isAligned !== alignedRef.current) {
           alignedRef.current = isAligned;
           setAligned(isAligned);
@@ -133,6 +135,7 @@ export default function QiblaCompassClient() {
         if (rounded !== lastReadoutRef.current) {
           lastReadoutRef.current = rounded;
           setHeadingDeg(rounded);
+          setTurnDelta(Math.round(deltaToQibla));
         }
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -390,9 +393,15 @@ export default function QiblaCompassClient() {
           <p className="text-2xl font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>
             {headingDeg !== null ? `${headingDeg}°` : "—"}
           </p>
-          <p className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>
+          <p className="text-[10px] font-medium uppercase tracking-wider" style={{ color: aligned ? "var(--color-success)" : "var(--color-ink-muted)" }}>
             {aligned ? "Facing Qibla" : "heading"}
           </p>
+          {/* Turn hint — which way to rotate */}
+          {!aligned && turnDelta !== null && sensorState === "live" && (
+            <p className="mt-0.5 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+              {turnDelta > 0 ? `↻ ${turnDelta}°` : `↺ ${-turnDelta}°`}
+            </p>
+          )}
         </div>
       </div>
 

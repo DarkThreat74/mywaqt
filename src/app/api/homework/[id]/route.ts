@@ -85,10 +85,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       updates.dueDate = body.dueDate;
     }
     if (body.dueTime !== undefined) {
-      if (body.dueTime !== null && body.dueTime !== "" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(body.dueTime)) {
+      // Accept HH:MM or HH:MM:SS (POST requires seconds; the client round-trips
+      // stored values which include them). Normalize to HH:MM:SS for the DB.
+      const m = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.exec(body.dueTime ?? "");
+      if (body.dueTime !== null && body.dueTime !== "" && !m) {
         return NextResponse.json({ error: "Invalid due time" }, { status: 400 });
       }
-      updates.dueTime = body.dueTime || null;
+      updates.dueTime = m ? (m[0].length === 5 ? `${m[0]}:00` : m[0]) : null;
     }
     if (body.priority !== undefined) {
       if (!["low", "medium", "high"].includes(body.priority)) {
