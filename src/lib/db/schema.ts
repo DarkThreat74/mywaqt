@@ -65,6 +65,12 @@ export const users = pgTable('users', {
   role: userRole('role').default('user').notNull(),
   // Public calendar share token — null = sharing disabled, non-null = public read-only calendar at /user/[name]/[token]
   publicShareToken: text('public_share_token').unique(),
+  // Public portal visibility settings — enforced server-side on every public request
+  shareFutureDays: integer('share_future_days').default(30).notNull(),
+  sharePastDays: integer('share_past_days').default(0).notNull(),
+  shareShowEvents: boolean('share_show_events').default(true).notNull(),
+  shareShowEventDetails: boolean('share_show_event_details').default(true).notNull(),
+  shareShowPrayerTimes: boolean('share_show_prayer_times').default(true).notNull(),
   // 6-character prayer share code — share with friends to let them see your prayer streaks
   prayerCode: text('prayer_code').unique(),
 }, (table) => [

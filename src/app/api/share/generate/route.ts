@@ -95,6 +95,11 @@ export async function GET(request: NextRequest) {
       .select({
         publicShareToken: schema.users.publicShareToken,
         displayName: schema.users.displayName,
+        shareFutureDays: schema.users.shareFutureDays,
+        sharePastDays: schema.users.sharePastDays,
+        shareShowEvents: schema.users.shareShowEvents,
+        shareShowEventDetails: schema.users.shareShowEventDetails,
+        shareShowPrayerTimes: schema.users.shareShowPrayerTimes,
       })
       .from(schema.users)
       .where(eq(schema.users.id, session.userId))
@@ -110,9 +115,92 @@ export async function GET(request: NextRequest) {
       enabled: !!user.publicShareToken,
       token: user.publicShareToken,
       url: user.publicShareToken ? `/${nameSlug}/${user.publicShareToken}/public` : null,
+      settings: {
+        futureDays: user.shareFutureDays,
+        pastDays: user.sharePastDays,
+        showEvents: user.shareShowEvents,
+        showEventDetails: user.shareShowEventDetails,
+        showPrayerTimes: user.shareShowPrayerTimes,
+      },
     });
   } catch (err) {
     logError(err, { route: "share/generate GET" });
     return NextResponse.json({ error: "Failed to load share status." }, { status: 500 });
   }
+}
+
+// Allowed visibility ranges. Days are clamped to these values server-side so
+// a crafted request can't widen the public window.
+const FUTURE_DAY_OPTIONS = [7, 14, 30, 60, 90];
+const PAST_DAY_OPTIONS = [0, 7, 14, 30];
+
+// PATCH /api/share/generate — update visibility settings on the existing link.
+// Applies immediately: public routes read these fields on every request.
+export async function PATCH(request: NextRequest) {
+  const session = await getSessionFromRequest(request);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const ip = getClientIp(request.headers);
+  if (!checkRateLimit("share-settings", ip, 30, 60 * 1000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
+  }
+
+  const updates: Partial<{
+    shareFutureDays: number;
+    sharePastDays: number;
+    shareShowEvents: boolean;
+    shareShowEventDetails: boolean;
+    shareShowPrayerTimes: boolean;
+  }> = {};
+
+  if (body.futureDays !== undefined) {
+    if (typeof body.futureDays !== "number" || !FUTURE_DAY_OPTIONS.includes(body.futureDays)) {
+      return NextResponse.json({ error: "futureDays must be one of 7, 14, 30, 60, 90." }, { status: 400 });
+    }
+    updates.shareFutureDays = body.futureDays;
+  }
+  if (body.pastDays !== undefined) {
+    if (typeof body.pastDays !== "number" || !PAST_DAY_OPTIONS.includes(body.pastDays)) {
+      return NextResponse.json({ error: "pastDays must be one of 0, 7, 14, 30." }, { status: 400 });
+    }
+    updates.sharePastDays = body.pastDays;
+  }
+  if (body.showEvents !== undefined) {
+    if (typeof body.showEvents !== "boolean") {
+      return NextResponse.json({ error: "showEvents must be a boolean." }, { status: 400 });
+    }
+    updates.shareShowEvents = body.showEvents;
+  }
+  if (body.showEventDetails !== undefined) {
+    if (typeof body.showEventDetails !== "boolean") {
+      return NextResponse.json({ error: "showEventDetails must be a boolean." }, { status: 400 });
+    }
+    updates.shareShowEventDetails = body.showEventDetails;
+  }
+  if (body.showPrayerTimes !== undefined) {
+    if (typeof body.showPrayerTimes !== "boolean") {
+      return NextResponse.json({ error: "showPrayerTimes must be a boolean." }, { status: 400 });
+    }
+    updates.shareShowPrayerTimes = body.showPrayerTimes;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "No valid settings provided." }, { status: 400 });
+  }
+
+  await db
+    .update(schema.users)
+    .set(updates)
+    .where(eq(schema.users.id, session.userId));
+
+  return NextResponse.json({ ok: true, settings: updates });
 }

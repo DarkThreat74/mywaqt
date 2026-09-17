@@ -3,6 +3,7 @@ import { eq, and, gte, lte, asc, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -130,6 +131,7 @@ export async function POST(request: NextRequest) {
       dueTime?: string | null;
       priority?: string;
       kind?: string;
+      clientId?: string;
     };
     try {
       body = await request.json();
@@ -172,9 +174,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const [homework] = await db
+    // Offline-created homework carries a client uuid — used as the real row id
+    // so queued dependent writes replay correctly and retried POSTs dedupe.
+    const validClientId = body.clientId && isValidUUID(body.clientId) ? body.clientId : undefined;
+
+    const inserted = await db
       .insert(schema.homeworks)
       .values({
+        id: validClientId,
         userId: session.userId,
         title,
         description: body.description?.trim() || null,
@@ -184,9 +191,19 @@ export async function POST(request: NextRequest) {
         priority: priority as "low" | "medium" | "high",
         kind: kind as "homework" | "test" | "project" | "quiz" | "reading" | "other",
       })
+      .onConflictDoNothing({ target: schema.homeworks.id })
       .returning();
 
-    return NextResponse.json(homework);
+    if (inserted.length === 0 && validClientId) {
+      const [existing] = await db
+        .select()
+        .from(schema.homeworks)
+        .where(and(eq(schema.homeworks.id, validClientId), eq(schema.homeworks.userId, session.userId)))
+        .limit(1);
+      if (existing) return NextResponse.json(existing);
+    }
+
+    return NextResponse.json(inserted[0]);
   } catch (err) {
     logError(err, { route: "homework/POST" });
     return NextResponse.json({ error: "Failed to create homework" }, { status: 500 });

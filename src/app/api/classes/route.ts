@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
-    let body: { name?: string; color?: string };
+    let body: { name?: string; color?: string; clientId?: string };
     try {
       body = await request.json();
     } catch {
@@ -69,16 +70,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Valid hex color is required" }, { status: 400 });
     }
 
-    const [classRow] = await db
+    // Offline-created classes carry a client uuid — used as the real row id
+    // so queued dependent writes replay correctly and retried POSTs dedupe.
+    const validClientId = body.clientId && isValidUUID(body.clientId) ? body.clientId : undefined;
+
+    const inserted = await db
       .insert(schema.classes)
       .values({
+        id: validClientId,
         userId: session.userId,
         name,
         color,
       })
+      .onConflictDoNothing({ target: schema.classes.id })
       .returning();
 
-    return NextResponse.json(classRow);
+    if (inserted.length === 0 && validClientId) {
+      const [existing] = await db
+        .select()
+        .from(schema.classes)
+        .where(and(eq(schema.classes.id, validClientId), eq(schema.classes.userId, session.userId)))
+        .limit(1);
+      if (existing) return NextResponse.json(existing);
+    }
+
+    return NextResponse.json(inserted[0]);
   } catch (err) {
     logError(err, { route: "classes/POST" });
     return NextResponse.json({ error: "Failed to create class" }, { status: 500 });

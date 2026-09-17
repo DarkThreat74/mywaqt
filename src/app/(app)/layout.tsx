@@ -15,6 +15,7 @@ import OfflineBanner from "@/components/offline-banner";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
 import GlobalAudioPlayer from "@/components/global-audio-player";
 import LogoutButton from "@/components/logout-button";
+import SyncStatus from "@/components/sync-status";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
@@ -144,6 +145,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* Service worker + notification scheduler + deep links + fun fact popup */}
       <ServiceWorkerRegister />
+      <SyncStatus />
       <NotificationScheduler />
       <DeepLinkHandler />
       <FunFactPopup />

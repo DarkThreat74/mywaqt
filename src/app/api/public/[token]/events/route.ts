@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { shareWindowUtc } from "@/lib/share-window";
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +26,16 @@ export async function GET(
     return NextResponse.json({ error: "Invalid link." }, { status: 400 });
   }
 
-  // Look up the user by their public share token
+  // Look up the user by their public share token (settings read on every
+  // request so visibility changes apply to live links immediately)
   const [user] = await db
-    .select({ id: schema.users.id })
+    .select({
+      id: schema.users.id,
+      shareFutureDays: schema.users.shareFutureDays,
+      sharePastDays: schema.users.sharePastDays,
+      shareShowEvents: schema.users.shareShowEvents,
+      shareShowEventDetails: schema.users.shareShowEventDetails,
+    })
     .from(schema.users)
     .where(eq(schema.users.publicShareToken, token))
     .limit(1);
@@ -35,6 +43,14 @@ export async function GET(
   if (!user) {
     return NextResponse.json({ error: "Calendar not found." }, { status: 404 });
   }
+
+  if (!user.shareShowEvents) {
+    return NextResponse.json({ error: "Calendar events are not shared." }, { status: 403 });
+  }
+
+  const window = shareWindowUtc(user.shareFutureDays, user.sharePastDays);
+  const mask = (e: { title: string; details: string | null }) =>
+    user.shareShowEventDetails ? e : { ...e, title: "Busy", details: null };
 
   const { searchParams } = new URL(request.url);
   const dateStr = searchParams.get("date");
@@ -55,6 +71,20 @@ export async function GET(
       return NextResponse.json({ error: "Date range cannot exceed 31 days." }, { status: 400 });
     }
 
+    // Clamp to the owner's visibility window on date strings (avoids tz drift
+    // from parsing); entirely-out-of-window → empty
+    const minDate = window.min.toISOString().slice(0, 10);
+    const maxDate = window.max.toISOString().slice(0, 10);
+    const cFrom = fromStr < minDate ? minDate : fromStr;
+    const cTo = toStr > maxDate ? maxDate : toStr;
+    if (cFrom > cTo) {
+      const response = NextResponse.json([]);
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    }
+    const qFrom = new Date(cFrom + "T00:00:00");
+    const qTo = new Date(cTo + "T23:59:59.999");
+
     const events = await db
       .select({
         id: schema.events.id,
@@ -69,16 +99,16 @@ export async function GET(
       .where(
         and(
           eq(schema.events.userId, user.id),
-          gte(schema.events.startAt, fromDate),
-          lte(schema.events.startAt, toDate),
+          gte(schema.events.startAt, qFrom),
+          lte(schema.events.startAt, qTo),
         ),
       )
       .orderBy(schema.events.startAt)
       .limit(1000);
 
-    // Cache public responses for 60 seconds at the edge
-    const response = NextResponse.json(events);
-    response.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+    // no-store: visibility changes must apply immediately, no edge caching
+    const response = NextResponse.json(events.map(mask));
+    response.headers.set("Cache-Control", "no-store");
     return response;
   }
 
@@ -95,6 +125,16 @@ export async function GET(
   const endWithBuffer = new Date(dateStr + "T23:59:59.999-12:00");
   if (isNaN(startOfDayUtc.getTime()) || isNaN(endWithBuffer.getTime())) {
     return NextResponse.json({ error: "Invalid date." }, { status: 400 });
+  }
+
+  // Check the *date itself* against the window (the ±1 day UTC buffer above is
+  // only for timezone coverage — it must not widen the visible window)
+  const minDate = window.min.toISOString().slice(0, 10);
+  const maxDate = window.max.toISOString().slice(0, 10);
+  if (dateStr < minDate || dateStr > maxDate) {
+    const response = NextResponse.json([]);
+    response.headers.set("Cache-Control", "no-store");
+    return response;
   }
 
   const events = await db
@@ -118,7 +158,7 @@ export async function GET(
     .orderBy(schema.events.startAt)
     .limit(500);
 
-  const response = NextResponse.json(events);
-  response.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+  const response = NextResponse.json(events.map(mask));
+  response.headers.set("Cache-Control", "no-store");
   return response;
 }

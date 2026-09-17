@@ -41,12 +41,24 @@ export async function GET(request: Request) {
       .where(eq(schema.users.id, shareToken.userId))
       .limit(1);
 
-    // Fetch all goals for this user
+    // Fetch all goals for this user — explicit projection, never leak userId
     const rows = await db
-      .select()
+      .select({
+        id: schema.goals.id,
+        parentId: schema.goals.parentId,
+        title: schema.goals.title,
+        description: schema.goals.description,
+        status: schema.goals.status,
+        color: schema.goals.color,
+        goalType: schema.goals.goalType,
+        targetDate: schema.goals.targetDate,
+        sortOrder: schema.goals.sortOrder,
+        completedAt: schema.goals.completedAt,
+      })
       .from(schema.goals)
       .where(eq(schema.goals.userId, shareToken.userId))
-      .orderBy(schema.goals.sortOrder, schema.goals.createdAt);
+      .orderBy(schema.goals.sortOrder, schema.goals.createdAt)
+      .limit(500);
 
     return NextResponse.json({
       goals: rows,

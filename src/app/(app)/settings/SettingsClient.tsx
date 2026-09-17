@@ -365,6 +365,14 @@ export default function SettingsClient({
   const [shareGenerating, setShareGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [shareSettings, setShareSettings] = useState({
+    futureDays: 30,
+    pastDays: 0,
+    showEvents: true,
+    showEventDetails: true,
+    showPrayerTimes: true,
+  });
+  const [shareSettingsMsg, setShareSettingsMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Prayer code state
   const [prayerCode, setPrayerCode] = useState<string | null>(null);
@@ -520,6 +528,15 @@ export default function SettingsClient({
           setShareEnabled(data.enabled);
           if (data.url) {
             setShareUrl(`${window.location.origin}${data.url}`);
+          }
+          if (data.settings) {
+            setShareSettings({
+              futureDays: data.settings.futureDays ?? 30,
+              pastDays: data.settings.pastDays ?? 0,
+              showEvents: data.settings.showEvents ?? true,
+              showEventDetails: data.settings.showEventDetails ?? true,
+              showPrayerTimes: data.settings.showPrayerTimes ?? true,
+            });
           }
         }
       })
@@ -776,6 +793,31 @@ export default function SettingsClient({
       }
     } catch {
       setShareError("Network error.");
+    }
+  }
+
+  async function saveShareSettings(patch: Partial<typeof shareSettings>) {
+    const prev = shareSettings;
+    const next = { ...shareSettings, ...patch };
+    setShareSettings(next);
+    setShareSettingsMsg(null);
+    try {
+      const res = await fetch("/api/share/generate", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        setShareSettingsMsg({ ok: true, text: "Applied to your public link." });
+        setTimeout(() => setShareSettingsMsg(null), 3000);
+      } else {
+        setShareSettings(prev);
+        const data = await res.json().catch(() => ({}));
+        setShareSettingsMsg({ ok: false, text: data.error || "Failed to save." });
+      }
+    } catch {
+      setShareSettings(prev);
+      setShareSettingsMsg({ ok: false, text: "Network error." });
     }
   }
 
@@ -1611,6 +1653,67 @@ export default function SettingsClient({
                   <Trash2 className="h-3 w-3" />
                   Disable
                 </button>
+              </div>
+
+              {/* Visibility settings — apply to the live link immediately */}
+              <div
+                className="flex flex-col gap-3 rounded-lg border p-3"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+              >
+                <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>
+                  What people with the link can see
+                </p>
+                {([
+                  { key: "showEvents", label: "Calendar events" },
+                  { key: "showEventDetails", label: "Event titles & details (off = shows \"Busy\")" },
+                  { key: "showPrayerTimes", label: "Prayer times" },
+                ] as const).map(({ key, label }) => (
+                  <label key={key} className="flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-soft)" }}>
+                    <input
+                      type="checkbox"
+                      checked={shareSettings[key]}
+                      onChange={(e) => saveShareSettings({ [key]: e.target.checked })}
+                      className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+                    />
+                    {label}
+                  </label>
+                ))}
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--color-ink-soft)" }}>
+                    Future
+                    <select
+                      value={shareSettings.futureDays}
+                      onChange={(e) => saveShareSettings({ futureDays: Number(e.target.value) })}
+                      className="rounded-md border px-2 py-1 text-xs"
+                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                    >
+                      <option value={7}>1 week</option>
+                      <option value={14}>2 weeks</option>
+                      <option value={30}>1 month</option>
+                      <option value={60}>2 months</option>
+                      <option value={90}>3 months</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--color-ink-soft)" }}>
+                    Past
+                    <select
+                      value={shareSettings.pastDays}
+                      onChange={(e) => saveShareSettings({ pastDays: Number(e.target.value) })}
+                      className="rounded-md border px-2 py-1 text-xs"
+                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                    >
+                      <option value={0}>None</option>
+                      <option value={7}>1 week</option>
+                      <option value={14}>2 weeks</option>
+                      <option value={30}>1 month</option>
+                    </select>
+                  </label>
+                </div>
+                {shareSettingsMsg && (
+                  <p className="text-xs" style={{ color: shareSettingsMsg.ok ? "var(--color-success)" : "var(--color-error)" }}>
+                    {shareSettingsMsg.text}
+                  </p>
+                )}
               </div>
             </div>
           ) : (

@@ -32,10 +32,10 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Public API endpoints — edge cacheable
+        // Public API endpoints — never edge-cached so visibility changes apply immediately
         source: "/api/public/:token*",
         headers: [
-          { key: "Cache-Control", value: "public, s-maxage=60, stale-while-revalidate=300" },
+          { key: "Cache-Control", value: "no-store" },
         ],
       },
       {
@@ -57,6 +57,16 @@ const nextConfig: NextConfig = {
         source: "/manifest.webmanifest",
         headers: [
           { key: "Cache-Control", value: "public, max-age=86400" },
+        ],
+      },
+      {
+        // Baseline security headers on every response
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
         ],
       },
     ];

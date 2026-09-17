@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { instantToWall, wallClockToUtc, dateStrInTimezone } from "@/lib/timezone";
 import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -145,7 +146,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, recurrenceEndDate, recurrenceDays } = body as {
+  const { title, details, startAt, endAt, type, color, notify, recurrenceEndDate, recurrenceDays, clientId } = body as {
     title?: string;
     details?: string;
     startAt?: string;
@@ -155,7 +156,13 @@ export async function POST(request: NextRequest) {
     notify?: boolean;
     recurrenceEndDate?: string;
     recurrenceDays?: number[];
+    clientId?: string;
   };
+
+  // Offline-created events carry a client-generated uuid (clientId) — using it
+  // as the row's real id means a queued PATCH/DELETE on /api/events/<clientId>
+  // replays correctly, and a retried POST dedupes instead of duplicating.
+  const validClientId = clientId && isValidUUID(clientId) ? clientId : undefined;
 
   if (!title?.trim()) {
     return NextResponse.json({ error: "Title is required." }, { status: 400 });
@@ -202,12 +209,8 @@ export async function POST(request: NextRequest) {
 
   // Check if this is a recurring event
   if (recurrenceEndDate) {
-    const recurEnd = new Date(recurrenceEndDate + "T23:59:59");
-    if (isNaN(recurEnd.getTime())) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(recurrenceEndDate)) {
       return NextResponse.json({ error: "Invalid recurrence end date." }, { status: 400 });
-    }
-    if (recurEnd <= startDate) {
-      return NextResponse.json({ error: "Recurrence end date must be after start date." }, { status: 400 });
     }
 
     // Get user's timezone to correctly determine local date of the start event
@@ -218,23 +221,17 @@ export async function POST(request: NextRequest) {
       .limit(1);
     const userTimezone = settings?.timezone || "UTC";
 
-    // Extract the user's LOCAL date components from the start event
-    // This tells us which calendar day the event falls on in the user's timezone
-    const dateFormatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: userTimezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    const dateParts = dateFormatter.formatToParts(startDate);
-    const startLocalYear = parseInt(dateParts.find((p) => p.type === "year")?.value || "2026", 10);
-    const startLocalMonth = parseInt(dateParts.find((p) => p.type === "month")?.value || "1", 10);
-    const startLocalDay = parseInt(dateParts.find((p) => p.type === "day")?.value || "1", 10);
+    // The event's local calendar date + wall-clock time in the user's timezone
+    const startDateStr = dateStrInTimezone(startDate, userTimezone);
+    const startWall = instantToWall(startDate, userTimezone);
+    if (recurrenceEndDate <= startDateStr) {
+      return NextResponse.json({ error: "Recurrence end date must be after start date." }, { status: 400 });
+    }
 
     // Determine which days of the week to repeat on
     // recurrenceDays: array of 0-6 (0=Sunday, 6=Saturday) in user's LOCAL timezone
     // If not provided, default to the local day of the start date
-    const startDayOfWeek = new Date(startLocalYear, startLocalMonth - 1, startLocalDay).getDay();
+    const startDayOfWeek = new Date(startDateStr + "T00:00:00Z").getUTCDay();
     const daysToRepeat = recurrenceDays && recurrenceDays.length > 0
       ? [...new Set(recurrenceDays)].filter((d) => d >= 0 && d <= 6).sort((a, b) => a - b)
       : [startDayOfWeek];
@@ -243,32 +240,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Select at least one day to repeat on." }, { status: 400 });
     }
 
-    // Generate occurrences by iterating local calendar dates.
-    // For each matching day-of-week, compute the occurrence by adding the day
-    // difference (in whole days) to the original startDate. This preserves the
-    // exact UTC time (and thus the local time) of the original event.
+    // Generate occurrences by iterating the user's local calendar dates.
+    // For each matching day-of-week, the occurrence instant is the one whose
+    // wall clock in the user's timezone matches the original event's — this is
+    // DST-safe (a whole-day UTC shift would drift ±1h across transitions).
     const occurrences: Array<{ startAt: Date; endAt: Date }> = [];
     const durationMs = effectiveEnd.getTime() - startDate.getTime();
-    const recurEndMs = recurEnd.getTime();
+    const DAY = 24 * 60 * 60 * 1000;
 
-    let currentYear = startLocalYear;
-    let currentMonth = startLocalMonth;
-    let currentDay = startLocalDay;
-
+    // Iterate UTC calendar dates starting from the event's local start date
+    let cursor = new Date(startDateStr + "T00:00:00Z").getTime();
     while (true) {
-      // Check if we've passed the recurrence end date
-      const currentDateObj = new Date(currentYear, currentMonth - 1, currentDay);
-      if (currentDateObj.getTime() > recurEndMs) break;
+      const cursorDate = new Date(cursor);
+      const cursorStr = cursorDate.toISOString().slice(0, 10);
+      if (cursorStr > recurrenceEndDate) break;
 
-      const dow = currentDateObj.getDay(); // Correct day-of-week for this calendar date
-
-      if (daysToRepeat.includes(dow)) {
-        // Compute day difference from the start local date
-        const startLocalDateObj = new Date(startLocalYear, startLocalMonth - 1, startLocalDay);
-        const dayDiff = Math.round((currentDateObj.getTime() - startLocalDateObj.getTime()) / (24 * 60 * 60 * 1000));
-
-        // Create the occurrence by shifting the original UTC timestamp by whole days
-        const occStart = new Date(startDate.getTime() + dayDiff * 24 * 60 * 60 * 1000);
+      if (daysToRepeat.includes(cursorDate.getUTCDay())) {
+        const occStart = wallClockToUtc(
+          cursorDate.getUTCFullYear(),
+          cursorDate.getUTCMonth() + 1,
+          cursorDate.getUTCDate(),
+          startWall.h,
+          startWall.mi,
+          startWall.s,
+          userTimezone,
+        );
         if (occStart >= startDate) {
           occurrences.push({
             startAt: occStart,
@@ -276,13 +272,7 @@ export async function POST(request: NextRequest) {
           });
         }
       }
-
-      // Move to next day
-      currentDay++;
-      const nextDate = new Date(currentYear, currentMonth - 1, currentDay);
-      currentYear = nextDate.getFullYear();
-      currentMonth = nextDate.getMonth() + 1;
-      currentDay = nextDate.getDate();
+      cursor += DAY;
     }
 
     if (occurrences.length === 0) {
@@ -295,7 +285,19 @@ export async function POST(request: NextRequest) {
     // Generate a single seriesId for all events in this recurring series.
     // This is the unique identifier used for bulk update/delete — NOT
     // recurrenceRule, which can be shared by unrelated series.
-    const seriesId = randomUUID();
+    // Offline replays reuse the client's uuid as seriesId — dedupe by it so a
+    // retried POST doesn't create a second series.
+    const seriesId = validClientId ?? randomUUID();
+    if (validClientId) {
+      const [existing] = await db
+        .select({ id: schema.events.id })
+        .from(schema.events)
+        .where(and(eq(schema.events.seriesId, validClientId), eq(schema.events.userId, session.userId)))
+        .limit(1);
+      if (existing) {
+        return NextResponse.json({ created: 0, events: [], deduped: true }, { status: 200 });
+      }
+    }
 
     // Insert all occurrences
     const inserted = await db
@@ -321,9 +323,10 @@ export async function POST(request: NextRequest) {
   }
 
   // Single event
-  const [event] = await db
+  const inserted = await db
     .insert(schema.events)
     .values({
+      id: validClientId,
       userId: session.userId,
       title: title.trim(),
       details: validDetails,
@@ -336,7 +339,18 @@ export async function POST(request: NextRequest) {
       seriesId: null,
       createdVia: "manual",
     })
+    .onConflictDoNothing({ target: schema.events.id })
     .returning();
 
-  return NextResponse.json(event, { status: 201 });
+  // Replay of an offline write — the row already exists; return it as-is
+  if (inserted.length === 0 && validClientId) {
+    const [existing] = await db
+      .select()
+      .from(schema.events)
+      .where(and(eq(schema.events.id, validClientId), eq(schema.events.userId, session.userId)))
+      .limit(1);
+    if (existing) return NextResponse.json(existing, { status: 200 });
+  }
+
+  return NextResponse.json(inserted[0], { status: 201 });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { shareWindowUtc, clampDateStr } from "@/lib/share-window";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,12 @@ export async function GET(
   }
 
   const [user] = await db
-    .select({ id: schema.users.id })
+    .select({
+      id: schema.users.id,
+      shareFutureDays: schema.users.shareFutureDays,
+      sharePastDays: schema.users.sharePastDays,
+      shareShowPrayerTimes: schema.users.shareShowPrayerTimes,
+    })
     .from(schema.users)
     .where(eq(schema.users.publicShareToken, token))
     .limit(1);
@@ -34,11 +40,24 @@ export async function GET(
     return NextResponse.json({ error: "Calendar not found." }, { status: 404 });
   }
 
+  if (!user.shareShowPrayerTimes) {
+    return NextResponse.json({ error: "Prayer times are not shared." }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const dateStr = searchParams.get("date");
 
-  if (!dateStr) {
-    return NextResponse.json({ error: "Missing date parameter." }, { status: 400 });
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return NextResponse.json({ error: "Missing or invalid date parameter." }, { status: 400 });
+  }
+
+  // Enforce the owner's visibility window — applies to live links immediately
+  const window = shareWindowUtc(user.shareFutureDays, user.sharePastDays);
+  if (!clampDateStr(dateStr, window)) {
+    return NextResponse.json(
+      { error: "Date is outside the shared window." },
+      { status: 403 },
+    );
   }
 
   const [cached] = await db
@@ -68,7 +87,7 @@ export async function GET(
   }
 
   const response = NextResponse.json(cached);
-  // Cache publicly — prayer times don't change within a day
-  response.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+  // no-store: visibility changes must apply immediately, no edge caching
+  response.headers.set("Cache-Control", "no-store");
   return response;
 }

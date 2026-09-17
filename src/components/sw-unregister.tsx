@@ -54,15 +54,28 @@ export default function UnregisterServiceWorker() {
           // Can't read — assume empty, proceed with cleanup
         }
 
-        // Unregister all SWs
-        await Promise.all(
-          registrations.map((r) => r.unregister().catch(() => {}))
-        );
-
-        // Clear all Cache API caches
+        // Do NOT unregister the SW or wipe the static app-shell cache here.
+        // The SW already passes public pages through untouched (see sw.js),
+        // and unregistering it would kill offline PWA launch — e.g. a session
+        // expiry that lands on /login used to leave the installed app dead
+        // until the next online login. Instead, ask the live SW to clear only
+        // the user-scoped caches (API responses + cached app pages), keeping
+        // the static app shell + audio so offline boot still works.
+        for (const r of registrations) {
+          try {
+            (r.active || r.waiting || r.installing)?.postMessage({ type: "CLEAR_USER_CACHE" });
+          } catch {
+            // SW may be gone — ignore
+          }
+        }
+        // Fallback if no SW is active yet: delete user-scoped caches directly.
         if ("caches" in window) {
           const names = await caches.keys();
-          await Promise.all(names.map((n) => caches.delete(n)));
+          await Promise.all(
+            names
+              .filter((n) => /^waqt-v\d+-(api|pages|runtime)$/.test(n))
+              .map((n) => caches.delete(n))
+          );
         }
 
         // Clear IndexedDB databases (offline data + outbox)

@@ -3,6 +3,7 @@ import { getSessionFromRequest } from "@/lib/auth/session";
 import { db, schema } from "@/lib/db/client";
 import { eq, and, count } from "drizzle-orm";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
       color?: string;
       goalType?: string;
       targetDate?: string | null;
+      clientId?: string;
     };
     try {
       body = await request.json();
@@ -102,9 +104,14 @@ export async function POST(request: NextRequest) {
       .from(schema.goals)
       .where(and(eq(schema.goals.userId, session.userId), eq(schema.goals.goalType, goalType)));
 
-    const [goal] = await db
+    // Offline-created goals carry a client-generated uuid — using it as the
+    // row's real id makes queued dependent writes + retried POSTs work.
+    const validClientId = body.clientId && isValidUUID(body.clientId) ? body.clientId : undefined;
+
+    const inserted = await db
       .insert(schema.goals)
       .values({
+        id: validClientId,
         userId: session.userId,
         parentId: body.parentId ?? null,
         title,
@@ -114,9 +121,19 @@ export async function POST(request: NextRequest) {
         targetDate,
         sortOrder: goalCount,
       })
+      .onConflictDoNothing({ target: schema.goals.id })
       .returning();
 
-    return NextResponse.json({ goal });
+    if (inserted.length === 0 && validClientId) {
+      const [existing] = await db
+        .select()
+        .from(schema.goals)
+        .where(and(eq(schema.goals.id, validClientId), eq(schema.goals.userId, session.userId)))
+        .limit(1);
+      if (existing) return NextResponse.json({ goal: existing });
+    }
+
+    return NextResponse.json({ goal: inserted[0] });
   } catch (err) {
     logError(err, { route: "goals", method: "POST" });
     return NextResponse.json({ error: "Failed to create goal" }, { status: 500 });

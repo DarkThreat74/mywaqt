@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
+import { instantToWall, wallClockToUtc, dateStrInTimezone } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -224,35 +225,39 @@ export async function PATCH(request: NextRequest) {
 
     const days = ruleMatch[1].split(",").map(Number);
 
-    // Get user's timezone to compute the last occurrence's local calendar date
+    // Get user's timezone to compute local calendar dates + wall-clock times
     const [settings] = await db
       .select({ timezone: schema.prayerSettings.timezone })
       .from(schema.prayerSettings)
       .where(eq(schema.prayerSettings.userId, session.userId))
       .limit(1);
-    const fmt = new Intl.DateTimeFormat("en-US", {
-      timeZone: settings?.timezone || "UTC",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    const lp = fmt.formatToParts(lastEvent.startAt);
-    const lastY = parseInt(lp.find((p) => p.type === "year")?.value ?? "0", 10);
-    const lastMo = parseInt(lp.find((p) => p.type === "month")?.value ?? "1", 10);
-    const lastD = parseInt(lp.find((p) => p.type === "day")?.value ?? "1", 10);
-    const lastLocalDate = new Date(lastY, lastMo - 1, lastD);
+    const userTz = settings?.timezone || "UTC";
+    const lastWall = instantToWall(lastEvent.startAt, userTz);
+    const lastLocalStr = dateStrInTimezone(lastEvent.startAt, userTz);
     const occDurationMs = lastEvent.endAt.getTime() - lastEvent.startAt.getTime();
 
-    // Generate occurrences for matching weekdays after the last occurrence
+    // Generate occurrences for matching weekdays after the last occurrence.
+    // Each occurrence keeps the series' wall-clock time in the user's
+    // timezone (DST-safe — a fixed UTC-day shift would drift ±1h).
     const newOccs: Array<{ startAt: Date; endAt: Date }> = [];
-    let cursor = new Date(lastY, lastMo - 1, lastD + 1);
-    while (cursor.getTime() <= newEnd.getTime() && newOccs.length < 365) {
-      if (days.includes(cursor.getDay())) {
-        const dayDiff = Math.round((cursor.getTime() - lastLocalDate.getTime()) / MS_DAY);
-        const occStart = new Date(lastEvent.startAt.getTime() + dayDiff * MS_DAY);
+    let cursor = new Date(lastLocalStr + "T00:00:00Z").getTime() + MS_DAY;
+    while (newOccs.length < 365) {
+      const c = new Date(cursor);
+      const cStr = c.toISOString().slice(0, 10);
+      if (cStr > recurrenceEndDate) break;
+      if (days.includes(c.getUTCDay())) {
+        const occStart = wallClockToUtc(
+          c.getUTCFullYear(),
+          c.getUTCMonth() + 1,
+          c.getUTCDate(),
+          lastWall.h,
+          lastWall.mi,
+          lastWall.s,
+          userTz,
+        );
         newOccs.push({ startAt: occStart, endAt: new Date(occStart.getTime() + occDurationMs) });
       }
-      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+      cursor += MS_DAY;
     }
 
     if (newOccs.length > 0) {

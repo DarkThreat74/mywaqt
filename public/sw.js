@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v39";
+const CACHE_VERSION = "waqt-v40";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -100,6 +100,18 @@ async function removeFromOutbox(id) {
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
+}
+
+// Broadcast the pending-write count so the client can render a persistent
+// sync-status indicator. Fires after queue/remove/sync changes.
+async function broadcastOutboxCount() {
+  try {
+    const outbox = await getOutbox();
+    const clients = await self.clients.matchAll({ type: "window" });
+    clients.forEach((c) => c.postMessage({ type: "OUTBOX_COUNT", count: outbox.length }));
+  } catch {
+    // non-critical
+  }
 }
 
 // ─── Sync offline outbox ───
@@ -209,6 +221,7 @@ async function syncOutbox() {
       const clients = await self.clients.matchAll({ type: "window" });
       clients.forEach((c) => c.postMessage({ type: "EVENT_SYNCED", count: syncedCount }));
     }
+    await broadcastOutboxCount();
   } finally {
     isSyncing = false;
   }
@@ -372,25 +385,10 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         } catch {
-          // Offline and no cache — return a 200 no-op response so the browser
-          // doesn't surface a 503 that breaks hydration. Use the correct MIME
-          // type based on the file extension.
-          if (url.pathname.endsWith(".css")) {
-            return new Response("", {
-              status: 200,
-              headers: { "Content-Type": "text/css" },
-            });
-          } else if (url.pathname.endsWith(".js")) {
-            return new Response("/* offline */", {
-              status: 200,
-              headers: { "Content-Type": "application/javascript" },
-            });
-          } else {
-            return new Response("", {
-              status: 200,
-              headers: { "Content-Type": "application/octet-stream" },
-            });
-          }
+          // Offline and no cache — fail honestly with 503. Returning a fake
+          // empty 200 for a missing JS chunk makes hydration silently dead
+          // (page looks loaded, nothing works) instead of visibly retrying.
+          return new Response("", { status: 503, statusText: "Service Unavailable" });
         }
       })()
     );
@@ -430,7 +428,25 @@ self.addEventListener("fetch", (event) => {
         } catch {
           // Offline — store in outbox for later sync
           const body = await bodyPromise;
-          const tempId = "offline-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+
+          // For entity-creating POSTs, generate a REAL uuid and inject it into
+          // the queued body as clientId. The server uses it as the row's actual
+          // primary key, so the id never changes between offline and synced
+          // states — a queued PATCH/DELETE on /api/events/<uuid> replays
+          // correctly after the POST, with no tempId→realId mapping needed.
+          const isEntityPost =
+            request.method === "POST" &&
+            (url.pathname === "/api/events" ||
+              url.pathname === "/api/goals" ||
+              url.pathname === "/api/homework" ||
+              url.pathname === "/api/classes");
+          const tempId = isEntityPost && body
+            ? (() => {
+                const uuid = crypto.randomUUID();
+                body.clientId = uuid;
+                return uuid;
+              })()
+            : "offline-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
           await addToOutbox({
             method: request.method,
             url: request.url,
@@ -439,6 +455,7 @@ self.addEventListener("fetch", (event) => {
             headers: { "Content-Type": "application/json" },
             tempId: tempId,
           });
+          broadcastOutboxCount();
 
           // Notify client that the write was queued offline
           const clients = await self.clients.matchAll({ type: "window" });
@@ -878,6 +895,9 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SYNC_OUTBOX") {
     event.waitUntil(syncOutbox());
   }
+  if (event.data && event.data.type === "GET_OUTBOX_COUNT") {
+    event.waitUntil(broadcastOutboxCount());
+  }
   if (event.data && event.data.type === "WARM_CACHE") {
     event.waitUntil(warmCache().catch(() => {}));
   }
@@ -940,6 +960,7 @@ self.addEventListener("message", (event) => {
             await removeFromOutbox(item.id);
           }
         }
+        await broadcastOutboxCount();
       })().catch(() => {})
     );
   }
@@ -957,6 +978,7 @@ self.addEventListener("message", (event) => {
             tx.oncomplete = resolve;
             tx.onerror = reject;
           });
+          await broadcastOutboxCount();
         } catch {
           // non-critical
         }
