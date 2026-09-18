@@ -143,7 +143,7 @@ function DoodlePad() {
 
   return (
     <div>
-      <div className="mb-3 mt-8 flex items-center justify-between">
+      <div className="mb-3 mt-8 flex items-center justify-between sm:mt-0">
         <p className="text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>
           Doodle pad — draw to unwind
         </p>
@@ -171,7 +171,7 @@ function DoodlePad() {
 
 export default function Fidget() {
   return (
-    <div>
+    <div className="sm:grid sm:grid-cols-2 sm:gap-6 sm:items-start">
       <PopGrid />
       <DoodlePad />
       <p className="mt-4 text-center text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>

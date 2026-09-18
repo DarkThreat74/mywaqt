@@ -23,7 +23,7 @@ export default function StudyClient() {
   const [tab, setTab] = useState<Tab>("focus");
 
   return (
-    <div className="mx-auto w-full max-w-md px-4">
+    <div className="mx-auto w-full max-w-md px-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl">
       {/* Header */}
       <div className="mb-5 flex items-start justify-between gap-3">
         <div>

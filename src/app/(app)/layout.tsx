@@ -16,6 +16,8 @@ import { AudioPlayerProvider } from "@/components/audio-player-context";
 import GlobalAudioPlayer from "@/components/global-audio-player";
 import LogoutButton from "@/components/logout-button";
 import SyncStatus from "@/components/sync-status";
+import { SoundscapeProvider } from "@/components/soundscape-context";
+import SoundscapeIndicator from "@/components/soundscape-indicator";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
@@ -71,6 +73,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <AudioPlayerProvider>
+    <SoundscapeProvider>
     <div className="flex min-h-dvh w-full overflow-x-hidden" style={{ backgroundColor: "var(--color-paper)" }}>
       {/* ── Skip link for keyboard users (WCAG 2.4.1) ── */}
       <a href="#main-content" className="skip-link">
@@ -146,6 +149,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {/* Service worker + notification scheduler + deep links + fun fact popup */}
       <ServiceWorkerRegister />
       <SyncStatus />
+      <SoundscapeIndicator />
       <NotificationScheduler />
       <DeepLinkHandler />
       <FunFactPopup />
@@ -153,6 +157,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {/* Global audio player — survives route changes for background playback */}
       <GlobalAudioPlayer />
     </div>
+    </SoundscapeProvider>
     </AudioPlayerProvider>
   );
 }
