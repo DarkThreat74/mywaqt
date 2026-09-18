@@ -26,12 +26,12 @@ export default async function GoalsPage() {
   };
 
   const [goals, homework, classes, habits, habitLogs, notes] = await Promise.all([
-    safeQuery(db.select().from(schema.goals).where(eq(schema.goals.userId, session.userId)).orderBy(schema.goals.sortOrder, schema.goals.createdAt)),
-    safeQuery(db.select().from(schema.homeworks).where(eq(schema.homeworks.userId, session.userId)).orderBy(schema.homeworks.dueDate)),
-    safeQuery(db.select().from(schema.classes).where(eq(schema.classes.userId, session.userId)).orderBy(schema.classes.sortOrder, schema.classes.createdAt)),
-    safeQuery(db.select().from(schema.habits).where(eq(schema.habits.userId, session.userId)).orderBy(schema.habits.sortOrder, schema.habits.createdAt)),
-    safeQuery(db.select().from(schema.habitLogs).where(and(eq(schema.habitLogs.userId, session.userId), gte(schema.habitLogs.date, habitLogCutoff)))),
-    safeQuery(db.select().from(schema.notes).where(eq(schema.notes.userId, session.userId)).orderBy(desc(schema.notes.updatedAt))),
+    safeQuery(db.select().from(schema.goals).where(eq(schema.goals.userId, session.userId)).orderBy(schema.goals.sortOrder, schema.goals.createdAt).limit(500)),
+    safeQuery(db.select().from(schema.homeworks).where(eq(schema.homeworks.userId, session.userId)).orderBy(schema.homeworks.dueDate).limit(500)),
+    safeQuery(db.select().from(schema.classes).where(eq(schema.classes.userId, session.userId)).orderBy(schema.classes.sortOrder, schema.classes.createdAt).limit(200)),
+    safeQuery(db.select().from(schema.habits).where(eq(schema.habits.userId, session.userId)).orderBy(schema.habits.sortOrder, schema.habits.createdAt).limit(200)),
+    safeQuery(db.select().from(schema.habitLogs).where(and(eq(schema.habitLogs.userId, session.userId), gte(schema.habitLogs.date, habitLogCutoff))).limit(5000)),
+    safeQuery(db.select().from(schema.notes).where(eq(schema.notes.userId, session.userId)).orderBy(desc(schema.notes.updatedAt)).limit(500)),
   ]);
 
   // habitLogs already filtered by date in SQL (last 90 days)

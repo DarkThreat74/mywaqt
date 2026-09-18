@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { eq, and, isNull, gt } from "drizzle-orm";
@@ -180,6 +181,10 @@ export async function POST(request: NextRequest) {
           .delete(schema.trustedDevices)
           .where(eq(schema.trustedDevices.userId, row.userId)),
       ]);
+
+      // Drop the cached sessionsValidAfter so revocation applies immediately
+      // instead of waiting out the 60s cache TTL.
+      revalidateTag(`sva-${row.userId}`, "expire");
 
       return NextResponse.json({ ok: true });
     }

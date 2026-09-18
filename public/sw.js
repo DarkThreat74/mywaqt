@@ -362,6 +362,14 @@ async function audioRangeResponse(request, response) {
   return new Response(buffer.slice(start, end + 1), { status: 206, statusText: "Partial Content", headers });
 }
 
+// fetch() with a hard timeout — on a flaky network a bare fetch can hang for
+// 30s+, which feels like the app froze. Abort so callers can fall back to cache.
+function timedFetch(request, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(request, { signal: ctrl.signal }).finally(() => clearTimeout(t));
+}
+
 // ─── Fetch: route by request type ───
 self.addEventListener("fetch", (event) => {
   const { request } = event;
@@ -649,10 +657,11 @@ self.addEventListener("fetch", (event) => {
         // the pathname — same as before.
         const cacheKey = url.pathname + url.search;
 
-        // Try network first (use navigation preload if available)
+        // Try network first (use navigation preload if available). 10s cap —
+        // beyond that, serve cache rather than let the tap "freeze".
         try {
           const preloadResponse = await event.preloadResponse;
-          const response = preloadResponse || await fetch(request);
+          const response = preloadResponse || await timedFetch(request, 10000);
           if (response && response.ok) {
             // Cache the fresh HTML (keyed by full URL) for offline use
             const body = await response.blob();
@@ -704,7 +713,8 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         try {
-          const response = await fetch(request);
+          // 6s cap — a hanging RSC fetch is the "tap a tab, nothing happens" bug
+          const response = await timedFetch(request, 6000);
           return response;
         } catch {
           // Offline — return 503 so the client uses cached HTML + IndexedDB

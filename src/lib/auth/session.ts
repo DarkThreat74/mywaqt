@@ -1,6 +1,7 @@
 import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+import { unstable_cache } from 'next/cache';
 import type { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { env } from '@/lib/env';
@@ -72,17 +73,34 @@ export async function clearSessionCookie(): Promise<void> {
  * on the user row is a cutoff: tokens issued before it are rejected.
  * One indexed PK lookup per authenticated request.
  */
+/**
+ * Cached sessionsValidAfter lookup — one row read per userId, cached 60s.
+ * Password reset revalidates the `sva-${userId}` tag so revocation is still
+ * immediate. Removes a Neon round-trip from every authed request/navigation.
+ */
+const getSessionsValidAfter = (userId: string) =>
+  unstable_cache(
+    async () => {
+      const [u] = await db
+        .select({ sessionsValidAfter: schema.users.sessionsValidAfter })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId))
+        .limit(1);
+      // -1 = user row missing (deleted); null = no revocation cutoff
+      if (!u) return -1;
+      return u.sessionsValidAfter?.getTime() ?? null;
+    },
+    ['sva', userId],
+    { revalidate: 60, tags: [`sva-${userId}`] }
+  )();
+
 async function isSessionActive(payload: SessionPayload): Promise<boolean> {
   try {
-    const [u] = await db
-      .select({ sessionsValidAfter: schema.users.sessionsValidAfter })
-      .from(schema.users)
-      .where(eq(schema.users.id, payload.userId))
-      .limit(1);
-    if (!u) return false; // user deleted
-    if (!u.sessionsValidAfter) return true;
+    const validAfter = await getSessionsValidAfter(payload.userId);
+    if (validAfter === -1) return false;
+    if (validAfter === null) return true;
     const issuedAtMs = typeof payload.iat === 'number' ? payload.iat * 1000 : 0;
-    return issuedAtMs >= u.sessionsValidAfter.getTime();
+    return issuedAtMs >= validAfter;
   } catch {
     // DB unreachable — treat the cryptographically-valid token as active
     // rather than logging every user out on a transient error.

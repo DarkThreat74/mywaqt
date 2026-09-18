@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import { getSession } from "@/lib/auth/session";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
@@ -22,41 +22,47 @@ import SoundscapeIndicator from "@/components/soundscape-indicator";
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
 
-// React.cache() deduplicates the settings check within a single request.
-// If child pages also query prayerSettings, the DB hit is shared.
-const getNeedsSettings = cache(async (userId: string): Promise<boolean> => {
-  try {
-    const [userRows, settingsRows] = await Promise.all([
-      db
-        .select({ displayName: schema.users.displayName })
-        .from(schema.users)
-        .where(eq(schema.users.id, userId))
-        .limit(1),
-      db
-        .select({
-          latitude: schema.prayerSettings.latitude,
-          longitude: schema.prayerSettings.longitude,
-          calculationMethod: schema.prayerSettings.calculationMethod,
-          madhab: schema.prayerSettings.madhab,
-        })
-        .from(schema.prayerSettings)
-        .where(eq(schema.prayerSettings.userId, userId))
-        .limit(1),
-    ]);
+// unstable_cache memoizes the onboarding/settings check per user for 60s
+// across requests — the layout re-executes on every client-side navigation,
+// so without this every tab click cost two extra Neon round-trips.
+const getNeedsSettings = (userId: string): Promise<boolean> =>
+  unstable_cache(
+    async (): Promise<boolean> => {
+      try {
+        const [userRows, settingsRows] = await Promise.all([
+          db
+            .select({ displayName: schema.users.displayName })
+            .from(schema.users)
+            .where(eq(schema.users.id, userId))
+            .limit(1),
+          db
+            .select({
+              latitude: schema.prayerSettings.latitude,
+              longitude: schema.prayerSettings.longitude,
+              calculationMethod: schema.prayerSettings.calculationMethod,
+              madhab: schema.prayerSettings.madhab,
+            })
+            .from(schema.prayerSettings)
+            .where(eq(schema.prayerSettings.userId, userId))
+            .limit(1),
+        ]);
 
-    const [user] = userRows;
-    if (!user?.displayName) return true;
+        const [user] = userRows;
+        if (!user?.displayName) return true;
 
-    const [settings] = settingsRows;
-    if (!settings) return true;
-    if (!settings.latitude || !settings.longitude) return true;
-    if (!settings.calculationMethod) return true;
-    if (!settings.madhab) return true;
-    return false;
-  } catch {
-    return false;
-  }
-});
+        const [settings] = settingsRows;
+        if (!settings) return true;
+        if (!settings.latitude || !settings.longitude) return true;
+        if (!settings.calculationMethod) return true;
+        if (!settings.madhab) return true;
+        return false;
+      } catch {
+        return false;
+      }
+    },
+    ['needs-settings', userId],
+    { revalidate: 60 }
+  )();
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
