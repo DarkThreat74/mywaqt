@@ -656,7 +656,7 @@ export default function PrayerDashboard() {
       if (res.ok) {
         setFriends((prev) => {
           const updated = prev.map((f) =>
-            f.id === friendId ? { ...f, remindedToday: [...f.remindedToday, prayerName] } : f,
+            f.id === friendId ? { ...f, remindedToday: [...(f.remindedToday ?? []), prayerName] } : f,
           );
           cacheBlob("friends", updated);
           return updated;
@@ -2051,6 +2051,37 @@ export default function PrayerDashboard() {
                 })}
               </div>
             )}
+
+            {/* ── Today: per-prayer status + remind ── */}
+            {friends.length > 0 && (
+              <div className="mt-5">
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  Today — tap an open dot to send a reminder
+                </p>
+                <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
+                    {friends.map((friend) => (
+                      <ComparisonRow
+                        key={friend.id}
+                        name={friend.firstName || friend.displayName || "Friend"}
+                        isMe={false}
+                        streak={friend.streak ?? 0}
+                        todayLogs={friend.todayLogs}
+                        todaySunnahs={friend.todaySunnahs}
+                        prayerTimes={prayerTimes}
+                        currentTime={currentTime}
+                        madhab={madhab}
+                        timezone={friend.timezone}
+                        todayVisible={friend.todayVisible}
+                        remindedToday={friend.remindedToday}
+                        reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
+                        onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2159,9 +2190,13 @@ function ComparisonRow({
         </div>
       </div>
 
-      {/* Prayer dots */}
+      {/* Prayer dots — or a "private" note when the friend doesn't share today */}
       <div className="flex flex-1 items-center justify-center gap-1 sm:gap-2">
-        {PRAYER_ORDER.map((prayer, idx) => {
+        {!isMe && !todayVisible ? (
+          <span className="text-[11px] italic" style={{ color: "var(--color-ink-muted)" }}>
+            Today&apos;s status is private
+          </span>
+        ) : PRAYER_ORDER.map((prayer, idx) => {
           const log = todayLogs.find((l) => l.prayerName === prayer);
           const prayed = log?.status === "prayed" || log?.status === "assumed_prayed";
           const isCurrent = idx === currentPrayerIdx;
@@ -2232,9 +2267,11 @@ function ComparisonRow({
 
       {/* Progress count */}
       <div className="w-12 shrink-0 text-right sm:w-16">
-        <span className="text-sm font-bold tabular-nums" style={{ color: prayedCount === 5 ? "var(--color-success)" : "var(--color-ink)" }}>
-          {prayedCount}/5
-        </span>
+        {(isMe || todayVisible) && (
+          <span className="text-sm font-bold tabular-nums" style={{ color: prayedCount === 5 ? "var(--color-success)" : "var(--color-ink)" }}>
+            {prayedCount}/5
+          </span>
+        )}
       </div>
     </div>
   );

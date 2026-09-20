@@ -52,7 +52,7 @@ export interface PushSubscriptionRow {
 export async function sendPrayerPush(
   subscription: PushSubscriptionRow,
   payload: string,
-  options?: { topic?: string },
+  options?: { topic?: string; ttl?: number },
 ): Promise<{ delivered: boolean; expired: boolean }> {
   // ── Native push (iOS / Android) ──
   if (subscription.platform === 'ios' || subscription.platform === 'android') {
@@ -77,7 +77,7 @@ export async function sendPrayerPush(
   ensureVapidConfigured();
 
   const pushOptions: RequestOptions = {
-    TTL: PRAYER_PUSH_OPTIONS.TTL,
+    TTL: options?.ttl ?? PRAYER_PUSH_OPTIONS.TTL,
     urgency: PRAYER_PUSH_OPTIONS.urgency,
   };
   if (options?.topic) {

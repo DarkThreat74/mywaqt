@@ -422,7 +422,10 @@ self.addEventListener("fetch", (event) => {
     !url.pathname.startsWith("/api/prayer-times/sync") &&
     // Talk progress writes fire on a timer — a queued old position would
     // overwrite newer progress on replay, so let them fail when offline.
-    !url.pathname.startsWith("/api/talks/progress")
+    !url.pathname.startsWith("/api/talks/progress") &&
+    // Prayer reminders are time-sensitive pushes — a queued reminder replayed
+    // hours later would nudge a friend who may have already prayed.
+    !url.pathname.startsWith("/api/prayer-friends/remind")
   ) {
     // Clone the request body before consuming it
     const bodyPromise = request.clone().json().catch(() => null);

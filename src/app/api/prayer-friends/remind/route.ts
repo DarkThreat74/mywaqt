@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -123,6 +123,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check push subs BEFORE inserting the dedupe row — if the friend has no
+    // notifications enabled, the reminder would go nowhere but still burn the
+    // one-per-day slot.
+    const subs = await db
+      .select()
+      .from(schema.pushSubscriptions)
+      .where(eq(schema.pushSubscriptions.userId, friendId));
+    if (subs.length === 0) {
+      return NextResponse.json(
+        { error: "They don't have notifications enabled — the reminder wouldn't reach them." },
+        { status: 409 },
+      );
+    }
+
     // Dedupe: one reminder per sender per prayer per day
     const inserted = await db
       .insert(schema.prayerReminders)
@@ -150,16 +164,24 @@ export async function POST(request: NextRequest) {
         .where(eq(schema.users.id, session.userId))
         .limit(1);
       const myName = me?.firstName || me?.displayName || "A friend";
-      const subs = await db
-        .select()
-        .from(schema.pushSubscriptions)
-        .where(eq(schema.pushSubscriptions.userId, friendId));
+      const expiredIds: string[] = [];
       for (const sub of subs) {
-        await sendPrayerPush(sub, JSON.stringify({
+        const result = await sendPrayerPush(sub, JSON.stringify({
           title: `Prayer reminder — ${PRAYER_LABEL[prayerName]}`,
           body: `${myName} is reminding you to pray ${PRAYER_LABEL[prayerName]}.`,
           url: "/prayer",
-        }));
+        }), {
+          // Group per prayer so a re-remind replaces, and expire after 2h —
+          // a Fajr nudge delivered hours late is worse than none.
+          topic: `prayer-remind-${prayerName}`,
+          ttl: 2 * 60 * 60,
+        });
+        if (result.expired) expiredIds.push(sub.id);
+      }
+      if (expiredIds.length > 0) {
+        await db
+          .delete(schema.pushSubscriptions)
+          .where(inArray(schema.pushSubscriptions.id, expiredIds));
       }
     } catch {
       // Push is best-effort — the reminder row is still recorded

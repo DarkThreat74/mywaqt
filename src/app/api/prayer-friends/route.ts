@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
         eq(schema.prayerFriends.userId, session.userId),
         eq(schema.prayerFriends.status, "accepted"),
       ),
-    );
+    )
+    .limit(100);
 
   if (friendships.length === 0) {
     return NextResponse.json([]);
