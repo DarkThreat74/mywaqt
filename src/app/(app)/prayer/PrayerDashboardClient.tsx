@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Flame, MapPin, Users, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target } from "lucide-react";
+import { Flame, MapPin, Users, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target, Bell } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -75,6 +75,8 @@ interface Friend {
   lastPrayedDate: string | null;
   todayLogs: Array<{ prayerName: string; status: string }>;
   todaySunnahs: string[];
+  todayVisible: boolean;
+  remindedToday: string[];
   timezone: string;
 }
 
@@ -635,6 +637,45 @@ export default function PrayerDashboard() {
       // ignore
     } finally {
       setRespondingId(null);
+    }
+  }
+
+  const [reminding, setReminding] = useState<Set<string>>(new Set());
+
+  async function handleRemindFriend(friendId: string, prayerName: string) {
+    const key = `${friendId}:${prayerName}`;
+    if (reminding.has(key)) return;
+    setReminding((prev) => new Set(prev).add(key));
+    try {
+      const res = await fetch("/api/prayer-friends/remind", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ friendId, prayerName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setFriends((prev) => {
+          const updated = prev.map((f) =>
+            f.id === friendId ? { ...f, remindedToday: [...f.remindedToday, prayerName] } : f,
+          );
+          cacheBlob("friends", updated);
+          return updated;
+        });
+        setFriendSuccess(`Reminder sent for ${prayerName.charAt(0).toUpperCase() + prayerName.slice(1)}.`);
+        setTimeout(() => setFriendSuccess(null), 3000);
+      } else {
+        setFriendError(data.error || "Couldn't send reminder.");
+        setTimeout(() => setFriendError(null), 4000);
+      }
+    } catch {
+      setFriendError("Network error.");
+      setTimeout(() => setFriendError(null), 4000);
+    } finally {
+      setReminding((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   }
 
@@ -1383,6 +1424,10 @@ export default function PrayerDashboard() {
                     currentTime={currentTime}
                     madhab={madhab}
                     timezone={friend.timezone}
+                    todayVisible={friend.todayVisible}
+                    remindedToday={friend.remindedToday}
+                    reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
+                    onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
                   />
                 ))
               )}
@@ -2024,6 +2069,10 @@ function ComparisonRow({
   currentTime,
   madhab,
   timezone,
+  todayVisible = false,
+  remindedToday = [],
+  reminding,
+  onRemind,
 }: {
   name: string;
   isMe: boolean;
@@ -2034,6 +2083,10 @@ function ComparisonRow({
   currentTime: Date | null;
   madhab: string;
   timezone: string | null;
+  todayVisible?: boolean;
+  remindedToday?: string[];
+  reminding?: Set<string>;
+  onRemind?: (prayerName: string) => void;
 }) {
   const sunnahDefs = getSunnahsForMadhab(madhab);
   const prayedCount = PRAYER_ORDER.filter((p) => {
@@ -2113,25 +2166,49 @@ function ComparisonRow({
           const prayed = log?.status === "prayed" || log?.status === "assumed_prayed";
           const isCurrent = idx === currentPrayerIdx;
           const color = PRAYER_COLORS[prayer];
+          // Friends who share today's status: unmarked prayers are remindable.
+          // A pending log row still counts as remindable.
+          const remindable =
+            !isMe && todayVisible && !prayed && (!log || log.status === "pending") && !!onRemind;
+          const alreadyReminded = remindedToday.includes(prayer);
+          const pending = reminding?.has(`${prayer}`) ?? false;
+
+          const dotStyle = {
+            borderColor: prayed ? color : isCurrent ? color : "var(--color-paper-3)",
+            backgroundColor: prayed ? color : "transparent",
+            ...(isCurrent && !prayed ? { boxShadow: `0 0 0 2px color-mix(in oklab, ${color} 30%, transparent)` } : {}),
+          };
+          const dotInner = prayed ? (
+            <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4" style={{ color: "var(--color-paper)" }} />
+          ) : alreadyReminded ? (
+            <Bell className="h-3 w-3 sm:h-3.5 sm:w-3.5" style={{ color: "var(--color-accent)" }} />
+          ) : (
+            <span className="text-[11px] font-bold uppercase" style={{ color: "var(--color-ink-muted)" }}>
+              {prayer.charAt(0).toUpperCase()}
+            </span>
+          );
 
           return (
             <div key={prayer} className="flex flex-col items-center gap-0.5">
-              <div
-                className="flex h-7 w-7 items-center justify-center rounded-full border-2 transition-colors sm:h-8 sm:w-8"
-                style={{
-                  borderColor: prayed ? color : isCurrent ? color : "var(--color-paper-3)",
-                  backgroundColor: prayed ? color : "transparent",
-                  ...(isCurrent && !prayed ? { boxShadow: `0 0 0 2px color-mix(in oklab, ${color} 30%, transparent)` } : {}),
-                }}
-              >
-                {prayed ? (
-                  <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4" style={{ color: "var(--color-paper)" }} />
-                ) : (
-                  <span className="text-[11px] font-bold uppercase" style={{ color: "var(--color-ink-muted)" }}>
-                    {prayer.charAt(0).toUpperCase()}
-                  </span>
-                )}
-              </div>
+              {remindable ? (
+                <button
+                  onClick={() => onRemind!(prayer)}
+                  disabled={alreadyReminded || pending}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-60 sm:h-8 sm:w-8"
+                  style={dotStyle}
+                  aria-label={alreadyReminded ? `Reminded ${name} about ${prayer}` : `Remind ${name} to pray ${prayer}`}
+                  title={alreadyReminded ? "Reminder sent" : `Remind ${name} to pray ${prayer}`}
+                >
+                  {dotInner}
+                </button>
+              ) : (
+                <div
+                  className="flex h-7 w-7 items-center justify-center rounded-full border-2 transition-colors sm:h-8 sm:w-8"
+                  style={dotStyle}
+                >
+                  {dotInner}
+                </div>
+              )}
               {/* Sunnah count badge */}
               {(() => {
                 const sunnahCount = sunnahDefs.filter(

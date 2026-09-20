@@ -11,6 +11,8 @@ export const dynamic = "force-dynamic";
 const RESEND_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 // Max pending outgoing requests
 const MAX_PENDING_OUTGOING = 20;
+// Max accepted friends — bounds the friends payload and per-user fan-out
+const MAX_FRIENDS = 100;
 
 // Helper: send push notification to a user
 async function notifyUser(userId: string, title: string, body: string) {
@@ -171,6 +173,23 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({ ok: true, pending: true, message: "Friend request sent." });
     }
+  }
+
+  // ── Cap on accepted friends ──
+  const acceptedCount = await db
+    .select({ id: schema.prayerFriends.id })
+    .from(schema.prayerFriends)
+    .where(
+      and(
+        eq(schema.prayerFriends.userId, session.userId),
+        eq(schema.prayerFriends.status, "accepted"),
+      ),
+    );
+  if (acceptedCount.length >= MAX_FRIENDS) {
+    return NextResponse.json(
+      { error: `You've reached the ${MAX_FRIENDS}-friend limit. Remove a friend first.` },
+      { status: 429 },
+    );
   }
 
   // ── Cap on pending outgoing requests ──

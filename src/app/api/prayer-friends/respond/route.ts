@@ -63,6 +63,24 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "accept") {
+    // Cap accepted friends at 100 for both parties — bounds fan-out
+    const [myCount, theirCount] = await Promise.all([
+      db
+        .select({ id: schema.prayerFriends.id })
+        .from(schema.prayerFriends)
+        .where(and(eq(schema.prayerFriends.userId, session.userId), eq(schema.prayerFriends.status, "accepted"))),
+      db
+        .select({ id: schema.prayerFriends.id })
+        .from(schema.prayerFriends)
+        .where(and(eq(schema.prayerFriends.userId, friendReq.userId), eq(schema.prayerFriends.status, "accepted"))),
+    ]);
+    if (myCount.length >= 100 || theirCount.length >= 100) {
+      return NextResponse.json(
+        { error: "One of you has reached the 100-friend limit." },
+        { status: 429 },
+      );
+    }
+
     // Update the request to accepted
     await db
       .update(schema.prayerFriends)

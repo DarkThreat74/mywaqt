@@ -105,6 +105,33 @@ export const prayerFriends = pgTable(
   ],
 );
 
+// ─── Prayer Reminders (friend → friend nudge, deduped per prayer per day) ───
+
+export const prayerReminders = pgTable(
+  'prayer_reminders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // The friend who tapped "remind"
+    senderId: uuid('sender_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    // The friend being reminded
+    recipientId: uuid('recipient_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    // Date in the RECIPIENT's timezone (YYYY-MM-DD) — matches prayer_log.date semantics
+    date: date('date').notNull(),
+    prayerName: prayerName('prayer_name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    // One reminder per sender per prayer per day — the dedupe backstop
+    uniqueIndex('prayer_reminders_sender_recipient_date_prayer_idx').on(
+      table.senderId,
+      table.recipientId,
+      table.date,
+      table.prayerName,
+    ),
+    index('prayer_reminders_recipient_idx').on(table.recipientId, table.date),
+  ],
+);
+
 // ─── Prayer Settings (per-user location + calculation) ───
 
 export const prayerSettings = pgTable('prayer_settings', {

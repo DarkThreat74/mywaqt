@@ -44,8 +44,30 @@ export async function GET(request: NextRequest) {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const weekAgoStr = sevenDaysAgo.toISOString().split("T")[0];
 
-  // Batch all reads in parallel (5 queries total, not 5 per friend)
-  const [friendUsers, friendSettingsAll, friendLogsAll, todayLogsAll, todaySunnahAll] =
+  // Settings first — each friend's timezone decides what "today" is for them,
+  // which the reminders query below needs.
+  const friendSettingsAll = await db
+    .select({
+      userId: schema.prayerSettings.userId,
+      timezone: schema.prayerSettings.timezone,
+      friendsSeeStreak: schema.prayerSettings.friendsSeeStreak,
+      friendsSeeTodayStatus: schema.prayerSettings.friendsSeeTodayStatus,
+      friendsSeeSunnah: schema.prayerSettings.friendsSeeSunnah,
+      friendsSeeMasjidPct: schema.prayerSettings.friendsSeeMasjidPct,
+    })
+    .from(schema.prayerSettings)
+    .where(inArray(schema.prayerSettings.userId, friendIds));
+
+  const todayByUser = new Map(
+    friendSettingsAll.map((s) => [
+      s.userId,
+      new Date().toLocaleDateString("en-CA", { timeZone: s.timezone || "America/Chicago" }),
+    ]),
+  );
+  const distinctTodayStrs = [...new Set(todayByUser.values())];
+
+  // Batch all reads in parallel (6 queries total, not 5 per friend)
+  const [friendUsers, friendLogsAll, todayLogsAll, todaySunnahAll, remindersAll] =
     await Promise.all([
       db
         .select({
@@ -55,17 +77,6 @@ export async function GET(request: NextRequest) {
         })
         .from(schema.users)
         .where(inArray(schema.users.id, friendIds)),
-      db
-        .select({
-          userId: schema.prayerSettings.userId,
-          timezone: schema.prayerSettings.timezone,
-          friendsSeeStreak: schema.prayerSettings.friendsSeeStreak,
-          friendsSeeTodayStatus: schema.prayerSettings.friendsSeeTodayStatus,
-          friendsSeeSunnah: schema.prayerSettings.friendsSeeSunnah,
-          friendsSeeMasjidPct: schema.prayerSettings.friendsSeeMasjidPct,
-        })
-        .from(schema.prayerSettings)
-        .where(inArray(schema.prayerSettings.userId, friendIds)),
       db
         .select({
           userId: schema.prayerLog.userId,
@@ -105,6 +116,21 @@ export async function GET(request: NextRequest) {
             gte(schema.sunnahLog.date, weekAgoStr),
           ),
         ),
+      // Reminders I already sent today (per each friend's local date)
+      db
+        .select({
+          recipientId: schema.prayerReminders.recipientId,
+          date: schema.prayerReminders.date,
+          prayerName: schema.prayerReminders.prayerName,
+        })
+        .from(schema.prayerReminders)
+        .where(
+          and(
+            eq(schema.prayerReminders.senderId, session.userId),
+            inArray(schema.prayerReminders.recipientId, friendIds),
+            inArray(schema.prayerReminders.date, distinctTodayStrs.length ? distinctTodayStrs : ["9999-12-31"]),
+          ),
+        ),
     ]);
 
   // Index lookups — include visibility settings
@@ -129,6 +155,14 @@ export async function GET(request: NextRequest) {
     if (!todayLogsByUserDate.get(log.userId)!.has(dateStr)) todayLogsByUserDate.get(log.userId)!.set(dateStr, []);
     todayLogsByUserDate.get(log.userId)!.get(dateStr)!.push({ prayerName: log.prayerName, status: log.status });
   }
+  // Reminders already sent today — recipientId+date+prayerName key
+  const remindedByUserDate = new Map<string, Set<string>>();
+  for (const r of remindersAll) {
+    const dateStr = typeof r.date === "string" ? r.date : String(r.date);
+    const key = `${r.recipientId}|${dateStr}`;
+    if (!remindedByUserDate.has(key)) remindedByUserDate.set(key, new Set());
+    remindedByUserDate.get(key)!.add(r.prayerName);
+  }
   const sunnahByUserDate = new Map<string, Map<string, string[]>>();
   for (const s of todaySunnahAll) {
     if (!sunnahByUserDate.has(s.userId)) sunnahByUserDate.set(s.userId, new Map());
@@ -149,6 +183,8 @@ export async function GET(request: NextRequest) {
     lastPrayedDate: string | null;
     todayLogs: Array<{ prayerName: string; status: string }>;
     todaySunnahs: string[];
+    todayVisible: boolean;
+    remindedToday: string[];
     timezone: string;
   }> = [];
 
@@ -161,7 +197,8 @@ export async function GET(request: NextRequest) {
       friendsSeeMasjidPct: true,
     };
     const timezone = settings.timezone;
-    const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: timezone });
+    const todayStr = todayByUser.get(friendUser.id)
+      ?? new Date().toLocaleDateString("en-CA", { timeZone: timezone });
     const friendLogs = logsByUser.get(friendUser.id) ?? [];
 
     // Build logs by date map
@@ -214,6 +251,8 @@ export async function GET(request: NextRequest) {
       lastPrayedDate: settings.friendsSeeStreak ? lastPrayedDate : null,
       todayLogs,
       todaySunnahs,
+      todayVisible: settings.friendsSeeTodayStatus,
+      remindedToday: [...(remindedByUserDate.get(`${friendUser.id}|${todayStr}`) ?? [])],
       timezone,
     });
   }
