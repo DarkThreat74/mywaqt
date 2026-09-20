@@ -67,6 +67,7 @@ export default function PrayerCheckinPopup({
   const windowEnded = windowState === "ended";
   // Treat both "prayed" and "assumed_prayed" as already prayed (benefit of the doubt)
   const alreadyPrayed = existingStatus === "prayed" || existingStatus === "assumed_prayed";
+  const isExcused = existingStatus === "excused";
 
   // Sunnah definitions for this prayer
   const sunnahDefs = getSunnahsForFard(prayer, madhab);
@@ -143,6 +144,33 @@ export default function PrayerCheckinPopup({
       setError("Network error.");
       play("error");
       void hapticNotification("error");
+      setLoading(false);
+    }
+  }
+
+  async function markExcused() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/prayer-log/checkin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, prayerName: prayer, status: "excused" }),
+      });
+      if (res.ok) {
+        invalidateApiCache("/api/prayer-log");
+        play("check");
+        void hapticNotification("success");
+        onCheckedIn({ status: "excused", wentToMasjid: null });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Failed to mark excused.");
+        play("error");
+        setLoading(false);
+      }
+    } catch {
+      setError("Network error.");
+      play("error");
       setLoading(false);
     }
   }
@@ -293,7 +321,7 @@ export default function PrayerCheckinPopup({
         )}
 
         {/* ── State: window open — "Did you pray?" ── */}
-        {step === "main" && !alreadyPrayed && windowOpen && (
+        {step === "main" && !alreadyPrayed && !isExcused && windowOpen && (
           <>
             <p className="mb-4 text-sm" style={{ color: "var(--color-ink-soft)" }}>
               Did you pray {prayerLabel}?
@@ -324,11 +352,19 @@ export default function PrayerCheckinPopup({
                 Not yet
               </button>
             </div>
+            <button
+              onClick={markExcused}
+              disabled={loading}
+              className="mt-2 w-full py-1.5 text-center text-[11px] transition-opacity hover:opacity-70 disabled:opacity-50"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Can&apos;t pray — mark excused (illness, travel, menstruation)
+            </button>
           </>
         )}
 
         {/* ── State: window ended — "Did you forget to log?" ── */}
-        {step === "main" && !alreadyPrayed && windowEnded && (
+        {step === "main" && !alreadyPrayed && !isExcused && windowEnded && (
           <div className="text-center">
             <p className="mb-3 text-sm" style={{ color: "var(--color-ink-soft)" }}>
               The {prayerLabel} window has ended.
@@ -362,7 +398,44 @@ export default function PrayerCheckinPopup({
                 No
               </button>
             </div>
+            <button
+              onClick={markExcused}
+              disabled={loading}
+              className="mt-2 w-full py-1.5 text-center text-[11px] transition-opacity hover:opacity-70 disabled:opacity-50"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Can&apos;t pray — mark excused (illness, travel, menstruation)
+            </button>
           </div>
+        )}
+
+        {/* ── State: excused — gentle confirmation + undo ── */}
+        {step === "main" && isExcused && (
+          <>
+            <div
+              className="mb-4 flex items-center gap-2 rounded-lg border p-3"
+              style={{
+                borderColor: "var(--color-accent)",
+                backgroundColor: "color-mix(in oklab, var(--color-accent) 8%, transparent)",
+              }}
+            >
+              <Check className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+              <span className="text-sm font-medium" style={{ color: "var(--color-accent)" }}>
+                {prayerLabel} marked excused — your streak is safe.
+              </span>
+            </div>
+            <button
+              onClick={handleUndo}
+              disabled={loading}
+              className="min-h-11 w-full rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+              style={{
+                borderColor: "var(--color-paper-3)",
+                color: "var(--color-ink-muted)",
+              }}
+            >
+              {loading ? "Undoing..." : "Undo"}
+            </button>
+          </>
         )}
 
         {/* ── State: already prayed (or assumed_prayed) — show confirmation + undo ── */}

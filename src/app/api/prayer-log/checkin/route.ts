@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { recordDayCompletion } from "@/lib/prayer/social";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
   const { date, prayerName, status, wentToMasjid } = body as {
     date?: string;
     prayerName?: "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
-    status?: "prayed" | "missed" | "pending" | "assumed_prayed";
+    status?: "prayed" | "missed" | "pending" | "assumed_prayed" | "excused";
     wentToMasjid?: boolean;
   };
 
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid prayer name." }, { status: 400 });
   }
 
-  const validStatuses = ["prayed", "missed", "pending", "assumed_prayed"];
+  const validStatuses = ["prayed", "missed", "pending", "assumed_prayed", "excused"];
   // Reject invalid statuses — defaulting to "prayed" would record a prayer
   // the user never confirmed. Missing status defaults to prayed (the client
   // omits it for the common check-in).
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
       userId: session.userId,
       date,
       prayerName: prayerName as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha",
-      status: finalStatus as "prayed" | "missed" | "pending" | "assumed_prayed",
+      status: finalStatus as "prayed" | "missed" | "pending" | "assumed_prayed" | "excused",
       wentToMasjid: wentToMasjid ?? false,
       markedAt: new Date(),
       lastCheckinAt: new Date(),
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
     .onConflictDoUpdate({
       target: [schema.prayerLog.userId, schema.prayerLog.date, schema.prayerLog.prayerName],
       set: {
-        status: finalStatus as "prayed" | "missed" | "pending" | "assumed_prayed",
+        status: finalStatus as "prayed" | "missed" | "pending" | "assumed_prayed" | "excused",
         ...(wentToMasjid !== undefined ? { wentToMasjid } : {}),
         markedAt: new Date(),
         lastCheckinAt: new Date(),
@@ -85,6 +86,13 @@ export async function POST(request: NextRequest) {
       },
     })
     .returning();
+
+  // If this check-in might have completed the user's day, record it once —
+  // first completion drives shared streaks and opt-in friend notifications.
+  // 'missed'/'pending' can never newly complete a day, so skip the query.
+  if (finalStatus === "prayed" || finalStatus === "assumed_prayed" || finalStatus === "excused") {
+    after(() => recordDayCompletion(session.userId, date));
+  }
 
   return NextResponse.json(entry, { status: 201 });
 }

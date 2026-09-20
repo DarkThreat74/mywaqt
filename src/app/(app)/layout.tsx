@@ -9,6 +9,7 @@ import ServiceWorkerRegister from "@/components/sw-register";
 import NotificationScheduler from "@/components/notification-scheduler";
 import BiometricGate from "@/components/biometric-gate";
 import DeepLinkHandler from "@/components/deep-link-handler";
+import PendingInvite from "@/components/pending-invite";
 import ToolsMenu from "@/components/tools-menu";
 import FunFactPopup from "@/components/fun-fact-popup";
 import OfflineBanner from "@/components/offline-banner";
@@ -158,6 +159,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <SoundscapeIndicator />
       <NotificationScheduler />
       <DeepLinkHandler />
+      <PendingInvite />
       <FunFactPopup />
 
       {/* Global audio player — survives route changes for background playback */}

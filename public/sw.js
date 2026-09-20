@@ -425,7 +425,12 @@ self.addEventListener("fetch", (event) => {
     !url.pathname.startsWith("/api/talks/progress") &&
     // Prayer reminders are time-sensitive pushes — a queued reminder replayed
     // hours later would nudge a friend who may have already prayed.
-    !url.pathname.startsWith("/api/prayer-friends/remind")
+    !url.pathname.startsWith("/api/prayer-friends/remind") &&
+    // Cheers, invites, and group actions are time-sensitive social writes —
+    // replaying them later sends stale pushes or claims expired tokens.
+    !url.pathname.startsWith("/api/prayer-friends/cheer") &&
+    !url.pathname.startsWith("/api/prayer-friends/invite") &&
+    !url.pathname.startsWith("/api/prayer-groups")
   ) {
     // Clone the request body before consuming it
     const bodyPromise = request.clone().json().catch(() => null);

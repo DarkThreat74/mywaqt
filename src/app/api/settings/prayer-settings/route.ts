@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
       friendsSeeTodayStatus: schema.prayerSettings.friendsSeeTodayStatus,
       friendsSeeSunnah: schema.prayerSettings.friendsSeeSunnah,
       friendsSeeMasjidPct: schema.prayerSettings.friendsSeeMasjidPct,
+      friendsNotifyComplete: schema.prayerSettings.friendsNotifyComplete,
     })
     .from(schema.prayerSettings)
     .where(eq(schema.prayerSettings.userId, session.userId))
@@ -53,6 +54,7 @@ export async function PATCH(request: NextRequest) {
     friendsSeeTodayStatus?: boolean;
     friendsSeeSunnah?: boolean;
     friendsSeeMasjidPct?: boolean;
+    friendsNotifyComplete?: boolean;
   };
   try {
     body = await request.json();
@@ -65,6 +67,7 @@ export async function PATCH(request: NextRequest) {
   if (typeof body.friendsSeeTodayStatus === "boolean") updates.friendsSeeTodayStatus = body.friendsSeeTodayStatus;
   if (typeof body.friendsSeeSunnah === "boolean") updates.friendsSeeSunnah = body.friendsSeeSunnah;
   if (typeof body.friendsSeeMasjidPct === "boolean") updates.friendsSeeMasjidPct = body.friendsSeeMasjidPct;
+  if (typeof body.friendsNotifyComplete === "boolean") updates.friendsNotifyComplete = body.friendsNotifyComplete;
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
@@ -82,6 +85,7 @@ export async function PATCH(request: NextRequest) {
         friendsSeeTodayStatus: schema.prayerSettings.friendsSeeTodayStatus,
         friendsSeeSunnah: schema.prayerSettings.friendsSeeSunnah,
         friendsSeeMasjidPct: schema.prayerSettings.friendsSeeMasjidPct,
+        friendsNotifyComplete: schema.prayerSettings.friendsNotifyComplete,
       });
 
     if (!updated) {

@@ -19,8 +19,10 @@ import {
   date,
   integer,
   numeric,
+  varchar,
   uniqueIndex,
   index,
+  primaryKey,
   pgEnum,
 } from 'drizzle-orm/pg-core';
 
@@ -41,6 +43,9 @@ export const prayerStatus = pgEnum('prayer_status', [
   'prayed',
   'missed',
   'assumed_prayed',
+  // Deliberate pause — menstruation, illness, travel. Keeps the streak alive
+  // (benefit of the doubt) without counting as a completed prayer.
+  'excused',
 ]);
 
 export const eventType = pgEnum('event_type', ['block', 'task', 'reminder']);
@@ -132,6 +137,128 @@ export const prayerReminders = pgTable(
   ],
 );
 
+// ─── Prayer Cheers (one-tap "mashaAllah" to a friend, deduped per day) ───
+
+export const prayerCheers = pgTable(
+  'prayer_cheers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    senderId: uuid('sender_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    recipientId: uuid('recipient_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    // Date in the RECIPIENT's timezone (YYYY-MM-DD)
+    date: date('date').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('prayer_cheers_sender_recipient_date_idx').on(
+      table.senderId,
+      table.recipientId,
+      table.date,
+    ),
+    index('prayer_cheers_recipient_idx').on(table.recipientId, table.date),
+  ],
+);
+
+// ─── Prayer Day Completions (first time a user completes all 5 for a date) ───
+// Powers: shared streaks, "friend completed all 5" notifications (dedupe),
+// challenge progress. Inserted once per user/date via ON CONFLICT DO NOTHING.
+
+export const prayerDayCompletions = pgTable(
+  'prayer_day_completions',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('prayer_day_completions_user_date_idx').on(table.userId, table.date),
+    index('prayer_day_completions_date_idx').on(table.date),
+  ],
+);
+
+// ─── Prayer Friend Streaks (shared streak: both completed the same date) ───
+
+export const prayerFriendStreaks = pgTable(
+  'prayer_friend_streaks',
+  {
+    // Canonical pair ordering: userLowId < userHighId
+    userLowId: uuid('user_low_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    userHighId: uuid('user_high_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    streak: integer('streak').default(0).notNull(),
+    bestStreak: integer('best_streak').default(0).notNull(),
+    // Last matched date (YYYY-MM-DD in each user's own timezone)
+    lastDate: date('last_date'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userLowId, table.userHighId] })],
+);
+
+// ─── Prayer Invites (shareable deep links) ───
+
+export const prayerInvites = pgTable(
+  'prayer_invites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    inviterId: uuid('inviter_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    // SHA-256 hex of the URL token — raw token is never stored
+    tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedBy: uuid('used_by').references(() => users.id, { onDelete: 'set null' }),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('prayer_invites_token_hash_idx').on(table.tokenHash),
+    index('prayer_invites_inviter_idx').on(table.inviterId),
+  ],
+);
+
+// ─── Prayer Groups (private circles, join by code) ───
+
+export const prayerGroups = pgTable(
+  'prayer_groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 60 }).notNull(),
+    inviteCode: varchar('invite_code', { length: 12 }).notNull(),
+    ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('prayer_groups_invite_code_idx').on(table.inviteCode)],
+);
+
+export const prayerGroupMembers = pgTable(
+  'prayer_group_members',
+  {
+    groupId: uuid('group_id').notNull().references(() => prayerGroups.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    role: varchar('role', { length: 10 }).default('member').notNull(), // 'owner' | 'member'
+    joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.groupId, table.userId] }),
+    index('prayer_group_members_user_idx').on(table.userId),
+  ],
+);
+
+// ─── Prayer Challenges ───
+
+export const prayerChallenges = pgTable(
+  'prayer_challenges',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: uuid('group_id').notNull().references(() => prayerGroups.id, { onDelete: 'cascade' }),
+    creatorId: uuid('creator_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 80 }).notNull(),
+    // Number of complete days (all 5 prayed/assumed/excused) each member aims for
+    goalDays: integer('goal_days').notNull(),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('prayer_challenges_group_idx').on(table.groupId)],
+);
+
 // ─── Prayer Settings (per-user location + calculation) ───
 
 export const prayerSettings = pgTable('prayer_settings', {
@@ -152,6 +279,8 @@ export const prayerSettings = pgTable('prayer_settings', {
   friendsSeeTodayStatus: boolean('friends_see_today_status').default(false).notNull(),
   friendsSeeSunnah: boolean('friends_see_sunnah').default(false).notNull(),
   friendsSeeMasjidPct: boolean('friends_see_masjid_pct').default(true).notNull(),
+  // Opt-in: push me when an accepted friend completes all 5 prayers today
+  friendsNotifyComplete: boolean('friends_notify_complete').default(false).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

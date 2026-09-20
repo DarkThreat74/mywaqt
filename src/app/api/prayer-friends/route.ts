@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, inArray, gte } from "drizzle-orm";
+import { eq, and, or, inArray, gte } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { calculateStreak } from "@/lib/prayer/checkin";
@@ -67,8 +67,8 @@ export async function GET(request: NextRequest) {
   );
   const distinctTodayStrs = [...new Set(todayByUser.values())];
 
-  // Batch all reads in parallel (6 queries total, not 5 per friend)
-  const [friendUsers, friendLogsAll, todayLogsAll, todaySunnahAll, remindersAll] =
+  // Batch all reads in parallel (8 queries total, not 5 per friend)
+  const [friendUsers, friendLogsAll, todayLogsAll, todaySunnahAll, remindersAll, streaksAll, cheersAll] =
     await Promise.all([
       db
         .select({
@@ -132,6 +132,42 @@ export async function GET(request: NextRequest) {
             inArray(schema.prayerReminders.date, distinctTodayStrs.length ? distinctTodayStrs : ["9999-12-31"]),
           ),
         ),
+      // Shared streaks for every pair (me, friend) — canonical low/high key
+      db
+        .select({
+          userLowId: schema.prayerFriendStreaks.userLowId,
+          userHighId: schema.prayerFriendStreaks.userHighId,
+          streak: schema.prayerFriendStreaks.streak,
+          bestStreak: schema.prayerFriendStreaks.bestStreak,
+          lastDate: schema.prayerFriendStreaks.lastDate,
+        })
+        .from(schema.prayerFriendStreaks)
+        .where(
+          or(
+            and(
+              eq(schema.prayerFriendStreaks.userLowId, session.userId),
+              inArray(schema.prayerFriendStreaks.userHighId, friendIds),
+            ),
+            and(
+              eq(schema.prayerFriendStreaks.userHighId, session.userId),
+              inArray(schema.prayerFriendStreaks.userLowId, friendIds),
+            ),
+          ),
+        ),
+      // Cheers I already sent today (per each friend's local date)
+      db
+        .select({
+          recipientId: schema.prayerCheers.recipientId,
+          date: schema.prayerCheers.date,
+        })
+        .from(schema.prayerCheers)
+        .where(
+          and(
+            eq(schema.prayerCheers.senderId, session.userId),
+            inArray(schema.prayerCheers.recipientId, friendIds),
+            inArray(schema.prayerCheers.date, distinctTodayStrs.length ? distinctTodayStrs : ["9999-12-31"]),
+          ),
+        ),
     ]);
 
   // Index lookups — include visibility settings
@@ -171,6 +207,21 @@ export async function GET(request: NextRequest) {
     if (!sunnahByUserDate.get(s.userId)!.has(dateStr)) sunnahByUserDate.get(s.userId)!.set(dateStr, []);
     sunnahByUserDate.get(s.userId)!.get(dateStr)!.push(s.sunnahKey);
   }
+  // Shared streaks keyed by the friend on the other side of the pair
+  const streakByFriend = new Map<string, { streak: number; bestStreak: number; lastDate: string | null }>();
+  for (const s of streaksAll) {
+    const friendId = s.userLowId === session.userId ? s.userHighId : s.userLowId;
+    streakByFriend.set(friendId, {
+      streak: s.streak,
+      bestStreak: s.bestStreak,
+      lastDate: s.lastDate ? String(s.lastDate) : null,
+    });
+  }
+  const cheeredByUserDate = new Set<string>();
+  for (const c of cheersAll) {
+    const dateStr = typeof c.date === "string" ? c.date : String(c.date);
+    cheeredByUserDate.add(`${c.recipientId}|${dateStr}`);
+  }
 
   const friends: Array<{
     id: string;
@@ -186,6 +237,8 @@ export async function GET(request: NextRequest) {
     todaySunnahs: string[];
     todayVisible: boolean;
     remindedToday: string[];
+    cheeredToday: boolean;
+    sharedStreak: { streak: number; bestStreak: number; lastDate: string | null } | null;
     timezone: string;
   }> = [];
 
@@ -223,9 +276,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Count complete days (all 5 prayed)
+    // Count complete days — excused counts (it never breaks a streak), but
+    // isn't included in the "prayed" totals above.
     for (const [, logs] of logsByDate) {
-      const prayedCount = logs.filter((l) => l.status === "prayed" || l.status === "assumed_prayed").length;
+      const prayedCount = logs.filter(
+        (l) => l.status === "prayed" || l.status === "assumed_prayed" || l.status === "excused",
+      ).length;
       if (prayedCount === 5) completeDays++;
     }
 
@@ -254,6 +310,8 @@ export async function GET(request: NextRequest) {
       todaySunnahs,
       todayVisible: settings.friendsSeeTodayStatus,
       remindedToday: [...(remindedByUserDate.get(`${friendUser.id}|${todayStr}`) ?? [])],
+      cheeredToday: cheeredByUserDate.has(`${friendUser.id}|${todayStr}`),
+      sharedStreak: streakByFriend.get(friendUser.id) ?? null,
       timezone,
     });
   }

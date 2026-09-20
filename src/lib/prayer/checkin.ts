@@ -318,9 +318,10 @@ export function calculateStreak(
     const dateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, "0")}-${String(checkDate.getDate()).padStart(2, "0")}`;
 
     const logs = prayerLogsByDate.get(dateStr) || [];
-    // Count prayers that are prayed or assumed_prayed (benefit of the doubt)
+    // Count prayers that are prayed, assumed_prayed, or excused — an excused
+    // day (menstruation/illness/travel) never breaks a streak.
     const prayedCount = logs.filter(
-      (l) => l.status === "prayed" || l.status === "assumed_prayed",
+      (l) => l.status === "prayed" || l.status === "assumed_prayed" || l.status === "excused",
     ).length;
 
     if (prayedCount === 5) {
