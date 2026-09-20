@@ -299,7 +299,7 @@ export default function PrayerCheckinPopup({
         )}
 
         {/* ── State: prayer hasn't started yet — NO logging allowed ── */}
-        {step === "main" && !alreadyPrayed && windowState === "before" && (
+        {step === "main" && !alreadyPrayed && !isExcused && windowState === "before" && (
           <div className="text-center">
             <p className="mb-3 text-sm" style={{ color: "var(--color-ink-soft)" }}>
               {prayerLabel} hasn&apos;t started yet.
@@ -317,6 +317,19 @@ export default function PrayerCheckinPopup({
             >
               Close
             </button>
+            {/* Excused is allowed ahead of time — a user who knows they can't
+                pray today (illness, menstruation, travel) shouldn't have to
+                wait for each window. Still blocked for future days. */}
+            {!isFutureDay && (
+              <button
+                onClick={markExcused}
+                disabled={loading}
+                className="mt-2 w-full py-1.5 text-center text-[11px] transition-opacity hover:opacity-70 disabled:opacity-50"
+                style={{ color: "var(--color-ink-muted)" }}
+              >
+                Can&apos;t pray — mark excused (illness, travel, menstruation)
+              </button>
+            )}
           </div>
         )}
 

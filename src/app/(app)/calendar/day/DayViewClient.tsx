@@ -1164,6 +1164,7 @@ export default function DayViewClient({ date }: { date: string }) {
               const time = prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime;
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
+              const isExcused = log?.status === "excused";
               const isClickable = prayer.isPrayer;
               return (
                 <button
@@ -1173,8 +1174,8 @@ export default function DayViewClient({ date }: { date: string }) {
                   style={{
                     minWidth: 52,
                     minHeight: 44,
-                    borderColor: isPrayed ? "var(--color-success)" : "var(--color-paper-3)",
-                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : "var(--color-paper)",
+                    borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
+                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
                     cursor: isClickable ? "pointer" : "default",
                   }}
                   disabled={!isClickable}
@@ -1182,6 +1183,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   <span className="flex items-center gap-0.5 text-[10px] font-semibold leading-none" style={{ color: prayer.color }}>
                     {prayer.label === "Sunrise" ? "Sunrise" : prayer.label}
                     {isPrayed && <Check className="h-2.5 w-2.5" style={{ color: "var(--color-success)" }} />}
+                    {isExcused && <span className="text-[8px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
                   </span>
                   <span className="mt-0.5 text-[10px] tabular-nums leading-none" style={{ color: "var(--color-ink-muted)" }}>
                     {formatTimeCompact(time)}
@@ -1199,6 +1201,7 @@ export default function DayViewClient({ date }: { date: string }) {
               const time = prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime;
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
+              const isExcused = log?.status === "excused";
               const isClickable = prayer.isPrayer;
               return (
                 <button
@@ -1207,8 +1210,8 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="flex flex-col items-center gap-0 rounded-lg border px-3 py-1.5 transition-colors"
                   style={{
                     minHeight: 44,
-                    borderColor: isPrayed ? "var(--color-success)" : "var(--color-paper-3)",
-                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : "var(--color-paper)",
+                    borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
+                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
                     cursor: isClickable ? "pointer" : "default",
                   }}
                   disabled={!isClickable}
@@ -1216,6 +1219,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   <span className="flex items-center gap-0.5 text-xs font-medium leading-tight" style={{ color: prayer.color }}>
                     {prayer.label}
                     {isPrayed && <Check className="h-3 w-3" style={{ color: "var(--color-success)" }} />}
+                    {isExcused && <span className="text-[9px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
                   </span>
                   <span className="text-xs tabular-nums leading-tight" style={{ color: "var(--color-ink-muted)" }}>
                     {formatTime(time)}
@@ -1378,6 +1382,7 @@ export default function DayViewClient({ date }: { date: string }) {
               const top = minutesToTop(minutes);
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
+              const isExcused = log?.status === "excused";
               const isClickable = prayer.isPrayer;
               return (
                 <div
@@ -1390,14 +1395,15 @@ export default function DayViewClient({ date }: { date: string }) {
                     onClick={isClickable ? (e: React.MouseEvent) => { e.stopPropagation(); setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayer.label }); } : undefined}
                     className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-transform sm:px-2 sm:text-[10px] pointer-events-auto"
                     style={{
-                      backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 10%, var(--color-paper))" : "var(--color-paper)",
+                      backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 10%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))" : "var(--color-paper)",
                       color: prayer.color,
-                      border: `1px solid ${isPrayed ? "var(--color-success)" : prayer.color}`,
+                      border: `1px solid ${isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : prayer.color}`,
                       cursor: isClickable ? "pointer" : "default",
                     }}
                   >
                     {prayer.label} {formatTime(time)}
                     {isPrayed && " ✓"}
+                    {isExcused && " E"}
                   </button>
                 </div>
               );

@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { verifyCronAuth } from "@/lib/cronAuth";
 import { isWindowClosed, getPrayerWindow } from "@/lib/prayer/stateMachine";
 import { sendPrayerPush } from "@/lib/notifications/push";
+import { recordDayCompletion } from "@/lib/prayer/social";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -274,6 +275,13 @@ async function processUserBatch(
               target: [schema.prayerLog.userId, schema.prayerLog.date, schema.prayerLog.prayerName],
             });
           assumedResolved += rowsToInsert.length;
+        }
+
+        // Auto-resolution can complete a day without any check-in — record it
+        // so shared streaks, races, and challenges stay consistent with the
+        // personal streak (which already counts assumed_prayed).
+        if (logIdsToUpdate.length > 0 || rowsToInsert.length > 0) {
+          await recordDayCompletion(s.userId, yesterdayStr);
         }
       }
 

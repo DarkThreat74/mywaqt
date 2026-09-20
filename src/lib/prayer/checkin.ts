@@ -362,7 +362,7 @@ export function calculateBestStreak(
 
     const logs = prayerLogsByDate.get(dateStr) || [];
     const prayedCount = logs.filter(
-      (l) => l.status === "prayed" || l.status === "assumed_prayed",
+      (l) => l.status === "prayed" || l.status === "assumed_prayed" || l.status === "excused",
     ).length;
 
     if (prayedCount >= 1) {

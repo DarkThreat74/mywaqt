@@ -393,7 +393,7 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
             const blockEvents = dayEvents.filter((e) => e.type !== "reminder");
             const reminderEvents = dayEvents.filter((e) => e.type === "reminder");
             const dayLogs = cell.dateStr ? prayerLogsByDate[cell.dateStr] || [] : [];
-            const prayedCount = dayLogs.filter((l) => l.status === "prayed" || l.status === "assumed_prayed").length;
+            const prayedCount = dayLogs.filter((l) => l.status === "prayed" || l.status === "assumed_prayed" || l.status === "excused").length;
             const allPrayed = prayedCount === 5;
 
             return (

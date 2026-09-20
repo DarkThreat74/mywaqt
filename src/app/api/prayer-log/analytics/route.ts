@@ -210,6 +210,10 @@ export async function GET(request: NextRequest) {
       const prayedLogs = prayerLogs.filter((l) => l.status === "prayed" || l.status === "assumed_prayed");
       const totalDays = prayedLogs.length;
       const masjidCount = prayedLogs.filter((l) => l.wentToMasjid === true).length;
+      // Excused is neutral: it doesn't count as prayed, but it also shrinks
+      // the denominator so a legit pause doesn't lower consistency.
+      const excusedDays = prayerLogs.filter((l) => l.status === "excused").length;
+      const expectedDays = Math.max(1, activeDays - excusedDays);
 
       // Calculate window-percentage for each check-in.
       // windowPct = (markedMinutes - prayerStart) / (windowEnd - prayerStart) * 100
@@ -294,7 +298,7 @@ export async function GET(request: NextRequest) {
         masjidCount,
         masjidPct: totalDays > 0 ? Math.round((masjidCount / totalDays) * 100) : 0,
         avgWindowPct,
-        consistencyPct: activeDays > 0 ? Math.min(100, Math.round((totalDays / activeDays) * 100)) : 0,
+        consistencyPct: Math.min(100, Math.round((totalDays / expectedDays) * 100)),
         onTimeCount,
         lateCount,
         onTimePct: totalDays > 0 ? Math.round((onTimeCount / totalDays) * 100) : 0,
@@ -305,11 +309,12 @@ export async function GET(request: NextRequest) {
     const totalPrayed = rangeLogs.filter((l) => l.status === "prayed" || l.status === "assumed_prayed").length;
     const totalMasjid = rangeLogs.filter((l) => l.wentToMasjid === true).length;
 
-    // Days with all 5 prayers (range-scoped)
+    // Days with all 5 prayers (range-scoped) — excused counts toward a
+    // complete day, matching streak semantics everywhere else.
     const completeDays = new Set<string>();
     const prayedByDate = new Map<string, Set<string>>();
     for (const log of rangeLogs) {
-      if (log.status === "prayed" || log.status === "assumed_prayed") {
+      if (log.status === "prayed" || log.status === "assumed_prayed" || log.status === "excused") {
         const dateStr = typeof log.date === "string" ? log.date : String(log.date);
         if (!prayedByDate.has(dateStr)) prayedByDate.set(dateStr, new Set());
         prayedByDate.get(dateStr)!.add(log.prayerName);
@@ -363,9 +368,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Calculate consistency per day of week
-    // consistencyPct = prayed prayers / (activeDays * 5) * 100, clamped to 100
+    // consistencyPct = prayed / expected * 100, clamped to 100.
+    // Excused prayers shrink the denominator — neutral, never punitive.
+    const excusedByDow = new Array<number>(7).fill(0);
+    for (const log of rangeLogs) {
+      if (log.status !== "excused") continue;
+      const dateStr = typeof log.date === "string" ? log.date : String(log.date);
+      excusedByDow[new Date(dateStr + "T00:00:00").getDay()]++;
+    }
     for (const stat of dayOfWeekStats) {
-      const expected = stat.activeDays * 5;
+      const expected = Math.max(0, stat.activeDays * 5 - excusedByDow[stat.dayIndex]);
       const rawPct = expected > 0 ? Math.round((stat.totalPrayed / expected) * 100) : 0;
       stat.consistencyPct = Math.min(100, Math.max(0, rawPct));
     }
@@ -384,10 +396,11 @@ export async function GET(request: NextRequest) {
     const mostMissedPrayer = sortedByConsistency[sortedByConsistency.length - 1]?.prayer || null;
 
     // ── Heatmap data: daily prayer counts for the last 365 days ──
-    // Map: dateStr -> number of prayers prayed (0-5)
+    // Map: dateStr -> number of prayers prayed (0-5). Excused counts so a
+    // legit pause doesn't show as a broken chain in the heatmap.
     const heatmapData: Record<string, number> = {};
     for (const log of allLogs) {
-      if (log.status !== "prayed" && log.status !== "assumed_prayed") continue;
+      if (log.status !== "prayed" && log.status !== "assumed_prayed" && log.status !== "excused") continue;
       const dateStr = typeof log.date === "string" ? log.date : String(log.date);
       heatmapData[dateStr] = (heatmapData[dateStr] || 0) + 1;
     }

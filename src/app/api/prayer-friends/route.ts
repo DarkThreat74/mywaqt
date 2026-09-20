@@ -207,14 +207,21 @@ export async function GET(request: NextRequest) {
     if (!sunnahByUserDate.get(s.userId)!.has(dateStr)) sunnahByUserDate.get(s.userId)!.set(dateStr, []);
     sunnahByUserDate.get(s.userId)!.get(dateStr)!.push(s.sunnahKey);
   }
-  // Shared streaks keyed by the friend on the other side of the pair
+  // Shared streaks keyed by the friend on the other side of the pair.
+  // A chain is only alive if the last matched date is within the last 2 days
+  // (covers ±1 day of timezone skew between the pair) — otherwise it shows 0
+  // with the best streak preserved.
+  const aliveAfter = new Date();
+  aliveAfter.setUTCDate(aliveAfter.getUTCDate() - 2);
+  const aliveAfterStr = aliveAfter.toISOString().slice(0, 10);
   const streakByFriend = new Map<string, { streak: number; bestStreak: number; lastDate: string | null }>();
   for (const s of streaksAll) {
     const friendId = s.userLowId === session.userId ? s.userHighId : s.userLowId;
+    const lastDate = s.lastDate ? String(s.lastDate) : null;
     streakByFriend.set(friendId, {
-      streak: s.streak,
+      streak: lastDate !== null && lastDate >= aliveAfterStr ? s.streak : 0,
       bestStreak: s.bestStreak,
-      lastDate: s.lastDate ? String(s.lastDate) : null,
+      lastDate,
     });
   }
   const cheeredByUserDate = new Set<string>();

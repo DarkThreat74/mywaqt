@@ -103,7 +103,7 @@ interface PrayerGroup {
     startDate: string;
     endDate: string;
     active: boolean;
-    progress: Array<{ userId: string; days: number }>;
+    progress: Array<{ userId: string; days: number | null }>;
   }>;
 }
 
@@ -1271,6 +1271,7 @@ export default function PrayerDashboard() {
 
                 {PRAYER_ORDER.map((prayer, idx) => {
                   const prayed = isPrayed(prayer);
+                  const excused = getPrayerStatus(prayer) === "excused";
                   const color = PRAYER_COLORS[prayer];
                   const time = prayerTimes[prayer];
                   const isLast = idx === PRAYER_ORDER.length - 1;
@@ -1330,13 +1331,15 @@ export default function PrayerDashboard() {
                         <div
                           className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-colors sm:h-10 sm:w-10"
                           style={{
-                            borderColor: prayed ? color : isCurrent ? color : "var(--color-paper-3)",
-                            backgroundColor: prayed ? color : isCurrent ? "color-mix(in oklab, " + color + " 10%, transparent)" : "transparent",
-                            ...(isCurrent && !prayed ? { boxShadow: "0 0 0 3px color-mix(in oklab, " + color + " 25%, transparent)" } : {}),
+                            borderColor: prayed ? color : excused ? "var(--color-accent)" : isCurrent ? color : "var(--color-paper-3)",
+                            backgroundColor: prayed ? color : excused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : isCurrent ? "color-mix(in oklab, " + color + " 10%, transparent)" : "transparent",
+                            ...(isCurrent && !prayed && !excused ? { boxShadow: "0 0 0 3px color-mix(in oklab, " + color + " 25%, transparent)" } : {}),
                           }}
                         >
                           {prayed ? (
                             <Check className="h-4 w-4 sm:h-5 sm:w-5" style={{ color: "var(--color-paper)" }} />
+                          ) : excused ? (
+                            <span className="text-[10px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>
                           ) : (
                             <span className="text-[11px] font-bold uppercase sm:text-xs" style={{ color: isCurrent ? color : "var(--color-ink-muted)" }}>
                               {prayer.charAt(0).toUpperCase()}
@@ -1384,6 +1387,16 @@ export default function PrayerDashboard() {
                                   }}
                                 >
                                   Prayed
+                                </span>
+                              ) : excused ? (
+                                <span
+                                  className="rounded-full px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
+                                  style={{
+                                    backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)",
+                                    color: "var(--color-accent)",
+                                  }}
+                                >
+                                  Excused
                                 </span>
                               ) : isCurrent ? (
                                 <span
@@ -2490,21 +2503,27 @@ export default function PrayerDashboard() {
                           </div>
                           {c.progress.map((p) => {
                             const m = g.members.find((mm) => mm.id === p.userId);
-                            const pct = Math.min(100, Math.round((p.days / c.goalDays) * 100));
+                            const pct = p.days === null ? 0 : Math.min(100, Math.round((p.days / c.goalDays) * 100));
                             return (
                               <div key={p.userId} className="mt-1 flex items-center gap-2">
                                 <span className="w-24 truncate text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
                                   {m?.isMe ? "You" : m?.firstName || m?.displayName || "Member"}
                                 </span>
-                                <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-                                  <div
-                                    className="h-full rounded-full transition-[width]"
-                                    style={{ width: `${pct}%`, backgroundColor: p.days >= c.goalDays ? "var(--color-success)" : "var(--color-accent)" }}
-                                  />
-                                </div>
-                                <span className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                                  {p.days}/{c.goalDays}
-                                </span>
+                                {p.days === null ? (
+                                  <span className="flex-1 text-[11px] italic" style={{ color: "var(--color-ink-muted)" }}>private</span>
+                                ) : (
+                                  <>
+                                    <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                                      <div
+                                        className="h-full rounded-full transition-[width]"
+                                        style={{ width: `${pct}%`, backgroundColor: p.days >= c.goalDays ? "var(--color-success)" : "var(--color-accent)" }}
+                                      />
+                                    </div>
+                                    <span className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                                      {p.days}/{c.goalDays}
+                                    </span>
+                                  </>
+                                )}
                               </div>
                             );
                           })}

@@ -65,20 +65,22 @@ export async function GET(request: NextRequest) {
       db
         .select({
           userId: schema.prayerSettings.userId,
+          timezone: schema.prayerSettings.timezone,
           friendsSeeStreak: schema.prayerSettings.friendsSeeStreak,
           friendsSeeTodayStatus: schema.prayerSettings.friendsSeeTodayStatus,
         })
         .from(schema.prayerSettings)
         .where(inArray(schema.prayerSettings.userId, memberIds)),
-      // This week's complete days per member — powers the group race AND
-      // challenge progress. Bounded: one row per member per completed day.
+      // Complete days per member — powers the group race AND challenge
+      // progress. 95-day floor covers the max 90-day challenge span.
+      // Bounded: at most 1 row per member per completed day.
       db
         .select({ userId: schema.prayerDayCompletions.userId, date: schema.prayerDayCompletions.date })
         .from(schema.prayerDayCompletions)
         .where(
           and(
             inArray(schema.prayerDayCompletions.userId, memberIds),
-            gte(schema.prayerDayCompletions.date, new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)),
+            gte(schema.prayerDayCompletions.date, new Date(Date.now() - 95 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)),
           ),
         ),
     ]);
@@ -94,6 +96,15 @@ export async function GET(request: NextRequest) {
 
     const monday = weekStart(new Date());
     const today = new Date().toISOString().slice(0, 10);
+    // "Today" for done-today badges is each member's own local date
+    const todayByMember = new Map(
+      memberIds.map((id) => [
+        id,
+        new Date().toLocaleDateString("en-CA", {
+          timeZone: settingsById.get(id)?.timezone || "America/Chicago",
+        }),
+      ]),
+    );
 
     const result = groups.map((g) => {
       const members = allMembers
@@ -109,9 +120,12 @@ export async function GET(request: NextRequest) {
             displayName: u?.displayName ?? null,
             role: m.role,
             isMe: m.userId === session.userId,
-            // Only exposed if the member shares stats with friends
-            weekCompleteDays: s?.friendsSeeStreak ? weekDays : null,
-            todayComplete: s?.friendsSeeTodayStatus ? dates.has(today) : null,
+            // Only exposed if the member shares stats with friends — same
+            // defaults as the friends list when no settings row exists
+            weekCompleteDays: (s?.friendsSeeStreak ?? true) ? weekDays : null,
+            todayComplete: (s?.friendsSeeTodayStatus ?? false)
+              ? dates.has(todayByMember.get(m.userId) ?? "")
+              : null,
           };
         })
         .sort((a, b) => (b.weekCompleteDays ?? -1) - (a.weekCompleteDays ?? -1));
@@ -129,8 +143,11 @@ export async function GET(request: NextRequest) {
             .filter((m) => m.groupId === g.id)
             .map((m) => ({
               userId: m.userId,
-              days: [...(completionsByUser.get(m.userId) ?? [])]
-                .filter((d) => d >= c.startDate && d <= c.endDate).length,
+              // null = member keeps stats private — progress stays hidden
+              days: (settingsById.get(m.userId)?.friendsSeeStreak ?? true)
+                ? [...(completionsByUser.get(m.userId) ?? [])]
+                    .filter((d) => d >= c.startDate && d <= c.endDate).length
+                : null,
             })),
         }));
 
