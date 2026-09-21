@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Check, X, Loader2, MapPin } from "lucide-react";
-import { shouldShowMasjidQuestion, getPrayerWindowState, getPrayerWindowStart, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
+import { shouldShowMasjidQuestion, getPrayerWindowState, getPrayerWindowStart, isFridayDate, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
 import { getSunnahsForFard, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { useUISFX } from "@/components/uisfx-provider";
 import { invalidateApiCache } from "@/lib/sw-helpers";
@@ -68,6 +68,11 @@ export default function PrayerCheckinPopup({
   // Treat both "prayed" and "assumed_prayed" as already prayed (benefit of the doubt)
   const alreadyPrayed = existingStatus === "prayed" || existingStatus === "assumed_prayed";
   const isExcused = existingStatus === "excused";
+
+  // On Fridays Dhuhr is presented as Jumu'ah. Praying Jumu'ah is recorded as
+  // dhuhr + wentToMasjid, so the masjid-attendance stats count it correctly.
+  const isJumuah = prayer === "dhuhr" && isFridayDate(date);
+  const displayLabel = isJumuah ? "Jumu'ah" : prayerLabel;
 
   // Sunnah definitions for this prayer
   const sunnahDefs = getSunnahsForFard(prayer, madhab);
@@ -262,7 +267,7 @@ export default function PrayerCheckinPopup({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={prayerLabel}
+        aria-label={displayLabel}
         className="max-h-[90dvh] w-full max-w-sm overflow-y-auto rounded-2xl border p-5 shadow-xl"
         style={{
           backgroundColor: "var(--color-paper)",
@@ -273,7 +278,7 @@ export default function PrayerCheckinPopup({
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>
-            {prayerLabel}
+            {displayLabel}
           </h2>
           <button
             onClick={() => { play("close"); onClose(); }}
@@ -302,7 +307,7 @@ export default function PrayerCheckinPopup({
         {step === "main" && !alreadyPrayed && !isExcused && windowState === "before" && (
           <div className="text-center">
             <p className="mb-3 text-sm" style={{ color: "var(--color-ink-soft)" }}>
-              {prayerLabel} hasn&apos;t started yet.
+              {displayLabel} hasn&apos;t started yet.
             </p>
             <p className="mb-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
               It begins at {startTimeStr}. Check back then, in sha&apos; Allah.
@@ -337,34 +342,76 @@ export default function PrayerCheckinPopup({
         {step === "main" && !alreadyPrayed && !isExcused && windowOpen && (
           <>
             <p className="mb-4 text-sm" style={{ color: "var(--color-ink-soft)" }}>
-              Did you pray {prayerLabel}?
+              {isJumuah ? "Did you pray Jumu'ah?" : `Did you pray ${displayLabel}?`}
             </p>
-            <div className="flex gap-2">
-              <button
-                onClick={handlePrayedYesDuringWindow}
-                disabled={loading}
-                className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
-                style={{
-                  borderColor: "var(--color-success)",
-                  backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)",
-                  color: "var(--color-success)",
-                }}
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                Yes, I prayed
-              </button>
-              <button
-                onClick={onClose}
-                disabled={loading}
-                className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
-                style={{
-                  borderColor: "var(--color-paper-3)",
-                  color: "var(--color-ink-muted)",
-                }}
-              >
-                Not yet
-              </button>
-            </div>
+            {isJumuah ? (
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => checkIn(true)}
+                  disabled={loading}
+                  className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                  style={{
+                    borderColor: "var(--color-success)",
+                    backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)",
+                    color: "var(--color-success)",
+                  }}
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  Yes, prayed Jumu&apos;ah
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => checkIn(false)}
+                    disabled={loading}
+                    className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                    style={{
+                      borderColor: "var(--color-paper-3)",
+                      color: "var(--color-ink-soft)",
+                    }}
+                  >
+                    Prayed Zuhr instead
+                  </button>
+                  <button
+                    onClick={onClose}
+                    disabled={loading}
+                    className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                    style={{
+                      borderColor: "var(--color-paper-3)",
+                      color: "var(--color-ink-muted)",
+                    }}
+                  >
+                    Not yet
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={handlePrayedYesDuringWindow}
+                  disabled={loading}
+                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                  style={{
+                    borderColor: "var(--color-success)",
+                    backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)",
+                    color: "var(--color-success)",
+                  }}
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  Yes, I prayed
+                </button>
+                <button
+                  onClick={onClose}
+                  disabled={loading}
+                  className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                  style={{
+                    borderColor: "var(--color-paper-3)",
+                    color: "var(--color-ink-muted)",
+                  }}
+                >
+                  Not yet
+                </button>
+              </div>
+            )}
             <button
               onClick={markExcused}
               disabled={loading}
@@ -380,7 +427,7 @@ export default function PrayerCheckinPopup({
         {step === "main" && !alreadyPrayed && !isExcused && windowEnded && (
           <div className="text-center">
             <p className="mb-3 text-sm" style={{ color: "var(--color-ink-soft)" }}>
-              The {prayerLabel} window has ended.
+              The {displayLabel} window has ended.
             </p>
             <p className="mb-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
               Did you forget to log it?
@@ -434,7 +481,7 @@ export default function PrayerCheckinPopup({
             >
               <Check className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
               <span className="text-sm font-medium" style={{ color: "var(--color-accent)" }}>
-                {prayerLabel} marked excused — your streak is safe.
+                {displayLabel} marked excused — your streak is safe.
               </span>
             </div>
             <button
@@ -463,7 +510,7 @@ export default function PrayerCheckinPopup({
             >
               <Check className="h-4 w-4 shrink-0" style={{ color: "var(--color-success)" }} />
               <span className="text-sm font-medium" style={{ color: "var(--color-success)" }}>
-                You prayed {prayerLabel}. In sha&apos; Allah.
+                You prayed {displayLabel}. In sha&apos; Allah.
               </span>
             </div>
             {/* Only show sunnah logging if the window is still open */}
@@ -499,7 +546,7 @@ export default function PrayerCheckinPopup({
             <div className="mb-4 flex items-center gap-2">
               <MapPin className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
               <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
-                Did you pray in the masjid?
+                {isJumuah ? "Did you pray Jumu'ah or Zuhr?" : "Did you pray in the masjid?"}
               </p>
             </div>
             <div className="flex gap-2">
@@ -514,7 +561,7 @@ export default function PrayerCheckinPopup({
                 }}
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                Yes, at the masjid
+                {isJumuah ? "Jumu'ah" : "Yes, at the masjid"}
               </button>
               <button
                 onClick={() => checkIn(false)}
@@ -525,7 +572,7 @@ export default function PrayerCheckinPopup({
                   color: "var(--color-ink-soft)",
                 }}
               >
-                Prayed at home
+                {isJumuah ? "Zuhr" : "Prayed at home"}
               </button>
             </div>
             <button
@@ -551,7 +598,7 @@ export default function PrayerCheckinPopup({
             >
               <Check className="h-4 w-4 shrink-0" style={{ color: "var(--color-success)" }} />
               <span className="text-sm font-medium" style={{ color: "var(--color-success)" }}>
-                {prayerLabel} logged. Did you pray any sunnahs?
+                {displayLabel} logged. Did you pray any sunnahs?
               </span>
             </div>
 

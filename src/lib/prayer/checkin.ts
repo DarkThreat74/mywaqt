@@ -126,6 +126,27 @@ export function getPrayerWindowStart(prayer: PrayerKey, timings: PrayerTimings):
 }
 
 /**
+ * Is this date string (YYYY-MM-DD) a Friday? Day-of-week is a property of the
+ * calendar date itself, so parsing at UTC noon is safe regardless of timezone.
+ */
+export function isFridayDate(dateStr: string): boolean {
+  return new Date(`${dateStr}T12:00:00Z`).getUTCDay() === 5;
+}
+
+/**
+ * Display name for a prayer on a given date — Dhuhr is shown as Jumu'ah on
+ * Fridays. Praying Jumu'ah is recorded as dhuhr + wentToMasjid, so no schema
+ * change is needed and it feeds the masjid-attendance stats correctly.
+ */
+export function prayerDisplayName(prayer: string, dateStr?: string): string {
+  if (prayer === "dhuhr" && dateStr && isFridayDate(dateStr)) return "Jumu'ah";
+  const labels: Record<string, string> = {
+    fajr: "Fajr", dhuhr: "Dhuhr", asr: "Asr", maghrib: "Maghrib", isha: "Isha",
+  };
+  return labels[prayer] ?? prayer;
+}
+
+/**
  * Check if a prayer's window is currently open (can still be logged).
  * Returns true if the current time is within the prayer window.
  *

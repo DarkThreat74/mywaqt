@@ -58,6 +58,13 @@ const PRAYER_NOTIFICATIONS: Array<{ key: keyof PrayerTimes; label: string }> = [
   { key: "isha", label: "Isha" },
 ];
 
+// Dhuhr displays as Jumu'ah on Fridays — the notification should match.
+function prayerLabel(dateStr: string, prayer: { key: keyof PrayerTimes; label: string }): string {
+  return prayer.key === "dhuhr" && new Date(`${dateStr}T12:00:00Z`).getUTCDay() === 5
+    ? "Jumu'ah"
+    : prayer.label;
+}
+
 // Track which prayer notifications have already fired this session
 // so we don't double-fire on re-schedule.
 const firedNotifications = new Set<string>();
@@ -213,8 +220,8 @@ export default function NotificationScheduler() {
         const timer = setTimeout(() => {
           firedNotifications.add(notifTag);
           showNotification(
-            `${prayer.label} prayer time`,
-            `It's time to pray ${prayer.label}.`,
+            `${prayerLabel(date, prayer)} prayer time`,
+            `It's time to pray ${prayerLabel(date, prayer)}.`,
             notifTag,
             "/calendar/day",
           );
@@ -343,8 +350,8 @@ export default function NotificationScheduler() {
           if (minutesSinceStart <= 10) {
             firedNotifications.add(notifTag);
             showNotification(
-              `${prayer.label} prayer time`,
-              `It's time to pray ${prayer.label}.`,
+              `${prayerLabel(today, prayer)} prayer time`,
+              `It's time to pray ${prayerLabel(today, prayer)}.`,
               notifTag,
               "/calendar/day",
             );

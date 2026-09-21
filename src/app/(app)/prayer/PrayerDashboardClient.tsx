@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Flame, MapPin, Users, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, Heart, UsersRound } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
-import { getCurrentMinutesInTimezonePrecise, todayInTimezone } from "@/lib/prayer/checkin";
+import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
@@ -298,6 +298,10 @@ export default function PrayerDashboard() {
   const todayStr = currentTime
     ? todayInTimezone(userTimezone)
     : null; // null until client mounts — prevents fetching with 1970-01-01
+
+  // Dhuhr displays as Jumu'ah on Fridays — same log row, just a label.
+  // Qadaa/analytics keep "Dhuhr" since they aggregate across all days.
+  const prayerLabel = useCallback((key: string) => prayerDisplayName(key, todayStr ?? undefined), [todayStr]);
 
   const fetchTodayData = useCallback(async () => {
     if (!todayStr) return;
@@ -1170,7 +1174,6 @@ export default function PrayerDashboard() {
 
             {/* ── Next Prayer Countdown ── */}
             {prayerTimes && currentTime && (() => {
-              const PRAYER_LABELS: Record<string, string> = { fajr: "Fajr", dhuhr: "Dhuhr", asr: "Asr", maghrib: "Maghrib", isha: "Isha" };
               const nowMin = nowMinutesInTz;
               let next: { name: string; minutes: number } | null = null;
               for (const p of PRAYER_ORDER) {
@@ -1197,7 +1200,7 @@ export default function PrayerDashboard() {
                       Next prayer
                     </p>
                     <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                      {PRAYER_LABELS[next.name]}
+                      {prayerLabel(next.name)}
                     </p>
                   </div>
                   <div className="text-right">
@@ -1375,7 +1378,7 @@ export default function PrayerDashboard() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                                {PRAYER_LABELS[prayer]}
+                                {prayerLabel(prayer)}
                               </span>
                               {/* Status badge */}
                               {prayed ? (
@@ -1482,9 +1485,9 @@ export default function PrayerDashboard() {
                                     ? false // allow un-logging
                                     : !timeStarted || windowPassed;
                                   const reason = !timeStarted
-                                    ? `${PRAYER_LABELS[prayer]} hasn't started yet`
+                                    ? `${prayerLabel(prayer)} hasn't started yet`
                                     : windowPassed
-                                      ? `${PRAYER_LABELS[prayer]} window has ended`
+                                      ? `${prayerLabel(prayer)} window has ended`
                                       : "";
                                   return (
                                     <SunnahPill
@@ -1509,9 +1512,9 @@ export default function PrayerDashboard() {
                                     ? false
                                     : !prayed || windowPassed;
                                   const reason = !prayed
-                                    ? `Log ${PRAYER_LABELS[prayer]} as prayed first`
+                                    ? `Log ${prayerLabel(prayer)} as prayed first`
                                     : windowPassed
-                                      ? `${PRAYER_LABELS[prayer]} window has ended`
+                                      ? `${prayerLabel(prayer)} window has ended`
                                       : "";
                                   return (
                                     <SunnahPill
@@ -1559,10 +1562,10 @@ export default function PrayerDashboard() {
                                     standaloneDisabled = !timeStarted; // only disabled before Fajr starts
                                     standaloneReason = afterDhuhr
                                       ? "Duha time has passed — logging late"
-                                      : `${PRAYER_LABELS[prayer]} hasn't started yet`;
+                                      : `${prayerLabel(prayer)} hasn't started yet`;
                                   } else {
                                     standaloneDisabled = !timeStarted;
-                                    standaloneReason = `${PRAYER_LABELS[prayer]} hasn't started yet`;
+                                    standaloneReason = `${prayerLabel(prayer)} hasn't started yet`;
                                   }
 
                                   return (
@@ -2542,6 +2545,19 @@ export default function PrayerDashboard() {
 }
 
 // ── Comparison row component ──
+// Prayer name for today's dots — Jumu'ah on Fridays, in the row's timezone.
+function dotLabel(prayer: string, timezone: string | null): string {
+  let today: string;
+  try {
+    today = timezone
+      ? new Date().toLocaleDateString("en-CA", { timeZone: timezone })
+      : new Date().toLocaleDateString("en-CA");
+  } catch {
+    today = new Date().toLocaleDateString("en-CA");
+  }
+  return prayerDisplayName(prayer, today);
+}
+
 function ComparisonRow({
   name,
   isMe,
@@ -2686,8 +2702,8 @@ function ComparisonRow({
                   disabled={alreadyReminded || pending}
                   className="flex h-7 w-7 items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-60 sm:h-8 sm:w-8"
                   style={dotStyle}
-                  aria-label={alreadyReminded ? `Reminded ${name} about ${prayer}` : `Remind ${name} to pray ${prayer}`}
-                  title={alreadyReminded ? "Reminder sent" : `Remind ${name} to pray ${prayer}`}
+                  aria-label={alreadyReminded ? `Reminded ${name} about ${dotLabel(prayer, timezone)}` : `Remind ${name} to pray ${dotLabel(prayer, timezone)}`}
+                  title={alreadyReminded ? "Reminder sent" : `Remind ${name} to pray ${dotLabel(prayer, timezone)}`}
                 >
                   {dotInner}
                 </button>

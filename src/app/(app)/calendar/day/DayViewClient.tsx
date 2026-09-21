@@ -5,7 +5,7 @@ import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, 
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { useUISFX } from "@/components/uisfx-provider";
-import { getDisplayAsrTime, type PrayerKey } from "@/lib/prayer/checkin";
+import { getDisplayAsrTime, isFridayDate, type PrayerKey } from "@/lib/prayer/checkin";
 import { invalidateApiCache, removeOutboxItem } from "@/lib/sw-helpers";
 import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -167,6 +167,9 @@ function getReminderColor(title: string, chosenColor?: string | null): string {
 
 export default function DayViewClient({ date }: { date: string }) {
   const { play } = useUISFX();
+  // Dhuhr displays as Jumu'ah on Fridays — same log row, just a label.
+  const prayerLabel = (key: string, fallback: string) =>
+    key === "dhuhr" && isFridayDate(date) ? "Jumu'ah" : fallback;
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1169,7 +1172,7 @@ export default function DayViewClient({ date }: { date: string }) {
               return (
                 <button
                   key={prayer.key}
-                  onClick={isClickable ? () => setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayer.label }) : undefined}
+                  onClick={isClickable ? () => setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayerLabel(prayer.key, prayer.label) }) : undefined}
                   className="flex shrink-0 flex-col items-center justify-center rounded-lg border px-2 py-1.5 transition-colors"
                   style={{
                     minWidth: 52,
@@ -1181,7 +1184,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   disabled={!isClickable}
                 >
                   <span className="flex items-center gap-0.5 text-[10px] font-semibold leading-none" style={{ color: prayer.color }}>
-                    {prayer.label === "Sunrise" ? "Sunrise" : prayer.label}
+                    {prayerLabel(prayer.key, prayer.label)}
                     {isPrayed && <Check className="h-2.5 w-2.5" style={{ color: "var(--color-success)" }} />}
                     {isExcused && <span className="text-[8px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
                   </span>
@@ -1206,7 +1209,7 @@ export default function DayViewClient({ date }: { date: string }) {
               return (
                 <button
                   key={prayer.key}
-                  onClick={isClickable ? () => setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayer.label }) : undefined}
+                  onClick={isClickable ? () => setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayerLabel(prayer.key, prayer.label) }) : undefined}
                   className="flex flex-col items-center gap-0 rounded-lg border px-3 py-1.5 transition-colors"
                   style={{
                     minHeight: 44,
@@ -1217,7 +1220,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   disabled={!isClickable}
                 >
                   <span className="flex items-center gap-0.5 text-xs font-medium leading-tight" style={{ color: prayer.color }}>
-                    {prayer.label}
+                    {prayerLabel(prayer.key, prayer.label)}
                     {isPrayed && <Check className="h-3 w-3" style={{ color: "var(--color-success)" }} />}
                     {isExcused && <span className="text-[9px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
                   </span>
@@ -1392,7 +1395,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 >
                   <div className="h-px flex-1" style={{ backgroundColor: prayer.color, opacity: 0.3 }} />
                   <button
-                    onClick={isClickable ? (e: React.MouseEvent) => { e.stopPropagation(); setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayer.label }); } : undefined}
+                    onClick={isClickable ? (e: React.MouseEvent) => { e.stopPropagation(); setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayerLabel(prayer.key, prayer.label) }); } : undefined}
                     className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-transform sm:px-2 sm:text-[10px] pointer-events-auto"
                     style={{
                       backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 10%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))" : "var(--color-paper)",
@@ -1401,7 +1404,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       cursor: isClickable ? "pointer" : "default",
                     }}
                   >
-                    {prayer.label} {formatTime(time)}
+                    {prayerLabel(prayer.key, prayer.label)} {formatTime(time)}
                     {isPrayed && " ✓"}
                     {isExcused && " E"}
                   </button>
