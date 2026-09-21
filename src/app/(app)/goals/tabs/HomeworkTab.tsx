@@ -59,6 +59,7 @@ export default function HomeworkTab({
         name: c.name,
         color: c.color,
         archived: c.archived,
+        sortOrder: c.sortOrder,
       }))}
       onHomeworkChange={handleHomeworkChange}
     />

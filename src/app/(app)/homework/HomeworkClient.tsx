@@ -33,6 +33,7 @@ interface ClassItem {
   name: string;
   color: string;
   archived: boolean;
+  sortOrder: number;
 }
 
 const CLASS_COLORS = [
@@ -88,6 +89,10 @@ export default function HomeworkClient({
   const [sortTypeKind, setSortTypeKind] = useState<HomeworkItem["kind"]>("homework");
   const [showCompleted, setShowCompleted] = useState(false);
   const [deleteClassConfirm, setDeleteClassConfirm] = useState<ClassItem | null>(null);
+  const [editClass, setEditClass] = useState<ClassItem | null>(null);
+  const [editClassName, setEditClassName] = useState("");
+  const [editClassColor, setEditClassColor] = useState("");
+  const [savingEditClass, setSavingEditClass] = useState(false);
   const [deleteHwConfirm, setDeleteHwConfirm] = useState<HomeworkItem | null>(null);
   const [completeConfirm, setCompleteConfirm] = useState<HomeworkItem | null>(null);
   const [showClasses, setShowClasses] = useState(false);
@@ -170,6 +175,7 @@ export default function HomeworkClient({
               name: c.name,
               color: c.color,
               archived: c.archived,
+              sortOrder: c.sortOrder ?? 0,
             })));
           }
         } catch {
@@ -415,6 +421,46 @@ export default function HomeworkClient({
       // non-critical
     } finally {
       setSavingClass(false);
+    }
+  }
+
+  function openEditClass(cls: ClassItem) {
+    setEditClass(cls);
+    setEditClassName(cls.name);
+    setEditClassColor(cls.color);
+  }
+
+  async function handleSaveEditClass() {
+    if (!editClass) return;
+    const trimmed = editClassName.trim();
+    if (!trimmed) return;
+    const updated = { ...editClass, name: trimmed, color: editClassColor };
+    setSavingEditClass(true);
+    setClasses((prev) => prev.map((c) => (c.id === editClass.id ? updated : c)));
+    upsertClassToCache(updated);
+    setEditClass(null);
+    try {
+      const res = await fetch("/api/classes", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editClass.id, name: trimmed, color: editClassColor }),
+      });
+      if (res.ok) {
+        invalidateApiCache("/api/classes");
+      } else if (res.status !== 202) {
+        const refetch = await fetch("/api/classes");
+        if (refetch.ok) {
+          const data = await refetch.json();
+          if (Array.isArray(data)) {
+            setClasses(data);
+            syncClassesToCache(data);
+          }
+        }
+      }
+    } catch {
+      // offline — queued by SW outbox
+    } finally {
+      setSavingEditClass(false);
     }
   }
 
@@ -767,7 +813,15 @@ export default function HomeworkClient({
                       {count} pending
                     </span>
                   </button>
-                  {/* Always-visible delete button — compact, works on mobile */}
+                  {/* Always-visible edit + delete buttons — compact, works on mobile */}
+                  <button
+                    onClick={() => openEditClass(cls)}
+                    className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-3)]"
+                    style={{ color: "var(--color-ink-muted)" }}
+                    aria-label={`Edit ${cls.name}`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
                   <button
                     onClick={() => setDeleteClassConfirm(cls)}
                     className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-3)]"
@@ -1244,6 +1298,87 @@ export default function HomeworkClient({
               >
                 Delete class
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit class modal ── */}
+      {editClass && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
+          onClick={() => setEditClass(null)}
+        >
+          <div
+            role="dialog"
+            aria-label={`Edit ${editClass.name}`}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border p-5"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                Edit class
+              </h3>
+              <button onClick={() => setEditClass(null)} style={{ color: "var(--color-ink-muted)" }} aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              <input
+                type="text"
+                value={editClassName}
+                onChange={(e) => setEditClassName(e.target.value)}
+                placeholder="Class name"
+                maxLength={100}
+                autoFocus
+                className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[var(--color-accent)]"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
+              />
+              <div className="flex flex-wrap gap-2">
+                {CLASS_COLORS.map((color) => {
+                  const usedBy = classes.filter((c) => c.id !== editClass.id && c.color === color).map((c) => c.name);
+                  const inUse = usedBy.length > 0;
+                  return (
+                    <button
+                      key={color}
+                      onClick={() => setEditClassColor(color)}
+                      className="relative flex h-8 w-8 items-center justify-center rounded-full transition-transform"
+                      style={{
+                        backgroundColor: color,
+                        outline: editClassColor === color ? `2px solid ${color}` : "none",
+                        outlineOffset: 2,
+                        opacity: inUse && editClassColor !== color ? 0.45 : 1,
+                      }}
+                      title={inUse ? `In use: ${usedBy.join(", ")}` : undefined}
+                      aria-label={inUse ? `${color} (in use by ${usedBy.join(", ")})` : color}
+                    >
+                      {editClassColor === color && <Check className="h-4 w-4" style={{ color: "var(--color-paper)" }} />}
+                      {inUse && editClassColor !== color && (
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-paper)" }} />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditClass(null)}
+                  className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEditClass}
+                  disabled={savingEditClass || !editClassName.trim()}
+                  className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+                  style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
+                >
+                  {savingEditClass ? "Saving…" : "Save"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
