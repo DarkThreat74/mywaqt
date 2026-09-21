@@ -16,13 +16,20 @@ const HABIT_COLORS = [
   "#a16207", // mustard
   "#9f1239", // crimson
   "#1e40af", // royal blue
+  "#0f766e", // deep teal
+  "#4d7c0f", // olive
+  "#b91c1c", // red
+  "#1d4ed8", // blue
+  "#86198f", // fuchsia
+  "#92400e", // bronze
+  "#155e75", // ocean
+  "#701a75", // plum
+  "#065f46", // emerald
   "#7c2d12", // sienna
   "#166534", // pine
-  "#86198f", // magenta
-  "#155e75", // cyan
-  "#854d0e", // bronze
-  "#3f6212", // olive
-  "#831843", // plum
+  "#854d0e", // ochre
+  "#3f6212", // moss
+  "#831843", // wine
 ];
 
 function todayStr() {
@@ -267,14 +274,33 @@ export default function HabitsTab({
           />
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>Color:</span>
-            {HABIT_COLORS.map((c) => (
-              <button
-                key={c}
-                onClick={() => setColor(c)}
-                className="h-6 w-6 rounded-full transition-transform"
-                style={{ backgroundColor: c, transform: color === c ? "scale(1.2)" : "none", border: color === c ? "2px solid var(--color-ink)" : "none" }}
-              />
-            ))}
+            {HABIT_COLORS.map((c) => {
+              const usedBy = habits.filter((h) => h.color === c).map((h) => h.name);
+              const inUse = usedBy.length > 0;
+              return (
+                <button
+                  key={c}
+                  onClick={() => setColor(c)}
+                  className="relative flex h-6 w-6 items-center justify-center rounded-full transition-transform"
+                  style={{
+                    backgroundColor: c,
+                    transform: color === c ? "scale(1.2)" : "none",
+                    border: color === c ? "2px solid var(--color-ink)" : "none",
+                    opacity: inUse && color !== c ? 0.55 : 1,
+                  }}
+                  aria-label={inUse ? `Color in use by ${usedBy.join(", ")}` : `Select color ${c}`}
+                  title={inUse ? `In use: ${usedBy.join(", ")}` : undefined}
+                >
+                  {inUse && (
+                    <span
+                      className="h-1 w-1 rounded-full"
+                      style={{ backgroundColor: "var(--color-paper)" }}
+                      aria-hidden="true"
+                    />
+                  )}
+                </button>
+              );
+            })}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>Frequency:</span>

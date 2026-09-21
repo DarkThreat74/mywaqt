@@ -654,7 +654,7 @@ export const goalShareTokens = pgTable('goal_share_tokens', {
 
 export const homeworkStatus = pgEnum('homework_status', ['pending', 'completed']);
 export const homeworkPriority = pgEnum('homework_priority', ['low', 'medium', 'high']);
-export const homeworkKind = pgEnum('homework_kind', ['homework', 'test', 'project', 'quiz', 'reading', 'other']);
+export const homeworkKind = pgEnum('homework_kind', ['homework', 'test', 'quiz', 'exam', 'essay', 'lab', 'project', 'presentation', 'worksheet', 'reading', 'study', 'other']);
 
 // Classes (subjects) — color-coded for calendar dots and list chips
 export const classes = pgTable('classes', {

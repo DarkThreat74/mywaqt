@@ -1672,6 +1672,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   </button>
                   {EVENT_COLORS.map((c) => {
                     const isSelected = newColor === c.value;
+                    const inUse = events.some((e) => e.color === c.value);
                     return (
                       <button
                         key={c.value}
@@ -1684,9 +1685,10 @@ export default function DayViewClient({ date }: { date: string }) {
                           outline: isSelected ? `2px solid ${c.value}` : "none",
                           outlineOffset: "1px",
                           boxShadow: isSelected ? `0 0 0 1px var(--color-paper)` : "none",
+                          opacity: inUse && !isSelected ? 0.6 : 1,
                         }}
-                        aria-label={c.label}
-                        title={c.label}
+                        aria-label={inUse ? `${c.label} (in use today)` : c.label}
+                        title={inUse ? `${c.label} — in use today` : c.label}
                   >
                         {isSelected && (
                           <Check
@@ -1695,6 +1697,13 @@ export default function DayViewClient({ date }: { date: string }) {
                               color: "var(--color-paper)",
                               filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))",
                             }}
+                          />
+                        )}
+                        {!isSelected && inUse && (
+                          <span
+                            className="absolute inset-0 m-auto h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: "var(--color-paper)" }}
+                            aria-hidden="true"
                           />
                         )}
                       </button>

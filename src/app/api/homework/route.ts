@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
+import { HOMEWORK_KINDS, type HomeworkKind } from "@/lib/homework/kinds";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -159,8 +160,7 @@ export async function POST(request: NextRequest) {
     const validPriorities = ["low", "medium", "high"];
     const priority = body.priority && validPriorities.includes(body.priority) ? body.priority : "medium";
 
-    const validKinds = ["homework", "test", "project", "quiz", "reading", "other"];
-    const kind = body.kind && validKinds.includes(body.kind) ? body.kind : "homework";
+    const kind = body.kind && (HOMEWORK_KINDS as readonly string[]).includes(body.kind) ? body.kind : "homework";
 
     // Validate classId belongs to the user if provided
     if (body.classId) {
@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
         dueDate: body.dueDate,
         dueTime: body.dueTime || null,
         priority: priority as "low" | "medium" | "high",
-        kind: kind as "homework" | "test" | "project" | "quiz" | "reading" | "other",
+        kind: kind as HomeworkKind,
       })
       .onConflictDoNothing({ target: schema.homeworks.id })
       .returning();

@@ -13,6 +13,7 @@ import {
   deleteClassFromCache,
 } from "@/lib/offline/cache-writers";
 import { formatDueBadge, urgencyColors, urgencyCardTint, isTimeOverdue, daysUntilDate } from "@/lib/homework/due-format";
+import { HOMEWORK_KINDS, KIND_LABELS, type HomeworkKind } from "@/lib/homework/kinds";
 
 export interface HomeworkItem {
   id: string;
@@ -23,7 +24,7 @@ export interface HomeworkItem {
   dueTime: string | null;
   priority: "low" | "medium" | "high";
   status: "pending" | "completed";
-  kind: "homework" | "test" | "project" | "quiz" | "reading" | "other";
+  kind: HomeworkKind;
   completedAt: Date | null;
 }
 
@@ -38,16 +39,10 @@ const CLASS_COLORS = [
   "#c2410c", "#0e7490", "#b45309", "#15803d",
   "#be185d", "#7c2d12", "#166534", "#3730a3",
   "#a16207", "#9f1239", "#1e40af", "#6d28d9",
+  "#0f766e", "#4d7c0f", "#b91c1c", "#1d4ed8",
+  "#86198f", "#92400e", "#155e75", "#3f6212",
+  "#701a75", "#065f46", "#78350f", "#831843",
 ];
-
-const KIND_LABELS: Record<string, string> = {
-  homework: "Homework",
-  test: "Test",
-  project: "Project",
-  quiz: "Quiz",
-  reading: "Reading",
-  other: "Other",
-};
 
 const PRIORITY_COLORS: Record<string, string> = {
   high: "var(--color-warmth)",
@@ -114,7 +109,7 @@ export default function HomeworkClient({
   const [dueDate, setDueDate] = useState(tomorrowStr());
   const [dueTime, setDueTime] = useState("");
   const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
-  const [kind, setKind] = useState<"homework" | "test" | "project" | "quiz" | "reading" | "other">("homework");
+  const [kind, setKind] = useState<HomeworkKind>("homework");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -811,19 +806,33 @@ export default function HomeworkClient({
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
             />
             <div className="flex flex-wrap gap-2">
-              {CLASS_COLORS.map((color) => (
-                <button
-                  key={color}
-                  onClick={() => setClassColor(color)}
-                  className="h-8 w-8 rounded-full transition-transform"
-                  style={{
-                    backgroundColor: color,
-                    outline: classColor === color ? `2px solid ${color}` : "none",
-                    outlineOffset: "2px",
-                  }}
-                  aria-label={`Select color ${color}`}
-                />
-              ))}
+              {CLASS_COLORS.map((color) => {
+                const usedBy = classes.filter((c) => c.color === color).map((c) => c.name);
+                const inUse = usedBy.length > 0;
+                return (
+                  <button
+                    key={color}
+                    onClick={() => setClassColor(color)}
+                    className="relative flex h-8 w-8 items-center justify-center rounded-full transition-transform"
+                    style={{
+                      backgroundColor: color,
+                      outline: classColor === color ? `2px solid ${color}` : "none",
+                      outlineOffset: "2px",
+                      opacity: inUse && classColor !== color ? 0.55 : 1,
+                    }}
+                    aria-label={inUse ? `Color in use by ${usedBy.join(", ")}` : `Select color ${color}`}
+                    title={inUse ? `In use: ${usedBy.join(", ")}` : undefined}
+                  >
+                    {inUse && (
+                      <span
+                        className="h-1.5 w-1.5 rounded-full"
+                        style={{ backgroundColor: "var(--color-paper)" }}
+                        aria-hidden="true"
+                      />
+                    )}
+                  </button>
+                );
+              })}
             </div>
             <button
               onClick={handleAddClass}
@@ -912,7 +921,7 @@ export default function HomeworkClient({
                 Type:
               </span>
               <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-                {(["homework", "quiz", "test", "project", "reading", "other"] as const).map((k) => (
+                {HOMEWORK_KINDS.map((k) => (
                   <button
                     key={k}
                     onClick={() => setSortTypeKind(k)}
