@@ -1279,48 +1279,97 @@ export default function HomeworkClient({
       )}
 
       {/* ── Complete homework confirmation modal ── */}
-      {completeConfirm && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
-          onClick={() => setCompleteConfirm(null)}
-        >
+      {completeConfirm && (() => {
+        const cls = getClassInfo(completeConfirm.classId);
+        const badge = formatDueBadge(completeConfirm.dueDate, completeConfirm.dueTime, completeConfirm.status);
+        const colors = urgencyColors(badge.urgency);
+        return (
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-2xl border p-5 text-center"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+            style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
+            onClick={() => setCompleteConfirm(null)}
           >
             <div
-              className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full"
-              style={{ backgroundColor: "color-mix(in oklab, var(--color-success) 12%, var(--color-paper))" }}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Mark homework as done"
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-2xl border p-5"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
             >
-              <Check className="h-5 w-5" style={{ color: "var(--color-success)" }} />
-            </div>
-            <h3 className="mb-1 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-              Did you complete it?
-            </h3>
-            <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              &ldquo;{completeConfirm.title}&rdquo;
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCompleteConfirm(null)}
-                className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
-              >
-                Not yet
-              </button>
-              <button
-                onClick={() => { handleToggleComplete(completeConfirm); setCompleteConfirm(null); }}
-                className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold"
-                style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)", minHeight: 44 }}
-              >
-                Yes, completed
-              </button>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <h3 className="text-sm font-semibold leading-snug" style={{ color: "var(--color-ink)" }}>
+                  {completeConfirm.title}
+                </h3>
+                <button
+                  onClick={() => setCompleteConfirm(null)}
+                  className="min-h-11 min-w-11 -m-2 rounded-lg p-2 transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ color: "var(--color-ink-muted)" }}
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mb-4 flex flex-wrap items-center gap-1.5">
+                {cls && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{
+                      backgroundColor: `color-mix(in oklab, ${cls.color} 12%, var(--color-paper))`,
+                      color: cls.color,
+                    }}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: cls.color }} />
+                    {cls.name}
+                  </span>
+                )}
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums"
+                  style={{
+                    backgroundColor: colors.bgColor,
+                    color: colors.color,
+                    fontWeight: colors.fontWeight,
+                    border: `1px solid ${colors.borderColor}`,
+                  }}
+                >
+                  <Clock className="h-2.5 w-2.5" />
+                  {badge.label}
+                </span>
+                {completeConfirm.kind !== "homework" && (
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
+                  >
+                    {KIND_LABELS[completeConfirm.kind]}
+                  </span>
+                )}
+              </div>
+
+              <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                Mark it done? It moves to Done — you can undo it anytime.
+              </p>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCompleteConfirm(null)}
+                  className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
+                >
+                  Not yet
+                </button>
+                <button
+                  onClick={() => { handleToggleComplete(completeConfirm); setCompleteConfirm(null); }}
+                  className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)", minHeight: 44 }}
+                >
+                  Done
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
