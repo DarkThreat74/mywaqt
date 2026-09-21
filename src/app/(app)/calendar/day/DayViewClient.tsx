@@ -10,6 +10,7 @@ import { invalidateApiCache, removeOutboxItem } from "@/lib/sw-helpers";
 import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFromCache, upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
+import { instantToWall, wallClockToUtc } from "@/lib/timezone";
 
 interface CalendarEvent {
   id: string;
@@ -150,6 +151,31 @@ function localDateStrInTz(d: Date, timeZone?: string): string {
     return d.toLocaleDateString("en-CA", timeZone ? { timeZone } : undefined);
   } catch {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+}
+
+// A Date whose browser-local fields equal the instant's wall clock in `timeZone`,
+// so the manual formatters above (which read local fields) render user-tz values.
+function wallDateInTz(d: Date, timeZone?: string): Date {
+  if (!timeZone) return d;
+  try {
+    const w = instantToWall(d, timeZone);
+    return new Date(w.y, w.mo - 1, w.d, w.h, w.mi, w.s);
+  } catch {
+    return d;
+  }
+}
+
+// ISO instant for a wall-clock date+time in the user's timezone — the inverse
+// of wallDateInTz. new Date("YYYY-MM-DDTHH:mm") would parse in the *browser* tz.
+function localInputToIso(date: string, time: string, timeZone?: string): string {
+  const [y, mo, d] = date.split("-").map(Number);
+  const [h, mi] = time.split(":").map(Number);
+  if (!timeZone) return new Date(y, mo - 1, d, h, mi, 0).toISOString();
+  try {
+    return wallClockToUtc(y, mo, d, h, mi, 0, timeZone).toISOString();
+  } catch {
+    return new Date(y, mo - 1, d, h, mi, 0).toISOString();
   }
 }
 
@@ -499,8 +525,7 @@ export default function DayViewClient({ date }: { date: string }) {
             if (!Array.isArray(data)) return;
             const filtered = data.filter((e: { startAt: string }) => {
               const d = new Date(e.startAt);
-              const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-              return localDateStr === date;
+              return localDateStrInTz(d, userTimezone) === date;
             });
             setEvents(filtered);
             syncEventsToCache(date, filtered);
@@ -522,8 +547,7 @@ export default function DayViewClient({ date }: { date: string }) {
             if (!Array.isArray(data)) return;
             const filtered = data.filter((e: { startAt: string }) => {
               const d = new Date(e.startAt);
-              const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-              return localDateStr === date;
+              return localDateStrInTz(d, userTimezone) === date;
             });
             setEvents(filtered);
             syncEventsToCache(date, filtered);
@@ -544,7 +568,7 @@ export default function DayViewClient({ date }: { date: string }) {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("waqt:events-synced", handleSynced);
     };
-  }, [date]);
+  }, [date, userTimezone]);
 
   function timeToMinutes(time: string): number {
     const [h, m] = time.split(":").map(Number);
@@ -708,12 +732,11 @@ export default function DayViewClient({ date }: { date: string }) {
       return;
     }
 
-    // Convert local times to proper ISO strings (with timezone offset)
-    // so the server stores correct UTC timestamps regardless of server timezone
-    const startISO = new Date(`${date}T${newStart}:00`).toISOString();
-    const endISO = newType === "reminder"
-      ? new Date(`${date}T${newStart}:00`).toISOString()
-      : new Date(`${date}T${newEnd}:00`).toISOString();
+    // Convert wall-clock inputs to instants in the user's stored timezone —
+    // new Date("YYYY-MM-DDTHH:mm") would parse in the *browser* tz and save
+    // the event on the wrong UTC instant (and possibly the wrong day).
+    const startISO = localInputToIso(date, newStart, userTimezone);
+    const endISO = localInputToIso(date, newType === "reminder" ? newStart : newEnd, userTimezone);
 
     // Add recurrence end date if enabled
     const body: Record<string, unknown> = {
@@ -759,8 +782,7 @@ export default function DayViewClient({ date }: { date: string }) {
           };
           // Only add if it falls on the currently viewed date
           const d = new Date(tempEvent.startAt);
-          const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-          if (localDateStr === date) {
+          if (localDateStrInTz(d, userTimezone) === date) {
             setEvents((prev) => [...prev, tempEvent]);
             addEventToCache(date, tempEvent);
           }
@@ -790,8 +812,7 @@ export default function DayViewClient({ date }: { date: string }) {
             const refreshed = await refetch.json();
             const filtered = refreshed.filter((e: { startAt: string }) => {
               const d = new Date(e.startAt);
-              const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-              return localDateStr === date;
+              return localDateStrInTz(d, userTimezone) === date;
             });
             setEvents(filtered);
             syncEventsToCache(date, filtered);
@@ -874,10 +895,9 @@ export default function DayViewClient({ date }: { date: string }) {
       return;
     }
 
-    const startISO = new Date(`${date}T${newStart}:00`).toISOString();
-    const endISO = newType === "reminder"
-      ? new Date(`${date}T${newStart}:00`).toISOString()
-      : new Date(`${date}T${newEnd}:00`).toISOString();
+    // Same wall-clock → instant conversion in the user's timezone as creation.
+    const startISO = localInputToIso(date, newStart, userTimezone);
+    const endISO = localInputToIso(date, newType === "reminder" ? newStart : newEnd, userTimezone);
 
     // Bulk update — update all events in the recurring series
     if (editAllInSeries && editingEvent.seriesId) {
@@ -915,8 +935,7 @@ export default function DayViewClient({ date }: { date: string }) {
             const refreshed = await refetch.json();
             const filtered = refreshed.filter((ev: { startAt: string }) => {
               const d = new Date(ev.startAt);
-              const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-              return localDateStr === date;
+              return localDateStrInTz(d, userTimezone) === date;
             });
             setEvents(filtered);
             syncEventsToCache(date, filtered);
@@ -1121,8 +1140,7 @@ export default function DayViewClient({ date }: { date: string }) {
             const refreshed = await refetch.json();
             const filtered = refreshed.filter((ev: { startAt: string }) => {
               const d = new Date(ev.startAt);
-              const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-              return localDateStr === date;
+              return localDateStrInTz(d, userTimezone) === date;
             });
             setEvents(filtered);
             syncEventsToCache(date, filtered);
@@ -1926,9 +1944,12 @@ export default function DayViewClient({ date }: { date: string }) {
                         <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
                           {seriesEvents.map((ev) => {
                             const evDate = new Date(ev.startAt);
-                            const evDateStr = `${evDate.getFullYear()}-${String(evDate.getMonth() + 1).padStart(2, "0")}-${String(evDate.getDate()).padStart(2, "0")}`;
+                            const evDateStr = localDateStrInTz(evDate, userTimezone);
                             const isCurrent = ev.id === editingEvent.id;
                             const evEnd = new Date(ev.endAt);
+                            // Display fields in the user's stored timezone
+                            const evDateWall = wallDateInTz(evDate, userTimezone);
+                            const evEndWall = wallDateInTz(evEnd, userTimezone);
                             return (
                               <div
                                 key={ev.id}
@@ -1939,10 +1960,10 @@ export default function DayViewClient({ date }: { date: string }) {
                                 }}
                               >
                                 <span className="min-w-0 flex-1 truncate" style={{ color: "var(--color-ink)" }}>
-                                  {formatWeekdayShortDate(evDate)}
+                                  {formatWeekdayShortDate(evDateWall)}
                                   <span className="ml-1.5 tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                                    {formatTimeFromDate(evDate)}
-                                    {ev.endAt !== ev.startAt && ` - ${formatTimeFromDate(evEnd)}`}
+                                    {formatTimeFromDate(evDateWall)}
+                                    {ev.endAt !== ev.startAt && ` - ${formatTimeFromDate(evEndWall)}`}
                                   </span>
                                   {isCurrent && (
                                     <span className="ml-1.5 text-[10px] font-semibold" style={{ color: "var(--color-accent)" }}>

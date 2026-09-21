@@ -17,6 +17,24 @@ import { HOMEWORK_KINDS, KIND_LABELS, type HomeworkKind } from "@/lib/homework/k
 import { parseHomeworkTitle } from "@/lib/homework/parse";
 import { parseICS, type ICSEntry } from "@/lib/homework/ics";
 import { computeCushion } from "@/lib/homework/cushion";
+import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { wallClockToUtc } from "@/lib/timezone";
+
+// Wall-clock date+time → ISO instant in the user's stored timezone.
+// new Date("YYYY-MM-DDTHH:mm") parses in the *browser* tz — wrong instant
+// (and possibly wrong day) whenever it differs from the stored tz.
+function wallToIso(date: string, time: string): string {
+  const [y, mo, d] = date.split("-").map(Number);
+  const [h, mi] = time.slice(0, 5).split(":").map(Number);
+  const local = () => new Date(y, mo - 1, d, h, mi, 0).toISOString();
+  const tz = getCachedPrayerSettings()?.timezone;
+  if (!tz) return local();
+  try {
+    return wallClockToUtc(y, mo, d, h, mi, 0, tz).toISOString();
+  } catch {
+    return local();
+  }
+}
 
 export interface HomeworkSubtask {
   id: string;
@@ -330,9 +348,9 @@ export default function HomeworkClient({
       // Build full instants for the planned session (sent alongside the local
       // date/time fields so the server can place the calendar event correctly)
       const plannedStartAt = plannedDate && plannedStartTime
-        ? new Date(`${plannedDate}T${plannedStartTime}:00`).toISOString() : null;
+        ? wallToIso(plannedDate, plannedStartTime) : null;
       const plannedEndAt = plannedDate && plannedEndTime
-        ? new Date(`${plannedDate}T${plannedEndTime}:00`).toISOString()
+        ? wallToIso(plannedDate, plannedEndTime)
         : plannedStartAt ? new Date(new Date(plannedStartAt).getTime() + 60 * 60 * 1000).toISOString() : null;
 
       const payload = {
@@ -533,10 +551,10 @@ export default function HomeworkClient({
       // Un-completing restores the planned study session — resend the
       // instants so the server recreates the calendar event it deleted.
       if (newStatus === "pending" && hw.plannedDate && hw.plannedStartTime) {
-        const start = new Date(`${hw.plannedDate}T${hw.plannedStartTime.slice(0, 5)}:00`);
+        const start = new Date(wallToIso(hw.plannedDate, hw.plannedStartTime));
         if (!isNaN(start.getTime())) {
           payload.plannedStartAt = start.toISOString();
-          const end = hw.plannedEndTime ? new Date(`${hw.plannedDate}T${hw.plannedEndTime.slice(0, 5)}:00`) : null;
+          const end = hw.plannedEndTime ? new Date(wallToIso(hw.plannedDate, hw.plannedEndTime)) : null;
           payload.plannedEndAt = end && !isNaN(end.getTime())
             ? end.toISOString()
             : new Date(start.getTime() + 60 * 60 * 1000).toISOString();
@@ -626,7 +644,7 @@ export default function HomeworkClient({
           if (!pt) continue;
           for (const t of [pt.fajr, pt.dhuhr, pt.asr, pt.maghrib, pt.isha]) {
             if (!t) continue;
-            const start = new Date(`${dateStr}T${t.slice(0, 5)}:00`);
+            const start = new Date(wallToIso(dateStr, t));
             if (!isNaN(start.getTime())) {
               events.push({ startAt: start, endAt: new Date(start.getTime() + 45 * 60000) });
             }

@@ -3,6 +3,19 @@
  * These are fire-and-forget — cache write failures are non-critical.
  */
 import { getOfflineDB } from "./db";
+import { getCachedPrayerSettings } from "./settings-cache";
+
+// YYYY-MM-DD of an instant in the user's stored timezone (browser tz fallback).
+// _dateKey must match what the calendar views use or events ghost onto the
+// wrong day offline.
+function eventDateKey(d: Date): string {
+  const tz = getCachedPrayerSettings()?.timezone;
+  try {
+    return d.toLocaleDateString("en-CA", tz ? { timeZone: tz } : undefined);
+  } catch {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+}
 
 interface EventLike {
   id: string;
@@ -83,9 +96,8 @@ export function updateEventInCache(event: EventLike): void {
   if (typeof window === "undefined") return;
   try {
     const db = getOfflineDB();
-    // Derive new _dateKey from startAt
-    const d = new Date(event.startAt);
-    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    // Derive new _dateKey from startAt in the user's stored timezone
+    const dateKey = eventDateKey(new Date(event.startAt));
     // First, check if the event already exists with a different _dateKey.
     // If so, delete the old entry to avoid stale ghost events on the old date.
     db.events.get(event.id).then((existing) => {

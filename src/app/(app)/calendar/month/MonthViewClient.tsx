@@ -4,6 +4,19 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Check } from "lucide-react";
 import { getOfflineDB } from "@/lib/offline/db";
+import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
+
+// User's stored timezone (same source DayViewClient uses) — events must be
+// bucketed by local date in this zone, not the browser's, or an event set for
+// Friday can render under Saturday.
+function eventDateKey(d: Date): string {
+  const tz = getCachedPrayerSettings()?.timezone;
+  try {
+    return d.toLocaleDateString("en-CA", tz ? { timeZone: tz } : undefined);
+  } catch {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+}
 
 interface CalendarEvent {
   id: string;
@@ -33,16 +46,30 @@ function getReminderColor(title: string, chosenColor?: string | null): string {
   return REMINDER_COLORS[Math.abs(hash) % REMINDER_COLORS.length];
 }
 
-// Manual time formatter — avoids toLocaleTimeString which produces different
-// output on Node.js (server) vs browser (client), causing hydration mismatches.
+// Event times render in the user's stored timezone — Intl gives us the wall
+// clock there; manual formatting keeps output stable across platforms.
 function formatEventTime(isoString: string): string {
   const d = new Date(isoString);
   if (isNaN(d.getTime())) return "";
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const hour = h % 12 || 12;
-  const period = h < 12 ? "AM" : "PM";
-  return `${hour}:${String(m).padStart(2, "0")} ${period}`;
+  const tz = getCachedPrayerSettings()?.timezone;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).formatToParts(d);
+    const hour = parts.find((p) => p.type === "hour")?.value ?? "";
+    const minute = parts.find((p) => p.type === "minute")?.value ?? "00";
+    const period = (parts.find((p) => p.type === "dayPeriod")?.value ?? "AM").toUpperCase();
+    return `${hour}:${minute} ${period}`;
+  } catch {
+    const h = d.getHours();
+    const m = d.getMinutes();
+    const hour = h % 12 || 12;
+    const period = h < 12 ? "AM" : "PM";
+    return `${hour}:${String(m).padStart(2, "0")} ${period}`;
+  }
 }
 
 interface PrayerLogEntry {
@@ -157,8 +184,7 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
           if (!Array.isArray(events)) return;
           const grouped: Record<string, CalendarEvent[]> = {};
           for (const event of events) {
-            const d = new Date(event.startAt);
-            const eventDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            const eventDate = eventDateKey(new Date(event.startAt));
             if (!grouped[eventDate]) grouped[eventDate] = [];
             grouped[eventDate].push(event);
           }
@@ -177,8 +203,7 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
             }
             await db.events.where("_dateKey").anyOf(dateKeys).delete();
             await db.events.bulkPut(events.map((e) => {
-              const d = new Date(e.startAt);
-              const eventDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+              const eventDate = eventDateKey(new Date(e.startAt));
               return {
                 id: e.id,
                 userId: "",
@@ -275,8 +300,7 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
   useEffect(() => {
     // Defer setState outside the effect body to avoid cascading renders
     Promise.resolve().then(() => {
-      const now = new Date();
-      setToday(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`);
+      setToday(eventDateKey(new Date()));
     });
   }, []);
 

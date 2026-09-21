@@ -8,6 +8,29 @@ import { instantToWall, wallClockToUtc, dateStrInTimezone } from "@/lib/timezone
 
 export const dynamic = "force-dynamic";
 
+// The user's stored timezone — wall-clock math for events is always done in
+// this zone, never the server's or the browser's.
+async function getUserTimezone(userId: string): Promise<string> {
+  const [settings] = await db
+    .select({ timezone: schema.prayerSettings.timezone })
+    .from(schema.prayerSettings)
+    .where(eq(schema.prayerSettings.userId, userId))
+    .limit(1);
+  return settings?.timezone || "UTC";
+}
+
+// Start (00:00) of a YYYY-MM-DD calendar date in `tz`, as a UTC instant.
+// Returns null on malformed input.
+function localDateStartUtc(dateStr: string, tz: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  return wallClockToUtc(y, mo, d, 0, 0, 0, tz);
+}
+
+// Milliseconds since local midnight of a wall clock.
+const wallTodMs = (w: { h: number; mi: number; s: number }) =>
+  (w.h * 3600 + w.mi * 60 + w.s) * 1000;
+
 // GET /api/events/bulk?seriesId=...&fromDate=... — returns the number of events in a series
 // If fromDate is provided, only counts events from that date forward (future events).
 export async function GET(request: NextRequest) {
@@ -30,8 +53,8 @@ export async function GET(request: NextRequest) {
   ];
 
   if (fromDate) {
-    const cutoff = new Date(fromDate + "T00:00:00");
-    if (!isNaN(cutoff.getTime())) {
+    const cutoff = localDateStartUtc(fromDate, await getUserTimezone(session.userId));
+    if (cutoff) {
       conditions.push(gte(schema.events.startAt, cutoff));
     }
   }
@@ -84,16 +107,21 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Valid seriesId is required." }, { status: 400 });
   }
 
+  // All wall-clock math below happens in the user's stored timezone — DST
+  // transitions shift UTC offsets, so fixed-millisecond shifts would drift.
+  const userTz = await getUserTimezone(session.userId);
+
   // Scope: when the client sends fromDate, only events on/after that date are
   // modified — matches the "all N events in this series" count shown in the UI
-  // (which counts from the viewed date forward).
+  // (which counts from the viewed date forward). The boundary is local
+  // midnight in the user's timezone, not server-local.
   const scopeConds = [
     eq(schema.events.userId, session.userId),
     eq(schema.events.seriesId, seriesId),
   ];
   if (fromDate) {
-    const cutoff = new Date(fromDate + "T00:00:00");
-    if (!isNaN(cutoff.getTime())) {
+    const cutoff = localDateStartUtc(fromDate, userTz);
+    if (cutoff) {
       scopeConds.push(gte(schema.events.startAt, cutoff));
     }
   }
@@ -131,12 +159,10 @@ export async function PATCH(request: NextRequest) {
     updates.color = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
   }
 
-  // Events in a recurring series share the same UTC time-of-day (occurrences
-  // are whole-day shifts of the first event). Compare time-of-day only —
-  // comparing absolute timestamps would include the date gap between the
-  // first and edited occurrence and shift every event to a different day.
+  // Occurrences keep the same *wall-clock* time in the user's timezone —
+  // across DST their UTC time-of-day legitimately differs by an hour, so all
+  // comparisons and shifts below are done on wall-clock fields, not UTC ms.
   const MS_DAY = 24 * 60 * 60 * 1000;
-  const todMs = (d: Date) => ((d.getTime() % MS_DAY) + MS_DAY) % MS_DAY;
 
   // Fetch the series once (ordered) when we need a reference event for the
   // time-of-day/duration delta or when extending the series end date.
@@ -172,19 +198,20 @@ export async function PATCH(request: NextRequest) {
   const refEvent = seriesRows?.[0];
   const lastEvent = seriesRows?.[seriesRows.length - 1];
 
-  // Time-shift: if startAt and/or endAt are provided, shift all events in the
-  // series by the same time-of-day delta. This preserves each occurrence's
-  // calendar date while updating the time.
-  let timeShiftMs: number | null = null;
-  let durationDeltaMs = 0;
+  // Time-shift: if startAt and/or endAt are provided, rebuild every in-scope
+  // occurrence at the requested wall-clock time on its own local calendar
+  // date. This preserves wall time across DST — the old fixed-ms shift made a
+  // recurring 12pm event drift to 11am/1pm after a transition.
+  let newStartWall: { h: number; mi: number; s: number } | null = null;
+  let newDurationMs: number | null = null;
 
   if (startAt !== undefined && refEvent) {
     const newStart = new Date(startAt);
     if (isNaN(newStart.getTime())) {
       return NextResponse.json({ error: "Invalid start time." }, { status: 400 });
     }
-    const delta = todMs(newStart) - todMs(refEvent.startAt);
-    timeShiftMs = delta !== 0 ? delta : null;
+    const w = instantToWall(newStart, userTz);
+    newStartWall = { h: w.h, mi: w.mi, s: w.s };
   }
 
   if (endAt !== undefined && refEvent) {
@@ -192,16 +219,15 @@ export async function PATCH(request: NextRequest) {
     if (isNaN(newEnd.getTime())) {
       return NextResponse.json({ error: "Invalid end time." }, { status: 400 });
     }
-    const oldDuration = refEvent.endAt.getTime() - refEvent.startAt.getTime();
-    const newDuration =
-      todMs(newEnd) -
-      todMs(startAt !== undefined ? new Date(startAt) : refEvent.startAt);
+    const endWall = instantToWall(newEnd, userTz);
+    const startWall = newStartWall ?? instantToWall(refEvent.startAt, userTz);
+    const duration = wallTodMs(endWall) - wallTodMs(startWall);
     // For blocks/tasks, duration must be positive
     const effectiveType = (updates.type as string) || refEvent.type;
-    if (effectiveType !== "reminder" && newDuration <= 0) {
+    if (effectiveType !== "reminder" && duration <= 0) {
       return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
     }
-    durationDeltaMs = newDuration - oldDuration;
+    newDurationMs = Math.max(0, duration);
   }
 
   // ── Series extension: generate new occurrences up to a later end date ──
@@ -218,20 +244,8 @@ export async function PATCH(request: NextRequest) {
     if (!ruleMatch) {
       return NextResponse.json({ error: "This series cannot be extended." }, { status: 400 });
     }
-    const newEnd = new Date(recurrenceEndDate + "T23:59:59");
-    if (isNaN(newEnd.getTime())) {
-      return NextResponse.json({ error: "Invalid recurrence end date." }, { status: 400 });
-    }
-
     const days = ruleMatch[1].split(",").map(Number);
 
-    // Get user's timezone to compute local calendar dates + wall-clock times
-    const [settings] = await db
-      .select({ timezone: schema.prayerSettings.timezone })
-      .from(schema.prayerSettings)
-      .where(eq(schema.prayerSettings.userId, session.userId))
-      .limit(1);
-    const userTz = settings?.timezone || "UTC";
     const lastWall = instantToWall(lastEvent.startAt, userTz);
     const lastLocalStr = dateStrInTimezone(lastEvent.startAt, userTz);
     const occDurationMs = lastEvent.endAt.getTime() - lastEvent.startAt.getTime();
@@ -292,13 +306,13 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  if (Object.keys(updates).length === 0 && timeShiftMs === null && extendedBy === 0) {
+  if (Object.keys(updates).length === 0 && newStartWall === null && newDurationMs === null && extendedBy === 0) {
     return NextResponse.json({ error: "No fields to update." }, { status: 400 });
   }
 
   // Fetch all events in scope to apply time shifts individually.
   // Runs AFTER extension so newly inserted occurrences are shifted too.
-  if (timeShiftMs !== null || durationDeltaMs !== 0) {
+  if (newStartWall !== null || newDurationMs !== null) {
     const allEvents = await db
       .select({ id: schema.events.id, startAt: schema.events.startAt, endAt: schema.events.endAt })
       .from(schema.events)
@@ -308,12 +322,17 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "No events found for this series." }, { status: 404 });
     }
 
-    // Update each event individually with its shifted time
+    // Update each event individually: same wall-clock time on its own local
+    // calendar date — DST-safe, and it also repairs previously drifted
+    // occurrences (a series saved at 12pm pre-fix may have drifted to 11am).
     let updatedCount = 0;
     for (const ev of allEvents) {
-      const newStart = timeShiftMs !== null ? new Date(ev.startAt.getTime() + timeShiftMs) : ev.startAt;
-      const oldDuration = ev.endAt.getTime() - ev.startAt.getTime();
-      const newEnd = new Date(newStart.getTime() + oldDuration + durationDeltaMs);
+      const w = instantToWall(ev.startAt, userTz);
+      const newStart = newStartWall
+        ? wallClockToUtc(w.y, w.mo, w.d, newStartWall.h, newStartWall.mi, newStartWall.s, userTz)
+        : ev.startAt;
+      const duration = newDurationMs ?? (ev.endAt.getTime() - ev.startAt.getTime());
+      const newEnd = new Date(newStart.getTime() + duration);
 
       await db.update(schema.events)
         .set({
@@ -374,19 +393,14 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Valid seriesId is required." }, { status: 400 });
   }
 
-  // Determine the cutoff: start of fromDate (or today if not provided).
-  // Events with startAt >= cutoff are deleted. Past events are preserved.
-  let cutoff: Date;
-  if (fromDate) {
-    cutoff = new Date(fromDate + "T00:00:00");
-    if (isNaN(cutoff.getTime())) {
-      return NextResponse.json({ error: "Invalid fromDate." }, { status: 400 });
-    }
-  } else {
-    // Default to start of today in the user's local context.
-    // Using UTC midnight of today's date to be safe.
-    const now = new Date();
-    cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Determine the cutoff: start of fromDate in the user's timezone (or today
+  // if not provided). Events with startAt >= cutoff are deleted. Past events
+  // are preserved — "past" means before local midnight in the user's tz.
+  const userTz = await getUserTimezone(session.userId);
+  const from = fromDate ?? dateStrInTimezone(new Date(), userTz);
+  const cutoff = localDateStartUtc(from, userTz);
+  if (!cutoff) {
+    return NextResponse.json({ error: "Invalid fromDate." }, { status: 400 });
   }
 
   const deleted = await db

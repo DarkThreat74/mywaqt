@@ -4,6 +4,22 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Calendar, Clock, Bell } from "lucide-react";
 import { getOfflineDB } from "@/lib/offline/db";
+import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { instantToWall } from "@/lib/timezone";
+
+// A Date whose browser-local fields equal the instant's wall clock in the
+// user's stored timezone — grouping/formatting must use this zone or events
+// land on the wrong day when it differs from the browser's.
+function wallDate(d: Date): Date {
+  const tz = getCachedPrayerSettings()?.timezone;
+  if (!tz) return d;
+  try {
+    const w = instantToWall(d, tz);
+    return new Date(w.y, w.mo - 1, w.d, w.h, w.mi, w.s);
+  } catch {
+    return d;
+  }
+}
 
 interface CalendarEvent {
   id: string;
@@ -48,8 +64,9 @@ function addDays(dateStr: string, days: number): string {
 }
 
 function formatTimeFromDate(date: Date): string {
-  const h = date.getHours();
-  const m = date.getMinutes();
+  const d = wallDate(date);
+  const h = d.getHours();
+  const m = d.getMinutes();
   const hour = h % 12 || 12;
   const period = h < 12 ? "AM" : "PM";
   return `${hour}:${String(m).padStart(2, "0")} ${period}`;
@@ -69,7 +86,7 @@ function formatTimeRange(startAt: string, endAt: string, type: string): string {
 }
 
 function getEventLocalDate(startAt: string): string {
-  const d = new Date(startAt);
+  const d = wallDate(new Date(startAt));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 

@@ -40,6 +40,15 @@ export default function PrayerCheckinPopup({
   const [sunnahLoading, setSunnahLoading] = useState<string | null>(null);
   // Track whether this is a late log (window ended) to skip sunnahs
   const [isLateLog, setIsLateLog] = useState(false);
+  // Saved check-in result, set once the fard POST succeeds. Every close path
+  // (backdrop, X, Done) must report it to the parent — otherwise the prayer
+  // stays unmarked in the UI even though the server recorded it.
+  const [checkinResult, setCheckinResult] = useState<{ status: string; wentToMasjid: boolean | null } | null>(null);
+
+  function close() {
+    if (checkinResult) onCheckedIn(checkinResult);
+    else onClose();
+  }
 
   // Get current time in user's timezone
   const now = new Date();
@@ -127,16 +136,26 @@ export default function PrayerCheckinPopup({
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
         invalidateApiCache("/api/prayer-log");
+        // Offline: the SW queued the write and returns {offline:true} with no
+        // row fields — synthesize the result from the request so the UI marks
+        // the prayer immediately instead of looking like the tap failed.
+        const result = data.offline
+          ? { status: "prayed", wentToMasjid }
+          : { status: data.status, wentToMasjid: data.wentToMasjid };
+        play("check");
+        void hapticNotification("success");
         // Only show sunnah step if:
         // 1. There are sunnahs for this prayer
         // 2. This is NOT a late log (window was open when user confirmed)
         if (sunnahDefs.length > 0 && !isLateLog) {
+          // The fard is already saved server-side. Remember the result so any
+          // close path (backdrop, X, Done) still reports it to the parent —
+          // previously closing here left the UI showing the prayer unlogged.
+          setCheckinResult(result);
           setStep("sunnah");
           setLoading(false);
         } else {
-          play("check");
-          void hapticNotification("success");
-          onCheckedIn({ status: data.status, wentToMasjid: data.wentToMasjid });
+          onCheckedIn(result);
         }
       } else {
         const data = await res.json().catch(() => ({}));
@@ -262,7 +281,7 @@ export default function PrayerCheckinPopup({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
-      onClick={onClose}
+      onClick={close}
     >
       <div
         role="dialog"
@@ -281,7 +300,7 @@ export default function PrayerCheckinPopup({
             {displayLabel}
           </h2>
           <button
-            onClick={() => { play("close"); onClose(); }}
+            onClick={() => { play("close"); close(); }}
             className="min-h-11 min-w-11 rounded-lg p-2 transition-colors hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-muted)" }}
             aria-label="Close"
@@ -313,7 +332,7 @@ export default function PrayerCheckinPopup({
               It begins at {startTimeStr}. Check back then, in sha&apos; Allah.
             </p>
             <button
-              onClick={onClose}
+              onClick={close}
               className="min-h-11 w-full rounded-lg border py-2.5 text-sm font-medium transition-colors"
               style={{
                 borderColor: "var(--color-paper-3)",
@@ -372,7 +391,7 @@ export default function PrayerCheckinPopup({
                     Prayed Zuhr instead
                   </button>
                   <button
-                    onClick={onClose}
+                    onClick={close}
                     disabled={loading}
                     className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
                     style={{
@@ -400,7 +419,7 @@ export default function PrayerCheckinPopup({
                   Yes, I prayed
                 </button>
                 <button
-                  onClick={onClose}
+                  onClick={close}
                   disabled={loading}
                   className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
                   style={{
@@ -447,7 +466,7 @@ export default function PrayerCheckinPopup({
                 Yes, I forgot to log
               </button>
               <button
-                onClick={onClose}
+                onClick={close}
                 disabled={loading}
                 className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
                 style={{
@@ -646,7 +665,7 @@ export default function PrayerCheckinPopup({
             </div>
 
             <button
-              onClick={() => onCheckedIn({ status: "prayed", wentToMasjid: null })}
+              onClick={() => onCheckedIn(checkinResult ?? { status: "prayed", wentToMasjid: null })}
               className="min-h-11 w-full rounded-lg border py-2.5 text-sm font-medium transition-colors"
               style={{
                 borderColor: "var(--color-paper-3)",
