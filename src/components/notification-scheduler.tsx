@@ -441,6 +441,65 @@ export default function NotificationScheduler() {
     }
   }, [showNotification]);
 
+  /**
+   * Homework deadline reminders — "due in 3 days" / "due tomorrow" / "due
+   * today" local notifications fired at 9am device-local on the trigger day.
+   * Runs while the app is open like the event reminders; if the trigger time
+   * has already passed today it fires immediately once (stable notification
+   * tags make re-fires replace rather than stack).
+   */
+  const scheduleHomeworkNotifications = useCallback(async (today: string) => {
+    try {
+      let items: Array<{ id: string; title: string; dueDate: string; status: string }> | null = null;
+      try {
+        const db = getOfflineDB();
+        const cached = await db.homework.toArray();
+        items = cached.map((h) => ({ id: h.id, title: h.title, dueDate: h.dueDate, status: h.status }));
+      } catch {
+        // IndexedDB unavailable — fall through to API
+      }
+      if (!items || items.length === 0) {
+        const res = await fetch(`/api/homework?from=${today}&to=${today}`);
+        if (res.ok) items = await res.json().catch(() => null);
+      }
+      if (!items || !Array.isArray(items)) return;
+
+      // Local "today" in the prayer timezone, then per-homework day delta
+      const dayMs = 24 * 60 * 60 * 1000;
+      const todayMidnight = new Date(`${today}T00:00:00`);
+      const now = new Date();
+
+      for (const hw of items) {
+        if (hw.status !== "pending") continue;
+        const dueMidnight = new Date(`${hw.dueDate}T00:00:00`);
+        const diffDays = Math.round((dueMidnight.getTime() - todayMidnight.getTime()) / dayMs);
+        // Stages: 3 days out, tomorrow, today (skip 2-day gap and overdue)
+        if (diffDays < 0 || diffDays > 3 || diffDays === 2) continue;
+
+        const label = diffDays === 0 ? "Due today" : diffDays === 1 ? "Due tomorrow" : "Due in 3 days";
+        const tag = `hw-${hw.id}-${diffDays}d-${hw.dueDate}`;
+        if (firedNotifications.has(tag)) continue;
+
+        // Fire at 9am device-local; if that's already past, fire now
+        const fireAt = new Date(todayMidnight);
+        fireAt.setHours(9, 0, 0, 0);
+        const diffMs = fireAt.getTime() - now.getTime();
+        if (diffMs <= 60 * 1000) {
+          firedNotifications.add(tag);
+          showNotification("Homework", `${label}: ${hw.title}`, tag, "/goals");
+        } else {
+          const timer = setTimeout(() => {
+            firedNotifications.add(tag);
+            showNotification("Homework", `${label}: ${hw.title}`, tag, "/goals");
+          }, diffMs);
+          timersRef.current.push(timer);
+        }
+      }
+    } catch (err) {
+      console.warn("[Waqt] Homework notification scheduling failed:", err);
+    }
+  }, [showNotification]);
+
   const scheduleAll = useCallback(async () => {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     // Compute today/tomorrow in the user's prayer timezone, not browser-local.
@@ -460,11 +519,12 @@ export default function NotificationScheduler() {
         schedulePrayerNotifications(tomorrow),
         scheduleReminderNotifications(today),
         scheduleReminderNotifications(tomorrow),
+        scheduleHomeworkNotifications(today),
       ]);
     } catch {
       // will retry on next interval
     }
-  }, [schedulePrayerNotifications, scheduleReminderNotifications]);
+  }, [schedulePrayerNotifications, scheduleReminderNotifications, scheduleHomeworkNotifications]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator) || !("Notification" in window)) return;

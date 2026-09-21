@@ -93,6 +93,12 @@ export interface CachedHomework {
   priority: string;
   status: string;
   kind: string;
+  plannedDate?: string | null;
+  plannedStartTime?: string | null;
+  plannedEndTime?: string | null;
+  estimatedMinutes?: number | null;
+  plannedEventId?: string | null;
+  subtasks?: Array<{ id: string; title: string; done: boolean }>;
   completedAt: string | null;
   _pending?: boolean;
   _cachedAt: number;

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, gte, lte, asc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, asc, sql, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { HOMEWORK_KINDS, type HomeworkKind } from "@/lib/homework/kinds";
+import { syncPlannedEvent } from "@/lib/homework/planned";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +43,31 @@ export async function GET(request: NextRequest) {
       priority: schema.homeworks.priority,
       status: schema.homeworks.status,
       kind: schema.homeworks.kind,
+      plannedDate: schema.homeworks.plannedDate,
+      plannedStartTime: schema.homeworks.plannedStartTime,
+      plannedEndTime: schema.homeworks.plannedEndTime,
+      estimatedMinutes: schema.homeworks.estimatedMinutes,
+      plannedEventId: schema.homeworks.plannedEventId,
       completedAt: schema.homeworks.completedAt,
+    };
+
+    // Attach subtasks to a result set in one batched query (no N+1)
+    const withSubtasks = async <T extends { id: string }>(rows: T[]) => {
+      if (rows.length === 0) return rows;
+      const subs = await db
+        .select()
+        .from(schema.homeworkSubtasks)
+        .where(and(
+          eq(schema.homeworkSubtasks.userId, session.userId),
+          inArray(schema.homeworkSubtasks.homeworkId, rows.map((r) => r.id)),
+        ))
+        .orderBy(asc(schema.homeworkSubtasks.sortOrder), asc(schema.homeworkSubtasks.createdAt));
+      const byHw = new Map<string, typeof subs>();
+      for (const s of subs) {
+        if (!byHw.has(s.homeworkId)) byHw.set(s.homeworkId, []);
+        byHw.get(s.homeworkId)!.push(s);
+      }
+      return rows.map((r) => ({ ...r, subtasks: byHw.get(r.id) ?? [] }));
     };
 
     // Single-date query: only homework due on that specific date
@@ -58,7 +83,7 @@ export async function GET(request: NextRequest) {
         )
         .orderBy(asc(schema.homeworks.dueDate), asc(schema.homeworks.dueTime))
         .limit(100);
-      return NextResponse.json(homework);
+      return NextResponse.json(await withSubtasks(homework));
     }
 
     // Date-range query
@@ -84,7 +109,7 @@ export async function GET(request: NextRequest) {
         )
         .orderBy(asc(schema.homeworks.dueDate), asc(schema.homeworks.dueTime))
         .limit(500);
-      return NextResponse.json(homework);
+      return NextResponse.json(await withSubtasks(homework));
     }
 
     // No date filter — return only pending + recently completed (last 30 days)
@@ -104,7 +129,7 @@ export async function GET(request: NextRequest) {
       .orderBy(asc(schema.homeworks.dueDate), asc(schema.homeworks.dueTime))
       .limit(200);
 
-    return NextResponse.json(homework);
+    return NextResponse.json(await withSubtasks(homework));
   } catch (err) {
     logError(err, { route: "homework/GET" });
     return NextResponse.json({ error: "Failed to fetch homework" }, { status: 500 });
@@ -133,6 +158,13 @@ export async function POST(request: NextRequest) {
       priority?: string;
       kind?: string;
       clientId?: string;
+      plannedDate?: string | null;
+      plannedStartTime?: string | null;
+      plannedEndTime?: string | null;
+      plannedStartAt?: string | null;
+      plannedEndAt?: string | null;
+      estimatedMinutes?: number | null;
+      subtasks?: string[];
     };
     try {
       body = await request.json();
@@ -162,16 +194,38 @@ export async function POST(request: NextRequest) {
 
     const kind = body.kind && (HOMEWORK_KINDS as readonly string[]).includes(body.kind) ? body.kind : "homework";
 
+    // Validate planned fields
+    const plannedDate = body.plannedDate && /^\d{4}-\d{2}-\d{2}$/.test(body.plannedDate) ? body.plannedDate : null;
+    const plannedStartTime = body.plannedStartTime && /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(body.plannedStartTime)
+      ? body.plannedStartTime.slice(0, 8) : null;
+    const plannedEndTime = body.plannedEndTime && /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(body.plannedEndTime)
+      ? body.plannedEndTime.slice(0, 8) : null;
+    const plannedStartAt = body.plannedStartAt ? new Date(body.plannedStartAt) : null;
+    const plannedEndAt = body.plannedEndAt ? new Date(body.plannedEndAt) : null;
+    if (body.plannedStartAt && isNaN(plannedStartAt!.getTime())) {
+      return NextResponse.json({ error: "Invalid planned start" }, { status: 400 });
+    }
+    if (body.plannedEndAt && isNaN(plannedEndAt!.getTime())) {
+      return NextResponse.json({ error: "Invalid planned end" }, { status: 400 });
+    }
+    const estimatedMinutes = typeof body.estimatedMinutes === "number" && body.estimatedMinutes > 0 && body.estimatedMinutes <= 24 * 60
+      ? Math.round(body.estimatedMinutes) : null;
+    const subtaskTitles = Array.isArray(body.subtasks)
+      ? body.subtasks.map((t) => String(t).trim().slice(0, 200)).filter(Boolean).slice(0, 50)
+      : [];
+
     // Validate classId belongs to the user if provided
+    let classColor: string | null = null;
     if (body.classId) {
       const [classRow] = await db
-        .select({ id: schema.classes.id })
+        .select({ id: schema.classes.id, color: schema.classes.color })
         .from(schema.classes)
         .where(and(eq(schema.classes.id, body.classId), eq(schema.classes.userId, session.userId)))
         .limit(1);
       if (!classRow) {
         return NextResponse.json({ error: "Invalid class" }, { status: 400 });
       }
+      classColor = classRow.color;
     }
 
     // Offline-created homework carries a client uuid — used as the real row id
@@ -190,6 +244,10 @@ export async function POST(request: NextRequest) {
         dueTime: body.dueTime || null,
         priority: priority as "low" | "medium" | "high",
         kind: kind as HomeworkKind,
+        plannedDate,
+        plannedStartTime,
+        plannedEndTime,
+        estimatedMinutes,
       })
       .onConflictDoNothing({ target: schema.homeworks.id })
       .returning();
@@ -203,7 +261,38 @@ export async function POST(request: NextRequest) {
       if (existing) return NextResponse.json(existing);
     }
 
-    return NextResponse.json(inserted[0]);
+    const hw = inserted[0];
+
+    // Link a calendar event for the planned study session
+    let plannedEventId: string | null = null;
+    if (plannedStartAt) {
+      try {
+        plannedEventId = await syncPlannedEvent(session.userId, {
+          id: hw.id,
+          title: hw.title,
+          status: hw.status,
+          plannedStartAt: plannedStartAt.toISOString(),
+          plannedEndAt: plannedEndAt?.toISOString() ?? null,
+          classColor,
+        });
+        if (plannedEventId) {
+          await db.update(schema.homeworks).set({ plannedEventId }).where(eq(schema.homeworks.id, hw.id));
+        }
+      } catch (err) {
+        logError(err, { route: "homework/POST", phase: "planned-event", hwId: hw.id });
+      }
+    }
+
+    // Checklist steps
+    let subtasks: typeof schema.homeworkSubtasks.$inferSelect[] = [];
+    if (subtaskTitles.length > 0) {
+      subtasks = await db
+        .insert(schema.homeworkSubtasks)
+        .values(subtaskTitles.map((t, i) => ({ userId: session.userId, homeworkId: hw.id, title: t, sortOrder: i })))
+        .returning();
+    }
+
+    return NextResponse.json({ ...hw, plannedEventId, subtasks });
   } catch (err) {
     logError(err, { route: "homework/POST" });
     return NextResponse.json({ error: "Failed to create homework" }, { status: 500 });

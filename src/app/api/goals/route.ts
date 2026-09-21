@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
       color?: string;
       goalType?: string;
       targetDate?: string | null;
+      progressTarget?: number | null;
       clientId?: string;
     };
     try {
@@ -119,6 +120,8 @@ export async function POST(request: NextRequest) {
         color: body.color || null,
         goalType,
         targetDate,
+        progressTarget: typeof body.progressTarget === "number" && body.progressTarget > 0 && body.progressTarget <= 1_000_000
+          ? Math.round(body.progressTarget) : null,
         sortOrder: goalCount,
       })
       .onConflictDoNothing({ target: schema.goals.id })
@@ -162,6 +165,8 @@ export async function PATCH(request: NextRequest) {
       sortOrder?: number;
       goalType?: string;
       targetDate?: string | null;
+      progressCurrent?: number;
+      progressTarget?: number | null;
     };
     try {
       body = await request.json();
@@ -253,6 +258,20 @@ export async function PATCH(request: NextRequest) {
         }
         updates.targetDate = body.targetDate;
       }
+    }
+    if (body.progressTarget !== undefined) {
+      if (body.progressTarget !== null && (typeof body.progressTarget !== "number" || body.progressTarget <= 0 || body.progressTarget > 1_000_000)) {
+        return NextResponse.json({ error: "Invalid progress target" }, { status: 400 });
+      }
+      updates.progressTarget = body.progressTarget === null ? null : Math.round(body.progressTarget);
+      if (body.progressTarget === null) updates.progressCurrent = 0;
+    }
+    if (body.progressCurrent !== undefined) {
+      const cap = body.progressTarget ?? existing.progressTarget ?? 1_000_000;
+      if (typeof body.progressCurrent !== "number" || body.progressCurrent < 0 || body.progressCurrent > cap) {
+        return NextResponse.json({ error: "Invalid progress" }, { status: 400 });
+      }
+      updates.progressCurrent = Math.round(body.progressCurrent);
     }
     if (body.color !== undefined) updates.color = body.color || null;
     if (body.parentId !== undefined) updates.parentId = body.parentId;

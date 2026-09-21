@@ -9,6 +9,10 @@ import { syncGoalsToCache } from "@/lib/offline/cache-writers";
 
 type View = "list" | "tree";
 
+// Day-granularity "now" for pace-line math — recomputed on each page load,
+// which is precise enough for a progress-vs-expected indicator.
+const NOW_MS = Date.now();
+
 export default function GoalsTab({
   goals,
   setGoals,
@@ -375,6 +379,16 @@ function GoalRow({
 }) {
   const isDone = goal.status === "done";
   const isEditing = editingId === goal.id;
+  const [editProgressTarget, setEditProgressTarget] = useState("");
+  const [seededEditId, setSeededEditId] = useState<string | null>(null);
+  // Seed the progress-target input when editing starts — render-time
+  // adjustment pattern (avoids setState-in-effect cascading renders)
+  if (isEditing && seededEditId !== goal.id) {
+    setSeededEditId(goal.id);
+    setEditProgressTarget(goal.progressTarget != null ? String(goal.progressTarget) : "");
+  } else if (!isEditing && seededEditId !== null) {
+    setSeededEditId(null);
+  }
 
   return (
     <div
@@ -422,7 +436,7 @@ function GoalRow({
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null }); setEditingId(null); }
+                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null, progressTarget: editProgressTarget ? Number(editProgressTarget) : null }); setEditingId(null); }
                 if (e.key === "Escape") setEditingId(null);
               }}
               className="rounded border px-2 py-1 text-sm outline-none"
@@ -432,7 +446,7 @@ function GoalRow({
               value={editDescription}
               onChange={(e) => setEditDescription(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null }); setEditingId(null); }
+                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null, progressTarget: editProgressTarget ? Number(editProgressTarget) : null }); setEditingId(null); }
                 if (e.key === "Escape") setEditingId(null);
               }}
               placeholder="Description..."
@@ -444,10 +458,23 @@ function GoalRow({
               value={editTargetDate}
               onChange={(e) => setEditTargetDate(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null }); setEditingId(null); }
+                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null, progressTarget: editProgressTarget ? Number(editProgressTarget) : null }); setEditingId(null); }
                 if (e.key === "Escape") setEditingId(null);
               }}
               placeholder="Target date"
+              className="rounded border px-2 py-1 text-xs outline-none"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+            />
+            <input
+              type="number"
+              min={1}
+              value={editProgressTarget}
+              onChange={(e) => setEditProgressTarget(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null, progressTarget: editProgressTarget ? Number(editProgressTarget) : null }); setEditingId(null); }
+                if (e.key === "Escape") setEditingId(null);
+              }}
+              placeholder="Track progress — total units (e.g. 300 pages)"
               className="rounded border px-2 py-1 text-xs outline-none"
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
             />
@@ -471,6 +498,49 @@ function GoalRow({
                 Target: {new Date(goal.targetDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
               </p>
             )}
+            {/* Progress tracker with pace line — actual vs expected progress */}
+            {goal.progressTarget != null && goal.progressTarget > 0 && !isDone && (() => {
+              const pct = Math.min(100, (goal.progressCurrent / goal.progressTarget) * 100);
+              let pacePct: number | null = null;
+              let behind = false;
+              if (goal.targetDate) {
+                const start = new Date(goal.createdAt).getTime();
+                const end = new Date(goal.targetDate + "T23:59:59").getTime();
+                if (end > start) {
+                  pacePct = Math.min(100, Math.max(0, ((NOW_MS - start) / (end - start)) * 100));
+                  behind = pct < pacePct - 1;
+                }
+              }
+              const barColor = behind ? "var(--color-warmth)" : "var(--color-success)";
+              return (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <div className="relative h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                    <div
+                      className="absolute left-0 top-0 h-full rounded-full transition-[width]"
+                      style={{ width: `${pct}%`, backgroundColor: barColor }}
+                    />
+                    {pacePct !== null && (
+                      <div
+                        className="absolute top-[-2px] h-[9px] w-[2px] rounded-full"
+                        style={{ left: `${pacePct}%`, backgroundColor: "var(--color-ink)" }}
+                        title="Pace — where you should be by now"
+                      />
+                    )}
+                  </div>
+                  <span className="shrink-0 text-[11px] tabular-nums" style={{ color: behind ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
+                    {goal.progressCurrent}/{goal.progressTarget}{behind ? " · behind" : ""}
+                  </span>
+                  <button
+                    onClick={() => onUpdate(goal.id, { progressCurrent: Math.min(goal.progressTarget!, goal.progressCurrent + 1) })}
+                    className="shrink-0 rounded border px-1.5 text-[11px] font-medium"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 22 }}
+                    title="Log progress"
+                  >
+                    +1
+                  </button>
+                </div>
+              );
+            })()}
           </>
         )}
       </div>

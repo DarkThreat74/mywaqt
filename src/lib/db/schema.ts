@@ -619,6 +619,11 @@ export const goals = pgTable('goals', {
   goalType: text('goal_type').default('short_term').notNull(), // long_term | short_term
   // Optional target date — when the goal should be achieved by
   targetDate: date('target_date'),
+  // Optional progress tracking — when progressTarget is set, the goal is a
+  // "target tracker" (e.g. read 300 pages by June) and the UI shows a pace
+  // line: expected progress vs actual progress over elapsed time.
+  progressCurrent: integer('progress_current').default(0).notNull(),
+  progressTarget: integer('progress_target'),
   sortOrder: integer('sort_order').default(0).notNull(),
   color: text('color'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -681,18 +686,45 @@ export const homeworks = pgTable('homeworks', {
   priority: homeworkPriority('priority').default('medium').notNull(),
   status: homeworkStatus('status').default('pending').notNull(),
   kind: homeworkKind('kind').default('homework').notNull(),
+  // "Do date" — when the user plans to work on it (distinct from due date).
+  // plannedEventId links to a synced events row so it renders on the calendar.
+  plannedDate: date('planned_date'),
+  plannedStartTime: time('planned_start_time'),
+  plannedEndTime: time('planned_end_time'),
+  estimatedMinutes: integer('estimated_minutes'),
+  plannedEventId: uuid('planned_event_id').references(() => events.id, { onDelete: 'set null' }),
+  // Deadline reminder stages — set once each stage push is sent (cron)
+  notified3dAt: timestamp('notified_3d_at', { withTimezone: true }),
+  notified1dAt: timestamp('notified_1d_at', { withTimezone: true }),
+  notifiedMorningAt: timestamp('notified_morning_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   // Hot path: list homework by user ordered by due date
   userDueIdx: index('homeworks_user_due_idx').on(table.userId, table.dueDate),
+  // Planned study sessions for a user's day
+  userPlannedIdx: index('homeworks_user_planned_date_idx').on(table.userId, table.plannedDate),
   // Filter by class
   userClassIdx: index('homeworks_user_class_idx').on(table.userId, table.classId),
   // Filter by status
   userStatusIdx: index('homeworks_user_status_idx').on(table.userId, table.status),
   // Auto-prune: filter by userId + status + completedAt
   userStatusCompletedIdx: index('homeworks_user_status_completed_idx').on(table.userId, table.status, table.completedAt),
+}));
+
+// Homework subtasks — checklist steps inside an assignment
+export const homeworkSubtasks = pgTable('homework_subtasks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  homeworkId: uuid('homework_id').notNull().references(() => homeworks.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  done: boolean('done').default(false).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  homeworkIdIdx: index('homework_subtasks_homework_idx').on(table.homeworkId),
+  userIdIdx: index('homework_subtasks_user_idx').on(table.userId),
 }));
 
 // ─── Habits (daily/weekly habit tracking with streaks) ───────────────

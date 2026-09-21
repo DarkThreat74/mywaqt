@@ -25,21 +25,30 @@ export default async function GoalsPage() {
     try { return await p; } catch { return []; }
   };
 
-  const [goals, homework, classes, habits, habitLogs, notes] = await Promise.all([
+  const [goals, homework, classes, habits, habitLogs, notes, subtasks] = await Promise.all([
     safeQuery(db.select().from(schema.goals).where(eq(schema.goals.userId, session.userId)).orderBy(schema.goals.sortOrder, schema.goals.createdAt).limit(500)),
     safeQuery(db.select().from(schema.homeworks).where(eq(schema.homeworks.userId, session.userId)).orderBy(schema.homeworks.dueDate).limit(500)),
     safeQuery(db.select().from(schema.classes).where(eq(schema.classes.userId, session.userId)).orderBy(schema.classes.sortOrder, schema.classes.createdAt).limit(200)),
     safeQuery(db.select().from(schema.habits).where(eq(schema.habits.userId, session.userId)).orderBy(schema.habits.sortOrder, schema.habits.createdAt).limit(200)),
     safeQuery(db.select().from(schema.habitLogs).where(and(eq(schema.habitLogs.userId, session.userId), gte(schema.habitLogs.date, habitLogCutoff))).limit(5000)),
     safeQuery(db.select().from(schema.notes).where(eq(schema.notes.userId, session.userId)).orderBy(desc(schema.notes.updatedAt)).limit(500)),
+    safeQuery(db.select().from(schema.homeworkSubtasks).where(eq(schema.homeworkSubtasks.userId, session.userId)).limit(2000)),
   ]);
+
+  // Attach checklist steps to their homework (one grouped pass, no N+1)
+  const subtasksByHw = new Map<string, typeof subtasks>();
+  for (const st of subtasks) {
+    if (!subtasksByHw.has(st.homeworkId)) subtasksByHw.set(st.homeworkId, []);
+    subtasksByHw.get(st.homeworkId)!.push(st);
+  }
+  const homeworkWithSubs = homework.map((h) => ({ ...h, subtasks: subtasksByHw.get(h.id) ?? [] }));
 
   // habitLogs already filtered by date in SQL (last 90 days)
 
   return (
     <GoalsPageClient
       initialGoals={goals as Goal[]}
-      initialHomework={homework as Homework[]}
+      initialHomework={homeworkWithSubs as Homework[]}
       initialClasses={classes as Class[]}
       initialHabits={habits as Habit[]}
       initialHabitLogs={habitLogs as HabitLog[]}

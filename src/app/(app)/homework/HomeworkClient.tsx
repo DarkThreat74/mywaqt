@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Plus, Check, Trash2, X, Clock, AlertCircle, BookOpen, ChevronDown, ChevronRight, Filter, Layers, ArrowDownWideNarrow, CalendarClock, CalendarDays, Pencil } from "lucide-react";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { getOfflineDB } from "@/lib/offline/db";
@@ -14,6 +14,16 @@ import {
 } from "@/lib/offline/cache-writers";
 import { formatDueBadge, urgencyColors, urgencyCardTint, isTimeOverdue, daysUntilDate } from "@/lib/homework/due-format";
 import { HOMEWORK_KINDS, KIND_LABELS, type HomeworkKind } from "@/lib/homework/kinds";
+import { parseHomeworkTitle } from "@/lib/homework/parse";
+import { parseICS } from "@/lib/homework/ics";
+import { computeCushion } from "@/lib/homework/cushion";
+
+export interface HomeworkSubtask {
+  id: string;
+  title: string;
+  done: boolean;
+  sortOrder?: number;
+}
 
 export interface HomeworkItem {
   id: string;
@@ -25,6 +35,12 @@ export interface HomeworkItem {
   priority: "low" | "medium" | "high";
   status: "pending" | "completed";
   kind: HomeworkKind;
+  plannedDate: string | null;
+  plannedStartTime: string | null;
+  plannedEndTime: string | null;
+  estimatedMinutes: number | null;
+  plannedEventId: string | null;
+  subtasks: HomeworkSubtask[];
   completedAt: Date | null;
 }
 
@@ -117,6 +133,22 @@ export default function HomeworkClient({
   const [kind, setKind] = useState<HomeworkKind>("homework");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Plan ("do date") + estimate + subtasks
+  const [plannedDate, setPlannedDate] = useState("");
+  const [plannedStartTime, setPlannedStartTime] = useState("");
+  const [plannedEndTime, setPlannedEndTime] = useState("");
+  const [estimatedMinutes, setEstimatedMinutes] = useState<number | "">("");
+  const [subtasks, setSubtasks] = useState<HomeworkSubtask[]>([]);
+  const [newSubtask, setNewSubtask] = useState("");
+  // NL quick-add: which fields the user explicitly set (parser won't override)
+  const touchedRef = useRef<Set<string>>(new Set());
+  // Import modal
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  // Cushion warnings (per homework id → shortfall minutes)
+  const [cushions, setCushions] = useState<Record<string, number>>({});
 
   // Class form state
   const [className, setClassName] = useState("");
@@ -166,6 +198,12 @@ export default function HomeworkClient({
               priority: h.priority as HomeworkItem["priority"],
               status: h.status as HomeworkItem["status"],
               kind: h.kind as HomeworkItem["kind"],
+              plannedDate: h.plannedDate ?? null,
+              plannedStartTime: h.plannedStartTime ?? null,
+              plannedEndTime: h.plannedEndTime ?? null,
+              estimatedMinutes: h.estimatedMinutes ?? null,
+              plannedEventId: h.plannedEventId ?? null,
+              subtasks: h.subtasks ?? [],
               completedAt: h.completedAt ? new Date(h.completedAt) : null,
             })));
           }
@@ -231,6 +269,13 @@ export default function HomeworkClient({
     setDueTime("");
     setPriority("medium");
     setKind("homework");
+    setPlannedDate("");
+    setPlannedStartTime("");
+    setPlannedEndTime("");
+    setEstimatedMinutes("");
+    setSubtasks([]);
+    setNewSubtask("");
+    touchedRef.current.clear();
     setError(null);
     setEditingId(null);
   }
@@ -245,6 +290,13 @@ export default function HomeworkClient({
     setDueTime(hw.dueTime ? hw.dueTime.slice(0, 5) : "");
     setPriority(hw.priority);
     setKind(hw.kind);
+    setPlannedDate(hw.plannedDate ?? "");
+    setPlannedStartTime(hw.plannedStartTime ? hw.plannedStartTime.slice(0, 5) : "");
+    setPlannedEndTime(hw.plannedEndTime ? hw.plannedEndTime.slice(0, 5) : "");
+    setEstimatedMinutes(hw.estimatedMinutes ?? "");
+    setSubtasks(hw.subtasks ?? []);
+    setNewSubtask("");
+    touchedRef.current = new Set(["title"]); // don't let NL parsing overwrite an existing title's fields
     setError(null);
     setShowAddForm(true);
     // Scroll to top so the form is visible on mobile
@@ -262,6 +314,14 @@ export default function HomeworkClient({
     setSaving(true);
     setError(null);
     try {
+      // Build full instants for the planned session (sent alongside the local
+      // date/time fields so the server can place the calendar event correctly)
+      const plannedStartAt = plannedDate && plannedStartTime
+        ? new Date(`${plannedDate}T${plannedStartTime}:00`).toISOString() : null;
+      const plannedEndAt = plannedDate && plannedEndTime
+        ? new Date(`${plannedDate}T${plannedEndTime}:00`).toISOString()
+        : plannedStartAt ? new Date(new Date(plannedStartAt).getTime() + 60 * 60 * 1000).toISOString() : null;
+
       const payload = {
         title: trimmed,
         description: description.trim() || undefined,
@@ -270,6 +330,15 @@ export default function HomeworkClient({
         dueTime: dueTime ? `${dueTime}:00` : undefined,
         priority,
         kind,
+        plannedDate: plannedDate || null,
+        plannedStartTime: plannedStartTime ? `${plannedStartTime}:00` : null,
+        plannedEndTime: plannedEndTime ? `${plannedEndTime}:00` : null,
+        plannedStartAt,
+        plannedEndAt,
+        estimatedMinutes: estimatedMinutes === "" ? null : Number(estimatedMinutes),
+        ...(editingId
+          ? { subtasks: subtasks.map((s) => ({ id: s.id.startsWith("tmp-") ? undefined : s.id, title: s.title, done: s.done })) }
+          : { subtasks: subtasks.map((s) => s.title) }),
       };
 
       if (editingId) {
@@ -302,6 +371,11 @@ export default function HomeworkClient({
               dueTime: dueTime ? `${dueTime}:00` : null,
               priority,
               kind,
+              plannedDate: plannedDate || null,
+              plannedStartTime: plannedStartTime ? `${plannedStartTime}:00` : null,
+              plannedEndTime: plannedEndTime ? `${plannedEndTime}:00` : null,
+              estimatedMinutes: estimatedMinutes === "" ? null : Number(estimatedMinutes),
+              subtasks,
             };
             setHomework((prev) =>
               prev.map((h) => (h.id === editingId ? optimisticHw : h))
@@ -342,6 +416,97 @@ export default function HomeworkClient({
     } finally {
       setSaving(false);
     }
+  }
+
+  // Schooltraq-style quick add — parse the title live and fill any fields the
+  // user hasn't explicitly set. The detected bits show as a hint under the
+  // input; on save the cleaned title is what gets stored.
+  function handleTitleChange(value: string) {
+    setTitle(value);
+    const parsed = parseHomeworkTitle(value, classes);
+    const touched = touchedRef.current;
+    if (parsed.kind && !touched.has("kind")) setKind(parsed.kind);
+    if (parsed.classId && !touched.has("classId")) setClassId(parsed.classId);
+    if (parsed.dueDate && !touched.has("dueDate")) setDueDate(parsed.dueDate);
+    if (parsed.dueTime && !touched.has("dueTime")) setDueTime(parsed.dueTime);
+    if (parsed.priority && !touched.has("priority")) setPriority(parsed.priority);
+  }
+
+  function addSubtask() {
+    const t = newSubtask.trim();
+    if (!t) return;
+    setSubtasks((prev) => [...prev, { id: `tmp-${Date.now()}-${prev.length}`, title: t, done: false }]);
+    setNewSubtask("");
+  }
+
+  // Toggle a step on a saved homework — sends the full subtask list as a diff
+  async function handleToggleSubtask(hw: HomeworkItem, subtaskId: string) {
+    const next = (hw.subtasks ?? []).map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
+    const updatedHw = { ...hw, subtasks: next };
+    setHomework((prev) => prev.map((h) => (h.id === hw.id ? updatedHw : h)));
+    upsertHomeworkToCache(updatedHw);
+    try {
+      const res = await fetch(`/api/homework/${hw.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subtasks: next.map((s) => ({ id: s.id, title: s.title, done: s.done })) }),
+      });
+      if (!res.ok && res.status !== 202) {
+        setHomework((prev) => prev.map((h) => (h.id === hw.id ? hw : h)));
+        upsertHomeworkToCache(hw);
+        return;
+      }
+      invalidateApiCache("/api/homework");
+    } catch {
+      // offline — keep optimistic state
+    }
+  }
+
+  // Import: paste one-per-line (NL-parsed) or .ics file
+  async function handleImport() {
+    const lines = importText.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 200);
+    if (lines.length === 0) { setImportMsg("Nothing to import"); return; }
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const items = lines.map((line) => {
+        const p = parseHomeworkTitle(line, classes);
+        return {
+          title: p.title,
+          classId: p.classId,
+          dueDate: p.dueDate ?? tomorrowStr(),
+          dueTime: p.dueTime ? `${p.dueTime}:00` : null,
+          priority: p.priority ?? "medium",
+          kind: p.kind ?? "homework",
+        };
+      });
+      const res = await fetch("/api/homework/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setImportMsg(`Imported ${data.created ?? items.length} item${data.created === 1 ? "" : "s"}`);
+        setImportText("");
+        refreshHomework();
+        invalidateApiCache("/api/homework");
+      } else {
+        setImportMsg(data.error || "Import failed");
+      }
+    } catch {
+      setImportMsg("Network error");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function handleImportFile(file: File) {
+    const text = await file.text();
+    const entries = parseICS(text);
+    if (entries.length === 0) { setImportMsg("No events found in that file"); return; }
+    setImportText(entries.map((e) => `${e.title} ${e.date}${e.time ? ` at ${e.time}` : ""}`).join("\n"));
+    setImportMsg(`Found ${entries.length} item${entries.length === 1 ? "" : "s"} — review then tap Import`);
   }
 
   async function handleToggleComplete(hw: HomeworkItem) {
@@ -394,6 +559,64 @@ export default function HomeworkClient({
       refreshHomework();
     }
   }
+
+  // Cushion warnings — for pending homework with an estimate due within 7
+  // days, compare remaining effort to free calendar time before the deadline.
+  useEffect(() => {
+    const today = todayStr();
+    const horizon = new Date();
+    horizon.setDate(horizon.getDate() + 7);
+    const horizonStr = horizon.toLocaleDateString("en-CA");
+    const candidates = homework.filter(
+      (h) => h.status === "pending" && h.estimatedMinutes && h.dueDate >= today && h.dueDate <= horizonStr,
+    );
+    let cancelled = false;
+    (async () => {
+      if (candidates.length === 0) {
+        if (!cancelled) setCushions({});
+        return;
+      }
+      let events: Array<{ startAt: Date; endAt: Date }> = [];
+      try {
+        const res = await fetch(`/api/events?from=${today}&to=${horizonStr}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            events = data.map((e) => ({ startAt: new Date(e.startAt), endAt: new Date(e.endAt) }))
+              .filter((e) => !isNaN(e.startAt.getTime()) && !isNaN(e.endAt.getTime()));
+          }
+        }
+      } catch {
+        // offline — no cushion data, that's fine
+      }
+      if (cancelled) return;
+      const next: Record<string, number> = {};
+      const now = new Date();
+      for (const hw of candidates) {
+        // Minutes of future study sessions already booked for this hw
+        let plannedMin = 0;
+        if (hw.plannedDate && hw.plannedDate >= today && hw.plannedStartTime) {
+          const start = hw.plannedStartTime.slice(0, 5);
+          const end = hw.plannedEndTime?.slice(0, 5) ?? null;
+          plannedMin = end
+            ? (Number(end.slice(0, 2)) * 60 + Number(end.slice(3))) - (Number(start.slice(0, 2)) * 60 + Number(start.slice(3)))
+            : 60;
+          if (plannedMin < 0) plannedMin = 0;
+        }
+        const shortfall = computeCushion({
+          estimatedMinutes: hw.estimatedMinutes,
+          plannedMinutes: plannedMin,
+          now,
+          dueDate: hw.dueDate,
+          dueTime: hw.dueTime,
+          busy: events,
+        });
+        if (shortfall) next[hw.id] = shortfall;
+      }
+      setCushions(next);
+    })();
+    return () => { cancelled = true; };
+  }, [homework]);
 
   function handleDeleteClick(hw: HomeworkItem) {
     setDeleteHwConfirm(hw);
@@ -682,7 +905,71 @@ export default function HomeworkClient({
                 High
               </span>
             )}
+            {hw.plannedDate && hw.status === "pending" && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)", color: "var(--color-accent)" }}
+              >
+                <CalendarClock className="h-2.5 w-2.5" />
+                Planned {new Date(`${hw.plannedDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                {hw.plannedStartTime ? ` ${hw.plannedStartTime.slice(0, 5)}` : ""}
+              </span>
+            )}
+            {hw.estimatedMinutes != null && hw.status === "pending" && (
+              <span
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
+              >
+                ~{hw.estimatedMinutes < 60 ? `${hw.estimatedMinutes}m` : `${(hw.estimatedMinutes / 60).toFixed(hw.estimatedMinutes % 60 ? 1 : 0)}h`}
+              </span>
+            )}
+            {(hw.subtasks?.length ?? 0) > 0 && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums"
+                style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
+              >
+                {hw.subtasks.filter((s) => s.done).length}/{hw.subtasks.length} steps
+              </span>
+            )}
           </div>
+
+          {/* Cushion warning — not enough free time before the deadline */}
+          {cushions[hw.id] && hw.status === "pending" && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium" style={{ color: "var(--color-warmth)" }}>
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              Needs ~{Math.round(hw.estimatedMinutes! / 60 * 10) / 10}h — only ~{Math.max(0, Math.round((hw.estimatedMinutes! - cushions[hw.id]) / 60 * 10) / 10)}h free before it&rsquo;s due
+            </p>
+          )}
+
+          {/* Subtask checklist */}
+          {(hw.subtasks?.length ?? 0) > 0 && hw.status === "pending" && (
+            <div className="mt-1.5 flex flex-col gap-0.5">
+              {hw.subtasks.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => handleToggleSubtask(hw, s.id)}
+                  className="flex items-center gap-2 text-left"
+                >
+                  <span
+                    className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border"
+                    style={{
+                      borderColor: s.done ? "var(--color-success)" : "var(--color-paper-3)",
+                      backgroundColor: s.done ? "var(--color-success)" : "var(--color-paper)",
+                    }}
+                  >
+                    {s.done && <Check className="h-2.5 w-2.5" style={{ color: "var(--color-paper)" }} />}
+                  </span>
+                  <span
+                    className="truncate text-xs"
+                    style={{ color: s.done ? "var(--color-ink-muted)" : "var(--color-ink)", textDecoration: s.done ? "line-through" : "none" }}
+                  >
+                    {s.title}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {hw.description && (
             <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
@@ -723,14 +1010,23 @@ export default function HomeworkClient({
         <h1 className="text-xl font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
           Homework
         </h1>
-        <button
-          onClick={() => { resetForm(); setShowAddForm(true); }}
-          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-opacity hover:opacity-90"
-          style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 40 }}
-        >
-          <Plus className="h-4 w-4" />
-          Add
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => { setShowImport(true); setImportMsg(null); }}
+            className="rounded-lg border px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 40 }}
+          >
+            Import
+          </button>
+          <button
+            onClick={() => { resetForm(); setShowAddForm(true); }}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-opacity hover:opacity-90"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 40 }}
+          >
+            <Plus className="h-4 w-4" />
+            Add
+          </button>
+        </div>
       </div>
 
       {/* ── Classes (collapsible dropdown so homework is the main focus) ── */}
@@ -1012,14 +1308,29 @@ export default function HomeworkClient({
             <input
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="What's the assignment?"
+              onChange={(e) => handleTitleChange(e.target.value)}
+              placeholder='e.g. "Kinematics test in physics friday urgent"'
               maxLength={300}
               autoFocus
               className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[var(--color-accent)]"
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSaveHomework(); } }}
             />
+            {!editingId && title.trim() && (() => {
+              const p = parseHomeworkTitle(title, classes);
+              const detected = [
+                p.kind && KIND_LABELS[p.kind],
+                p.className,
+                p.dueDate,
+                p.dueTime,
+                p.priority && p.priority !== "medium" ? `${p.priority} priority` : null,
+              ].filter(Boolean);
+              return detected.length > 0 ? (
+                <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                  Detected: {detected.join(" · ")}
+                </p>
+              ) : null;
+            })()}
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -1034,7 +1345,7 @@ export default function HomeworkClient({
             {classes.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 <button
-                  onClick={() => setClassId(null)}
+                  onClick={() => { touchedRef.current.add("classId"); setClassId(null); }}
                   className="rounded-full px-3 py-1 text-xs font-medium transition-colors"
                   style={{
                     backgroundColor: classId === null ? "var(--color-ink)" : "var(--color-paper)",
@@ -1047,7 +1358,7 @@ export default function HomeworkClient({
                 {classes.filter((c) => !c.archived).map((c) => (
                   <button
                     key={c.id}
-                    onClick={() => setClassId(c.id === classId ? null : c.id)}
+                    onClick={() => { touchedRef.current.add("classId"); setClassId(c.id === classId ? null : c.id); }}
                     className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors"
                     style={{
                       backgroundColor: classId === c.id ? c.color : "var(--color-paper)",
@@ -1070,7 +1381,7 @@ export default function HomeworkClient({
               ].map((opt) => (
                 <button
                   key={opt.value}
-                  onClick={() => setDueDate(opt.value)}
+                  onClick={() => { touchedRef.current.add("dueDate"); setDueDate(opt.value); }}
                   className="rounded-full px-3 py-1 text-xs font-medium transition-colors"
                   style={{
                     backgroundColor: dueDate === opt.value ? "var(--color-accent)" : "var(--color-paper)",
@@ -1084,7 +1395,7 @@ export default function HomeworkClient({
               <input
                 type="date"
                 value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
+                onChange={(e) => { touchedRef.current.add("dueDate"); setDueDate(e.target.value); }}
                 className="rounded-full border px-3 py-1 text-xs font-medium outline-none focus:border-[var(--color-accent)]"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
               />
@@ -1095,7 +1406,7 @@ export default function HomeworkClient({
               <input
                 type="time"
                 value={dueTime}
-                onChange={(e) => setDueTime(e.target.value)}
+                onChange={(e) => { touchedRef.current.add("dueTime"); setDueTime(e.target.value); }}
                 className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
               />
@@ -1110,7 +1421,7 @@ export default function HomeworkClient({
                   <button
                     key={k}
                     type="button"
-                    onClick={() => setKind(k as typeof kind)}
+                    onClick={() => { touchedRef.current.add("kind"); setKind(k as typeof kind); }}
                     className="rounded-full px-3 py-1 text-xs font-medium transition-colors"
                     style={{
                       backgroundColor: kind === k ? "var(--color-ink)" : "var(--color-paper-2)",
@@ -1127,7 +1438,7 @@ export default function HomeworkClient({
                   <button
                     key={p}
                     type="button"
-                    onClick={() => setPriority(p)}
+                    onClick={() => { touchedRef.current.add("priority"); setPriority(p); }}
                     className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors"
                     style={{
                       backgroundColor: priority === p ? "color-mix(in oklab, " + PRIORITY_COLORS[p] + " 15%, var(--color-paper))" : "var(--color-paper-2)",
@@ -1141,6 +1452,132 @@ export default function HomeworkClient({
                     {p.charAt(0).toUpperCase() + p.slice(1)}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Plan a work session ("do date") + time estimate */}
+            <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="mb-2 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                Plan when to work on it (optional)
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="date"
+                  value={plannedDate}
+                  onChange={(e) => setPlannedDate(e.target.value)}
+                  className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                />
+                {plannedDate && (
+                  <>
+                    <input
+                      type="time"
+                      value={plannedStartTime}
+                      onChange={(e) => setPlannedStartTime(e.target.value)}
+                      className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                      aria-label="Session start"
+                    />
+                    <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>to</span>
+                    <input
+                      type="time"
+                      value={plannedEndTime}
+                      onChange={(e) => setPlannedEndTime(e.target.value)}
+                      className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                      aria-label="Session end"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { setPlannedDate(""); setPlannedStartTime(""); setPlannedEndTime(""); }}
+                      className="text-xs"
+                      style={{ color: "var(--color-ink-muted)" }}
+                    >
+                      Clear
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Time needed:</span>
+                <select
+                  value={estimatedMinutes}
+                  onChange={(e) => setEstimatedMinutes(e.target.value === "" ? "" : Number(e.target.value))}
+                  className="rounded-lg border px-2 py-1.5 text-xs outline-none focus:border-[var(--color-accent)]"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                >
+                  <option value="">No estimate</option>
+                  {[15, 30, 45, 60, 90, 120, 180, 240, 360, 480].map((m) => (
+                    <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60}h`}</option>
+                  ))}
+                </select>
+                {typeof estimatedMinutes === "number" && (
+                  <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                    Used to warn you if there isn&rsquo;t enough free time before the deadline
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Subtasks / steps */}
+            <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="mb-2 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                Steps (optional)
+              </p>
+              {subtasks.length > 0 && (
+                <div className="mb-2 flex flex-col gap-1">
+                  {subtasks.map((s) => (
+                    <div key={s.id} className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSubtasks((prev) => prev.map((x) => (x.id === s.id ? { ...x, done: !x.done } : x)))}
+                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+                        style={{
+                          borderColor: s.done ? "var(--color-success)" : "var(--color-paper-3)",
+                          backgroundColor: s.done ? "var(--color-success)" : "var(--color-paper)",
+                        }}
+                        aria-label={s.done ? `Uncheck ${s.title}` : `Check ${s.title}`}
+                      >
+                        {s.done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
+                      </button>
+                      <span
+                        className="flex-1 truncate text-xs"
+                        style={{ color: "var(--color-ink)", textDecoration: s.done ? "line-through" : "none" }}
+                      >
+                        {s.title}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSubtasks((prev) => prev.filter((x) => x.id !== s.id))}
+                        style={{ color: "var(--color-ink-muted)" }}
+                        aria-label={`Remove ${s.title}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newSubtask}
+                  onChange={(e) => setNewSubtask(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSubtask(); } }}
+                  placeholder="Add a step, e.g. outline, draft, revise"
+                  maxLength={200}
+                  className="flex-1 rounded-lg border px-3 py-2 text-xs outline-none focus:border-[var(--color-accent)]"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 40 }}
+                />
+                <button
+                  type="button"
+                  onClick={addSubtask}
+                  disabled={!newSubtask.trim()}
+                  className="rounded-lg border px-3 text-xs font-medium disabled:opacity-50"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 40 }}
+                >
+                  Add
+                </button>
               </div>
             </div>
 
@@ -1297,6 +1734,77 @@ export default function HomeworkClient({
                 style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)", minHeight: 44 }}
               >
                 Delete class
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Import modal ── */}
+      {showImport && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
+          onClick={() => setShowImport(false)}
+        >
+          <div
+            role="dialog"
+            aria-label="Import homework"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl border p-5"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Import assignments</h3>
+              <button onClick={() => setShowImport(false)} style={{ color: "var(--color-ink-muted)" }} aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Paste your syllabus — one assignment per line. Dates, classes, and types are detected automatically.
+            </p>
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder={"Chapter 5 reading in biology friday\nEssay draft in english next tuesday\nLab report march 20"}
+              rows={6}
+              className="mb-3 w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[var(--color-accent)] resize-none"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+            />
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>or</span>
+              <label
+                className="cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+              >
+                Upload .ics file
+                <input
+                  type="file"
+                  accept=".ics,text/calendar"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); }}
+                />
+              </label>
+              <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>from Canvas, Moodle, Classroom</span>
+            </div>
+            {importMsg && (
+              <p className="mb-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>{importMsg}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowImport(false)}
+                className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={importing || !importText.trim()}
+                className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+                style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
+              >
+                {importing ? "Importing…" : "Import"}
               </button>
             </div>
           </div>

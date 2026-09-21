@@ -294,8 +294,41 @@ interface HomeworkLike {
   priority: string;
   status: string;
   kind: string;
+  plannedDate?: string | null;
+  plannedStartTime?: string | null;
+  plannedEndTime?: string | null;
+  estimatedMinutes?: number | null;
+  plannedEventId?: string | null;
+  subtasks?: Array<{ id: string; title: string; done: boolean }>;
   completedAt: string | Date | null;
   _pending?: boolean;
+}
+
+function hwToCache(h: HomeworkLike) {
+  return {
+    id: h.id,
+    title: h.title,
+    description: h.description,
+    classId: h.classId,
+    dueDate: h.dueDate,
+    dueTime: h.dueTime,
+    priority: h.priority,
+    status: h.status,
+    kind: h.kind,
+    plannedDate: h.plannedDate ?? null,
+    plannedStartTime: h.plannedStartTime ?? null,
+    plannedEndTime: h.plannedEndTime ?? null,
+    estimatedMinutes: h.estimatedMinutes ?? null,
+    plannedEventId: h.plannedEventId ?? null,
+    subtasks: h.subtasks ?? [],
+    completedAt: h.completedAt
+      ? typeof h.completedAt === "string"
+        ? h.completedAt
+        : h.completedAt.toISOString()
+      : null,
+    _pending: h._pending,
+    _cachedAt: Date.now(),
+  };
 }
 
 /**
@@ -307,26 +340,7 @@ export function syncHomeworkToCache(homework: HomeworkLike[]): void {
   try {
     const db = getOfflineDB();
     db.homework.clear().then(() =>
-      db.homework.bulkPut(
-        homework.map((h) => ({
-          id: h.id,
-          title: h.title,
-          description: h.description,
-          classId: h.classId,
-          dueDate: h.dueDate,
-          dueTime: h.dueTime,
-          priority: h.priority,
-          status: h.status,
-          kind: h.kind,
-          completedAt: h.completedAt
-            ? typeof h.completedAt === "string"
-              ? h.completedAt
-              : h.completedAt.toISOString()
-            : null,
-          _pending: h._pending,
-          _cachedAt: Date.now(),
-        }))
-      )
+      db.homework.bulkPut(homework.map(hwToCache))
     ).catch(() => {});
     // Prune old completed homework + old cache data (events, prayer logs, prayer times)
     import("./db").then(({ pruneOldHomeworkCache, pruneOldCache }) => Promise.all([
@@ -345,24 +359,7 @@ export function upsertHomeworkToCache(hw: HomeworkLike): void {
   if (typeof window === "undefined") return;
   try {
     const db = getOfflineDB();
-    db.homework.put({
-      id: hw.id,
-      title: hw.title,
-      description: hw.description,
-      classId: hw.classId,
-      dueDate: hw.dueDate,
-      dueTime: hw.dueTime,
-      priority: hw.priority,
-      status: hw.status,
-      kind: hw.kind,
-      completedAt: hw.completedAt
-        ? typeof hw.completedAt === "string"
-          ? hw.completedAt
-          : hw.completedAt.toISOString()
-        : null,
-      _pending: hw._pending,
-      _cachedAt: Date.now(),
-    }).catch(() => {});
+    db.homework.put(hwToCache(hw)).catch(() => {});
   } catch {
     // non-critical
   }
