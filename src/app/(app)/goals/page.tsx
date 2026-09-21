@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
 import { db, schema } from "@/lib/db/client";
-import { eq, desc, gte, and } from "drizzle-orm";
+import { eq, desc, asc, gte, and } from "drizzle-orm";
 import GoalsPageClient from "./GoalsPageClient";
 import type { Goal, Homework, Class, Habit, HabitLog, Note } from "@/lib/db/schema";
 
@@ -32,7 +32,7 @@ export default async function GoalsPage() {
     safeQuery(db.select().from(schema.habits).where(eq(schema.habits.userId, session.userId)).orderBy(schema.habits.sortOrder, schema.habits.createdAt).limit(200)),
     safeQuery(db.select().from(schema.habitLogs).where(and(eq(schema.habitLogs.userId, session.userId), gte(schema.habitLogs.date, habitLogCutoff))).limit(5000)),
     safeQuery(db.select().from(schema.notes).where(eq(schema.notes.userId, session.userId)).orderBy(desc(schema.notes.updatedAt)).limit(500)),
-    safeQuery(db.select().from(schema.homeworkSubtasks).where(eq(schema.homeworkSubtasks.userId, session.userId)).limit(2000)),
+    safeQuery(db.select().from(schema.homeworkSubtasks).where(eq(schema.homeworkSubtasks.userId, session.userId)).orderBy(asc(schema.homeworkSubtasks.sortOrder), asc(schema.homeworkSubtasks.createdAt)).limit(2000)),
   ]);
 
   // Attach checklist steps to their homework (one grouped pass, no N+1)

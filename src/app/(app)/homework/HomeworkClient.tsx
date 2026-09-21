@@ -314,7 +314,8 @@ export default function HomeworkClient({
   async function handleSaveHomework() {
     // If the parser detected anything, store the cleaned title — the matched
     // words ("friday", "urgent", the class name) live in their own fields.
-    const parsed = parseHomeworkTitle(title, classes);
+    // Only on create: editing an existing item must not silently rewrite its title.
+    const parsed: ReturnType<typeof parseHomeworkTitle> = editingId ? { title } : parseHomeworkTitle(title, classes);
     const detected = parsed.kind || parsed.classId || parsed.dueDate || parsed.dueTime || parsed.priority;
     const trimmed = (detected && parsed.title.trim()) ? parsed.title.trim() : title.trim();
     if (!trimmed) {

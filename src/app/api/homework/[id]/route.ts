@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { isValidUUID } from "@/lib/validation";
 import { HOMEWORK_KINDS } from "@/lib/homework/kinds";
 import { syncPlannedEvent } from "@/lib/homework/planned";
 import { logError } from "@/lib/logError";
@@ -23,8 +24,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     const { id } = await params;
-    if (!id) {
-      return NextResponse.json({ error: "Homework ID is required" }, { status: 400 });
+    if (!id || !isValidUUID(id)) {
+      return NextResponse.json({ error: "Invalid homework ID" }, { status: 400 });
     }
 
     let body: {
@@ -261,8 +262,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     }
 
     const { id } = await params;
-    if (!id) {
-      return NextResponse.json({ error: "Homework ID is required" }, { status: 400 });
+    if (!id || !isValidUUID(id)) {
+      return NextResponse.json({ error: "Invalid homework ID" }, { status: 400 });
     }
 
     // Verify ownership + delete with userId in WHERE (prevents IDOR)

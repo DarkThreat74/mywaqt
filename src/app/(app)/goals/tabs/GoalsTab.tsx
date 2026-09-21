@@ -530,6 +530,16 @@ function GoalRow({
                   <span className="shrink-0 text-[11px] tabular-nums" style={{ color: behind ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
                     {goal.progressCurrent}/{goal.progressTarget}{behind ? " · behind" : ""}
                   </span>
+                  {goal.progressCurrent > 0 && (
+                    <button
+                      onClick={() => onUpdate(goal.id, { progressCurrent: goal.progressCurrent - 1 })}
+                      className="shrink-0 rounded border px-1.5 text-[11px] font-medium"
+                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 22 }}
+                      title="Undo one"
+                    >
+                      −1
+                    </button>
+                  )}
                   <button
                     onClick={() => onUpdate(goal.id, { progressCurrent: Math.min(goal.progressTarget!, goal.progressCurrent + 1) })}
                     className="shrink-0 rounded border px-1.5 text-[11px] font-medium"

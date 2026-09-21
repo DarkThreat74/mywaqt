@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
 
     // Link a calendar event for the planned study session
     let plannedEventId: string | null = null;
-    if (plannedStartAt) {
+    if (plannedStartAt && plannedDate) {
       try {
         plannedEventId = await syncPlannedEvent(session.userId, {
           id: hw.id,
