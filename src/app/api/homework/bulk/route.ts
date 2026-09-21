@@ -87,11 +87,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Dedupe on (title, dueDate) — check which already exist
+    // Dedupe on (title, dueDate) — only check dates the import touches
+    const importDates = [...new Set(rows.map((r) => r.dueDate))];
     const existing = await db
       .select({ title: schema.homeworks.title, dueDate: schema.homeworks.dueDate })
       .from(schema.homeworks)
-      .where(eq(schema.homeworks.userId, session.userId));
+      .where(and(
+        eq(schema.homeworks.userId, session.userId),
+        inArray(schema.homeworks.dueDate, importDates),
+      ));
     const seen = new Set(existing.map((h) => `${h.title}@@${h.dueDate}`));
     const fresh = rows.filter((r) => {
       const key = `${r.title}@@${r.dueDate}`;

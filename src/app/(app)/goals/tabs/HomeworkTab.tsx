@@ -38,9 +38,9 @@ export default function HomeworkTab({
         plannedEndTime: h.plannedEndTime,
         estimatedMinutes: h.estimatedMinutes,
         plannedEventId: h.plannedEventId,
-        notified3dAt: null,
-        notified1dAt: null,
-        notifiedMorningAt: null,
+        notified3dAt: h.notified3dAt ? new Date(h.notified3dAt) : null,
+        notified1dAt: h.notified1dAt ? new Date(h.notified1dAt) : null,
+        notifiedMorningAt: h.notifiedMorningAt ? new Date(h.notifiedMorningAt) : null,
         completedAt: h.completedAt,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -66,6 +66,9 @@ export default function HomeworkTab({
         estimatedMinutes: h.estimatedMinutes,
         plannedEventId: h.plannedEventId,
         subtasks: (h as { subtasks?: HomeworkItem["subtasks"] }).subtasks ?? [],
+        notified3dAt: h.notified3dAt ? h.notified3dAt.toISOString() : null,
+        notified1dAt: h.notified1dAt ? h.notified1dAt.toISOString() : null,
+        notifiedMorningAt: h.notifiedMorningAt ? h.notifiedMorningAt.toISOString() : null,
         completedAt: h.completedAt,
       }))}
       initialClasses={classes.map((c) => ({

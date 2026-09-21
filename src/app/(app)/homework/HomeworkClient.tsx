@@ -41,6 +41,9 @@ export interface HomeworkItem {
   estimatedMinutes: number | null;
   plannedEventId: string | null;
   subtasks: HomeworkSubtask[];
+  notified3dAt?: string | null;
+  notified1dAt?: string | null;
+  notifiedMorningAt?: string | null;
   completedAt: Date | null;
 }
 
@@ -204,6 +207,9 @@ export default function HomeworkClient({
               estimatedMinutes: h.estimatedMinutes ?? null,
               plannedEventId: h.plannedEventId ?? null,
               subtasks: h.subtasks ?? [],
+              notified3dAt: h.notified3dAt ?? null,
+              notified1dAt: h.notified1dAt ?? null,
+              notifiedMorningAt: h.notifiedMorningAt ?? null,
               completedAt: h.completedAt ? new Date(h.completedAt) : null,
             })));
           }
@@ -306,7 +312,11 @@ export default function HomeworkClient({
   }
 
   async function handleSaveHomework() {
-    const trimmed = title.trim();
+    // If the parser detected anything, store the cleaned title — the matched
+    // words ("friday", "urgent", the class name) live in their own fields.
+    const parsed = parseHomeworkTitle(title, classes);
+    const detected = parsed.kind || parsed.classId || parsed.dueDate || parsed.dueTime || parsed.priority;
+    const trimmed = (detected && parsed.title.trim()) ? parsed.title.trim() : title.trim();
     if (!trimmed) {
       setError("Title is required");
       return;
@@ -516,10 +526,23 @@ export default function HomeworkClient({
     setHomework((prev) => prev.map((h) => (h.id === hw.id ? updatedHw : h)));
     upsertHomeworkToCache(updatedHw);
     try {
+      const payload: Record<string, unknown> = { status: newStatus };
+      // Un-completing restores the planned study session — resend the
+      // instants so the server recreates the calendar event it deleted.
+      if (newStatus === "pending" && hw.plannedDate && hw.plannedStartTime) {
+        const start = new Date(`${hw.plannedDate}T${hw.plannedStartTime.slice(0, 5)}:00`);
+        if (!isNaN(start.getTime())) {
+          payload.plannedStartAt = start.toISOString();
+          const end = hw.plannedEndTime ? new Date(`${hw.plannedDate}T${hw.plannedEndTime.slice(0, 5)}:00`) : null;
+          payload.plannedEndAt = end && !isNaN(end.getTime())
+            ? end.toISOString()
+            : new Date(start.getTime() + 60 * 60 * 1000).toISOString();
+        }
+      }
       const res = await fetch(`/api/homework/${hw.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify(payload),
       });
       // 202 = queued offline by the SW — keep optimistic state.
       // Other non-ok responses mean the server rejected the change — revert.
@@ -588,6 +611,26 @@ export default function HomeworkClient({
         }
       } catch {
         // offline — no cushion data, that's fine
+      }
+      // Prayer windows are busy time too — add each prayer as a ~45-min block
+      // so the cushion doesn't promise time that's spoken for.
+      try {
+        const db = getOfflineDB();
+        for (let d = new Date(`${today}T12:00:00`); ; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toLocaleDateString("en-CA");
+          if (dateStr > horizonStr) break;
+          const pt = await db.prayerTimes.get(dateStr);
+          if (!pt) continue;
+          for (const t of [pt.fajr, pt.dhuhr, pt.asr, pt.maghrib, pt.isha]) {
+            if (!t) continue;
+            const start = new Date(`${dateStr}T${t.slice(0, 5)}:00`);
+            if (!isNaN(start.getTime())) {
+              events.push({ startAt: start, endAt: new Date(start.getTime() + 45 * 60000) });
+            }
+          }
+        }
+      } catch {
+        // IndexedDB unavailable — cushion just skips prayer blocks
       }
       if (cancelled) return;
       const next: Record<string, number> = {};

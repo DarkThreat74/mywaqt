@@ -300,6 +300,9 @@ interface HomeworkLike {
   estimatedMinutes?: number | null;
   plannedEventId?: string | null;
   subtasks?: Array<{ id: string; title: string; done: boolean }>;
+  notified3dAt?: string | Date | null;
+  notified1dAt?: string | Date | null;
+  notifiedMorningAt?: string | Date | null;
   completedAt: string | Date | null;
   _pending?: boolean;
 }
@@ -321,6 +324,9 @@ function hwToCache(h: HomeworkLike) {
     estimatedMinutes: h.estimatedMinutes ?? null,
     plannedEventId: h.plannedEventId ?? null,
     subtasks: h.subtasks ?? [],
+    notified3dAt: h.notified3dAt ? String(h.notified3dAt) : null,
+    notified1dAt: h.notified1dAt ? String(h.notified1dAt) : null,
+    notifiedMorningAt: h.notifiedMorningAt ? String(h.notifiedMorningAt) : null,
     completedAt: h.completedAt
       ? typeof h.completedAt === "string"
         ? h.completedAt

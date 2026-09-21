@@ -68,6 +68,9 @@ function prayerLabel(dateStr: string, prayer: { key: keyof PrayerTimes; label: s
 // Track which prayer notifications have already fired this session
 // so we don't double-fire on re-schedule.
 const firedNotifications = new Set<string>();
+// Homework reminder tags persist in localStorage (cleared on logout with the
+// other waqt-* keys) — survives page reloads so stages fire once per day.
+const HW_FIRED_KEY = "waqt-hw-fired";
 
 export default function NotificationScheduler() {
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -450,19 +453,37 @@ export default function NotificationScheduler() {
    */
   const scheduleHomeworkNotifications = useCallback(async (today: string) => {
     try {
-      let items: Array<{ id: string; title: string; dueDate: string; status: string }> | null = null;
+      let items: Array<{
+        id: string; title: string; dueDate: string; status: string;
+        notified3dAt?: string | null; notified1dAt?: string | null; notifiedMorningAt?: string | null;
+      }> | null = null;
       try {
         const db = getOfflineDB();
         const cached = await db.homework.toArray();
-        items = cached.map((h) => ({ id: h.id, title: h.title, dueDate: h.dueDate, status: h.status }));
+        items = cached.map((h) => ({
+          id: h.id, title: h.title, dueDate: h.dueDate, status: h.status,
+          notified3dAt: h.notified3dAt, notified1dAt: h.notified1dAt, notifiedMorningAt: h.notifiedMorningAt,
+        }));
       } catch {
         // IndexedDB unavailable — fall through to API
       }
       if (!items || items.length === 0) {
-        const res = await fetch(`/api/homework?from=${today}&to=${today}`);
+        // Need the whole 3-day window, not just today — fetch a range.
+        const horizon = new Date(`${today}T12:00:00`);
+        horizon.setDate(horizon.getDate() + 3);
+        const res = await fetch(`/api/homework?from=${today}&to=${horizon.toLocaleDateString("en-CA")}`);
         if (res.ok) items = await res.json().catch(() => null);
       }
       if (!items || !Array.isArray(items)) return;
+
+      // Persistent fired-tags so reopening the app doesn't re-fire the same
+      // stage the same day (in-memory set alone resets each page load).
+      let fired = new Set<string>();
+      try { fired = new Set(JSON.parse(localStorage.getItem(HW_FIRED_KEY) ?? "[]")); } catch { /* fresh */ }
+      const markFired = (tag: string) => {
+        fired.add(tag);
+        try { localStorage.setItem(HW_FIRED_KEY, JSON.stringify([...fired].slice(-300))); } catch { /* full/blocked */ }
+      };
 
       // Local "today" in the prayer timezone, then per-homework day delta
       const dayMs = 24 * 60 * 60 * 1000;
@@ -476,9 +497,13 @@ export default function NotificationScheduler() {
         // Stages: 3 days out, tomorrow, today (skip 2-day gap and overdue)
         if (diffDays < 0 || diffDays > 3 || diffDays === 2) continue;
 
+        // Skip stages the server-side digest already pushed for this user.
+        const serverSent = diffDays === 0 ? hw.notifiedMorningAt : diffDays === 1 ? hw.notified1dAt : hw.notified3dAt;
+        if (serverSent) continue;
+
         const label = diffDays === 0 ? "Due today" : diffDays === 1 ? "Due tomorrow" : "Due in 3 days";
         const tag = `hw-${hw.id}-${diffDays}d-${hw.dueDate}`;
-        if (firedNotifications.has(tag)) continue;
+        if (firedNotifications.has(tag) || fired.has(tag)) continue;
 
         // Fire at 9am device-local; if that's already past, fire now
         const fireAt = new Date(todayMidnight);
@@ -486,10 +511,12 @@ export default function NotificationScheduler() {
         const diffMs = fireAt.getTime() - now.getTime();
         if (diffMs <= 60 * 1000) {
           firedNotifications.add(tag);
+          markFired(tag);
           showNotification("Homework", `${label}: ${hw.title}`, tag, "/goals");
         } else {
           const timer = setTimeout(() => {
             firedNotifications.add(tag);
+            markFired(tag);
             showNotification("Homework", `${label}: ${hw.title}`, tag, "/goals");
           }, diffMs);
           timersRef.current.push(timer);

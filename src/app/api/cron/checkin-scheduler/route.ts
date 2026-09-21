@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, inArray, lt } from "drizzle-orm";
+import { eq, and, inArray, lt, gte, lte } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { verifyCronAuth } from "@/lib/cronAuth";
 import { isWindowClosed, getPrayerWindow } from "@/lib/prayer/stateMachine";
@@ -34,6 +34,11 @@ export const maxDuration = 300;
 const BATCH_SIZE = 500;
 const STALE_DEVICE_DAYS = 90;
 const LOGIN_ATTEMPT_RETENTION_HOURS = 24;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function fmtLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 /**
  * Returns a Date whose SERVER-LOCAL fields equal the user's current wall
@@ -196,6 +201,36 @@ async function processUserBatch(
     subsMap.get(sub.userId)!.push(sub);
   }
 
+  // Batch 5: pending homework due within the reminder horizon. The batch
+  // spans many timezones, so widen the range to cover every user's today+3.
+  const todays = settings.map((s) => userNowAsLocalDate(s.timezone).today).sort();
+  const minDue = todays[0];
+  const maxPlus3 = fmtLocal(new Date(new Date(`${todays[todays.length - 1]}T12:00:00`).getTime() + 3 * 24 * 60 * 60 * 1000));
+  const batchHomework = await db
+    .select({
+      id: schema.homeworks.id,
+      userId: schema.homeworks.userId,
+      title: schema.homeworks.title,
+      dueDate: schema.homeworks.dueDate,
+      notified3dAt: schema.homeworks.notified3dAt,
+      notified1dAt: schema.homeworks.notified1dAt,
+      notifiedMorningAt: schema.homeworks.notifiedMorningAt,
+    })
+    .from(schema.homeworks)
+    .where(
+      and(
+        inArray(schema.homeworks.userId, userIds),
+        eq(schema.homeworks.status, "pending"),
+        gte(schema.homeworks.dueDate, minDue),
+        lte(schema.homeworks.dueDate, maxPlus3),
+      ),
+    );
+  const homeworkMap = new Map<string, typeof batchHomework>();
+  for (const h of batchHomework) {
+    if (!homeworkMap.has(h.userId)) homeworkMap.set(h.userId, []);
+    homeworkMap.get(h.userId)!.push(h);
+  }
+
   // Process each user using the batched data
   for (const s of settings) {
     try {
@@ -285,7 +320,70 @@ async function processUserBatch(
         }
       }
 
-      // 2. Send daily prayer schedule push
+      // 2. Homework deadline digest — one push per user per day. Only sent
+      // during the user's local waking hours (6:00–21:00) since this cron
+      // runs once at midnight UTC; the client-side scheduler covers the rest.
+      const userHw = homeworkMap.get(s.userId);
+      const otherPref = prefsMap.get(s.userId)?.otherReminders || "push";
+      if (otherPref !== "none" && userHw && userHw.length > 0) {
+        const hour = userNow.getHours();
+        if (hour >= 6 && hour < 21) {
+          const tomorrowStr = fmtLocal(new Date(userNow.getTime() + DAY_MS));
+          const plus3Str = fmtLocal(new Date(userNow.getTime() + 3 * DAY_MS));
+          const due: Array<{ hw: typeof userHw[number]; stage: "3d" | "1d" | "morning"; label: string }> = [];
+          for (const hw of userHw) {
+            const stage =
+              hw.dueDate === today ? "morning" as const
+              : hw.dueDate === tomorrowStr ? "1d" as const
+              : hw.dueDate === plus3Str ? "3d" as const
+              : null;
+            if (!stage) continue;
+            const already = stage === "3d" ? hw.notified3dAt : stage === "1d" ? hw.notified1dAt : hw.notifiedMorningAt;
+            if (already) continue;
+            const label = stage === "morning" ? "due today" : stage === "1d" ? "due tomorrow" : "due in 3 days";
+            due.push({ hw, stage, label });
+          }
+          if (due.length > 0) {
+            const subs = subsMap.get(s.userId) ?? [];
+            const body = due.slice(0, 3).map((d) => `${d.hw.title} — ${d.label}`).join(" · ")
+              + (due.length > 3 ? ` · +${due.length - 3} more` : "");
+            const payload = JSON.stringify({
+              title: due.length === 1 ? `Homework ${due[0].label}` : `${due.length} deadlines coming up`,
+              body,
+              tag: `hw-digest-${today}`,
+              data: { url: "/goals" },
+            });
+            await Promise.allSettled(
+              subs.map(async (sub) => {
+                try {
+                  const result = await sendPrayerPush(sub, payload, { topic: `hw-digest-${today}` });
+                  if (result.delivered) notificationsSent++;
+                  else if (result.expired) {
+                    await db.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.id, sub.id)).catch(() => {});
+                  }
+                } catch (err) {
+                  logError(err, { route: "cron/checkin-scheduler", phase: "hw-push", subId: sub.id });
+                }
+              }),
+            );
+            // Mark stages sent — dedupes across reruns and lets the client
+            // scheduler skip stages the server already pushed.
+            const now = new Date();
+            const byCol = { "3d": [] as string[], "1d": [] as string[], morning: [] as string[] };
+            for (const d of due) byCol[d.stage].push(d.hw.id);
+            await Promise.all([
+              byCol["3d"].length && db.update(schema.homeworks).set({ notified3dAt: now })
+                .where(and(inArray(schema.homeworks.id, byCol["3d"]), eq(schema.homeworks.userId, s.userId))),
+              byCol["1d"].length && db.update(schema.homeworks).set({ notified1dAt: now })
+                .where(and(inArray(schema.homeworks.id, byCol["1d"]), eq(schema.homeworks.userId, s.userId))),
+              byCol.morning.length && db.update(schema.homeworks).set({ notifiedMorningAt: now })
+                .where(and(inArray(schema.homeworks.id, byCol.morning), eq(schema.homeworks.userId, s.userId))),
+            ]);
+          }
+        }
+      }
+
+      // 3. Send daily prayer schedule push
       const cached = cachedTimesMap.get(s.userId)?.get(today);
       if (!cached) continue;
 
