@@ -150,12 +150,11 @@ export function parseHomeworkTitle(
     }
   }
 
-  // Kind keywords — first match wins
+  // Kind keywords — first match wins. The word stays in the title: "exam",
+  // "writeup", "test" are usually the title itself, not filler to remove.
   for (const [re, k] of KIND_WORDS) {
-    const m = re.exec(working);
-    if (m) {
+    if (re.test(working)) {
       result.kind = k;
-      strip(m);
       break;
     }
   }

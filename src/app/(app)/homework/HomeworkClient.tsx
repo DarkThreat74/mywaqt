@@ -979,7 +979,7 @@ export default function HomeworkClient({
                     : { backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)", color: "var(--color-accent)" }}
                 >
                   <CalendarClock className="h-2.5 w-2.5" />
-                  {planPassed ? "Missed plan " : "Planned "}
+                  {planPassed ? "Missed work session " : "Work on it "}
                   {new Date(`${hw.plannedDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                   {hw.plannedStartTime ? ` ${hw.plannedStartTime.slice(0, 5)}` : ""}
                 </span>
