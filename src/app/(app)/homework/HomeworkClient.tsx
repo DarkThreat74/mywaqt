@@ -15,7 +15,7 @@ import {
 import { formatDueBadge, urgencyColors, urgencyCardTint, isTimeOverdue, daysUntilDate } from "@/lib/homework/due-format";
 import { HOMEWORK_KINDS, KIND_LABELS, type HomeworkKind } from "@/lib/homework/kinds";
 import { parseHomeworkTitle } from "@/lib/homework/parse";
-import { parseICS } from "@/lib/homework/ics";
+import { parseICS, type ICSEntry } from "@/lib/homework/ics";
 import { computeCushion } from "@/lib/homework/cushion";
 
 export interface HomeworkSubtask {
@@ -516,7 +516,7 @@ export default function HomeworkClient({
     const text = await file.text();
     const entries = parseICS(text);
     if (entries.length === 0) { setImportMsg("No events found in that file"); return; }
-    setImportText(entries.map((e) => `${e.title} ${e.date}${e.time ? ` at ${e.time}` : ""}`).join("\n"));
+    setImportText(entries.map((e: ICSEntry) => `${e.title} ${e.date}${e.time ? ` at ${e.time}` : ""}`).join("\n"));
     setImportMsg(`Found ${entries.length} item${entries.length === 1 ? "" : "s"} — review then tap Import`);
   }
 
