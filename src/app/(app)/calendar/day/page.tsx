@@ -40,7 +40,9 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
   const today = todayInTimezone(userTimezone);
 
   const params = await searchParams;
-  const date = params.date || today;
+  const date = params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) && !isNaN(new Date(params.date + "T00:00:00Z").getTime())
+    ? params.date
+    : today;
 
   return (
     <div className="overflow-x-hidden">

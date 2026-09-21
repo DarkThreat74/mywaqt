@@ -28,6 +28,7 @@ interface CalendarEvent {
   color?: string | null;
   recurrenceRule?: string | null;
   seriesId?: string | null;
+  notify?: boolean;
 }
 
 // Color palette for reminders — must match DayViewClient
@@ -214,6 +215,7 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
                 color: e.color || null,
                 recurrenceRule: e.recurrenceRule || null,
                 seriesId: e.seriesId || null,
+                notify: e.notify,
                 _dateKey: eventDate,
                 _cachedAt: Date.now(),
               };

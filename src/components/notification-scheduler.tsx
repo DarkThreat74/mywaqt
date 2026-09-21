@@ -382,7 +382,7 @@ export default function NotificationScheduler() {
             title: e.title,
             startAt: e.startAt,
             type: e.type as "block" | "task" | "reminder",
-            // notify flag not stored in cache — default to allowing notifications
+            notify: e.notify,
           }));
         }
       } catch {

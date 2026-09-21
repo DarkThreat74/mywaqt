@@ -282,6 +282,7 @@ export default function DayViewClient({ date }: { date: string }) {
             color: e.color,
             recurrenceRule: e.recurrenceRule,
             seriesId: e.seriesId,
+            notify: e.notify,
           })));
         }
 
@@ -348,6 +349,7 @@ export default function DayViewClient({ date }: { date: string }) {
               color: e.color || null,
               recurrenceRule: e.recurrenceRule || null,
               seriesId: e.seriesId || null,
+              notify: e.notify,
               _dateKey: date,
               _cachedAt: Date.now(),
             })));
@@ -1127,6 +1129,9 @@ export default function DayViewClient({ date }: { date: string }) {
         if ("caches" in window) {
           await caches.keys().then((names) => Promise.all(names.filter((n) => n.includes("-api")).map((n) => caches.delete(n))));
         }
+        // Drop from IndexedDB too — otherwise the deleted occurrence still
+        // shows offline on its own date even when it isn't the viewed one.
+        deleteEventFromCache(eventId);
         // Remove from series list
         setSeriesEvents((prev) => prev.filter((e) => e.id !== eventId));
         // Update series count
@@ -1476,9 +1481,11 @@ export default function DayViewClient({ date }: { date: string }) {
             const startStr = isoToLocalTime(event.startAt);
             const endStr = isoToLocalTime(event.endAt);
             const startMin = timeToMinutes(startStr);
-            const endMin = timeToMinutes(endStr);
             const top = minutesToTop(startMin);
-            const durationMin = endMin - startMin;
+            // Duration from the instants, not wall times — an event ending
+            // after local midnight (23:00 → 01:00) would compute negative
+            // minutes from wall-clock subtraction and render as a stub.
+            const durationMin = (new Date(event.endAt).getTime() - new Date(event.startAt).getTime()) / 60000;
             // Min height 44px so short events (<30min) still show title + time
             const height = Math.max((durationMin / 60) * HOUR_HEIGHT, 44);
             // Show details only when there's enough vertical room (>= 45 min)
@@ -2088,6 +2095,14 @@ export default function DayViewClient({ date }: { date: string }) {
                         if ("caches" in window) {
                           await caches.keys().then((names) => Promise.all(names.filter((n) => n.includes("-api")).map((n) => caches.delete(n))));
                         }
+                        // Purge cached occurrences on/after this date so they
+                        // don't reappear offline (past ones stay cached).
+                        try {
+                          const db = getOfflineDB();
+                          await db.events
+                            .filter((e) => e.seriesId === deleteConfirm.seriesId && e._dateKey >= date)
+                            .delete();
+                        } catch { /* non-critical */ }
                         const refetch = await fetch(`/api/events?date=${date}`);
                         if (refetch.ok) {
                           const refreshed = await refetch.json();

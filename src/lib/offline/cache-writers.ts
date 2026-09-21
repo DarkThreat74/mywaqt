@@ -52,6 +52,7 @@ export function syncEventsToCache(date: string, events: EventLike[]): void {
           color: e.color ?? null,
           recurrenceRule: e.recurrenceRule ?? null,
           seriesId: e.seriesId ?? null,
+          notify: e.notify,
           _dateKey: date,
           _cachedAt: Date.now(),
         }))
@@ -80,6 +81,7 @@ export function addEventToCache(date: string, event: EventLike): void {
       color: event.color ?? null,
       recurrenceRule: event.recurrenceRule ?? null,
       seriesId: event.seriesId ?? null,
+      notify: event.notify,
       _dateKey: date,
       _cachedAt: Date.now(),
     }).catch(() => {});
@@ -115,6 +117,7 @@ export function updateEventInCache(event: EventLike): void {
         color: event.color ?? null,
         recurrenceRule: event.recurrenceRule ?? null,
         seriesId: event.seriesId ?? null,
+        notify: event.notify,
         _dateKey: dateKey,
         _cachedAt: Date.now(),
       }).catch(() => {});

@@ -11,6 +11,7 @@ export interface CachedEvent {
   color: string | null;
   recurrenceRule?: string | null;
   seriesId?: string | null;
+  notify?: boolean;
   notifiedAt?: string | null;
   _dateKey: string; // YYYY-MM-DD for quick lookup by day
   _cachedAt: number; // timestamp when cached
