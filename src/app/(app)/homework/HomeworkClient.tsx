@@ -302,7 +302,9 @@ export default function HomeworkClient({
     setEstimatedMinutes(hw.estimatedMinutes ?? "");
     setSubtasks(hw.subtasks ?? []);
     setNewSubtask("");
-    touchedRef.current = new Set(["title"]); // don't let NL parsing overwrite an existing title's fields
+    // Lock every field — typing in the title while editing must not let the
+    // NL parser silently rewrite the item's saved kind/date/priority/class.
+    touchedRef.current = new Set(["title", "kind", "classId", "dueDate", "dueTime", "priority"]);
     setError(null);
     setShowAddForm(true);
     // Scroll to top so the form is visible on mobile
@@ -949,16 +951,22 @@ export default function HomeworkClient({
                 High
               </span>
             )}
-            {hw.plannedDate && hw.status === "pending" && (
-              <span
-                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)", color: "var(--color-accent)" }}
-              >
-                <CalendarClock className="h-2.5 w-2.5" />
-                Planned {new Date(`${hw.plannedDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                {hw.plannedStartTime ? ` ${hw.plannedStartTime.slice(0, 5)}` : ""}
-              </span>
-            )}
+            {hw.plannedDate && hw.status === "pending" && (() => {
+              const planPassed = hw.plannedDate < todayStr();
+              return (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  style={planPassed
+                    ? { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }
+                    : { backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)", color: "var(--color-accent)" }}
+                >
+                  <CalendarClock className="h-2.5 w-2.5" />
+                  {planPassed ? "Missed plan " : "Planned "}
+                  {new Date(`${hw.plannedDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                  {hw.plannedStartTime ? ` ${hw.plannedStartTime.slice(0, 5)}` : ""}
+                </span>
+              );
+            })()}
             {hw.estimatedMinutes != null && hw.status === "pending" && (
               <span
                 className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"

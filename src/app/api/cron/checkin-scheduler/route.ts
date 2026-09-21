@@ -343,8 +343,10 @@ async function processUserBatch(
             const label = stage === "morning" ? "due today" : stage === "1d" ? "due tomorrow" : "due in 3 days";
             due.push({ hw, stage, label });
           }
-          if (due.length > 0) {
-            const subs = subsMap.get(s.userId) ?? [];
+          // No push subs → skip entirely (don't mark notified): the client
+          // scheduler can still fire the stage locally while the app is open.
+          const subs = subsMap.get(s.userId) ?? [];
+          if (due.length > 0 && subs.length > 0) {
             const body = due.slice(0, 3).map((d) => `${d.hw.title} — ${d.label}`).join(" · ")
               + (due.length > 3 ? ` · +${due.length - 3} more` : "");
             const payload = JSON.stringify({
