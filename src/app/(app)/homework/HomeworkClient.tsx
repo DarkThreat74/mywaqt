@@ -1504,45 +1504,46 @@ export default function HomeworkClient({
               <p className="mb-2 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
                 Plan when to work on it (optional)
               </p>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-2">
                 <input
                   type="date"
                   value={plannedDate}
                   onChange={(e) => setPlannedDate(e.target.value)}
-                  className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
                   style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
                 />
                 {plannedDate && (
-                  <>
+                  <div className="flex items-center gap-2">
                     <input
                       type="time"
                       value={plannedStartTime}
                       onChange={(e) => setPlannedStartTime(e.target.value)}
-                      className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                      className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
                       style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
                       aria-label="Session start"
                     />
-                    <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>to</span>
+                    <span className="shrink-0 text-xs" style={{ color: "var(--color-ink-muted)" }}>to</span>
                     <input
                       type="time"
                       value={plannedEndTime}
                       onChange={(e) => setPlannedEndTime(e.target.value)}
-                      className="rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                      className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
                       style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
                       aria-label="Session end"
                     />
                     <button
                       type="button"
                       onClick={() => { setPlannedDate(""); setPlannedStartTime(""); setPlannedEndTime(""); }}
-                      className="text-xs"
+                      className="shrink-0 rounded-lg p-1.5"
                       style={{ color: "var(--color-ink-muted)" }}
+                      aria-label="Clear planned session"
                     >
-                      Clear
+                      <X className="h-4 w-4" />
                     </button>
-                  </>
+                  </div>
                 )}
               </div>
-              <div className="mt-2 flex items-center gap-2">
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Time needed:</span>
                 <select
                   value={estimatedMinutes}
@@ -1556,7 +1557,7 @@ export default function HomeworkClient({
                   ))}
                 </select>
                 {typeof estimatedMinutes === "number" && (
-                  <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                  <span className="w-full text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
                     Used to warn you if there isn&rsquo;t enough free time before the deadline
                   </span>
                 )}
