@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -40,6 +40,11 @@ interface MasjidEntry {
   fetchUrl?: string | null;
   /** masjid-local timezone from the registry — used for Mawaqit day lookup. */
   masjidTz?: string | null;
+  /** server-only: registry external_id for iqamah-cache write-back. */
+  srcId?: string;
+  /** server-only: cached iqamah result + when it was last resolved. */
+  iqamahCache?: { fixed: (string | null)[]; offsets?: (number | null)[]; jummah: string[]; provider?: string } | null;
+  iqamahCheckedAt?: Date | null;
 }
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
@@ -241,6 +246,8 @@ interface SourceRow {
   fetchUrl: string | null;
   platform: string | null;
   timezone: string | null;
+  iqamahCache: { fixed: (string | null)[]; offsets?: (number | null)[]; jummah: string[]; provider?: string } | null;
+  iqamahCheckedAt: Date | null;
 }
 
 /** Masjidal's public widget API: /api/v1/time?masjid_id=X → JSON iqama. */
@@ -419,10 +426,31 @@ function parseGenericIqamah(body: string, tz?: string | null): { fixed: (string 
   return { fixed, jummah: [...new Set(jummah)].slice(0, 3) };
 }
 
-/** Resolve one registry source's live iqamah. Best-effort, 6h cached. */
-async function fetchLiveIqamah(e: MasjidEntry & { fetchUrl?: string | null }): Promise<void> {
+const IQAMAH_CACHE_MS = 12 * 60 * 60 * 1000; // re-resolve at most twice a day
+const UPSTREAM_TIMEOUT = 6000; // a slow masjid homepage must not stall the list
+
+/** Apply a previously cached iqamah result without any network call. */
+function applyCachedIqamah(e: MasjidEntry): boolean {
+  const c = e.iqamahCache;
+  if (!c) return false;
+  if (c.fixed?.some(Boolean)) e.iqamaFixed = c.fixed;
+  if (c.offsets?.some((o) => o != null)) e.iqamaOffsets = c.offsets as number[];
+  if (c.jummah?.length) e.jummah = c.jummah;
+  e.hasIqama = !!(c.fixed?.some(Boolean) || c.offsets?.some((o) => o != null) || c.jummah?.length);
+  if (c.provider) e.attribution = { provider: c.provider };
+  return e.hasIqama;
+}
+
+/** Resolve one registry source's live iqamah, with a DB cache + timeouts. */
+async function fetchLiveIqamah(e: MasjidEntry): Promise<void> {
   const url = e.fetchUrl;
   if (!url) return;
+  // Fresh cache → no network at all. A cached null means "checked recently,
+  // nothing published" — don't refetch it on every request either.
+  if (e.iqamahCheckedAt && Date.now() - e.iqamahCheckedAt.getTime() < IQAMAH_CACHE_MS) {
+    applyCachedIqamah(e);
+    return;
+  }
   const apply = (p: { fixed: (string | null)[]; offsets?: (number | null)[]; jummah: string[] } | null, provider: string) => {
     if (!p) return;
     if (p.fixed.some(Boolean)) e.iqamaFixed = p.fixed;
@@ -431,56 +459,67 @@ async function fetchLiveIqamah(e: MasjidEntry & { fetchUrl?: string | null }): P
     e.hasIqama = p.fixed.some(Boolean) || !!p.offsets?.some((o) => o != null) || p.jummah.length > 0;
     e.attribution = { provider };
   };
+  const opts = { next: { revalidate: 21600 }, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT) };
   try {
     if (url.includes("masjidal.com")) {
-      const res = await fetch(url, { next: { revalidate: 21600 } });
-      const parsed = res.ok ? parseMasjidal(await res.json().catch(() => null)) : null;
-      if (parsed) {
-        e.iqamaFixed = parsed.fixed;
-        e.jummah = parsed.jummah.length ? parsed.jummah : e.jummah;
-        e.hasIqama = true;
-        e.attribution = { provider: "Masjidal" };
+      const res = await fetch(url, opts);
+      apply(res.ok ? parseMasjidal(await res.json().catch(() => null)) : null, "Masjidal");
+    } else {
+      // Widget page / homepage: fetch HTML, then try in order —
+      // Masjidal iframe → Mawaqit page/embed confData → Mohid iframe →
+      // generic labeled-times parse (also handles CSV endpoints).
+      const res = await fetch(url, { ...opts, headers: { "User-Agent": "Waqt/1.0" } });
+      if (!res.ok) return;
+      const html = await res.text();
+
+      if (url.includes("mawaqit.net")) {
+        apply(parseMawaqitConfData(html, e.masjidTz), "Mawaqit");
+      } else {
+        const masjidalEmbed = html.match(/masjidal\.com\/[^"' ]*masjid_id=([A-Za-z0-9]+)/);
+        if (masjidalEmbed) {
+          const r2 = await fetch(`https://masjidal.com/api/v1/time?masjid_id=${masjidalEmbed[1]}`, opts).catch(() => null);
+          apply(r2?.ok ? parseMasjidal(await r2.json().catch(() => null)) : null, "Masjidal");
+        }
+        if (!e.hasIqama) {
+          const mawaqitEmbed = html.match(/(?:src|href)=["'](https?:\/\/mawaqit\.net\/[^"']*)["']/i);
+          if (mawaqitEmbed) {
+            const r2 = await fetch(mawaqitEmbed[1], { ...opts, headers: { "User-Agent": "Waqt/1.0" } })
+              .then((r) => (r.ok ? r.text() : null)).catch(() => null);
+            if (r2) apply(parseMawaqitConfData(r2, e.masjidTz), "Mawaqit");
+          }
+        }
+        if (!e.hasIqama) {
+          // Mohid widget iframe embedded in the masjid's homepage — follow it once
+          const mohidEmbed = html.match(/(?:src|href)=["'](https?:\/\/[^"']*mohid[^"']*)["']/i);
+          const targetHtml = mohidEmbed
+            ? await fetch(mohidEmbed[1], { ...opts, headers: { "User-Agent": "Waqt/1.0" } })
+                .then((r) => (r.ok ? r.text() : null))
+                .catch(() => null)
+            : html;
+          if (targetHtml) {
+            apply(parseMohidHtml(targetHtml), "Masjid site");
+            if (!e.hasIqama) apply(parseGenericIqamah(targetHtml, e.masjidTz), "Masjid site");
+          }
+          if (!e.hasIqama) apply(parseGenericIqamah(html, e.masjidTz), "Masjid site");
+        }
       }
-      return;
     }
-    // Widget page / homepage: fetch HTML, then try in order —
-    // Masjidal iframe → Mawaqit page/embed confData → Mohid iframe →
-    // generic labeled-times parse (also handles CSV endpoints).
-    const res = await fetch(url, { next: { revalidate: 21600 }, headers: { "User-Agent": "Waqt/1.0" } });
-    if (!res.ok) return;
-    const html = await res.text();
-
-    if (url.includes("mawaqit.net")) {
-      apply(parseMawaqitConfData(html, e.masjidTz), "Mawaqit");
-      return;
-    }
-
-    const masjidalEmbed = html.match(/masjidal\.com\/[^"' ]*masjid_id=([A-Za-z0-9]+)/);
-    if (masjidalEmbed) {
-      const r2 = await fetch(`https://masjidal.com/api/v1/time?masjid_id=${masjidalEmbed[1]}`, { next: { revalidate: 21600 } });
-      apply(parseMasjidal(await r2.json().catch(() => null)), "Masjidal");
-      if (e.hasIqama) return;
-    }
-    const mawaqitEmbed = html.match(/(?:src|href)=["'](https?:\/\/mawaqit\.net\/[^"']*)["']/i);
-    if (mawaqitEmbed) {
-      const r2 = await fetch(mawaqitEmbed[1], { next: { revalidate: 21600 }, headers: { "User-Agent": "Waqt/1.0" } })
-        .then((r) => (r.ok ? r.text() : null)).catch(() => null);
-      if (r2) apply(parseMawaqitConfData(r2, e.masjidTz), "Mawaqit");
-      if (e.hasIqama) return;
-    }
-    // Mohid widget iframe embedded in the masjid's homepage — follow it once
-    const mohidEmbed = html.match(/(?:src|href)=["'](https?:\/\/[^"']*mohid[^"']*)["']/i);
-    const targetHtml = mohidEmbed
-      ? await fetch(mohidEmbed[1], { next: { revalidate: 21600 }, headers: { "User-Agent": "Waqt/1.0" } })
-          .then((r) => (r.ok ? r.text() : null))
-          .catch(() => null)
-      : html;
-    if (targetHtml) {
-      apply(parseMohidHtml(targetHtml), "Masjid site");
-      if (!e.hasIqama) apply(parseGenericIqamah(targetHtml, e.masjidTz), "Masjid site");
-    }
-    if (!e.hasIqama) apply(parseGenericIqamah(html, e.masjidTz), "Masjid site");
   } catch { /* best-effort — entry just shows adhan */ }
+  // Write the resolution back so the next request for this masjid is instant.
+  if (e.srcId) {
+    const cache = e.hasIqama
+      ? {
+          fixed: e.iqamaFixed ?? [null, null, null, null, null],
+          offsets: e.iqamaOffsets ?? undefined,
+          jummah: Array.isArray(e.jummah) ? e.jummah : e.jummah ? [e.jummah] : [],
+          provider: (e.attribution as { provider?: string } | null)?.provider,
+        }
+      : null;
+    db.update(schema.masjidSources)
+      .set({ iqamahCache: cache, iqamahCheckedAt: new Date() })
+      .where(eq(schema.masjidSources.externalId, e.srcId))
+      .catch(() => {});
+  }
 }
 
 /** Fetch iqamah/jumu'ah details for the islamic.app entries in a slice. */
@@ -594,6 +633,7 @@ export async function GET(request: NextRequest) {
           source: "registry", attribution: null, url: s.website,
           iqamaOffsets: null, iqamaFixed: null, jummah: null, hasIqama: false,
           image: null, phone: null, website: s.website, fetchUrl: s.fetchUrl, masjidTz: s.timezone,
+          srcId: s.externalId, iqamahCache: s.iqamahCache, iqamahCheckedAt: s.iqamahCheckedAt,
         })),
         ...subs.map((s) => ({
           id: s.masjidId, slug: null, name: s.masjidName, lat: s.lat, lng: s.lng,
@@ -618,11 +658,21 @@ export async function GET(request: NextRequest) {
       });
       if (hasCoords) unique.sort((a, b) => a.distanceKm - b.distanceKm);
       const slice = unique.slice(0, 30);
+      // Warm iqamah cache applies instantly; only cold entries hit the network.
+      for (const m of slice) {
+        if (m.fetchUrl && !m.hasIqama && m.iqamahCheckedAt &&
+            Date.now() - m.iqamahCheckedAt.getTime() < IQAMAH_CACHE_MS) {
+          applyCachedIqamah(m);
+        }
+      }
       await Promise.all(slice.filter((m) => m.fetchUrl && !m.hasIqama).slice(0, 10).map((m) => fetchLiveIqamah(m)));
       const out = slice.map((m) => {
         const copy: Record<string, unknown> = { ...m };
         delete copy.fetchUrl;
         delete copy.masjidTz;
+        delete copy.srcId;
+        delete copy.iqamahCache;
+        delete copy.iqamahCheckedAt;
         return copy;
       });
       return NextResponse.json({ mosques: out, total: unique.length, hasMore: false });
@@ -674,6 +724,9 @@ export async function GET(request: NextRequest) {
         website: s.website,
         fetchUrl: s.fetchUrl,
         masjidTz: s.timezone,
+        srcId: s.externalId,
+        iqamahCache: s.iqamahCache,
+        iqamahCheckedAt: s.iqamahCheckedAt,
       }));
     // Mawaqit first — richest data (real iqamah + photos). Registry before
     // OSM so dedupe keeps the entry that carries an iqamah endpoint.
@@ -702,7 +755,13 @@ export async function GET(request: NextRequest) {
     const slice = await enrich(merged.slice(offset, offset + limit));
 
     // Fetch live iqamah from masjid endpoints (masjidal JSON / mohid widget
-    // pages / masjidal embeds) — capped, parallel, 6h-cached upstream.
+    // pages / masjidal embeds) — capped, parallel, cached in masjid_sources.
+    for (const m of slice) {
+      if (m.fetchUrl && !m.hasIqama && m.iqamahCheckedAt &&
+          Date.now() - m.iqamahCheckedAt.getTime() < IQAMAH_CACHE_MS) {
+        applyCachedIqamah(m);
+      }
+    }
     await Promise.all(
       slice
         .filter((m) => m.fetchUrl && !m.hasIqama)
@@ -714,6 +773,9 @@ export async function GET(request: NextRequest) {
     const out = slice.map((m) => {
       const copy: Record<string, unknown> = { ...m };
       delete copy.fetchUrl;
+      delete copy.srcId;
+      delete copy.iqamahCache;
+      delete copy.iqamahCheckedAt;
       delete copy.masjidTz;
       return copy;
     });

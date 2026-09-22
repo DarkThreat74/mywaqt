@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MapPin, List, Map as MapIcon, Loader2, Copy, Check, Navigation, LocateFixed, Search, X } from "lucide-react";
 import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
+import type { StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 // Matches the dashboard's PrayerTimes shape; values may carry a "(TZ)" suffix.
@@ -61,6 +62,26 @@ interface MasjidCache {
 }
 
 const MASJID_CACHE_V = 4;
+
+// Fallback basemap: CARTO Voyager raster tiles (free, no key). Used when
+// OpenFreeMap's vector CDN is blocked/unreachable — raster renders on any
+// device and needs no glyphs/sprite.
+const RASTER_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    carto: {
+      type: "raster",
+      tiles: [
+        "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
+        "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
+        "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
+      ],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors © CARTO",
+    },
+  },
+  layers: [{ id: "carto", type: "raster", source: "carto" }],
+};
 
 function readMasjidCache(lat: number, lng: number): Masjid[] | null {
   try {
@@ -448,15 +469,24 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         const map = mapObj.current;
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
         map.on("click", () => setSelected(null));
+        // If the vector style/tiles fail (blocked CDN, offline), fall back to
+        // plain raster tiles — always renders, no glyph/sprite dependencies.
+        let fellBack = false;
+        const toRaster = () => {
+          if (fellBack) return;
+          fellBack = true;
+          try { map.setStyle(RASTER_STYLE); } catch { /* keep current style */ }
+        };
         map.on("error", (e) => {
-          // Surface tile/style failures instead of silently rendering white
           console.warn("map error", e?.error?.message);
+          toRaster();
         });
-        // If the style never loads (blocked tiles, offline), say so.
-        const loadTimer = setTimeout(() => {
-          if (!map.loaded()) setError("Map tiles aren't loading — check your connection.");
-        }, 8000);
+        const loadTimer = setTimeout(() => { if (!map.loaded()) toRaster(); }, 6000);
         map.once("load", () => clearTimeout(loadTimer));
+        // If even raster can't load, say so.
+        setTimeout(() => {
+          if (!map.loaded() && fellBack) setError("Map tiles aren't loading — check your connection.");
+        }, 14000);
         // A blank canvas that never fires 'load' renders nothing visible —
         // resize once in case the container was laid out after init.
         map.once("load", () => map.resize());

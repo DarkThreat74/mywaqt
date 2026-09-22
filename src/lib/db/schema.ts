@@ -346,6 +346,10 @@ export const masjidSources = pgTable('masjid_sources', {
   website: text('website'),
   fetchUrl: text('fetch_url'),
   platform: text('platform'),
+  // Server-side cache of resolved iqamah — avoids refetching the masjid's
+  // homepage/widget endpoint on every nearby request.
+  iqamahCache: jsonb('iqamah_cache').$type<{ fixed: (string | null)[]; offsets?: (number | null)[]; jummah: string[]; provider?: string } | null>(),
+  iqamahCheckedAt: timestamp('iqamah_checked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index('masjid_sources_geo_idx').on(table.lat, table.lng),
