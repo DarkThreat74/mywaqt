@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -36,6 +36,8 @@ interface MasjidEntry {
   image: string | null;
   phone: string | null;
   website: string | null;
+  /** praytime-registry endpoint to fetch live iqamah from (server-only). */
+  fetchUrl?: string | null;
 }
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
@@ -221,6 +223,105 @@ function merge(a: MasjidEntry[], b: MasjidEntry[]): MasjidEntry[] {
   return merged;
 }
 
+// ─── praytime registry: live iqamah from masjid platforms ───
+
+interface SourceRow {
+  external_id: string;
+  name: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+  website: string | null;
+  fetch_url: string | null;
+  platform: string | null;
+}
+
+/** Masjidal's public widget API: /api/v1/time?masjid_id=X → JSON iqama. */
+function parseMasjidal(json: unknown): { fixed: (string | null)[]; jummah: string[] } | null {
+  const iq = (json as { data?: { iqama?: Record<string, string> } })?.data?.iqama;
+  if (!iq) return null;
+  const to24 = (s?: string) => {
+    if (!s) return null;
+    const m = s.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+    if (!m) return null;
+    let h = parseInt(m[1]);
+    if (m[3]?.toLowerCase() === "pm" && h !== 12) h += 12;
+    if (m[3]?.toLowerCase() === "am" && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${m[2]}`;
+  };
+  const fixed = [iq.fajr, iq.zuhr, iq.asr, iq.maghrib, iq.isha].map(to24);
+  const jummah = [iq.jummah1, iq.jummah2, iq.jummah3].map(to24).filter((t): t is string => !!t);
+  return fixed.some(Boolean) ? { fixed, jummah } : null;
+}
+
+/**
+ * Mohid-style widget pages embed iqamah in .prayer_iqama_div blocks.
+ * Many masjid homepages iframe a Mohid/Masjidal widget — one extra hop.
+ */
+function parseMohidHtml(html: string): { fixed: (string | null)[]; jummah: string[] } | null {
+  const times = [...html.matchAll(/prayer_iqama_div[^>]*>\s*([\s\S]*?)</g)]
+    .map((m) => m[1].trim().match(/(\d{1,2}:\d{2}\s*(?:am|pm)?)/i)?.[1])
+    .filter((t): t is string => !!t);
+  // First cell is usually "Iqamah" label / header — praytime slices [1,6]
+  const five = times.length >= 6 ? times.slice(1, 6) : times.slice(0, 5);
+  if (five.length < 5) return null;
+  const to24 = (s: string) => {
+    const m = s.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+    if (!m) return null;
+    let h = parseInt(m[1]);
+    if (m[3]?.toLowerCase() === "pm" && h !== 12) h += 12;
+    if (m[3]?.toLowerCase() === "am" && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${m[2]}`;
+  };
+  const fixed = five.map(to24);
+  const juma = [...html.matchAll(/id="jummah"[\s\S]{0,2000}?(\d{1,2}:\d{2}\s*(?:am|pm)?)/gi)]
+    .map((m) => to24(m[1])).filter((t): t is string => !!t);
+  return fixed.every(Boolean) ? { fixed, jummah: juma.slice(0, 3) } : null;
+}
+
+/** Resolve one registry source's live iqamah. Best-effort, 6h cached. */
+async function fetchLiveIqamah(e: MasjidEntry & { fetchUrl?: string | null }): Promise<void> {
+  const url = e.fetchUrl;
+  if (!url) return;
+  try {
+    if (url.includes("masjidal.com")) {
+      const res = await fetch(url, { next: { revalidate: 21600 } });
+      const parsed = res.ok ? parseMasjidal(await res.json().catch(() => null)) : null;
+      if (parsed) {
+        e.iqamaFixed = parsed.fixed;
+        e.jummah = parsed.jummah.length ? parsed.jummah : e.jummah;
+        e.hasIqama = true;
+        e.attribution = { provider: "Masjidal" };
+      }
+      return;
+    }
+    // Generic widget page: fetch HTML, follow a Masjidal iframe if present,
+    // else try Mohid-style .prayer_iqama_div scraping.
+    const res = await fetch(url, { next: { revalidate: 21600 }, headers: { "User-Agent": "Waqt/1.0" } });
+    if (!res.ok) return;
+    const html = await res.text();
+    const masjidalEmbed = html.match(/masjidal\.com\/[^"' ]*masjid_id=([A-Za-z0-9]+)/);
+    if (masjidalEmbed) {
+      const r2 = await fetch(`https://masjidal.com/api/v1/time?masjid_id=${masjidalEmbed[1]}`, { next: { revalidate: 21600 } });
+      const parsed = r2.ok ? parseMasjidal(await r2.json().catch(() => null)) : null;
+      if (parsed) {
+        e.iqamaFixed = parsed.fixed;
+        e.jummah = parsed.jummah.length ? parsed.jummah : e.jummah;
+        e.hasIqama = true;
+        e.attribution = { provider: "Masjidal" };
+      }
+      return;
+    }
+    const parsed = parseMohidHtml(html);
+    if (parsed) {
+      e.iqamaFixed = parsed.fixed;
+      e.jummah = parsed.jummah.length ? parsed.jummah : e.jummah;
+      e.hasIqama = true;
+      e.attribution = { provider: "Masjid site" };
+    }
+  } catch { /* best-effort — entry just shows adhan */ }
+}
+
 /** Fetch iqamah/jumu'ah details for the islamic.app entries in a slice. */
 async function enrich(entries: MasjidEntry[]): Promise<MasjidEntry[]> {
   let budget = 15; // cap upstream detail fetches per request
@@ -314,8 +415,41 @@ export async function GET(request: NextRequest) {
       fromIslamicApp(lat, lng, radiusKm).catch(() => []),
       fromOverpass(lat, lng, Math.round(radiusKm * 1000)).catch(() => []),
     ]);
-    // Mawaqit first — richest data (real iqamah + photos), so dedupe keeps it
-    const merged = merge(merge(mq, ia), osm);
+    // praytime registry (US/CA masjids + their iqamah-publishing endpoints)
+    // — merged in before dedupe so OSM-only mosques gain iqamah sources.
+    const deg = radiusKm / 111; // ~km per degree latitude
+    const sources = await db
+      .select()
+      .from(schema.masjidSources)
+      .where(sql`lat BETWEEN ${lat - deg} AND ${lat + deg} AND lng BETWEEN ${lng - deg * 1.4} AND ${lng + deg * 1.4}`)
+      .catch(() => [] as SourceRow[]);
+    const registry: MasjidEntry[] = (sources as SourceRow[])
+      .filter((s) => haversineKm(lat, lng, s.lat, s.lng) <= radiusKm)
+      .map((s) => ({
+        id: `pt:${s.external_id}`,
+        slug: null,
+        name: s.name,
+        lat: s.lat,
+        lng: s.lng,
+        distanceKm: haversineKm(lat, lng, s.lat, s.lng),
+        city: null,
+        country: null,
+        address: s.address,
+        source: "registry",
+        attribution: null,
+        url: s.website,
+        iqamaOffsets: null,
+        iqamaFixed: null,
+        jummah: null,
+        hasIqama: false,
+        image: null,
+        phone: null,
+        website: s.website,
+        fetchUrl: s.fetch_url,
+      }));
+    // Mawaqit first — richest data (real iqamah + photos). Registry before
+    // OSM so dedupe keeps the entry that carries an iqamah endpoint.
+    const merged = merge(merge(merge(mq, ia), registry), osm);
 
     // Overlay community-submitted iqamah (our own crowdsourced table) onto
     // any masjids missing it — this is how the US coverage gap gets filled.
@@ -338,6 +472,15 @@ export async function GET(request: NextRequest) {
     }
 
     const slice = await enrich(merged.slice(offset, offset + limit));
+
+    // Fetch live iqamah from masjid endpoints (masjidal JSON / mohid widget
+    // pages / masjidal embeds) — capped, parallel, 6h-cached upstream.
+    await Promise.all(
+      slice
+        .filter((m) => m.fetchUrl && !m.hasIqama)
+        .slice(0, 10)
+        .map((m) => fetchLiveIqamah(m)),
+    );
 
     return NextResponse.json({
       mosques: slice,

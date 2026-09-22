@@ -334,6 +334,23 @@ export const masjidIqamah = pgTable('masjid_iqamah', {
   index('masjid_iqamah_geo_idx').on(table.lat, table.lng),
 ]);
 
+// ─── Masjid Sources (praytime registry: masjid → public iqamah endpoint) ───
+export const masjidSources = pgTable('masjid_sources', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  externalId: text('external_id').notNull().unique(),
+  name: text('name').notNull(),
+  address: text('address'),
+  lat: doublePrecision('lat').notNull(),
+  lng: doublePrecision('lng').notNull(),
+  timezone: text('timezone'),
+  website: text('website'),
+  fetchUrl: text('fetch_url'),
+  platform: text('platform'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('masjid_sources_geo_idx').on(table.lat, table.lng),
+]);
+
 // ─── Prayer Blocks (prevent unwanted friend requests) ───
 export const prayerBlocks = pgTable('prayer_blocks', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -898,3 +915,4 @@ export type Note = typeof notes.$inferSelect;
 export type NewNote = typeof notes.$inferInsert;
 export type HaydPeriod = typeof haydPeriods.$inferSelect;
 export type MasjidIqamah = typeof masjidIqamah.$inferSelect;
+export type MasjidSource = typeof masjidSources.$inferSelect;
