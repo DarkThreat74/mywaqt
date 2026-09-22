@@ -23,7 +23,7 @@ interface PrayerSettings {
     manual?: Partial<Record<"fajr" | "dhuhr" | "asr" | "maghrib" | "isha", string>>;
     fixed?: (string | null)[];
     offsets?: (number | null)[];
-    jummah?: string | null;
+    jummah?: string[] | null;
   } | null;
   useIqamahReminders?: boolean;
   timeOffsetMinutes?: number;
@@ -421,7 +421,11 @@ export default function SettingsClient({
     }
   });
   // Masjid picker
-  const [masjidResults, setMasjidResults] = useState<Array<{ slug: string; name: string; city: string | null; country: string | null; distanceKm: number | null }>>([]);
+  const [masjidResults, setMasjidResults] = useState<Array<{
+    id?: string; slug: string | null; name: string; city: string | null; country: string | null;
+    address?: string | null; distanceKm: number | null; hasIqama?: boolean;
+    iqamaOffsets?: (number | null)[] | null; iqamaFixed?: (string | null)[] | null; jummah?: string[] | null;
+  }>>([]);
   const [masjidSearching, setMasjidSearching] = useState(false);
   const [masjidManual, setMasjidManual] = useState(false);
   const [manualIqamah, setManualIqamah] = useState<Record<string, string>>({});
@@ -460,9 +464,11 @@ export default function SettingsClient({
     try {
       const res = await fetch(`/api/masjids?lat=${initialSettings?.latitude}&lng=${initialSettings?.longitude}`);
       const data = res.ok ? await res.json() : null;
-      // Only directory entries (with a slug) publish iqamah times — OSM POIs
-      // are name/coords only and can't be picked.
-      const pickable = (data?.mosques ?? []).filter((m: { slug: string | null }) => m.slug);
+      // Pickable = has iqamah data: islamic.app entries resolve it via slug,
+      // Mawaqit entries carry it inline. Plain OSM POIs have neither.
+      const pickable = (data?.mosques ?? []).filter(
+        (m: { slug: string | null; hasIqama?: boolean }) => m.slug || m.hasIqama,
+      );
       setMasjidResults(pickable as typeof masjidResults);
       if (!pickable.length) setMasjidMsg({ ok: false, text: "No masjids with published iqamah found nearby — enter times manually below." });
     } catch {
@@ -472,21 +478,27 @@ export default function SettingsClient({
     }
   }
 
-  async function pickMasjid(slug: string) {
+  async function pickMasjid(entry: (typeof masjidResults)[number]) {
     setMasjidMsg(null);
     try {
-      const res = await fetch(`/api/masjids?slug=${encodeURIComponent(slug)}`);
-      const m = res.ok ? await res.json() : null;
-      if (!m) { setMasjidMsg({ ok: false, text: "Couldn't load masjid." }); return; }
+      // islamic.app entries need a detail fetch; Mawaqit entries already
+      // carry their iqamah data inline.
+      let m = entry as typeof entry & { slug: string };
+      if (!entry.slug) {
+        // use inline data directly
+      } else {
+        const res = await fetch(`/api/masjids?slug=${encodeURIComponent(entry.slug)}`);
+        const detail = res.ok ? await res.json() : null;
+        if (!detail) { setMasjidMsg({ ok: false, text: "Couldn't load masjid." }); return; }
+        m = detail;
+      }
+      const iqamah = { offsets: m.iqamaOffsets ?? undefined, fixed: m.iqamaFixed ?? undefined, jummah: m.jummah ?? undefined };
+      const extId = entry.slug ?? entry.id ?? m.name;
       await patchPrayerSettings(
-        {
-          masjidExternalId: m.slug,
-          masjidName: m.name,
-          masjidIqamah: { offsets: m.iqamaOffsets, fixed: m.iqamaFixed, jummah: m.jummah },
-        },
+        { masjidExternalId: extId, masjidName: m.name, masjidIqamah: iqamah },
         `Iqamah times set from ${m.name}.`,
       );
-      setPrayerSettings((p) => p ? { ...p, masjidExternalId: m.slug, masjidName: m.name, masjidIqamah: { offsets: m.iqamaOffsets, fixed: m.iqamaFixed, jummah: m.jummah } } : p);
+      setPrayerSettings((p) => p ? { ...p, masjidExternalId: extId, masjidName: m.name, masjidIqamah: iqamah } : p);
       setMasjidResults([]);
     } catch {
       setMasjidMsg({ ok: false, text: "Couldn't load masjid." });
@@ -2082,14 +2094,14 @@ export default function SettingsClient({
                   <div className="mb-2 max-h-48 space-y-1 overflow-y-auto">
                     {masjidResults.map((m) => (
                       <button
-                        key={m.slug}
-                        onClick={() => pickMasjid(m.slug)}
+                        key={m.slug ?? m.id ?? m.name}
+                        onClick={() => pickMasjid(m)}
                         className="w-full rounded-lg border p-2 text-left transition-colors"
                         style={{ borderColor: "var(--color-paper-3)" }}
                       >
                         <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>{m.name}</p>
                         <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                          {[m.city, m.country].filter(Boolean).join(", ")}
+                          {[m.city, m.country].filter(Boolean).join(", ") || m.address || ""}
                           {m.distanceKm != null && ` · ${m.distanceKm.toFixed(1)} km`}
                         </p>
                       </button>

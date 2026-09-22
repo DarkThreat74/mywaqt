@@ -293,7 +293,7 @@ export const prayerSettings = pgTable('prayer_settings', {
     manual?: Partial<Record<'fajr' | 'dhuhr' | 'asr' | 'maghrib' | 'isha', string>>;
     fixed?: (string | null)[];
     offsets?: (number | null)[];
-    jummah?: string | null;
+    jummah?: string[] | null;
   }>(),
   useIqamahReminders: boolean('use_iqamah_reminders').default(false).notNull(),
   // Global minute offset applied to all displayed prayer times

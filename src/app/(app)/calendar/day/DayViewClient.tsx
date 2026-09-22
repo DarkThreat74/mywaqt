@@ -43,7 +43,7 @@ interface PrayerTimes {
     manual?: Partial<Record<"fajr" | "dhuhr" | "asr" | "maghrib" | "isha", string>>;
     fixed?: (string | null)[];
     offsets?: (number | null)[];
-    jummah?: string | null;
+    jummah?: string[] | null;
   } | null;
   timeOffsetMinutes?: number;
 }
@@ -1546,31 +1546,34 @@ export default function DayViewClient({ date }: { date: string }) {
                 );
               })}
 
-          {/* Jumu'ah line on Fridays — masjid's khutbah time when set, else Dhuhr */}
+          {/* Jumu'ah lines on Fridays — masjid's khutbah times when set, else Dhuhr */}
           {prayerTimes && isFridayDate(date) && (() => {
-            const jummahRaw = prayerTimes.masjidIqamah?.jummah ?? prayerTimes.dhuhr;
-            if (!jummahRaw) return null;
-            const minutes = timeToMinutes(adjTimeStr(jummahRaw));
-            if (minutes < HOURS[0] * 60 || minutes > (HOURS[HOURS.length - 1] + 1) * 60) return null;
-            const top = minutesToTop(minutes);
-            return (
-              <div
-                className="absolute z-10 flex items-center pr-1 pointer-events-none"
-                style={{ top: top - 7, left: TIME_COL, right: 0 }}
-              >
-                <div className="h-0.5 flex-1" style={{ backgroundColor: "var(--color-accent)", opacity: 0.35 }} />
-                <span
-                  className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold sm:px-2"
-                  style={{
-                    backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))",
-                    color: "var(--color-accent)",
-                    border: "1px solid var(--color-accent)",
-                  }}
+            const raw = prayerTimes.masjidIqamah?.jummah;
+            const jummahs = Array.isArray(raw) && raw.length ? raw : prayerTimes.dhuhr ? [prayerTimes.dhuhr] : [];
+            return jummahs.map((j, i) => {
+              const minutes = timeToMinutes(adjTimeStr(j));
+              if (minutes < HOURS[0] * 60 || minutes > (HOURS[HOURS.length - 1] + 1) * 60) return null;
+              const top = minutesToTop(minutes);
+              return (
+                <div
+                  key={i}
+                  className="absolute z-10 flex items-center pr-1 pointer-events-none"
+                  style={{ top: top - 7, left: TIME_COL, right: 0 }}
                 >
-                  Jumu&apos;ah {formatTime(adjTimeStr(jummahRaw))}
-                </span>
-              </div>
-            );
+                  <div className="h-0.5 flex-1" style={{ backgroundColor: "var(--color-accent)", opacity: 0.35 }} />
+                  <span
+                    className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold sm:px-2"
+                    style={{
+                      backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))",
+                      color: "var(--color-accent)",
+                      border: "1px solid var(--color-accent)",
+                    }}
+                  >
+                    Jumu&apos;ah{jummahs.length > 1 ? ` ${i + 1}` : ""} {formatTime(adjTimeStr(j))}
+                  </span>
+                </div>
+              );
+            });
           })()}
 
           {/* Reminder lines — each reminder is a horizontal line with its own color */}

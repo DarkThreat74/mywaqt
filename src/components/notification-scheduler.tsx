@@ -202,7 +202,7 @@ export default function NotificationScheduler() {
           manual?: Partial<Record<keyof PrayerTimes, string>>;
           fixed?: (string | null)[];
           offsets?: (number | null)[];
-          jummah?: string | null;
+          jummah?: string[] | null;
         } | null;
         useIqamahReminders?: boolean;
       };

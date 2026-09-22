@@ -115,7 +115,7 @@ export async function PATCH(request: NextRequest) {
         manual?: Record<string, string>;
         fixed?: (string | null)[];
         offsets?: (number | null)[];
-        jummah?: string | null;
+        jummah?: string | string[] | null;
       };
       const clean: Record<string, unknown> = {};
       if (iq.manual && typeof iq.manual === "object") {
@@ -134,7 +134,12 @@ export async function PATCH(request: NextRequest) {
           .slice(0, 5)
           .map((v) => (typeof v === "number" && Number.isInteger(v) && v >= -120 && v <= 300 ? v : null));
       }
-      if (typeof iq.jummah === "string" && TIME_RE.test(iq.jummah)) clean.jummah = iq.jummah;
+      if (typeof iq.jummah === "string" && TIME_RE.test(iq.jummah)) {
+        clean.jummah = [iq.jummah];
+      } else if (Array.isArray(iq.jummah)) {
+        const arr = iq.jummah.filter((v): v is string => typeof v === "string" && TIME_RE.test(v)).slice(0, 3);
+        if (arr.length) clean.jummah = arr;
+      }
       updates.masjidIqamah = clean;
     }
   }

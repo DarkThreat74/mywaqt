@@ -1109,11 +1109,20 @@ export default function PrayerDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: haydActive ? "end" : "start" }),
       });
-      if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (res.ok || data?.offline) {
         const list = await fetch("/api/hayd").then((r) => (r.ok ? r.json() : null)).catch(() => null);
         if (list?.periods) {
           setHaydPeriods(list.periods);
           setCachedHaydPeriods(list.periods);
+        } else if (data?.offline && todayStr) {
+          // Offline: the SW queued the write — apply it to the local periods
+          // so the UI reflects the change without a server round-trip.
+          const next = haydActive
+            ? haydPeriods.map((p) => (p.endDate ? p : { ...p, endDate: todayStr }))
+            : [...haydPeriods, { id: `local-${Date.now()}`, startDate: todayStr, endDate: null }];
+          setHaydPeriods(next);
+          setCachedHaydPeriods(next);
         }
       }
     } finally {

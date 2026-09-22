@@ -205,24 +205,34 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       const L = await import("leaflet");
       if (cancelled || !mapRef.current) return;
       if (!mapObj.current) {
-        mapObj.current = L.map(mapRef.current).setView([lat, lng], 12);
-        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        mapObj.current = L.map(mapRef.current, {
+          // Wheel-zoom traps page scrolling on mobile — pinch/drag still work
+          scrollWheelZoom: false,
+          zoomControl: true,
+          attributionControl: true,
+        }).setView([lat, lng], 12);
+        // CARTO Voyager — clean, quiet basemap (free, no key) vs the default
+        // OSM tileset which reads cluttered at city zooms
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+          subdomains: "abcd",
           maxZoom: 19,
         }).addTo(mapObj.current);
+        mapObj.current.on("click", () => setSelected(null));
       }
       if (cancelled || !mapObj.current) return;
       const map = mapObj.current;
-      map.on("click", () => setSelected(null));
       // Clear old markers
       map.eachLayer((l) => {
         if (l instanceof L.Marker) map.removeLayer(l);
       });
       const icon = L.divIcon({
         className: "",
-        html: `<div style="width:12px;height:12px;border-radius:50%;background:var(--color-accent);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-        iconSize: [12, 12],
-        iconAnchor: [6, 6],
+        // 16px dot inside a 36px invisible hit area — easy to tap on mobile
+        html: `<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center"><div style="width:14px;height:14px;border-radius:50%;background:var(--color-accent);border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35)"></div></div>`,
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
       });
       const meIcon = L.divIcon({
         className: "",
@@ -234,6 +244,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       for (const m of all) {
         const marker = L.marker([m.lat, m.lng], { icon });
         marker.addTo(map);
+        marker.bindTooltip(m.name.replace(/</g, "&lt;"), { direction: "top", offset: [0, -10] });
         marker.on("click", () => setSelected(m));
       }
       if (all.length > 0) {
