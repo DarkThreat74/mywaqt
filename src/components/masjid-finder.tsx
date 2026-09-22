@@ -60,7 +60,7 @@ interface MasjidCache {
   mosques: Masjid[];
 }
 
-const MASJID_CACHE_V = 3;
+const MASJID_CACHE_V = 4;
 
 function readMasjidCache(lat: number, lng: number): Masjid[] | null {
   try {
@@ -424,28 +424,42 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       }
       if (cancelled || !mapRef.current) return;
       if (!mapObj.current) {
-        // WebGL unavailable (old devices, battery saver) → honest fallback
-        const glTest = document.createElement("canvas").getContext("webgl2") ??
-          document.createElement("canvas").getContext("webgl");
+        // MapLibre v6 needs WebGL2 — plain WebGL isn't enough.
+        const glTest = document.createElement("canvas").getContext("webgl2");
         if (!glTest) {
-          setError("Map needs WebGL — your browser has it disabled.");
+          setError("Map needs WebGL2 — your browser has it disabled.");
           return;
         }
         // MapLibre GL (open-source renderer) + OpenFreeMap vector tiles —
         // free, no API key. Liberty = full cartography w/ texture + labels.
-        mapObj.current = new maplibregl.Map({
-          container: mapRef.current,
-          style: "https://tiles.openfreemap.org/styles/liberty",
-          center: [lng, lat],
-          zoom: 11,
-          attributionControl: { compact: true },
-        });
-        mapObj.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
-        mapObj.current.on("click", () => setSelected(null));
-        mapObj.current.on("error", (e) => {
+        try {
+          mapObj.current = new maplibregl.Map({
+            container: mapRef.current,
+            style: "https://tiles.openfreemap.org/styles/liberty",
+            center: [lng, lat],
+            zoom: 11,
+            attributionControl: { compact: true },
+          });
+        } catch (err) {
+          console.warn("map init failed", err);
+          setError("Map couldn't start on this device.");
+          return;
+        }
+        const map = mapObj.current;
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+        map.on("click", () => setSelected(null));
+        map.on("error", (e) => {
           // Surface tile/style failures instead of silently rendering white
           console.warn("map error", e?.error?.message);
         });
+        // If the style never loads (blocked tiles, offline), say so.
+        const loadTimer = setTimeout(() => {
+          if (!map.loaded()) setError("Map tiles aren't loading — check your connection.");
+        }, 8000);
+        map.once("load", () => clearTimeout(loadTimer));
+        // A blank canvas that never fires 'load' renders nothing visible —
+        // resize once in case the container was laid out after init.
+        map.once("load", () => map.resize());
       }
       if (cancelled || !mapObj.current) return;
       const map = mapObj.current;
@@ -665,7 +679,18 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
 
       {mode === "map" ? (
         <div>
-          <div ref={mapRef} className="h-72 w-full overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }} />
+          <div className="relative">
+            <div ref={mapRef} className="h-72 w-full overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }} />
+            <button
+              onClick={() => mapObj.current?.flyTo({ center: [lng, lat], zoom: 14, duration: 600 })}
+              className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              aria-label="Center on my location"
+              title="Center on my location"
+            >
+              <LocateFixed className="h-4 w-4" />
+            </button>
+          </div>
 
           {/* Selected masjid card — opens when a marker is tapped */}
           {selected && (

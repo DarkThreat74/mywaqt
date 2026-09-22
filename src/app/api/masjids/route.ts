@@ -340,33 +340,83 @@ function parseMawaqitConfData(html: string, tz?: string | null): { fixed: (strin
  * LAST time — iqamah columns sit after adhan. A single time counts only
  * when the line mentions iqamah/jamaat.
  */
-function parseGenericIqamah(body: string): { fixed: (string | null)[]; jummah: string[] } | null {
-  const rows = body.split(/<\/tr>|<\/li>|<br\s*\/?>|\r?\n/i);
-  const prayers = [/\bfajr\b/i, /\b(?:zuhr|dhuhr)\b/i, /\basr\b/i, /\bmaghrib\b/i, /\bisha/i];
-  const fixed: (string | null)[] = [];
-  for (const re of prayers) {
-    const row = rows.find((r) => re.test(r));
-    if (!row) { fixed.push(null); continue; }
-    const text = row.replace(/<[^>]+>/g, " ");
-    const times = [...text.matchAll(/(\d{1,2}):(\d{2})\s*(am|pm)?/gi)]
-      .map((m) => hhmmTo24(m[0]))
-      .filter((t): t is string => !!t);
-    fixed.push(
-      times.length >= 2 ? times[times.length - 1]
-      : times.length === 1 && /iqam|jamat|jamaah/i.test(text) ? times[0]
-      : null,
-    );
+/** CSV schedules: header row names prayer columns, data rows are per-month/week. */
+function parseCsvIqamah(body: string, tz?: string | null): { fixed: (string | null)[]; jummah: string[] } | null {
+  const lines = body.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) return null;
+  const header = lines[0].split(",").map((c) => c.trim().toLowerCase());
+  const cols = ["fajr", "dhuhr|zuhr|dhur", "asr", "maghrib", "isha"].map((n) =>
+    header.findIndex((h) => new RegExp(`^${n}$`, "i").test(h)),
+  );
+  if (cols.filter((c) => c >= 0).length < 4) return null;
+  // Pick the row for the masjid-local month + week-of-month (rows are often
+  // labeled FIRST/SECOND/..._ASHURA), falling back to the first data row.
+  let month = new Date().getUTCMonth() + 1;
+  let week = Math.ceil(new Date().getUTCDate() / 7);
+  if (tz) {
+    try {
+      const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "numeric", day: "numeric" }).formatToParts(new Date());
+      month = Number(p.find((x) => x.type === "month")!.value);
+      week = Math.ceil(Number(p.find((x) => x.type === "day")!.value) / 7);
+    } catch { /* keep UTC */ }
   }
+  const monthName = ["january","february","march","april","may","june","july","august","september","october","november","december"][month - 1];
+  const weekNames = ["first", "second", "third", "fourth", "fifth"];
+  const monthIdx = header.findIndex((h) => /month/i.test(h));
+  const seqIdx = header.findIndex((h) => /ashura|week|sequence/i.test(h));
+  const dataRows = lines.slice(1).map((l) => l.split(",").map((c) => c.trim()));
+  const monthRows = monthIdx >= 0 ? dataRows.filter((r) => (r[monthIdx] ?? "").toLowerCase() === monthName) : dataRows;
+  const pool = monthRows.length ? monthRows : dataRows;
+  let row = pool[0];
+  if (seqIdx >= 0) {
+    const want = weekNames[Math.min(week, 5) - 1];
+    row = pool.find((r) => (r[seqIdx] ?? "").toLowerCase().startsWith(want)) ?? pool[pool.length - 1];
+  }
+  const fixed = cols.map((c) => (c >= 0 ? hhmmTo24(row[c] ?? "") : null));
+  const jummah = header
+    .map((h, i) => (/jumua|jummah|friday/i.test(h) ? hhmmTo24(row[i] ?? "") : null))
+    .filter((t): t is string => !!t);
+  return fixed.filter(Boolean).length >= 4 ? { fixed, jummah } : null;
+}
+
+function parseGenericIqamah(body: string, tz?: string | null): { fixed: (string | null)[]; jummah: string[] } | null {
+  if (!body.slice(0, 400).includes("<")) return parseCsvIqamah(body, tz);
+  const docSaysIqamah = /iqam|jamat|jamaah/i.test(body);
+  // Strip tags to text lines — label and time may be on separate lines
+  // (one <td> per line is common in widget pages).
+  const lines = body
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, "\n")
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const prayers = [/\bfajr\b/i, /\b(?:zuhr|dhuhr|dhur)\b/i, /\basr\b/i, /\bmaghrib\b/i, /\bisha/i];
+  const timeRe = /(\d{1,2}):(\d{2})\s*(am|pm)?/gi;
+  const fixed = prayers.map((re, pi) => {
+    const i = lines.findIndex((l) => re.test(l));
+    if (i < 0) return null;
+    // Label line + following lines until the next prayer label (max 3)
+    const seg: string[] = [];
+    for (let j = i; j < lines.length && seg.length < 3; j++) {
+      if (j > i && prayers.some((p, pj) => pj !== pi && p.test(lines[j]))) break;
+      seg.push(lines[j]);
+    }
+    const times = [...seg.join(" ").matchAll(timeRe)].map((m) => hhmmTo24(m[0])).filter((t): t is string => !!t);
+    return times.length >= 2 ? times[times.length - 1]
+      : times.length === 1 && docSaysIqamah ? times[0]
+      : null;
+  });
   if (fixed.filter(Boolean).length < 4) return null;
   const jummah: string[] = [];
-  const jrow = rows.find((r) => /jumu|jumm?a|friday/i.test(r));
-  if (jrow) {
-    for (const m of jrow.replace(/<[^>]+>/g, " ").matchAll(/(\d{1,2}):(\d{2})\s*(am|pm)?/gi)) {
+  for (let i = 0; i < lines.length; i++) {
+    if (!/jumu|jumm?a|friday/i.test(lines[i])) continue;
+    for (const m of lines.slice(i, i + 3).join(" ").matchAll(timeRe)) {
       const t = hhmmTo24(m[0]);
       if (t) jummah.push(t);
     }
   }
-  return { fixed, jummah: jummah.slice(0, 3) };
+  return { fixed, jummah: [...new Set(jummah)].slice(0, 3) };
 }
 
 /** Resolve one registry source's live iqamah. Best-effort, 6h cached. */
@@ -427,9 +477,9 @@ async function fetchLiveIqamah(e: MasjidEntry & { fetchUrl?: string | null }): P
       : html;
     if (targetHtml) {
       apply(parseMohidHtml(targetHtml), "Masjid site");
-      if (!e.hasIqama) apply(parseGenericIqamah(targetHtml), "Masjid site");
+      if (!e.hasIqama) apply(parseGenericIqamah(targetHtml, e.masjidTz), "Masjid site");
     }
-    if (!e.hasIqama) apply(parseGenericIqamah(html), "Masjid site");
+    if (!e.hasIqama) apply(parseGenericIqamah(html, e.masjidTz), "Masjid site");
   } catch { /* best-effort — entry just shows adhan */ }
 }
 
