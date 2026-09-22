@@ -170,6 +170,72 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Masjid[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [addrOpen, setAddrOpen] = useState(false);
+  const [addrInput, setAddrInput] = useState("");
+  const [addrBusy, setAddrBusy] = useState(false);
+
+  // Shared by geolocation + typed-address paths: persist coords + tz,
+  // seed local caches, refetch masjids for the new spot.
+  async function applyLocation(la: number, ln: number) {
+    let timezone = loc?.timezone ?? "UTC";
+    try {
+      const tzRes = await fetch(`https://api.latlng.work/v1/timezone?lat=${la}&lng=${ln}`);
+      if (tzRes.ok) {
+        const d = await tzRes.json();
+        if (d.timezone) timezone = d.timezone;
+      }
+    } catch { /* keep current tz */ }
+    fetch("/api/onboarding/save-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        latitude: String(la),
+        longitude: String(ln),
+        timezone,
+        calculationMethod: loc?.calculationMethod,
+        madhab: loc?.madhab,
+      }),
+    }).catch(() => {});
+    const s = getCachedPrayerSettings();
+    setCachedPrayerSettings({
+      timezone,
+      calculationMethod: s?.calculationMethod ?? 2,
+      madhab: s?.madhab ?? null,
+      latitude: String(la),
+      longitude: String(ln),
+    });
+    invalidateApiCache("/api/prayer-times");
+    try { localStorage.removeItem(MASJID_CACHE_KEY); } catch { /* ignore */ }
+    setRadiusKm(32);
+    setShown(PAGE);
+    setLocTick((t) => t + 1);
+    void refresh(32, la, ln);
+  }
+
+  async function searchAddress() {
+    const q = addrInput.trim();
+    if (!q || addrBusy) return;
+    setAddrBusy(true);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`,
+        { headers: { Accept: "application/json", "User-Agent": "Waqt/1.0" } },
+      );
+      const results = res.ok ? await res.json().catch(() => []) : [];
+      const hit = Array.isArray(results) ? results[0] : null;
+      if (!hit) {
+        setError("Couldn't find that address. Try a ZIP or city.");
+        return;
+      }
+      setAddrOpen(false);
+      setAddrInput("");
+      await applyLocation(parseFloat(hit.lat), parseFloat(hit.lon));
+    } catch {
+      setError("Address lookup failed. Try again.");
+    } finally {
+      setAddrBusy(false);
+    }
+  }
 
   async function submitIqamah(m: Masjid) {
     const vals = ["fajr", "dhuhr", "asr", "maghrib", "isha"].map((k) => iqamahForm[k] || null);
@@ -243,53 +309,13 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     [lat, lng],
   );
 
-  // Re-geolocate → persist to prayer settings (server + local cache) →
-  // drop the masjid cache and refetch a fresh 20mi dataset for the new spot.
+  // Re-geolocate → applyLocation persists + refetches for the new spot.
   function refreshLocation() {
     if (locating || typeof navigator === "undefined" || !navigator.geolocation) return;
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const la = pos.coords.latitude;
-        const ln = pos.coords.longitude;
-        void (async () => {
-          let timezone = loc?.timezone ?? "UTC";
-          try {
-            const tzRes = await fetch(`https://api.latlng.work/v1/timezone?lat=${la}&lng=${ln}`);
-            if (tzRes.ok) {
-              const d = await tzRes.json();
-              if (d.timezone) timezone = d.timezone;
-            }
-          } catch { /* keep current tz */ }
-          // Persist server-side (same route the settings page uses) + locally
-          fetch("/api/onboarding/save-settings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              latitude: String(la),
-              longitude: String(ln),
-              timezone,
-              calculationMethod: loc?.calculationMethod,
-              madhab: loc?.madhab,
-            }),
-          }).catch(() => {});
-          const s = getCachedPrayerSettings();
-          // Always write — the cache may not exist yet on this device
-          setCachedPrayerSettings({
-            timezone,
-            calculationMethod: s?.calculationMethod ?? 2,
-            madhab: s?.madhab ?? null,
-            latitude: String(la),
-            longitude: String(ln),
-          });
-          invalidateApiCache("/api/prayer-times");
-          try { localStorage.removeItem(MASJID_CACHE_KEY); } catch { /* ignore */ }
-          setRadiusKm(32);
-          setShown(PAGE);
-          setLocTick((t) => t + 1);
-          void refresh(32, la, ln);
-          setLocating(false);
-        })();
+        void applyLocation(pos.coords.latitude, pos.coords.longitude).finally(() => setLocating(false));
       },
       () => {
         setLocating(false);
@@ -454,15 +480,46 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     return (
       <div className="rounded-xl border p-4 text-xs" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
         <p>Set your location to find masjids nearby.</p>
-        <button
-          onClick={refreshLocation}
-          disabled={locating}
-          className="mt-2 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-        >
-          {locating ? <Loader2 className="h-3 w-3 animate-spin" /> : <LocateFixed className="h-3 w-3" />}
-          Locate me
-        </button>
+        <div className="mt-2 flex items-center gap-1.5">
+          <button
+            onClick={refreshLocation}
+            disabled={locating}
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+          >
+            {locating ? <Loader2 className="h-3 w-3 animate-spin" /> : <LocateFixed className="h-3 w-3" />}
+            Locate me
+          </button>
+          <button
+            onClick={() => setAddrOpen((o) => !o)}
+            className="flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+          >
+            <Search className="h-3 w-3" /> Address
+          </button>
+        </div>
+        {addrOpen && (
+          <div className="mt-2 flex items-center gap-1.5">
+            <input
+              type="text"
+              value={addrInput}
+              onChange={(e) => setAddrInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void searchAddress(); }}
+              placeholder="Address, city, or ZIP…"
+              autoFocus
+              className="min-w-0 flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+            />
+            <button
+              onClick={() => void searchAddress()}
+              disabled={addrBusy || !addrInput.trim()}
+              className="flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50"
+              style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+            >
+              {addrBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Go"}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -491,6 +548,15 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             {locating ? <Loader2 className="h-3 w-3 animate-spin" /> : <LocateFixed className="h-3 w-3" />}
             Locate me
           </button>
+          <button
+            onClick={() => setAddrOpen((o) => !o)}
+            className="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+            aria-label="Search an address"
+            title="Search an address or ZIP"
+          >
+            <Search className="h-3 w-3" /> Address
+          </button>
           <div className="flex rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
             <button
               onClick={() => setMode("list")}
@@ -511,6 +577,29 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           </div>
         </div>
       </div>
+
+      {addrOpen && (
+        <div className="mb-3 flex items-center gap-1.5">
+          <input
+            type="text"
+            value={addrInput}
+            onChange={(e) => setAddrInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void searchAddress(); }}
+            placeholder="Address, city, or ZIP…"
+            autoFocus
+            className="min-w-0 flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+          />
+          <button
+            onClick={() => void searchAddress()}
+            disabled={addrBusy || !addrInput.trim()}
+            className="flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50"
+            style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+          >
+            {addrBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Go"}
+          </button>
+        </div>
+      )}
 
       <div className="relative mb-3">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2" style={{ color: "var(--color-ink-muted)" }} />
