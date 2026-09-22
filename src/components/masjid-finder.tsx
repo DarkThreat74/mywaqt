@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MapPin, List, Map as MapIcon, Loader2, Copy, Check, Navigation, LocateFixed } from "lucide-react";
 import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
-import "leaflet/dist/leaflet.css";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 // Matches the dashboard's PrayerTimes shape; values may carry a "(TZ)" suffix.
 interface PrayerTimes {
@@ -165,7 +165,8 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [driveInfo, setDriveInfo] = useState<{ km: number; min: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapObj = useRef<import("leaflet").Map | null>(null);
+  const mapObj = useRef<import("maplibre-gl").Map | null>(null);
+  const markerObjs = useRef<import("maplibre-gl").Marker[]>([]);
 
   async function copyAddress(text: string) {
     try {
@@ -312,58 +313,51 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     if (mode !== "map" || !hasLoc || !mapRef.current) return;
     let cancelled = false;
     void (async () => {
-      const L = await import("leaflet");
+      const maplibregl = await import("maplibre-gl");
       if (cancelled || !mapRef.current) return;
       if (!mapObj.current) {
-        mapObj.current = L.map(mapRef.current, {
-          // Wheel zoom on; on touch devices Leaflet uses pinch anyway
-          scrollWheelZoom: true,
-          zoomControl: true,
-          attributionControl: true,
-        }).setView([lat, lng], 12);
-        // CARTO Voyager — clean, quiet basemap (free, no key) vs the default
-        // OSM tileset which reads cluttered at city zooms
-        L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
-          subdomains: "abcd",
-          maxZoom: 19,
-        }).addTo(mapObj.current);
+        // MapLibre GL (open-source renderer) + OpenFreeMap vector tiles —
+        // free, no API key, no registration. Positron style = clean, muted.
+        mapObj.current = new maplibregl.Map({
+          container: mapRef.current,
+          style: "https://tiles.openfreemap.org/styles/positron",
+          center: [lng, lat],
+          zoom: 11,
+          attributionControl: { compact: true },
+        });
+        mapObj.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
         mapObj.current.on("click", () => setSelected(null));
       }
       if (cancelled || !mapObj.current) return;
       const map = mapObj.current;
       // Clear old markers
-      map.eachLayer((l) => {
-        if (l instanceof L.Marker) map.removeLayer(l);
-      });
-      const icon = L.divIcon({
-        className: "",
-        // Pin-shaped marker (SVG) inside a 36px invisible hit area
-        html: `<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center"><svg width="22" height="28" viewBox="0 0 24 30" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.4))"><path d="M12 0C5.9 0 1 4.9 1 11c0 8.3 11 19 11 19s11-10.7 11-19C23 4.9 18.1 0 12 0z" fill="var(--color-accent)" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="11" r="4" fill="#fff"/></svg></div>`,
-        iconSize: [36, 36],
-        iconAnchor: [18, 30],
-      });
-      const meIcon = L.divIcon({
-        className: "",
-        html: `<div style="width:14px;height:14px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
-      });
-      L.marker([lat, lng], { icon: meIcon }).addTo(map).bindPopup("You");
+      for (const mk of markerObjs.current) mk.remove();
+      markerObjs.current = [];
+
+      // "You" — blue dot
+      const meEl = document.createElement("div");
+      meEl.style.cssText =
+        "width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)";
+      markerObjs.current.push(new maplibregl.Marker({ element: meEl }).setLngLat([lng, lat]).addTo(map));
+
+      const pinSvg = `<svg width="24" height="30" viewBox="0 0 24 30" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.4))"><path d="M12 0C5.9 0 1 4.9 1 11c0 8.3 11 19 11 19s11-10.7 11-19C23 4.9 18.1 0 12 0z" fill="var(--color-accent)" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="11" r="4" fill="#fff"/></svg>`;
       for (const m of all) {
-        const marker = L.marker([m.lat, m.lng], { icon });
-        marker.addTo(map);
-        marker.bindTooltip(m.name.replace(/</g, "&lt;"), { direction: "top", offset: [0, -10] });
-        // Stop the map's own click handler (deselect) from firing on marker taps
-        marker.on("click", (e: import("leaflet").LeafletMouseEvent) => {
-          e.originalEvent.stopPropagation();
+        const el = document.createElement("div");
+        el.title = m.name;
+        el.style.cssText = "width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer";
+        el.innerHTML = pinSvg;
+        el.addEventListener("click", (e) => {
+          e.stopPropagation(); // don't let the map's deselect handler eat it
           setSelected(m);
         });
+        markerObjs.current.push(
+          new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([m.lng, m.lat]).addTo(map),
+        );
       }
       if (all.length > 0) {
-        const bounds = L.latLngBounds([[lat, lng], ...all.map((m) => [m.lat, m.lng] as [number, number])]);
-        map.fitBounds(bounds.pad(0.1));
+        const bounds = new maplibregl.LngLatBounds([lng, lat], [lng, lat]);
+        for (const m of all) bounds.extend([m.lng, m.lat]);
+        map.fitBounds(bounds, { padding: 48, maxZoom: 13 });
       }
     })();
     return () => {
@@ -374,6 +368,8 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   // Tear down map when leaving map mode
   useEffect(() => {
     if (mode !== "map" && mapObj.current) {
+      for (const mk of markerObjs.current) mk.remove();
+      markerObjs.current = [];
       mapObj.current.remove();
       mapObj.current = null;
     }
@@ -447,7 +443,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
 
       {mode === "map" ? (
         <div>
-          <div ref={mapRef} className="h-72 w-full rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }} />
+          <div ref={mapRef} className="h-72 w-full overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }} />
 
           {/* Selected masjid card — opens when a marker is tapped */}
           {selected && (
