@@ -34,9 +34,40 @@ interface Masjid {
   hasIqama: boolean;
 }
 
-const PRAYERS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
-const PRAYER_LABELS = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"];
+// Only Fajr/Dhuhr/Asr/Isha have distinct iqamah times — Maghrib iqamah is
+// effectively the adhan (sunset) time, so we render that directly.
+const IQAMA_PRAYERS = ["fajr", "dhuhr", "asr", "isha"] as const;
+const IQAMA_LABELS = ["Fajr", "Dhuhr", "Asr", "Isha"];
 const PAGE = 5;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const MASJID_CACHE_KEY = "waqt-masjids";
+
+interface MasjidCache {
+  lat: number;
+  lng: number;
+  cachedAt: number;
+  mosques: Masjid[];
+}
+
+function readMasjidCache(lat: number, lng: number): Masjid[] | null {
+  try {
+    const raw = localStorage.getItem(MASJID_CACHE_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw) as MasjidCache;
+    // Fresh + same location (within ~2km) → use it
+    if (Date.now() - c.cachedAt > WEEK_MS) return null;
+    if (Math.abs(c.lat - lat) > 0.02 || Math.abs(c.lng - lng) > 0.02) return null;
+    return c.mosques;
+  } catch {
+    return null;
+  }
+}
+
+function writeMasjidCache(lat: number, lng: number, mosques: Masjid[]) {
+  try {
+    localStorage.setItem(MASJID_CACHE_KEY, JSON.stringify({ lat, lng, cachedAt: Date.now(), mosques }));
+  } catch { /* full/blocked — non-critical */ }
+}
 
 function addMinutes(hhmm: string, delta: number): string {
   const [h, m] = hhmm.split(" ")[0].split(":").map(Number);
@@ -52,10 +83,13 @@ function fmt12(hhmm: string | null | undefined): string {
 }
 
 function iqamahTimes(m: Masjid, adhan: PrayerTimes | null): (string | null)[] {
-  return PRAYERS.map((p, i) => {
-    const fixed = m.iqamaFixed?.[i];
+  // iqama_offsets/iqama_fixed are [Fajr, Dhuhr, Asr, Maghrib, Isha] upstream —
+  // we render indices 0,1,2,4 (Maghrib shows the adhan/sunset time instead).
+  const IDX = [0, 1, 2, 4];
+  return IQAMA_PRAYERS.map((p, i) => {
+    const fixed = m.iqamaFixed?.[IDX[i]];
     if (fixed) return fixed;
-    const off = m.iqamaOffsets?.[i];
+    const off = m.iqamaOffsets?.[IDX[i]];
     if (off != null && adhan?.[p]) return addMinutes(adhan[p], off);
     return null;
   });
@@ -64,8 +98,8 @@ function iqamahTimes(m: Masjid, adhan: PrayerTimes | null): (string | null)[] {
 export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes | null }) {
   const loc = getCachedPrayerSettings();
   const [mode, setMode] = useState<"list" | "map">("list");
-  const [mosques, setMosques] = useState<Masjid[]>([]);
-  const [total, setTotal] = useState(0);
+  const [all, setAll] = useState<Masjid[]>([]);
+  const [shown, setShown] = useState(PAGE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [radiusKm, setRadiusKm] = useState(16); // ~10mi
@@ -76,19 +110,19 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const lng = loc ? parseFloat(loc.longitude) : NaN;
   const hasLoc = !isNaN(lat) && !isNaN(lng);
 
-  const load = useCallback(
-    async (offset: number, radius: number, append: boolean) => {
+  // One fetch grabs everything in the radius; cached for a week like prayer
+  // times. List pagination and the map both read from this single list.
+  const refresh = useCallback(
+    async (radius: number) => {
       if (!hasLoc) return;
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(
-          `/api/masjids?lat=${lat}&lng=${lng}&radius=${radius}&offset=${offset}&limit=${PAGE}`,
-        );
+        const res = await fetch(`/api/masjids?lat=${lat}&lng=${lng}&radius=${radius}&offset=0&limit=50`);
         if (!res.ok) throw new Error();
         const data = await res.json();
-        setMosques((prev) => (append ? [...prev, ...data.mosques] : data.mosques));
-        setTotal(data.total ?? 0);
+        setAll(data.mosques ?? []);
+        writeMasjidCache(lat, lng, data.mosques ?? []);
       } catch {
         setError("Couldn't load masjids. Try again.");
       } finally {
@@ -99,28 +133,22 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   );
 
   useEffect(() => {
-    // Defer so the initial setLoading isn't a synchronous setState in an effect
-    const t = setTimeout(() => void load(0, radiusKm, false), 0);
+    if (!hasLoc) return;
+    // Defer so setState isn't synchronous inside the effect
+    const t = setTimeout(() => {
+      const cached = readMasjidCache(lat, lng);
+      if (cached) {
+        setAll(cached); // fresh weekly cache — no fetch needed
+      } else {
+        void refresh(radiusKm); // expired or moved — refetch
+      }
+    }, 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Full-radius fetch for the map (markers need everything, not a page)
-  const [mapMosques, setMapMosques] = useState<Masjid[]>([]);
-  const loadMapData = useCallback(
-    async (radius: number) => {
-      if (!hasLoc) return;
-      try {
-        const res = await fetch(`/api/masjids?lat=${lat}&lng=${lng}&radius=${radius}&offset=0&limit=50`);
-        if (!res.ok) return;
-        const data = await res.json();
-        setMapMosques(data.mosques ?? []);
-      } catch {
-        /* non-critical */
-      }
-    },
-    [hasLoc, lat, lng],
-  );
+  const mosques = all.slice(0, shown);
+  const total = all.length;
 
   useEffect(() => {
     if (mode !== "map" || !hasLoc || !mapRef.current) return;
@@ -135,7 +163,6 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           maxZoom: 19,
         }).addTo(mapObj.current);
       }
-      if (mapMosques.length === 0) await loadMapData(radiusKm);
       if (cancelled || !mapObj.current) return;
       const map = mapObj.current;
       // Clear old markers
@@ -155,22 +182,22 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         iconAnchor: [7, 7],
       });
       L.marker([lat, lng], { icon: meIcon }).addTo(map).bindPopup("You");
-      for (const m of mapMosques) {
+      for (const m of all) {
         L.marker([m.lat, m.lng], { icon })
           .addTo(map)
           .bindPopup(
             `<strong>${m.name.replace(/</g, "&lt;")}</strong><br>${m.distanceKm.toFixed(1)} km${m.hasIqama ? "<br>Iqamah times available" : ""}`,
           );
       }
-      if (mapMosques.length > 0) {
-        const bounds = L.latLngBounds([[lat, lng], ...mapMosques.map((m) => [m.lat, m.lng] as [number, number])]);
+      if (all.length > 0) {
+        const bounds = L.latLngBounds([[lat, lng], ...all.map((m) => [m.lat, m.lng] as [number, number])]);
         map.fitBounds(bounds.pad(0.1));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [mode, hasLoc, lat, lng, mapMosques, radiusKm, loadMapData]);
+  }, [mode, hasLoc, lat, lng, all]);
 
   // Tear down map when leaving map mode
   useEffect(() => {
@@ -226,8 +253,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             onClick={() => {
               const next = Math.min(radiusKm * 2, 80);
               setRadiusKm(next);
-              setMapMosques([]);
-              void loadMapData(next);
+              void refresh(next);
             }}
             disabled={radiusKm >= 80}
             className="mt-2 w-full rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-40"
@@ -259,12 +285,17 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
 
                 {m.hasIqama ? (
                   <div className="mt-2 grid grid-cols-5 gap-1 text-center">
-                    {PRAYER_LABELS.map((label, i) => (
+                    {IQAMA_LABELS.map((label, i) => (
                       <div key={label}>
                         <p className="text-[10px] font-medium" style={{ color: "var(--color-ink-soft)" }}>{label}</p>
                         <p className="text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>{fmt12(iq[i])}</p>
                       </div>
                     ))}
+                    {/* Maghrib iqamah is at the adhan — show sunset directly */}
+                    <div>
+                      <p className="text-[10px] font-medium" style={{ color: "var(--color-ink-soft)" }}>Maghrib</p>
+                      <p className="text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>{fmt12(prayerTimes?.maghrib)}</p>
+                    </div>
                   </div>
                 ) : (
                   <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
@@ -311,7 +342,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
 
           {mosques.length < total && !loading && (
             <button
-              onClick={() => void load(mosques.length, radiusKm, true)}
+              onClick={() => setShown((s) => s + PAGE)}
               className="w-full rounded-lg border px-3 py-1.5 text-xs font-medium"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
             >
