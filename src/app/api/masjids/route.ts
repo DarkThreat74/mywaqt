@@ -7,7 +7,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 const UPSTREAM = "https://api.islamic.app/v1/masajid";
-const OVERPASS = "https://overpass-api.de/api/interpreter";
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+];
 const SLUG_RE = /^[a-z0-9-]{1,120}$/;
 
 interface MasjidEntry {
@@ -75,13 +78,26 @@ async function fromOverpass(lat: number, lng: number, radiusM: number): Promise<
   way(around:${radiusM},${lat},${lng})[amenity=place_of_worship][religion=muslim];
 );
 out center tags;`;
-  const res = await fetch(OVERPASS, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `data=${encodeURIComponent(q)}`,
-    next: { revalidate: 86400 },
-  });
-  if (!res.ok) return [];
+  // Overpass 406s requests without a User-Agent. Try the primary endpoint,
+  // then a public mirror — both are free, no key.
+  let res: Response | null = null;
+  for (const ep of OVERPASS_ENDPOINTS) {
+    try {
+      res = await fetch(ep, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "Waqt/1.0 (masjid finder; +https://mywaqt.app)",
+        },
+        body: `data=${encodeURIComponent(q)}`,
+        next: { revalidate: 86400 },
+      });
+      if (res.ok) break;
+    } catch {
+      res = null;
+    }
+  }
+  if (!res || !res.ok) return [];
   const json = await res.json();
   const out: MasjidEntry[] = [];
   for (const el of json?.elements ?? []) {

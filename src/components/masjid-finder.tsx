@@ -54,7 +54,8 @@ function readMasjidCache(lat: number, lng: number): Masjid[] | null {
     const raw = localStorage.getItem(MASJID_CACHE_KEY);
     if (!raw) return null;
     const c = JSON.parse(raw) as MasjidCache;
-    // Fresh + same location (within ~2km) → use it
+    // Fresh + same location (within ~2km) + non-empty → use it
+    if (!Array.isArray(c.mosques) || c.mosques.length === 0) return null;
     if (Date.now() - c.cachedAt > WEEK_MS) return null;
     if (Math.abs(c.lat - lat) > 0.02 || Math.abs(c.lng - lng) > 0.02) return null;
     return c.mosques;
@@ -122,7 +123,9 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         if (!res.ok) throw new Error();
         const data = await res.json();
         setAll(data.mosques ?? []);
-        writeMasjidCache(lat, lng, data.mosques ?? []);
+        // Don't cache an empty list for a week — a temporary upstream outage
+        // would otherwise stick. Empty results just aren't cached.
+        if (data.mosques?.length) writeMasjidCache(lat, lng, data.mosques);
       } catch {
         setError("Couldn't load masjids. Try again.");
       } finally {
