@@ -41,7 +41,13 @@ interface Masjid {
 // Only Fajr/Dhuhr/Asr/Isha have distinct iqamah times — Maghrib iqamah is
 // effectively the adhan (sunset) time, so we render that directly.
 const IQAMA_PRAYERS = ["fajr", "dhuhr", "asr", "isha"] as const;
-const IQAMA_LABELS = ["Fajr", "Dhuhr", "Asr", "Isha"];
+
+const MI_PER_KM = 0.621371;
+function fmtDist(km: number): string {
+  const mi = km * MI_PER_KM;
+  if (mi < 0.1) return `${Math.max(1, Math.round(km * 3280.84))} ft`;
+  return `${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi`;
+}
 const PAGE = 5;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MASJID_CACHE_KEY = "waqt-masjids";
@@ -98,6 +104,51 @@ function iqamahTimes(m: Masjid, adhan: PrayerTimes | null): (string | null)[] {
     if (off != null && adhan?.[p]) return addMinutes(adhan[p], off);
     return null;
   });
+}
+
+/** Sideways iqamah table: Fajr · Dhuhr · Asr · Maghrib(=sunset) · Isha */
+function IqamahTable({ m, prayerTimes }: { m: Masjid; prayerTimes: PrayerTimes | null }) {
+  const iq = iqamahTimes(m, prayerTimes); // [F, D, A, I]
+  const cells: [string, string | null][] = [
+    ["Fajr", iq[0]],
+    ["Dhuhr", iq[1]],
+    ["Asr", iq[2]],
+    ["Maghrib", prayerTimes?.maghrib ?? null],
+    ["Isha", iq[3]],
+  ];
+  return (
+    <table
+      className="w-full table-fixed rounded-lg text-center"
+      style={{ backgroundColor: "color-mix(in oklab, var(--color-paper-2) 60%, transparent)" }}
+    >
+      <thead>
+        <tr>
+          {cells.map(([label]) => (
+            <th
+              key={label}
+              className="truncate px-0.5 pt-2 text-[9px] font-semibold uppercase tracking-wide"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              {label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          {cells.map(([label, t]) => (
+            <td
+              key={label}
+              className="whitespace-nowrap px-0.5 pb-2 pt-0.5 text-[11px] font-semibold tabular-nums"
+              style={{ color: "var(--color-ink)" }}
+            >
+              {fmt12(t)}
+            </td>
+          ))}
+        </tr>
+      </tbody>
+    </table>
+  );
 }
 
 export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes | null }) {
@@ -409,8 +460,8 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{selected.name}</p>
                   <p className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
-                    {selected.distanceKm < 1 ? `${Math.round(selected.distanceKm * 1000)} m` : `${selected.distanceKm.toFixed(1)} km`} away
-                    {driveInfo && ` · ${driveInfo.min} min drive (${driveInfo.km.toFixed(1)} km)`}
+                    {fmtDist(selected.distanceKm)} away
+                    {driveInfo && ` · ${driveInfo.min} min drive (${fmtDist(driveInfo.km)})`}
                   </p>
                 </div>
                 <button
@@ -435,22 +486,8 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
               )}
 
               {selected.hasIqama && (
-                <div
-                  className="mt-2 grid grid-cols-5 rounded-lg py-2 text-center"
-                  style={{ backgroundColor: "color-mix(in oklab, var(--color-paper-2) 60%, transparent)" }}
-                >
-                  {IQAMA_LABELS.map((label, i) => (
-                    <div key={label} className="min-w-0 px-0.5">
-                      <p className="truncate text-[9px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>{label}</p>
-                      <p className="mt-0.5 whitespace-nowrap text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
-                        {fmt12(iqamahTimes(selected, prayerTimes)[i])}
-                      </p>
-                    </div>
-                  ))}
-                  <div className="min-w-0 px-0.5">
-                    <p className="truncate text-[9px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Maghrib</p>
-                    <p className="mt-0.5 whitespace-nowrap text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{fmt12(prayerTimes?.maghrib)}</p>
-                  </div>
+                <div className="mt-2">
+                  <IqamahTable m={selected} prayerTimes={prayerTimes} />
                 </div>
               )}
 
@@ -498,7 +535,6 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       ) : (
         <div className="space-y-3">
           {mosques.map((m) => {
-            const iq = iqamahTimes(m, prayerTimes);
             return (
               <div key={m.id} className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
                 <div className="flex items-start gap-3">
@@ -524,7 +560,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                       className="rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
                       style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)", color: "var(--color-accent)" }}
                     >
-                      {m.distanceKm < 1 ? `${Math.round(m.distanceKm * 1000)} m` : `${m.distanceKm.toFixed(1)} km`}
+                      {fmtDist(m.distanceKm)}
                     </span>
                     {m.attribution?.provider && (
                       <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -535,21 +571,8 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                 </div>
 
                 {m.hasIqama ? (
-                  <div
-                    className="mt-2.5 grid grid-cols-5 rounded-lg py-2 text-center"
-                    style={{ backgroundColor: "color-mix(in oklab, var(--color-paper-2) 60%, transparent)" }}
-                  >
-                    {IQAMA_LABELS.map((label, i) => (
-                      <div key={label} className="min-w-0 px-0.5">
-                        <p className="truncate text-[9px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>{label}</p>
-                        <p className="mt-0.5 whitespace-nowrap text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{fmt12(iq[i])}</p>
-                      </div>
-                    ))}
-                    {/* Maghrib iqamah is at the adhan — show sunset directly */}
-                    <div className="min-w-0 px-0.5">
-                      <p className="truncate text-[9px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Maghrib</p>
-                      <p className="mt-0.5 whitespace-nowrap text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{fmt12(prayerTimes?.maghrib)}</p>
-                    </div>
+                  <div className="mt-2.5">
+                    <IqamahTable m={m} prayerTimes={prayerTimes} />
                   </div>
                 ) : (
                   <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
@@ -570,17 +593,48 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                   </div>
                 )}
 
-                {m.url && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {m.address && (
+                    <button
+                      onClick={() => void copyAddress(m.address!)}
+                      className="flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium"
+                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+                    >
+                      <Copy className="h-3 w-3" /> Copy address
+                    </button>
+                  )}
                   <a
-                    href={m.url}
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${m.lat},${m.lng}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-1.5 inline-block text-[11px] font-medium"
-                    style={{ color: "var(--color-accent)" }}
+                    className="flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
                   >
-                    View masjid page →
+                    <Navigation className="h-3 w-3" /> Directions
                   </a>
-                )}
+                  {m.website && (
+                    <a
+                      href={m.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium"
+                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+                    >
+                      Website
+                    </a>
+                  )}
+                  {m.url && (
+                    <a
+                      href={m.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium"
+                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+                    >
+                      Masjid page
+                    </a>
+                  )}
+                </div>
               </div>
             );
           })}
