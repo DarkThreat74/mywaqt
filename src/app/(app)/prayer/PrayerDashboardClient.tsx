@@ -1514,10 +1514,18 @@ export default function PrayerDashboard() {
                               <span className="mx-1" style={{ color: "var(--color-paper-3)" }}>—</span>
                               <span>{windowEndLabel}</span>
                               {inWindow && (() => {
-                                const remaining = windowEndMinutes - effectiveCurrent;
+                                // effectiveCurrent is fractional minutes —
+                                // work in whole seconds so nothing decimals.
+                                const totalSec = Math.max(0, Math.floor((windowEndMinutes - effectiveCurrent) * 60));
+                                const hrs = Math.floor(totalSec / 3600);
+                                const mins = Math.floor((totalSec % 3600) / 60);
+                                const secs = totalSec % 60;
+                                const label = totalSec < 1800
+                                  ? `${mins}m ${secs}s left`
+                                  : `${hrs > 0 ? `${hrs}h ` : ""}${mins}m left`;
                                 return (
                                   <span className="ml-1.5" style={{ color: prayed ? "var(--color-ink-muted)" : "var(--color-warmth)" }}>
-                                    {Math.floor(remaining / 60)}h {remaining % 60}m left
+                                    {label}
                                   </span>
                                 );
                               })()}
