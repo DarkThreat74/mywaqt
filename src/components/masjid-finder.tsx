@@ -53,18 +53,22 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MASJID_CACHE_KEY = "waqt-masjids";
 
 interface MasjidCache {
+  v: number; // bump when the response shape/sources change — stale caches refetch
   lat: number;
   lng: number;
   cachedAt: number;
   mosques: Masjid[];
 }
 
+const MASJID_CACHE_V = 2;
+
 function readMasjidCache(lat: number, lng: number): Masjid[] | null {
   try {
     const raw = localStorage.getItem(MASJID_CACHE_KEY);
     if (!raw) return null;
     const c = JSON.parse(raw) as MasjidCache;
-    // Fresh + same location (within ~2km) + non-empty → use it
+    // Fresh + same location (within ~2km) + non-empty + current version → use it
+    if (c.v !== MASJID_CACHE_V) return null;
     if (!Array.isArray(c.mosques) || c.mosques.length === 0) return null;
     if (Date.now() - c.cachedAt > WEEK_MS) return null;
     if (Math.abs(c.lat - lat) > 0.02 || Math.abs(c.lng - lng) > 0.02) return null;
@@ -76,7 +80,7 @@ function readMasjidCache(lat: number, lng: number): Masjid[] | null {
 
 function writeMasjidCache(lat: number, lng: number, mosques: Masjid[]) {
   try {
-    localStorage.setItem(MASJID_CACHE_KEY, JSON.stringify({ lat, lng, cachedAt: Date.now(), mosques }));
+    localStorage.setItem(MASJID_CACHE_KEY, JSON.stringify({ v: MASJID_CACHE_V, lat, lng, cachedAt: Date.now(), mosques }));
   } catch { /* full/blocked — non-critical */ }
 }
 

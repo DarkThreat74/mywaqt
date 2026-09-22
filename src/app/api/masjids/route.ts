@@ -554,7 +554,7 @@ export async function GET(request: NextRequest) {
     await Promise.all(
       slice
         .filter((m) => m.fetchUrl && !m.hasIqama)
-        .slice(0, 10)
+        .slice(0, 15)
         .map((m) => fetchLiveIqamah(m)),
     );
 
