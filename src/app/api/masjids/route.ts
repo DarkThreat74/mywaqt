@@ -221,9 +221,10 @@ function merge(a: MasjidEntry[], b: MasjidEntry[]): MasjidEntry[] {
 
 /** Fetch iqamah/jumu'ah details for the islamic.app entries in a slice. */
 async function enrich(entries: MasjidEntry[]): Promise<MasjidEntry[]> {
+  let budget = 15; // cap upstream detail fetches per request
   return Promise.all(
     entries.map(async (m) => {
-      if (!m.slug) return m;
+      if (!m.slug || budget-- <= 0) return m;
       try {
         const res = await fetch(`${UPSTREAM}/${m.slug}`, { next: { revalidate: 3600 } });
         if (!res.ok) return { ...m, hasIqama: false };

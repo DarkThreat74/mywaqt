@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MapPin, List, Map as MapIcon, Loader2, Copy, Check, Navigation } from "lucide-react";
-import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { MapPin, List, Map as MapIcon, Loader2, Copy, Check, Navigation, LocateFixed } from "lucide-react";
+import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 import "leaflet/dist/leaflet.css";
 
 // Matches the dashboard's PrayerTimes shape; values may carry a "(TZ)" suffix.
@@ -106,8 +107,10 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [shown, setShown] = useState(PAGE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [radiusKm, setRadiusKm] = useState(16); // ~10mi
+  const [radiusKm, setRadiusKm] = useState(32); // ~20mi default
   const [selected, setSelected] = useState<Masjid | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [, setLocTick] = useState(0); // bump to re-read cached coords
   const [driveInfo, setDriveInfo] = useState<{ km: number; min: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -128,26 +131,75 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   // One fetch grabs everything in the radius; cached for a week like prayer
   // times. List pagination and the map both read from this single list.
   const refresh = useCallback(
-    async (radius: number) => {
-      if (!hasLoc) return;
+    async (radius: number, la = lat, ln = lng) => {
+      if (isNaN(la) || isNaN(ln)) return;
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/masjids?lat=${lat}&lng=${lng}&radius=${radius}&offset=0&limit=50`);
+        const res = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=${radius}&offset=0&limit=50`);
         if (!res.ok) throw new Error();
         const data = await res.json();
         setAll(data.mosques ?? []);
         // Don't cache an empty list for a week — a temporary upstream outage
         // would otherwise stick. Empty results just aren't cached.
-        if (data.mosques?.length) writeMasjidCache(lat, lng, data.mosques);
+        if (data.mosques?.length) writeMasjidCache(la, ln, data.mosques);
       } catch {
         setError("Couldn't load masjids. Try again.");
       } finally {
         setLoading(false);
       }
     },
-    [hasLoc, lat, lng],
+    [lat, lng],
   );
+
+  // Re-geolocate → persist to prayer settings (server + local cache) →
+  // drop the masjid cache and refetch a fresh 20mi dataset for the new spot.
+  function refreshLocation() {
+    if (locating || typeof navigator === "undefined" || !navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const la = pos.coords.latitude;
+        const ln = pos.coords.longitude;
+        void (async () => {
+          let timezone = loc?.timezone ?? "UTC";
+          try {
+            const tzRes = await fetch(`https://api.latlng.work/v1/timezone?lat=${la}&lng=${ln}`);
+            if (tzRes.ok) {
+              const d = await tzRes.json();
+              if (d.timezone) timezone = d.timezone;
+            }
+          } catch { /* keep current tz */ }
+          // Persist server-side (same route the settings page uses) + locally
+          fetch("/api/onboarding/save-settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              latitude: String(la),
+              longitude: String(ln),
+              timezone,
+              calculationMethod: loc?.calculationMethod,
+              madhab: loc?.madhab,
+            }),
+          }).catch(() => {});
+          const s = getCachedPrayerSettings();
+          if (s) setCachedPrayerSettings({ ...s, latitude: String(la), longitude: String(ln), timezone });
+          invalidateApiCache("/api/prayer-times");
+          try { localStorage.removeItem(MASJID_CACHE_KEY); } catch { /* ignore */ }
+          setRadiusKm(32);
+          setShown(PAGE);
+          setLocTick((t) => t + 1);
+          void refresh(32, la, ln);
+          setLocating(false);
+        })();
+      },
+      () => {
+        setLocating(false);
+        setError("Couldn't get your location. Check permissions.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }
 
   useEffect(() => {
     if (!hasLoc) return;
@@ -245,7 +297,11 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         const marker = L.marker([m.lat, m.lng], { icon });
         marker.addTo(map);
         marker.bindTooltip(m.name.replace(/</g, "&lt;"), { direction: "top", offset: [0, -10] });
-        marker.on("click", () => setSelected(m));
+        // Stop the map's own click handler (deselect) from firing on marker taps
+        marker.on("click", (e: import("leaflet").LeafletMouseEvent) => {
+          e.originalEvent.stopPropagation();
+          setSelected(m);
+        });
       }
       if (all.length > 0) {
         const bounds = L.latLngBounds([[lat, lng], ...all.map((m) => [m.lat, m.lng] as [number, number])]);
@@ -268,7 +324,16 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   if (!hasLoc) {
     return (
       <div className="rounded-xl border p-4 text-xs" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
-        Set your location in prayer settings to find masjids nearby.
+        <p>Set your location to find masjids nearby.</p>
+        <button
+          onClick={refreshLocation}
+          disabled={locating}
+          className="mt-2 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+        >
+          {locating ? <Loader2 className="h-3 w-3 animate-spin" /> : <LocateFixed className="h-3 w-3" />}
+          Locate me
+        </button>
       </div>
     );
   }
@@ -285,9 +350,21 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             </span>
           )}
         </h3>
-        <div className="flex shrink-0 rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
-            onClick={() => setMode("list")}
+            onClick={refreshLocation}
+            disabled={locating}
+            className="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium disabled:opacity-50"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+            aria-label="Refresh my location"
+            title="Update my location"
+          >
+            {locating ? <Loader2 className="h-3 w-3 animate-spin" /> : <LocateFixed className="h-3 w-3" />}
+            Locate me
+          </button>
+          <div className="flex rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
+            <button
+              onClick={() => setMode("list")}
             className="flex items-center gap-1 rounded-l-lg px-2.5 py-1 text-[11px] font-medium"
             style={mode === "list" ? { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" } : { color: "var(--color-ink-soft)" }}
             aria-label="List view"
@@ -302,6 +379,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           >
             <MapIcon className="h-3 w-3" /> Map
           </button>
+          </div>
         </div>
       </div>
 
