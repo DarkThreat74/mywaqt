@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
       timezone: schema.prayerSettings.timezone,
       calculationMethod: schema.prayerSettings.calculationMethod,
       madhab: schema.prayerSettings.madhab,
+      latitude: schema.prayerSettings.latitude,
+      longitude: schema.prayerSettings.longitude,
       friendsSeeStreak: schema.prayerSettings.friendsSeeStreak,
       friendsSeeTodayStatus: schema.prayerSettings.friendsSeeTodayStatus,
       friendsSeeSunnah: schema.prayerSettings.friendsSeeSunnah,

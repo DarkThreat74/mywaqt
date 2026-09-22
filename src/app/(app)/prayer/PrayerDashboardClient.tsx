@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Flame, MapPin, Users, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, Heart, UsersRound } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName } from "@/lib/prayer/checkin";
-import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods } from "@/lib/offline/settings-cache";
+import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
 import { getOfflineDB } from "@/lib/offline/db";
@@ -472,6 +472,17 @@ export default function PrayerDashboard() {
             });
             setGender(data.gender ?? null);
             setHaydTracking(data.haydTracking === true);
+            // Seed the offline settings cache so location-dependent UI
+            // (masjid finder, hayd, day view) works on first render.
+            if (data.latitude && data.longitude) {
+              setCachedPrayerSettings({
+                timezone: data.timezone ?? "UTC",
+                calculationMethod: data.calculationMethod ?? 2,
+                madhab: data.madhab ?? null,
+                latitude: data.latitude,
+                longitude: data.longitude,
+              });
+            }
           }
         }
         if (haydRes?.ok) {

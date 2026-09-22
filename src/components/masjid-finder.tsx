@@ -234,7 +234,14 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             }),
           }).catch(() => {});
           const s = getCachedPrayerSettings();
-          if (s) setCachedPrayerSettings({ ...s, latitude: String(la), longitude: String(ln), timezone });
+          // Always write — the cache may not exist yet on this device
+          setCachedPrayerSettings({
+            timezone,
+            calculationMethod: s?.calculationMethod ?? 2,
+            madhab: s?.madhab ?? null,
+            latitude: String(la),
+            longitude: String(ln),
+          });
           invalidateApiCache("/api/prayer-times");
           try { localStorage.removeItem(MASJID_CACHE_KEY); } catch { /* ignore */ }
           setRadiusKm(32);
@@ -265,7 +272,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     }, 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasLoc]); // settings cache may be seeded after first render
 
   const mosques = all.slice(0, shown);
   const total = all.length;
@@ -309,8 +316,8 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       if (cancelled || !mapRef.current) return;
       if (!mapObj.current) {
         mapObj.current = L.map(mapRef.current, {
-          // Wheel-zoom traps page scrolling on mobile — pinch/drag still work
-          scrollWheelZoom: false,
+          // Wheel zoom on; on touch devices Leaflet uses pinch anyway
+          scrollWheelZoom: true,
           zoomControl: true,
           attributionControl: true,
         }).setView([lat, lng], 12);
@@ -332,10 +339,10 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       });
       const icon = L.divIcon({
         className: "",
-        // 16px dot inside a 36px invisible hit area — easy to tap on mobile
-        html: `<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center"><div style="width:14px;height:14px;border-radius:50%;background:var(--color-accent);border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35)"></div></div>`,
+        // Pin-shaped marker (SVG) inside a 36px invisible hit area
+        html: `<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center"><svg width="22" height="28" viewBox="0 0 24 30" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.4))"><path d="M12 0C5.9 0 1 4.9 1 11c0 8.3 11 19 11 19s11-10.7 11-19C23 4.9 18.1 0 12 0z" fill="var(--color-accent)" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="11" r="4" fill="#fff"/></svg></div>`,
         iconSize: [36, 36],
-        iconAnchor: [18, 18],
+        iconAnchor: [18, 30],
       });
       const meIcon = L.divIcon({
         className: "",
@@ -574,11 +581,36 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                   <div className="mt-2.5">
                     <IqamahTable m={m} prayerTimes={prayerTimes} />
                   </div>
-                ) : (
-                  <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
-                    No iqamah times published{m.url ? "" : " for this masjid"}.
-                  </p>
-                )}
+                ) : prayerTimes ? (
+                  <div className="mt-2.5">
+                    <table
+                      className="w-full table-fixed rounded-lg text-center"
+                      style={{ backgroundColor: "color-mix(in oklab, var(--color-paper-2) 60%, transparent)" }}
+                    >
+                      <thead>
+                        <tr>
+                          {["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"].map((label) => (
+                            <th key={label} className="truncate px-0.5 pt-2 text-[9px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                              {label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          {([prayerTimes.fajr, prayerTimes.dhuhr, prayerTimes.asr, prayerTimes.maghrib, prayerTimes.isha] as const).map((t, i) => (
+                            <td key={i} className="whitespace-nowrap px-0.5 pb-2 pt-0.5 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
+                              {fmt12(t)}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p className="mt-1 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
+                      Adhan times — this masjid hasn&apos;t published iqamah
+                    </p>
+                  </div>
+                ) : null}
 
                 {m.jummah && m.jummah.length > 0 && (
                   <div
