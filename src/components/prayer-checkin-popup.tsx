@@ -65,11 +65,13 @@ export default function PrayerCheckinPopup({
 
   const showMasjidDuringWindow = shouldShowMasjidQuestion(prayer, currentMinutes, timings);
   const rawWindowState = getPrayerWindowState(prayer, currentMinutes, timings);
-  // For past days, "before" is impossible — treat as "ended" so logging is allowed
-  // For future days, "open"/"ended" is impossible — treat as "before" so logging is blocked
+  // For past days EVERY window is over — a prayer that happens to be open
+  // right now (e.g. viewing yesterday while it's Dhuhr time) must show the
+  // "forgot to log" flow, not the live check-in. For future days, logging is
+  // blocked entirely.
   const windowState = isFutureDay
     ? "before"
-    : isPastDay && rawWindowState === "before"
+    : isPastDay
       ? "ended"
       : rawWindowState;
   const windowOpen = windowState === "open";
