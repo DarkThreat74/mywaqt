@@ -38,6 +38,8 @@ interface MasjidEntry {
   website: string | null;
   /** praytime-registry endpoint to fetch live iqamah from (server-only). */
   fetchUrl?: string | null;
+  /** masjid-local timezone from the registry — used for Mawaqit day lookup. */
+  masjidTz?: string | null;
 }
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
@@ -238,6 +240,7 @@ interface SourceRow {
   website: string | null;
   fetchUrl: string | null;
   platform: string | null;
+  timezone: string | null;
 }
 
 /** Masjidal's public widget API: /api/v1/time?masjid_id=X → JSON iqama. */
@@ -283,10 +286,101 @@ function parseMohidHtml(html: string): { fixed: (string | null)[]; jummah: strin
   return fixed.every(Boolean) ? { fixed, jummah: juma.slice(0, 3) } : null;
 }
 
+function hhmmTo24(s: string): string | null {
+  const m = s.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+  if (!m) return null;
+  let h = parseInt(m[1]);
+  if (m[3]?.toLowerCase() === "pm" && h !== 12) h += 12;
+  if (m[3]?.toLowerCase() === "am" && h === 12) h = 0;
+  if (h > 23) return null;
+  return `${String(h).padStart(2, "0")}:${m[2]}`;
+}
+
+/**
+ * Mawaqit mosque pages/embeds embed `confData = {...}` with a per-day
+ * `iqamaCalendar` (offsets like "+15" or fixed "HH:MM") and jumua times.
+ */
+function parseMawaqitConfData(html: string, tz?: string | null): { fixed: (string | null)[]; offsets: (number | null)[]; jummah: string[] } | null {
+  const m = html.match(/confData\s*=\s*(\{[\s\S]*?\});/);
+  if (!m) return null;
+  let conf: Record<string, unknown>;
+  try { conf = JSON.parse(m[1]); } catch { return null; }
+  // ponytail: masjid-local date via its tz when known; off-by-one near
+  // midnight otherwise — iqamah offsets rarely change day to day anyway.
+  const now = new Date();
+  let month = now.getUTCMonth();
+  let day = now.getUTCDate();
+  if (tz) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "numeric", day: "numeric" }).formatToParts(now);
+      month = Number(parts.find((p) => p.type === "month")!.value) - 1;
+      day = Number(parts.find((p) => p.type === "day")!.value);
+    } catch { /* keep UTC */ }
+  }
+  const cal = conf.iqamaCalendar as Record<string, unknown[]>[] | undefined;
+  const today = cal?.[month]?.[String(day)] as unknown[] | undefined;
+  const fixed: (string | null)[] = [null, null, null, null, null];
+  const offsets: (number | null)[] = [null, null, null, null, null];
+  if (Array.isArray(today)) {
+    for (let i = 0; i < 5; i++) {
+      const v = today[i];
+      if (typeof v === "string" && v.startsWith("+")) offsets[i] = parseInt(v.slice(1), 10);
+      else if (typeof v === "string") fixed[i] = hhmmTo24(v);
+    }
+  }
+  const jummah = [conf.jumua, conf.jumua2, conf.jumua3]
+    .map((j) => (typeof j === "string" ? hhmmTo24(j) : null))
+    .filter((t): t is string => !!t);
+  return fixed.some(Boolean) || offsets.some((o) => o != null) || jummah.length ? { fixed, offsets, jummah } : null;
+}
+
+/**
+ * Generic fallback for masjid/widget pages (thebcma, awqat.net, madinaapps,
+ * CSV endpoints): find the line containing each prayer label and take its
+ * LAST time — iqamah columns sit after adhan. A single time counts only
+ * when the line mentions iqamah/jamaat.
+ */
+function parseGenericIqamah(body: string): { fixed: (string | null)[]; jummah: string[] } | null {
+  const rows = body.split(/<\/tr>|<\/li>|<br\s*\/?>|\r?\n/i);
+  const prayers = [/\bfajr\b/i, /\b(?:zuhr|dhuhr)\b/i, /\basr\b/i, /\bmaghrib\b/i, /\bisha/i];
+  const fixed: (string | null)[] = [];
+  for (const re of prayers) {
+    const row = rows.find((r) => re.test(r));
+    if (!row) { fixed.push(null); continue; }
+    const text = row.replace(/<[^>]+>/g, " ");
+    const times = [...text.matchAll(/(\d{1,2}):(\d{2})\s*(am|pm)?/gi)]
+      .map((m) => hhmmTo24(m[0]))
+      .filter((t): t is string => !!t);
+    fixed.push(
+      times.length >= 2 ? times[times.length - 1]
+      : times.length === 1 && /iqam|jamat|jamaah/i.test(text) ? times[0]
+      : null,
+    );
+  }
+  if (fixed.filter(Boolean).length < 4) return null;
+  const jummah: string[] = [];
+  const jrow = rows.find((r) => /jumu|jumm?a|friday/i.test(r));
+  if (jrow) {
+    for (const m of jrow.replace(/<[^>]+>/g, " ").matchAll(/(\d{1,2}):(\d{2})\s*(am|pm)?/gi)) {
+      const t = hhmmTo24(m[0]);
+      if (t) jummah.push(t);
+    }
+  }
+  return { fixed, jummah: jummah.slice(0, 3) };
+}
+
 /** Resolve one registry source's live iqamah. Best-effort, 6h cached. */
 async function fetchLiveIqamah(e: MasjidEntry & { fetchUrl?: string | null }): Promise<void> {
   const url = e.fetchUrl;
   if (!url) return;
+  const apply = (p: { fixed: (string | null)[]; offsets?: (number | null)[]; jummah: string[] } | null, provider: string) => {
+    if (!p) return;
+    if (p.fixed.some(Boolean)) e.iqamaFixed = p.fixed;
+    if (p.offsets?.some((o) => o != null)) e.iqamaOffsets = p.offsets as number[];
+    if (p.jummah.length) e.jummah = p.jummah;
+    e.hasIqama = p.fixed.some(Boolean) || !!p.offsets?.some((o) => o != null) || p.jummah.length > 0;
+    e.attribution = { provider };
+  };
   try {
     if (url.includes("masjidal.com")) {
       const res = await fetch(url, { next: { revalidate: 21600 } });
@@ -299,22 +393,30 @@ async function fetchLiveIqamah(e: MasjidEntry & { fetchUrl?: string | null }): P
       }
       return;
     }
-    // Generic widget page: fetch HTML, follow a Masjidal iframe if present,
-    // else try Mohid-style .prayer_iqama_div scraping.
+    // Widget page / homepage: fetch HTML, then try in order —
+    // Masjidal iframe → Mawaqit page/embed confData → Mohid iframe →
+    // generic labeled-times parse (also handles CSV endpoints).
     const res = await fetch(url, { next: { revalidate: 21600 }, headers: { "User-Agent": "Waqt/1.0" } });
     if (!res.ok) return;
     const html = await res.text();
+
+    if (url.includes("mawaqit.net")) {
+      apply(parseMawaqitConfData(html, e.masjidTz), "Mawaqit");
+      return;
+    }
+
     const masjidalEmbed = html.match(/masjidal\.com\/[^"' ]*masjid_id=([A-Za-z0-9]+)/);
     if (masjidalEmbed) {
       const r2 = await fetch(`https://masjidal.com/api/v1/time?masjid_id=${masjidalEmbed[1]}`, { next: { revalidate: 21600 } });
-      const parsed = r2.ok ? parseMasjidal(await r2.json().catch(() => null)) : null;
-      if (parsed) {
-        e.iqamaFixed = parsed.fixed;
-        e.jummah = parsed.jummah.length ? parsed.jummah : e.jummah;
-        e.hasIqama = true;
-        e.attribution = { provider: "Masjidal" };
-      }
-      return;
+      apply(parseMasjidal(await r2.json().catch(() => null)), "Masjidal");
+      if (e.hasIqama) return;
+    }
+    const mawaqitEmbed = html.match(/(?:src|href)=["'](https?:\/\/mawaqit\.net\/[^"']*)["']/i);
+    if (mawaqitEmbed) {
+      const r2 = await fetch(mawaqitEmbed[1], { next: { revalidate: 21600 }, headers: { "User-Agent": "Waqt/1.0" } })
+        .then((r) => (r.ok ? r.text() : null)).catch(() => null);
+      if (r2) apply(parseMawaqitConfData(r2, e.masjidTz), "Mawaqit");
+      if (e.hasIqama) return;
     }
     // Mohid widget iframe embedded in the masjid's homepage — follow it once
     const mohidEmbed = html.match(/(?:src|href)=["'](https?:\/\/[^"']*mohid[^"']*)["']/i);
@@ -323,13 +425,11 @@ async function fetchLiveIqamah(e: MasjidEntry & { fetchUrl?: string | null }): P
           .then((r) => (r.ok ? r.text() : null))
           .catch(() => null)
       : html;
-    const parsed = targetHtml ? parseMohidHtml(targetHtml) : null;
-    if (parsed) {
-      e.iqamaFixed = parsed.fixed;
-      e.jummah = parsed.jummah.length ? parsed.jummah : e.jummah;
-      e.hasIqama = true;
-      e.attribution = { provider: "Masjid site" };
+    if (targetHtml) {
+      apply(parseMohidHtml(targetHtml), "Masjid site");
+      if (!e.hasIqama) apply(parseGenericIqamah(targetHtml), "Masjid site");
     }
+    if (!e.hasIqama) apply(parseGenericIqamah(html), "Masjid site");
   } catch { /* best-effort — entry just shows adhan */ }
 }
 
@@ -443,7 +543,7 @@ export async function GET(request: NextRequest) {
           distanceKm: dist(s.lat, s.lng), city: null, country: null, address: s.address,
           source: "registry", attribution: null, url: s.website,
           iqamaOffsets: null, iqamaFixed: null, jummah: null, hasIqama: false,
-          image: null, phone: null, website: s.website, fetchUrl: s.fetchUrl,
+          image: null, phone: null, website: s.website, fetchUrl: s.fetchUrl, masjidTz: s.timezone,
         })),
         ...subs.map((s) => ({
           id: s.masjidId, slug: null, name: s.masjidName, lat: s.lat, lng: s.lng,
@@ -472,6 +572,7 @@ export async function GET(request: NextRequest) {
       const out = slice.map((m) => {
         const copy: Record<string, unknown> = { ...m };
         delete copy.fetchUrl;
+        delete copy.masjidTz;
         return copy;
       });
       return NextResponse.json({ mosques: out, total: unique.length, hasMore: false });
@@ -522,6 +623,7 @@ export async function GET(request: NextRequest) {
         phone: null,
         website: s.website,
         fetchUrl: s.fetchUrl,
+        masjidTz: s.timezone,
       }));
     // Mawaqit first — richest data (real iqamah + photos). Registry before
     // OSM so dedupe keeps the entry that carries an iqamah endpoint.
@@ -562,6 +664,7 @@ export async function GET(request: NextRequest) {
     const out = slice.map((m) => {
       const copy: Record<string, unknown> = { ...m };
       delete copy.fetchUrl;
+      delete copy.masjidTz;
       return copy;
     });
     return NextResponse.json({

@@ -60,7 +60,7 @@ interface MasjidCache {
   mosques: Masjid[];
 }
 
-const MASJID_CACHE_V = 2;
+const MASJID_CACHE_V = 3;
 
 function readMasjidCache(lat: number, lng: number): Masjid[] | null {
   try {
@@ -177,6 +177,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [addrOpen, setAddrOpen] = useState(false);
   const [addrInput, setAddrInput] = useState("");
   const [addrBusy, setAddrBusy] = useState(false);
+  const [addrLabel, setAddrLabel] = useState<string | null>(null); // "Near X" chip while viewing another place
 
   // Shared by geolocation + typed-address paths: persist coords + tz,
   // seed local caches, refetch masjids for the new spot.
@@ -231,9 +232,22 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         setError("Couldn't find that address. Try a ZIP or city.");
         return;
       }
+      // View-only context: fetch masjids near the typed address WITHOUT
+      // changing the saved location — distances are computed from it.
+      const la = parseFloat(hit.lat);
+      const ln = parseFloat(hit.lon);
+      const res2 = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=32&limit=50`);
+      const data = res2.ok ? await res2.json() : null;
+      if (!data?.mosques?.length) {
+        setError("No masjids found near that address.");
+        return;
+      }
+      setError(null);
+      setSearchResults(data.mosques);
+      setAddrLabel(hit.display_name?.split(",")[0] ?? q);
       setAddrOpen(false);
       setAddrInput("");
-      await applyLocation(parseFloat(hit.lat), parseFloat(hit.lon));
+      setShown(PAGE);
     } catch {
       setError("Address lookup failed. Try again.");
     } finally {
@@ -364,7 +378,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     return () => clearTimeout(t);
   }, [query, lat, lng]);
 
-  const isSearching = query.trim().length > 0;
+  const isSearching = searchResults !== null;
   const mosques = searchResults ?? all.slice(0, shown);
   const total = isSearching ? (searchResults?.length ?? 0) : all.length;
 
@@ -612,7 +626,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            if (!e.target.value.trim()) setSearchResults(null);
+            if (!e.target.value.trim()) { setSearchResults(null); setAddrLabel(null); }
           }}
           placeholder="Search masjids by name or address…"
           className="w-full rounded-lg border py-2 pl-8 pr-8 text-xs outline-none"
@@ -620,7 +634,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         />
         {isSearching && (
           <button
-            onClick={() => { setQuery(""); setSearchResults(null); }}
+            onClick={() => { setQuery(""); setSearchResults(null); setAddrLabel(null); }}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5"
             style={{ color: "var(--color-ink-muted)" }}
             aria-label="Clear search"
@@ -629,6 +643,21 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           </button>
         )}
       </div>
+
+      {addrLabel && (
+        <div className="mb-3 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
+          <MapPin className="h-3 w-3" />
+          <span className="truncate">Results near {addrLabel} — your saved location is unchanged</span>
+          <button
+            onClick={() => { setSearchResults(null); setAddrLabel(null); }}
+            className="ml-auto shrink-0 rounded p-0.5"
+            style={{ color: "var(--color-ink-muted)" }}
+            aria-label="Back to my location"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {error && (
         <p className="mb-2 text-xs" style={{ color: "var(--color-warmth)" }}>{error}</p>
