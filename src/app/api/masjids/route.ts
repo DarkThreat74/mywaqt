@@ -225,10 +225,25 @@ out center tags;`;
 function merge(a: MasjidEntry[], b: MasjidEntry[]): MasjidEntry[] {
   const merged = [...a];
   for (const o of b) {
-    const dupe = merged.some(
+    const i = merged.findIndex(
       (m) => haversineKm(m.lat, m.lng, o.lat, o.lng) < 0.15,
     );
-    if (!dupe) merged.push(o);
+    if (i < 0) { merged.push(o); continue; }
+    // Same mosque in two sources: keep the one that can actually produce
+    // iqamah — a Mawaqit/OSM pin must not hide a registry iqamah endpoint.
+    const existing = merged[i];
+    const oRich = o.hasIqama || !!o.fetchUrl;
+    const eRich = existing.hasIqama || !!existing.fetchUrl;
+    if (oRich && !eRich) merged[i] = o;
+    else if (oRich && eRich && !existing.fetchUrl && o.fetchUrl) {
+      // Enrich the kept entry with the other's fetch endpoint instead of
+      // swapping — keeps Mawaqit's photo/name while gaining live iqamah.
+      existing.fetchUrl = o.fetchUrl;
+      existing.srcId = o.srcId ?? existing.srcId;
+      existing.iqamahCache = o.iqamahCache ?? existing.iqamahCache;
+      existing.iqamahCheckedAt = o.iqamahCheckedAt ?? existing.iqamahCheckedAt;
+      if (!existing.masjidTz) existing.masjidTz = o.masjidTz;
+    }
   }
   merged.sort((x, y) => x.distanceKm - y.distanceKm);
   return merged;
@@ -515,7 +530,9 @@ async function fetchLiveIqamah(e: MasjidEntry): Promise<void> {
           provider: (e.attribution as { provider?: string } | null)?.provider,
         }
       : null;
-    db.update(schema.masjidSources)
+    // Must be awaited — a detached write can be killed when the serverless
+    // function freezes after the response.
+    await db.update(schema.masjidSources)
       .set({ iqamahCache: cache, iqamahCheckedAt: new Date() })
       .where(eq(schema.masjidSources.externalId, e.srcId))
       .catch(() => {});

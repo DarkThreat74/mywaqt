@@ -461,8 +461,15 @@ export default function SettingsClient({
   async function searchMasjids() {
     setMasjidSearching(true);
     setMasjidMsg(null);
+    const la = parseFloat(initialSettings?.latitude ?? "");
+    const ln = parseFloat(initialSettings?.longitude ?? "");
+    if (isNaN(la) || isNaN(ln)) {
+      setMasjidMsg({ ok: false, text: "Set your location above first, then search." });
+      setMasjidSearching(false);
+      return;
+    }
     try {
-      const res = await fetch(`/api/masjids?lat=${initialSettings?.latitude}&lng=${initialSettings?.longitude}&radius=32&limit=50`);
+      const res = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=32&limit=50`);
       const data = res.ok ? await res.json() : null;
       // Pickable = has iqamah data: islamic.app entries resolve it via slug,
       // Mawaqit entries carry it inline. Plain OSM POIs have neither.

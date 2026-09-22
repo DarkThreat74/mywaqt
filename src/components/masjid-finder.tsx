@@ -199,6 +199,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [addrInput, setAddrInput] = useState("");
   const [addrBusy, setAddrBusy] = useState(false);
   const [addrLabel, setAddrLabel] = useState<string | null>(null); // "Near X" chip while viewing another place
+  const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number } | null>(null); // map center for address view
 
   // Shared by geolocation + typed-address paths: persist coords + tz,
   // seed local caches, refetch masjids for the new spot.
@@ -266,6 +267,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       setError(null);
       setSearchResults(data.mosques);
       setAddrLabel(hit.display_name?.split(",")[0] ?? q);
+      setSearchCenter({ lat: la, lng: ln });
       setAddrOpen(false);
       setAddrInput("");
       setShown(PAGE);
@@ -292,14 +294,13 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         }),
       });
       if (!res.ok) throw new Error();
-      // Merge the submission into the local list immediately
-      setAll((prev) =>
-        prev.map((x) =>
-          x.id === m.id
-            ? { ...x, iqamaFixed: vals, jummah: jummah.length ? jummah : x.jummah, hasIqama: true, attribution: { provider: "Community" } }
-            : x,
-        ),
-      );
+      // Merge the submission into whichever list is showing
+      const applySub = (x: Masjid) =>
+        x.id === m.id
+          ? { ...x, iqamaFixed: vals, jummah: jummah.length ? jummah : x.jummah, hasIqama: true, attribution: { provider: "Community" } }
+          : x;
+      setAll((prev) => prev.map(applySub));
+      setSearchResults((prev) => prev?.map(applySub) ?? null);
       setEditingIqamah(null);
       setIqamahForm({});
     } catch {
@@ -417,8 +418,10 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   useEffect(() => {
     if (!selected) return;
     let cancelled = false;
+    const oLng = searchCenter?.lng ?? lng;
+    const oLat = searchCenter?.lat ?? lat;
     fetch(
-      `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${selected.lng},${selected.lat}?overview=false`,
+      `https://router.project-osrm.org/route/v1/driving/${oLng},${oLat};${selected.lng},${selected.lat}?overview=false`,
     )
       .then(async (r) => {
         if (!r.ok) return;
@@ -432,7 +435,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     return () => {
       cancelled = true;
     };
-  }, [selected, lat, lng]);
+  }, [selected, lat, lng, searchCenter]);
 
   useEffect(() => {
     if (mode !== "map" || !hasLoc || !mapRef.current) return;
@@ -497,14 +500,17 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       for (const mk of markerObjs.current) mk.remove();
       markerObjs.current = [];
 
-      // "You" — blue dot
+      // Center dot = your location, or the searched address while in that view
+      const cLat = searchCenter?.lat ?? lat;
+      const cLng = searchCenter?.lng ?? lng;
       const meEl = document.createElement("div");
       meEl.style.cssText =
         "width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)";
-      markerObjs.current.push(new maplibregl.Marker({ element: meEl }).setLngLat([lng, lat]).addTo(map));
+      markerObjs.current.push(new maplibregl.Marker({ element: meEl }).setLngLat([cLng, cLat]).addTo(map));
 
       const pinSvg = `<svg width="24" height="30" viewBox="0 0 24 30" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.4))"><path d="M12 0C5.9 0 1 4.9 1 11c0 8.3 11 19 11 19s11-10.7 11-19C23 4.9 18.1 0 12 0z" fill="var(--color-accent)" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="11" r="4" fill="#fff"/></svg>`;
-      for (const m of all) {
+      const shown = searchResults ?? all;
+      for (const m of shown) {
         const el = document.createElement("div");
         el.title = m.name;
         el.style.cssText = "width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer";
@@ -517,16 +523,18 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([m.lng, m.lat]).addTo(map),
         );
       }
-      if (all.length > 0) {
-        const bounds = new maplibregl.LngLatBounds([lng, lat], [lng, lat]);
-        for (const m of all) bounds.extend([m.lng, m.lat]);
+      if (shown.length > 0) {
+        const bounds = new maplibregl.LngLatBounds([cLng, cLat], [cLng, cLat]);
+        for (const m of shown) bounds.extend([m.lng, m.lat]);
         map.fitBounds(bounds, { padding: 48, maxZoom: 13 });
+      } else if (searchCenter) {
+        map.flyTo({ center: [cLng, cLat], zoom: 12 });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [mode, hasLoc, lat, lng, all]);
+  }, [mode, hasLoc, lat, lng, all, searchResults, searchCenter]);
 
   // Tear down map when leaving map mode
   useEffect(() => {
@@ -670,7 +678,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            if (!e.target.value.trim()) { setSearchResults(null); setAddrLabel(null); }
+            if (!e.target.value.trim()) { setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }
           }}
           placeholder="Search masjids by name or address…"
           className="w-full rounded-lg border py-2 pl-8 pr-8 text-xs outline-none"
@@ -678,7 +686,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         />
         {isSearching && (
           <button
-            onClick={() => { setQuery(""); setSearchResults(null); setAddrLabel(null); }}
+            onClick={() => { setQuery(""); setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5"
             style={{ color: "var(--color-ink-muted)" }}
             aria-label="Clear search"
@@ -693,7 +701,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           <MapPin className="h-3 w-3" />
           <span className="truncate">Results near {addrLabel} — your saved location is unchanged</span>
           <button
-            onClick={() => { setSearchResults(null); setAddrLabel(null); }}
+            onClick={() => { setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }}
             className="ml-auto shrink-0 rounded p-0.5"
             style={{ color: "var(--color-ink-muted)" }}
             aria-label="Back to my location"
@@ -712,7 +720,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           <div className="relative">
             <div ref={mapRef} className="h-72 w-full overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }} />
             <button
-              onClick={() => mapObj.current?.flyTo({ center: [lng, lat], zoom: 14, duration: 600 })}
+              onClick={() => mapObj.current?.flyTo({ center: [searchCenter?.lng ?? lng, searchCenter?.lat ?? lat], zoom: 14, duration: 600 })}
               className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm"
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
               aria-label="Center on my location"
