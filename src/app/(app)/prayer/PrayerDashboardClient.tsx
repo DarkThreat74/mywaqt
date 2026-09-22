@@ -462,16 +462,7 @@ export default function PrayerDashboard() {
         }
         if (visibilityRes?.ok) {
           const data = await visibilityRes.json().catch(() => null);
-          if (data && typeof data.friendsSeeStreak === "boolean") {
-            setVisibility({
-              friendsSeeStreak: data.friendsSeeStreak,
-              friendsSeeTodayStatus: data.friendsSeeTodayStatus,
-              friendsSeeSunnah: data.friendsSeeSunnah,
-              friendsSeeMasjidPct: data.friendsSeeMasjidPct,
-              friendsNotifyComplete: data.friendsNotifyComplete === true,
-            });
-            setGender(data.gender ?? null);
-            setHaydTracking(data.haydTracking === true);
+          if (data) {
             // Seed the offline settings cache so location-dependent UI
             // (masjid finder, hayd, day view) works on first render.
             if (data.latitude && data.longitude) {
@@ -483,6 +474,17 @@ export default function PrayerDashboard() {
                 longitude: data.longitude,
               });
             }
+          }
+          if (data && typeof data.friendsSeeStreak === "boolean") {
+            setVisibility({
+              friendsSeeStreak: data.friendsSeeStreak,
+              friendsSeeTodayStatus: data.friendsSeeTodayStatus,
+              friendsSeeSunnah: data.friendsSeeSunnah,
+              friendsSeeMasjidPct: data.friendsSeeMasjidPct,
+              friendsNotifyComplete: data.friendsNotifyComplete === true,
+            });
+            setGender(data.gender ?? null);
+            setHaydTracking(data.haydTracking === true);
           }
         }
         if (haydRes?.ok) {

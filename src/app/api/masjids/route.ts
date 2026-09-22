@@ -312,7 +312,14 @@ async function fetchLiveIqamah(e: MasjidEntry & { fetchUrl?: string | null }): P
       }
       return;
     }
-    const parsed = parseMohidHtml(html);
+    // Mohid widget iframe embedded in the masjid's homepage — follow it once
+    const mohidEmbed = html.match(/(?:src|href)=["'](https?:\/\/[^"']*mohid[^"']*)["']/i);
+    const targetHtml = mohidEmbed
+      ? await fetch(mohidEmbed[1], { next: { revalidate: 21600 }, headers: { "User-Agent": "Waqt/1.0" } })
+          .then((r) => (r.ok ? r.text() : null))
+          .catch(() => null)
+      : html;
+    const parsed = targetHtml ? parseMohidHtml(targetHtml) : null;
     if (parsed) {
       e.iqamaFixed = parsed.fixed;
       e.jummah = parsed.jummah.length ? parsed.jummah : e.jummah;
@@ -482,8 +489,14 @@ export async function GET(request: NextRequest) {
         .map((m) => fetchLiveIqamah(m)),
     );
 
+    // Strip internal fetch endpoints before responding
+    const out = slice.map((m) => {
+      const copy: Record<string, unknown> = { ...m };
+      delete copy.fetchUrl;
+      return copy;
+    });
     return NextResponse.json({
-      mosques: slice,
+      mosques: out,
       total: merged.length,
       hasMore: offset + limit < merged.length,
     });
