@@ -257,6 +257,11 @@ export default function PrayerDashboard() {
   const [qadaaSetting, setQadaaSetting] = useState(false);
   const [adjustPrayer, setAdjustPrayer] = useState<string>("fajr");
   const [adjustAmount, setAdjustAmount] = useState(1);
+  // Hayd tracking — only meaningful when gender==='female' && haydTracking
+  const [gender, setGender] = useState<string | null>(null);
+  const [haydTracking, setHaydTracking] = useState(false);
+  const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>([]);
+  const [haydBusy, setHaydBusy] = useState(false);
 
   // Today's data for comparison tab
   const [todayLogs, setTodayLogs] = useState<TodayLog[]>([]);
@@ -413,7 +418,7 @@ export default function PrayerDashboard() {
 
       // ── Step 2: Fetch from API in background ──
       try {
-        const [analyticsRes, friendsRes, codeRes, qadaaRes, logsRes, sunnahRes, timesRes, pendingRes, visibilityRes, groupsRes] = await Promise.all([
+        const [analyticsRes, friendsRes, codeRes, qadaaRes, logsRes, sunnahRes, timesRes, pendingRes, visibilityRes, groupsRes, haydRes] = await Promise.all([
           fetch(`/api/prayer-log/analytics?range=${statsRange}`).catch(() => null),
           fetch("/api/prayer-friends").catch(() => null),
           fetch("/api/prayer-friends/my-code").catch(() => null),
@@ -424,6 +429,7 @@ export default function PrayerDashboard() {
           fetch("/api/prayer-friends/pending").catch(() => null),
           fetch("/api/settings/prayer-settings").catch(() => null),
           fetch("/api/prayer-groups").catch(() => null),
+          fetch("/api/hayd").catch(() => null),
         ]);
 
         if (cancelled) return;
@@ -463,7 +469,13 @@ export default function PrayerDashboard() {
               friendsSeeMasjidPct: data.friendsSeeMasjidPct,
               friendsNotifyComplete: data.friendsNotifyComplete === true,
             });
+            setGender(data.gender ?? null);
+            setHaydTracking(data.haydTracking === true);
           }
+        }
+        if (haydRes?.ok) {
+          const data = await haydRes.json().catch(() => null);
+          if (data?.periods) setHaydPeriods(data.periods);
         }
         if (qadaaRes?.ok) {
           const data = await qadaaRes.json().catch(() => null);
@@ -1071,11 +1083,36 @@ export default function PrayerDashboard() {
   const myComplete = analytics?.totalCompleteDays || 0;
   const myMasjidPct = analytics?.masjidPct || 0;
 
-  // Get prayer status for today
+  // Hayd: does any recorded period cover today? Open-ended counts.
+  const haydToday = !!todayStr && haydPeriods.some(
+    (p) => todayStr >= p.startDate && (!p.endDate || todayStr <= p.endDate),
+  );
+  const haydActive = haydPeriods.some((p) => !p.endDate);
+
+  // Get prayer status for today — a hayd-covered day reads as excused when
+  // nothing was logged yet (server writes 'excused' at day close).
   const getPrayerStatus = (prayer: string): string => {
     const log = todayLogs.find((l) => l.prayerName === prayer);
-    return log?.status || "pending";
+    const status = log?.status || "pending";
+    return haydToday && status === "pending" ? "excused" : status;
   };
+
+  async function toggleHayd() {
+    setHaydBusy(true);
+    try {
+      const res = await fetch("/api/hayd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: haydActive ? "end" : "start" }),
+      });
+      if (res.ok) {
+        const list = await fetch("/api/hayd").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        if (list?.periods) setHaydPeriods(list.periods);
+      }
+    } finally {
+      setHaydBusy(false);
+    }
+  }
 
   const isPrayed = (prayer: string) => {
     const status = getPrayerStatus(prayer);
@@ -1102,6 +1139,34 @@ export default function PrayerDashboard() {
         >
           <WifiOff className="h-3.5 w-3.5 shrink-0" />
           <span>You&apos;re offline. Prayer logs and sunnahs will sync when you reconnect.</span>
+        </div>
+      )}
+
+      {/* Hayd control — female accounts with tracking enabled only */}
+      {gender === "female" && haydTracking && (
+        <div
+          className="mb-4 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs"
+          style={{
+            borderColor: haydActive ? "var(--color-accent)" : "var(--color-paper-3)",
+            backgroundColor: haydActive ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "transparent",
+          }}
+        >
+          <span style={{ color: haydActive ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+            {haydActive
+              ? "Hayd active — prayers are excused and your streak is safe."
+              : "On your period? Mark hayd days to pause check-ins."}
+          </span>
+          <button
+            onClick={toggleHayd}
+            disabled={haydBusy}
+            className="shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
+            style={{
+              backgroundColor: haydActive ? "var(--color-accent)" : "var(--color-ink)",
+              color: "var(--color-paper)",
+            }}
+          >
+            {haydBusy ? "..." : haydActive ? "End hayd" : "Start hayd"}
+          </button>
         </div>
       )}
 

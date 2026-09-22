@@ -24,6 +24,14 @@ export async function GET(request: NextRequest) {
       friendsSeeSunnah: schema.prayerSettings.friendsSeeSunnah,
       friendsSeeMasjidPct: schema.prayerSettings.friendsSeeMasjidPct,
       friendsNotifyComplete: schema.prayerSettings.friendsNotifyComplete,
+      gender: schema.prayerSettings.gender,
+      haydTracking: schema.prayerSettings.haydTracking,
+      masjidExternalId: schema.prayerSettings.masjidExternalId,
+      masjidName: schema.prayerSettings.masjidName,
+      masjidIqamah: schema.prayerSettings.masjidIqamah,
+      useIqamahReminders: schema.prayerSettings.useIqamahReminders,
+      timeOffsetMinutes: schema.prayerSettings.timeOffsetMinutes,
+      showNaflTimes: schema.prayerSettings.showNaflTimes,
     })
     .from(schema.prayerSettings)
     .where(eq(schema.prayerSettings.userId, session.userId))
@@ -55,6 +63,14 @@ export async function PATCH(request: NextRequest) {
     friendsSeeSunnah?: boolean;
     friendsSeeMasjidPct?: boolean;
     friendsNotifyComplete?: boolean;
+    gender?: string;
+    haydTracking?: boolean;
+    masjidExternalId?: string | null;
+    masjidName?: string | null;
+    masjidIqamah?: Record<string, string> | null;
+    useIqamahReminders?: boolean;
+    timeOffsetMinutes?: number;
+    showNaflTimes?: boolean;
   };
   try {
     body = await request.json();
@@ -68,6 +84,66 @@ export async function PATCH(request: NextRequest) {
   if (typeof body.friendsSeeSunnah === "boolean") updates.friendsSeeSunnah = body.friendsSeeSunnah;
   if (typeof body.friendsSeeMasjidPct === "boolean") updates.friendsSeeMasjidPct = body.friendsSeeMasjidPct;
   if (typeof body.friendsNotifyComplete === "boolean") updates.friendsNotifyComplete = body.friendsNotifyComplete;
+  if (body.gender === "male" || body.gender === "female") updates.gender = body.gender;
+  // Hayd tracking only applies to female accounts — check effective gender
+  if (typeof body.haydTracking === "boolean") {
+    let effectiveGender = body.gender === "male" || body.gender === "female" ? body.gender : null;
+    if (!effectiveGender) {
+      const [cur] = await db
+        .select({ gender: schema.prayerSettings.gender })
+        .from(schema.prayerSettings)
+        .where(eq(schema.prayerSettings.userId, session.userId))
+        .limit(1);
+      effectiveGender = cur?.gender ?? null;
+    }
+    updates.haydTracking = body.haydTracking && effectiveGender === "female";
+    // Switching to male disables hayd tracking implicitly
+    if (body.gender === "male") updates.haydTracking = false;
+  }
+  if (body.masjidExternalId === null || typeof body.masjidExternalId === "string") {
+    updates.masjidExternalId = body.masjidExternalId === null ? null : body.masjidExternalId.slice(0, 200);
+  }
+  if (body.masjidName === null || typeof body.masjidName === "string") {
+    updates.masjidName = body.masjidName === null ? null : body.masjidName.slice(0, 200);
+  }
+  if (body.masjidIqamah !== undefined) {
+    if (body.masjidIqamah === null) {
+      updates.masjidIqamah = null;
+    } else if (typeof body.masjidIqamah === "object") {
+      const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+      const iq = body.masjidIqamah as {
+        manual?: Record<string, string>;
+        fixed?: (string | null)[];
+        offsets?: (number | null)[];
+        jummah?: string | null;
+      };
+      const clean: Record<string, unknown> = {};
+      if (iq.manual && typeof iq.manual === "object") {
+        const m: Record<string, string> = {};
+        for (const k of ["fajr", "dhuhr", "asr", "maghrib", "isha"]) {
+          const v = iq.manual[k];
+          if (typeof v === "string" && TIME_RE.test(v)) m[k] = v;
+        }
+        clean.manual = m;
+      }
+      if (Array.isArray(iq.fixed)) {
+        clean.fixed = iq.fixed.slice(0, 5).map((v) => (typeof v === "string" && TIME_RE.test(v) ? v : null));
+      }
+      if (Array.isArray(iq.offsets)) {
+        clean.offsets = iq.offsets
+          .slice(0, 5)
+          .map((v) => (typeof v === "number" && Number.isInteger(v) && v >= -120 && v <= 300 ? v : null));
+      }
+      if (typeof iq.jummah === "string" && TIME_RE.test(iq.jummah)) clean.jummah = iq.jummah;
+      updates.masjidIqamah = clean;
+    }
+  }
+  if (typeof body.useIqamahReminders === "boolean") updates.useIqamahReminders = body.useIqamahReminders;
+  if (typeof body.timeOffsetMinutes === "number" && Number.isInteger(body.timeOffsetMinutes)
+      && body.timeOffsetMinutes >= -120 && body.timeOffsetMinutes <= 120) {
+    updates.timeOffsetMinutes = body.timeOffsetMinutes;
+  }
+  if (typeof body.showNaflTimes === "boolean") updates.showNaflTimes = body.showNaflTimes;
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
@@ -80,13 +156,7 @@ export async function PATCH(request: NextRequest) {
       .update(schema.prayerSettings)
       .set(updates)
       .where(eq(schema.prayerSettings.userId, session.userId))
-      .returning({
-        friendsSeeStreak: schema.prayerSettings.friendsSeeStreak,
-        friendsSeeTodayStatus: schema.prayerSettings.friendsSeeTodayStatus,
-        friendsSeeSunnah: schema.prayerSettings.friendsSeeSunnah,
-        friendsSeeMasjidPct: schema.prayerSettings.friendsSeeMasjidPct,
-        friendsNotifyComplete: schema.prayerSettings.friendsNotifyComplete,
-      });
+      .returning();
 
     if (!updated) {
       return NextResponse.json({ error: "Settings not found." }, { status: 404 });

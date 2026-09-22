@@ -105,6 +105,9 @@ export async function POST(request: NextRequest) {
         asr: parseTime(timings.Asr),
         maghrib: parseTime(timings.Maghrib),
         isha: parseTime(timings.Isha),
+        imsak: timings.Imsak ? parseTime(timings.Imsak) : null,
+        firstThird: timings.Firstthird ? parseTime(timings.Firstthird) : null,
+        lastThird: timings.Lastthird ? parseTime(timings.Lastthird) : null,
       };
     });
 
@@ -120,6 +123,9 @@ export async function POST(request: NextRequest) {
           asr: sql.raw("excluded.asr"),
           maghrib: sql.raw("excluded.maghrib"),
           isha: sql.raw("excluded.isha"),
+          imsak: sql.raw("excluded.imsak"),
+          firstThird: sql.raw("excluded.first_third"),
+          lastThird: sql.raw("excluded.last_third"),
           fetchedAt: new Date(),
         },
       });

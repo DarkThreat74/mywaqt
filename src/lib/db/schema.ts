@@ -24,6 +24,7 @@ import {
   index,
   primaryKey,
   pgEnum,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 
 // ─── Enums ───
@@ -281,8 +282,36 @@ export const prayerSettings = pgTable('prayer_settings', {
   friendsSeeMasjidPct: boolean('friends_see_masjid_pct').default(true).notNull(),
   // Opt-in: push me when an accepted friend completes all 5 prayers today
   friendsNotifyComplete: boolean('friends_notify_complete').default(false).notNull(),
+  // 'male' | 'female' — captured in onboarding; gates hayd tracking
+  gender: text('gender'),
+  haydTracking: boolean('hayd_tracking').default(false).notNull(),
+  // Selected masjid for iqamah times (external directory id or 'manual')
+  masjidExternalId: text('masjid_external_id'),
+  masjidName: text('masjid_name'),
+  // Iqamah config: directory offsets/fixed arrays (fajr..isha order) or manual per-prayer times
+  masjidIqamah: jsonb('masjid_iqamah').$type<{
+    manual?: Partial<Record<'fajr' | 'dhuhr' | 'asr' | 'maghrib' | 'isha', string>>;
+    fixed?: (string | null)[];
+    offsets?: (number | null)[];
+    jummah?: string | null;
+  }>(),
+  useIqamahReminders: boolean('use_iqamah_reminders').default(false).notNull(),
+  // Global minute offset applied to all displayed prayer times
+  timeOffsetMinutes: integer('time_offset_minutes').default(0).notNull(),
+  showNaflTimes: boolean('show_nafl_times').default(false).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+// ─── Hayd Periods (menstruation pause — prayer obligation lifted) ───
+export const haydPeriods = pgTable('hayd_periods', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date'), // null = ongoing
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('hayd_periods_user_idx').on(table.userId, table.startDate),
+]);
 
 // ─── Prayer Blocks (prevent unwanted friend requests) ───
 export const prayerBlocks = pgTable('prayer_blocks', {
@@ -309,6 +338,10 @@ export const prayerTimesCache = pgTable(
     asr: time('asr').notNull(),
     maghrib: time('maghrib').notNull(),
     isha: time('isha').notNull(),
+    // Extra AlAdhan times for nafl markers (nullable for rows synced before 0033)
+    imsak: time('imsak'),
+    firstThird: time('first_third'),
+    lastThird: time('last_third'),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -329,6 +362,8 @@ export const notificationPrefs = pgTable('notification_prefs', {
   prayerFinal: text('prayer_final').default('push').notNull(),
   // Locked to 'push' only — no SMS option for other reminders
   otherReminders: text('other_reminders').default('push').notNull(),
+  // Per-prayer overrides: { fajr: {mode:'push'|'silent'|'off', beforeMin:number}, ... }
+  perPrayer: jsonb('per_prayer').$type<Partial<Record<'fajr' | 'dhuhr' | 'asr' | 'maghrib' | 'isha', { mode: 'push' | 'silent' | 'off'; beforeMin: number }>>>(),
 });
 
 // ─── Push Subscriptions (web + native) ───
@@ -840,3 +875,4 @@ export type HabitLog = typeof habitLogs.$inferSelect;
 export type NewHabitLog = typeof habitLogs.$inferInsert;
 export type Note = typeof notes.$inferSelect;
 export type NewNote = typeof notes.$inferInsert;
+export type HaydPeriod = typeof haydPeriods.$inferSelect;

@@ -27,12 +27,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { latitude, longitude, timezone, calculationMethod, madhab } = body as {
+  const { latitude, longitude, timezone, calculationMethod, madhab, gender, haydTracking } = body as {
     latitude?: string;
     longitude?: string;
     timezone?: string;
     calculationMethod?: number;
     madhab?: string;
+    gender?: string;
+    haydTracking?: boolean;
   };
 
   if (!latitude || !longitude || !timezone) {
@@ -67,6 +69,10 @@ export async function POST(request: NextRequest) {
   const validMadhabs = ["standard", "hanafi"];
   const madhabVal = madhab && validMadhabs.includes(madhab) ? madhab : "standard";
 
+  // Gender is optional (legacy flows) but restricted to two values when present
+  const genderVal = gender === "male" || gender === "female" ? gender : null;
+  const haydVal = genderVal === "female" && haydTracking === true;
+
   // Upsert prayer settings
   const [existing] = await db
     .select()
@@ -77,7 +83,7 @@ export async function POST(request: NextRequest) {
   if (existing) {
     await db
       .update(schema.prayerSettings)
-      .set({ latitude, longitude, timezone, calculationMethod: method, madhab: madhabVal, updatedAt: new Date() })
+      .set({ latitude, longitude, timezone, calculationMethod: method, madhab: madhabVal, ...(genderVal ? { gender: genderVal, haydTracking: haydVal } : {}), updatedAt: new Date() })
       .where(eq(schema.prayerSettings.userId, session.userId));
   } else {
     await db.insert(schema.prayerSettings).values({
@@ -87,6 +93,8 @@ export async function POST(request: NextRequest) {
       timezone,
       calculationMethod: method,
       madhab: madhabVal,
+      gender: genderVal,
+      haydTracking: haydVal,
     });
   }
 
@@ -124,6 +132,9 @@ export async function POST(request: NextRequest) {
           asr: parseTime(timings.Asr),
           maghrib: parseTime(timings.Maghrib),
           isha: parseTime(timings.Isha),
+          imsak: timings.Imsak ? parseTime(timings.Imsak) : null,
+          firstThird: timings.Firstthird ? parseTime(timings.Firstthird) : null,
+          lastThird: timings.Lastthird ? parseTime(timings.Lastthird) : null,
         };
       });
 
@@ -139,6 +150,9 @@ export async function POST(request: NextRequest) {
             asr: sql.raw("excluded.asr"),
             maghrib: sql.raw("excluded.maghrib"),
             isha: sql.raw("excluded.isha"),
+            imsak: sql.raw("excluded.imsak"),
+            firstThird: sql.raw("excluded.first_third"),
+            lastThird: sql.raw("excluded.last_third"),
             fetchedAt: new Date(),
           },
         });

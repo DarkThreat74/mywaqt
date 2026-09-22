@@ -3,6 +3,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { recordDayCompletion } from "@/lib/prayer/social";
+import { isHaydDay } from "@/lib/prayer/hayd";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid status." }, { status: 400 });
   }
   const finalStatus = status ?? "prayed";
+
+  // Hayd: during a hayd period the obligation is lifted — block manual
+  // check-ins for covered dates. The cron writes 'excused' itself.
+  if (finalStatus !== "excused" && (await isHaydDay(session.userId, date))) {
+    return NextResponse.json(
+      { error: "This day is marked as hayd — prayer logging is paused.", excused: true },
+      { status: 409 },
+    );
+  }
 
   // Note: No window check — users can log prayers at any time.
   // This is essential for offline use (when the outbox syncs, the window

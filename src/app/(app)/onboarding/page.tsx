@@ -5,7 +5,7 @@ import Link from "next/link";
 
 import { MapPin, Bell, ArrowRight, Check, Loader2, User, Shield } from "lucide-react";
 
-type Step = "terms" | "name" | "location" | "madhab" | "notifications" | "done";
+type Step = "terms" | "name" | "gender" | "hayd" | "location" | "madhab" | "notifications" | "done";
 
 export default function OnboardingWizard() {
   const [step, setStep] = useState<Step>("terms");
@@ -18,6 +18,10 @@ export default function OnboardingWizard() {
 
   // Name state
   const [displayName, setDisplayName] = useState("");
+
+  // Gender state — 'male' | 'female'; gates the hayd step
+  const [gender, setGender] = useState<"male" | "female" | null>(null);
+  const [haydTracking, setHaydTracking] = useState(true);
 
   // Location state
   const [lat, setLat] = useState<number | null>(null);
@@ -90,6 +94,8 @@ export default function OnboardingWizard() {
           longitude: lng.toString(),
           timezone,
           madhab,
+          gender,
+          haydTracking: gender === "female" ? haydTracking : false,
         }),
       });
 
@@ -123,6 +129,8 @@ export default function OnboardingWizard() {
           longitude: lng!.toString(),
           timezone,
           madhab,
+          gender,
+          haydTracking: gender === "female" ? haydTracking : false,
         }),
       });
 
@@ -185,7 +193,10 @@ export default function OnboardingWizard() {
     }
   }
 
-  const steps: Step[] = ["terms", "name", "location", "madhab", "notifications", "done"];
+  // Progress dots: hayd step only exists for girls — count it conditionally
+  const steps: Step[] = gender === "female"
+    ? ["terms", "name", "gender", "hayd", "location", "madhab", "notifications", "done"]
+    : ["terms", "name", "gender", "location", "madhab", "notifications", "done"];
   const currentIdx = steps.indexOf(step);
 
   return (
@@ -322,7 +333,7 @@ export default function OnboardingWizard() {
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 48 }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && displayName.trim()) {
-                  setStep("location");
+                  setStep("gender");
                 }
               }}
             />
@@ -333,7 +344,7 @@ export default function OnboardingWizard() {
                   return;
                 }
                 setError(null);
-                setStep("location");
+                setStep("gender");
               }}
               disabled={pending}
               className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
@@ -346,7 +357,81 @@ export default function OnboardingWizard() {
         </div>
       )}
 
-      {/* ── Step 2: Location ── */}
+      {/* ── Step 2: Gender ── */}
+      {step === "gender" && (
+        <div className="flex flex-col items-center text-center">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+            Are you a boy or a girl?
+          </h1>
+          <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+            Prayer obligations differ — this keeps your tracking accurate.
+          </p>
+
+          <div className="mt-8 w-full max-w-sm space-y-3">
+            {(["male", "female"] as const).map((g) => (
+              <button
+                key={g}
+                onClick={() => {
+                  setGender(g);
+                  setError(null);
+                  setStep(g === "female" ? "hayd" : "location");
+                }}
+                className="flex w-full items-center justify-center rounded-xl border p-4 text-sm font-semibold transition-colors"
+                style={{
+                  borderColor: gender === g ? "var(--color-accent)" : "var(--color-paper-3)",
+                  backgroundColor: gender === g ? "color-mix(in oklab, var(--color-accent) 6%, transparent)" : "transparent",
+                  color: "var(--color-ink)",
+                }}
+              >
+                {g === "male" ? "Boy" : "Girl"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 2b: Hayd tracking (girls only) ── */}
+      {step === "hayd" && (
+        <div className="flex flex-col items-center text-center">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+            Hayd days
+          </h1>
+          <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+            During your period the obligation to pray is lifted. When you mark hayd
+            days in the app, check-ins pause, reminders stay quiet, those days show
+            as excused instead of missed, and your streak stays safe.
+          </p>
+          <p className="mt-3 max-w-md text-sm leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+            This is private — friends never see it.
+          </p>
+
+          <div className="mt-8 w-full max-w-sm space-y-3">
+            <button
+              onClick={() => {
+                setHaydTracking(true);
+                setStep("location");
+              }}
+              className="w-full rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+            >
+              Enable hayd tracking
+              <ArrowRight className="ml-2 inline h-4 w-4" />
+            </button>
+            <button
+              onClick={() => {
+                setHaydTracking(false);
+                setStep("location");
+              }}
+              className="w-full text-sm font-medium transition-opacity hover:opacity-60"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 3: Location ── */}
       {step === "location" && (
         <div className="flex flex-col items-center text-center">
           <div

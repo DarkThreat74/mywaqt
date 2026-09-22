@@ -159,6 +159,11 @@ export default function PrayerCheckinPopup({
         }
       } else {
         const data = await res.json().catch(() => ({}));
+        // 409 on a hayd-covered day — show the day as excused in the UI too
+        if (data.excused) {
+          onCheckedIn({ status: "excused", wentToMasjid: null });
+          return;
+        }
         setError(data.error || "Failed to check in.");
         play("error");
         void hapticNotification("error");

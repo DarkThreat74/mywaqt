@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { isNativeApp, isIOS, requestPushPermission, getPushToken, getPlatform } from "@/lib/native-bridge";
 import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { wallClockToUtc } from "@/lib/timezone";
 
 /**
  * Client-side notification scheduler.
@@ -72,8 +73,27 @@ const firedNotifications = new Set<string>();
 // other waqt-* keys) — survives page reloads so stages fire once per day.
 const HW_FIRED_KEY = "waqt-hw-fired";
 
+type PerPrayerPrefs = Partial<Record<
+  "fajr" | "dhuhr" | "asr" | "maghrib" | "isha",
+  { mode: "push" | "silent" | "off"; beforeMin: number }
+>>;
+
 export default function NotificationScheduler() {
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const perPrayerRef = useRef<PerPrayerPrefs | null | undefined>(undefined);
+
+  // Per-prayer prefs fetched once per mount (settings changes apply on reload)
+  const getPerPrayerPrefs = useCallback(async (): Promise<PerPrayerPrefs | null> => {
+    if (perPrayerRef.current !== undefined) return perPrayerRef.current;
+    try {
+      const res = await fetch("/api/notifications/prefs");
+      const data = res.ok ? await res.json() : null;
+      perPrayerRef.current = (data?.perPrayer as PerPrayerPrefs) ?? null;
+    } catch {
+      perPrayerRef.current = null;
+    }
+    return perPrayerRef.current;
+  }, []);
 
   const clearAllTimers = useCallback(() => {
     for (const t of timersRef.current) clearTimeout(t);
@@ -154,7 +174,7 @@ export default function NotificationScheduler() {
       }
 
       if (!data) return;
-      // The API returns { ...cached, madhab, timezone } — extract prayer times + tz
+      // The API returns { ...cached, madhab, timezone, masjidIqamah, ... }
       const times: PrayerTimes = {
         fajr: data.fajr,
         sunrise: data.sunrise,
@@ -163,57 +183,65 @@ export default function NotificationScheduler() {
         maghrib: data.maghrib,
         isha: data.isha,
       };
-      const prayerTimezone = (data as PrayerTimes & { timezone?: string | null }).timezone;
+      const extra = data as PrayerTimes & {
+        timezone?: string | null;
+        masjidIqamah?: {
+          manual?: Partial<Record<keyof PrayerTimes, string>>;
+          fixed?: (string | null)[];
+          offsets?: (number | null)[];
+          jummah?: string | null;
+        } | null;
+        useIqamahReminders?: boolean;
+      };
+      const prayerTimezone = extra.timezone;
       if (!times || !times.fajr) return;
 
+      const perPrayer = await getPerPrayerPrefs();
       const now = new Date();
+      // For the widget writer: collect upcoming prayer instants today
+      const upcoming: Array<{ key: string; at: Date }> = [];
 
       for (const prayer of PRAYER_NOTIFICATIONS) {
+        // Per-prayer mode: 'off' and 'silent' get no notifications at all
+        const cfg = perPrayer?.[prayer.key as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"];
+        if (cfg && cfg.mode !== "push") continue;
+
         const rawTime = times[prayer.key];
         if (!rawTime) continue;
 
         const { hours, minutes } = parseTimeParts(rawTime);
-        const timeStr = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 
         // Convert prayer time (wall-clock in user's prayer timezone) to an
-        // absolute UTC instant. If we have the timezone, use it; otherwise fall
-        // back to browser local time (original behavior).
-        let prayerDate: Date;
-        if (prayerTimezone) {
-          // Parse the date as if it's in the prayer timezone, then get its UTC instant
-          // by formatting it and reading back. This handles DST correctly.
-          const dateTimeStr = `${date}T${timeStr}:00`;
-          // Use Intl to get the offset for that date in the prayer timezone
-          const dtf = new Intl.DateTimeFormat("en-US", {
-            timeZone: prayerTimezone,
-            year: "numeric", month: "2-digit", day: "2-digit",
-            hour: "2-digit", minute: "2-digit", second: "2-digit",
-            hour12: false,
-          });
-          // Get the parts for "now" in the prayer timezone to find the offset
-          const nowParts = dtf.formatToParts(now);
-          const nowInTz: Record<string, string> = {};
-          for (const p of nowParts) { if (p.type !== "literal") nowInTz[p.type] = p.value; }
-          const nowUtcMs = now.getTime();
-          const nowTzDate = new Date(
-            parseInt(nowInTz.year),
-            parseInt(nowInTz.month) - 1,
-            parseInt(nowInTz.day),
-            parseInt(nowInTz.hour === "24" ? "00" : nowInTz.hour),
-            parseInt(nowInTz.minute),
-            parseInt(nowInTz.second),
-          ).getTime();
-          const offsetMs = nowTzDate - nowUtcMs;
-          // Now compute the prayer time as a local date and subtract the offset
-          prayerDate = new Date(new Date(`${dateTimeStr}`).getTime() - offsetMs);
-        } else {
-          prayerDate = new Date(`${date}T${timeStr}:00`);
-        }
+        // absolute UTC instant — DST-safe via the shared helper.
+        const [y, mo, d] = date.split("-").map(Number);
+        const prayerDate = prayerTimezone
+          ? wallClockToUtc(y, mo, d, hours, minutes, 0, prayerTimezone)
+          : new Date(`${date}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`);
 
         const diffMs = prayerDate.getTime() - now.getTime();
 
+        if (diffMs > 0) upcoming.push({ key: prayer.key, at: prayerDate });
+
         // Only schedule if it's in the future (within next 48 hours to cover tomorrow too)
         if (diffMs <= 0 || diffMs > 48 * 60 * 60 * 1000) continue;
+
+        // Optional "X min before" reminder for this prayer
+        if (cfg && cfg.beforeMin > 0) {
+          const beforeTag = `prayer-before-${prayer.key}-${date}`;
+          const beforeDiffMs = diffMs - cfg.beforeMin * 60 * 1000;
+          if (beforeDiffMs > 0 && !firedNotifications.has(beforeTag)) {
+            const t = setTimeout(() => {
+              firedNotifications.add(beforeTag);
+              showNotification(
+                `${prayerLabel(date, prayer)} in ${cfg.beforeMin} min`,
+                `${prayerLabel(date, prayer)} starts soon.`,
+                beforeTag,
+                "/calendar/day",
+              );
+            }, beforeDiffMs);
+            timersRef.current.push(t);
+          }
+        }
 
         const notifTag = `prayer-${prayer.key}-${date}`;
 
@@ -231,11 +259,71 @@ export default function NotificationScheduler() {
         }, diffMs);
 
         timersRef.current.push(timer);
+
+        // Iqamah reminder — masjid's iqamah time when configured. Resolved
+        // order: manual HH:MM → directory fixed → adhan + offset minutes.
+        let iqamah: { h: number; mi: number } | null = null;
+        const iq = extra.useIqamahReminders ? extra.masjidIqamah : null;
+        if (iq) {
+          const idx = PRAYER_NOTIFICATIONS.findIndex((p) => p.key === prayer.key);
+          const manual = iq.manual?.[prayer.key];
+          const fixed = iq.fixed?.[idx];
+          const offset = iq.offsets?.[idx];
+          if (manual) {
+            const p = parseTimeParts(manual);
+            iqamah = { h: p.hours, mi: p.minutes };
+          } else if (fixed) {
+            const p = parseTimeParts(fixed);
+            iqamah = { h: p.hours, mi: p.minutes };
+          } else if (typeof offset === "number") {
+            const total = hours * 60 + minutes + offset;
+            iqamah = { h: Math.floor(total / 60) % 24, mi: total % 60 };
+          }
+        }
+        if (iqamah) {
+          const iqTag = `iqamah-${prayer.key}-${date}`;
+          const iqDate = prayerTimezone
+            ? wallClockToUtc(y, mo, d, iqamah.h, iqamah.mi, 0, prayerTimezone)
+            : new Date(`${date}T${String(iqamah.h).padStart(2, "0")}:${String(iqamah.mi).padStart(2, "0")}:00`);
+          const iqDiff = iqDate.getTime() - now.getTime();
+          if (iqDiff > 0 && iqDiff <= 48 * 60 * 60 * 1000 && !firedNotifications.has(iqTag)) {
+            const t = setTimeout(() => {
+              firedNotifications.add(iqTag);
+              showNotification(
+                `${prayerLabel(date, prayer)} iqamah`,
+                `Iqamah for ${prayerLabel(date, prayer)} is now${extra.masjidIqamah ? " at your masjid" : ""}.`,
+                iqTag,
+                "/calendar/day",
+              );
+            }, iqDiff);
+            timersRef.current.push(t);
+          }
+        }
+      }
+
+      // Widget payload — write the next prayer so native wrappers (and the
+      // PWA badge) can show it without recomputing. Only today's invocation
+      // writes, so tomorrow's schedule can't clobber a still-upcoming prayer.
+      const todayStr = prayerTimezone
+        ? now.toLocaleDateString("en-CA", { timeZone: prayerTimezone })
+        : now.toLocaleDateString("en-CA");
+      if (date === todayStr) {
+        const next = upcoming.sort((a, b) => a.at.getTime() - b.at.getTime())[0];
+        if (next) {
+          try {
+            localStorage.setItem(
+              "waqt-next-prayer",
+              JSON.stringify({ prayer: next.key, at: next.at.toISOString(), date }),
+            );
+            const badge = (navigator as Navigator & { setAppBadge?: (n: number) => Promise<void> }).setAppBadge;
+            if (badge) badge.call(navigator, 1).catch(() => {});
+          } catch { /* non-critical */ }
+        }
       }
     } catch (err) {
       console.warn("[Waqt] Prayer notification scheduling failed:", err);
     }
-  }, [showNotification]);
+  }, [showNotification, getPerPrayerPrefs]);
 
   /**
    * Check if any prayer is currently in its window and we haven't notified yet.
@@ -291,6 +379,7 @@ export default function NotificationScheduler() {
         isha: data.isha,
       };
       if (!times || !times.fajr) return;
+      const perPrayer = await getPerPrayerPrefs();
 
       // Compute "now" in minutes, in the prayer timezone (not browser-local)
       let nowMinutes: number;
@@ -309,6 +398,8 @@ export default function NotificationScheduler() {
       }
 
       for (const prayer of PRAYER_NOTIFICATIONS) {
+        const cfg = perPrayer?.[prayer.key as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"];
+        if (cfg && cfg.mode !== "push") continue;
         const { hours, minutes } = parseTimeParts(times[prayer.key]);
         const prayerMinutes = hours * 60 + minutes;
 
@@ -367,7 +458,7 @@ export default function NotificationScheduler() {
     } catch (err) {
       console.warn("[Waqt] Missed prayer check failed:", err);
     }
-  }, [showNotification]);
+  }, [showNotification, getPerPrayerPrefs]);
 
   const scheduleReminderNotifications = useCallback(async (date: string) => {
     try {

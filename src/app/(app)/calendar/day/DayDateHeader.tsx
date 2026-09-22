@@ -104,6 +104,15 @@ export default function DayDateHeader({ date }: { date: string }) {
             {isToday && (
               <p className="text-xs" style={{ color: "var(--color-accent)" }}>Today</p>
             )}
+            {/* Jumu'ah badge on Fridays */}
+            {dateObj.getDay() === 5 && (
+              <p
+                className="mt-0.5 text-[11px] font-semibold"
+                style={{ color: "var(--color-warmth)" }}
+              >
+                Jumu&apos;ah Mubarak
+              </p>
+            )}
           </div>
 
           {/* Day/Month/List toggle */}

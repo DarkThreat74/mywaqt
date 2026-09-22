@@ -5,6 +5,7 @@ import { verifyCronAuth } from "@/lib/cronAuth";
 import { isWindowClosed, getPrayerWindow } from "@/lib/prayer/stateMachine";
 import { sendPrayerPush } from "@/lib/notifications/push";
 import { recordDayCompletion } from "@/lib/prayer/social";
+import { haydCoverage } from "@/lib/prayer/hayd";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -231,13 +232,24 @@ async function processUserBatch(
     homeworkMap.get(h.userId)!.push(h);
   }
 
+  // Batch 6: hayd coverage for the relevant dates — covered days get
+  // 'excused' resolution and no notifications (obligation is lifted).
+  const haydSet = await haydCoverage(userIds, dateList);
+
   // Process each user using the batched data
   for (const s of settings) {
     try {
       const userNow = userNowAsLocalDate(s.timezone).now;
       const { today, yesterdayStr } = userNowAsLocalDate(s.timezone);
 
-      // 1. Resolve yesterday's unmarked prayers as assumed_prayed
+      // Hayd coverage: obligation lifted — covered days resolve as 'excused'
+      // (never 'assumed_prayed') and no prayer pushes go out.
+      const haydYesterday = haydSet.has(`${s.userId}:${yesterdayStr}`);
+      const haydToday = haydSet.has(`${s.userId}:${today}`);
+
+      // 1. Resolve yesterday's unmarked prayers as assumed_prayed (or excused
+      //    when the day was covered by a hayd period)
+      const resolveStatus = haydYesterday ? "excused" : "assumed_prayed";
       const yesterdayCached = cachedTimesMap.get(s.userId)?.get(yesterdayStr);
       if (yesterdayCached) {
         const yesterdayTimings = {
@@ -255,7 +267,7 @@ async function processUserBatch(
           userId: string;
           date: string;
           prayerName: "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
-          status: "assumed_prayed";
+          status: "assumed_prayed" | "excused";
           wentToMasjid: boolean;
           markedAt: Date;
           lastCheckinAt: Date;
@@ -279,7 +291,7 @@ async function processUserBatch(
               userId: s.userId,
               date: yesterdayStr,
               prayerName,
-              status: "assumed_prayed",
+              status: resolveStatus,
               wentToMasjid: false,
               markedAt: new Date(),
               lastCheckinAt: new Date(),
@@ -292,7 +304,7 @@ async function processUserBatch(
           // manually marked as prayed/missed between our read and write.
           await db
             .update(schema.prayerLog)
-            .set({ status: "assumed_prayed" })
+            .set({ status: resolveStatus })
             .where(
               and(
                 inArray(schema.prayerLog.id, logIdsToUpdate),
@@ -385,7 +397,37 @@ async function processUserBatch(
         }
       }
 
-      // 3. Send daily prayer schedule push
+      // 3. Jumu'ah eve reminder — Thursday 18:00–21:00 local, once per week.
+      //    Tag dedupes across cron reruns. Generic wording, no generated content.
+      {
+        const hour = userNow.getHours();
+        const isThursday = userNow.getDay() === 4;
+        const subs = subsMap.get(s.userId) ?? [];
+        if (isThursday && hour >= 18 && hour < 21 && otherPref !== "none" && subs.length > 0 && !haydToday) {
+          const payload = JSON.stringify({
+            title: "Jumu'ah tomorrow",
+            body: "Friday is almost here — a good night for Surah Al-Kahf and salawat.",
+            tag: `jumuah-${today}`,
+            data: { url: "/calendar/day" },
+          });
+          await Promise.allSettled(
+            subs.map(async (sub) => {
+              try {
+                const result = await sendPrayerPush(sub, payload, { topic: `jumuah-${today}` });
+                if (result.delivered) notificationsSent++;
+                else if (result.expired) {
+                  await db.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.id, sub.id)).catch(() => {});
+                }
+              } catch (err) {
+                logError(err, { route: "cron/checkin-scheduler", phase: "jumuah-push", subId: sub.id });
+              }
+            }),
+          );
+        }
+      }
+
+      // 4. Send daily prayer schedule push — skipped entirely on hayd days
+      if (haydToday) continue;
       const cached = cachedTimesMap.get(s.userId)?.get(today);
       if (!cached) continue;
 

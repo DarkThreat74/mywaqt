@@ -33,6 +33,19 @@ interface PrayerTimes {
   asr: string;
   maghrib: string;
   isha: string;
+  // Optional extras from the API (nafl markers + masjid iqamah)
+  imsak?: string | null;
+  firstThird?: string | null;
+  lastThird?: string | null;
+  showNaflTimes?: boolean;
+  masjidName?: string | null;
+  masjidIqamah?: {
+    manual?: Partial<Record<"fajr" | "dhuhr" | "asr" | "maghrib" | "isha", string>>;
+    fixed?: (string | null)[];
+    offsets?: (number | null)[];
+    jummah?: string | null;
+  } | null;
+  timeOffsetMinutes?: number;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i); // 12 AM to 11 PM (all 24 hours)
@@ -40,8 +53,10 @@ const HOUR_HEIGHT = 56; // px per hour
 const TIME_COL = 44; // px — time label column
 const DEFAULT_START_HOUR = 5; // 5 AM — default visible start
 
+type PrayerTimeKey = "fajr" | "sunrise" | "dhuhr" | "asr" | "maghrib" | "isha";
+
 const PRAYER_NAMES: Array<{
-  key: keyof PrayerTimes;
+  key: PrayerTimeKey;
   label: string;
   color: string;
   isPrayer: boolean;
@@ -225,6 +240,12 @@ export default function DayViewClient({ date }: { date: string }) {
   const [isOnline, setIsOnline] = useState(true);
   const [prayerLogs, setPrayerLogs] = useState<Array<{ prayerName: string; status: string; wentToMasjid: boolean | null }>>([]);
   const [checkinPopup, setCheckinPopup] = useState<{ prayer: PrayerKey; label: string } | null>(null);
+  const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>([]);
+  // True when the viewed date falls inside a hayd period — chips render
+  // excused and check-ins are disabled (the API rejects them too).
+  const haydDay = haydPeriods.some(
+    (p) => date >= p.startDate && (!p.endDate || date <= p.endDate),
+  );
   const [userTimezone, setUserTimezone] = useState("America/Chicago");
   const [userMadhab, setUserMadhab] = useState<string>("standard");
   const [locationSet, setLocationSet] = useState(true);
@@ -317,14 +338,20 @@ export default function DayViewClient({ date }: { date: string }) {
 
       // ── Step 2: Fetch from API in background ──
       try {
-        const [eventsRes, prayerRes, logRes, hwRes] = await Promise.all([
+        const [eventsRes, prayerRes, logRes, hwRes, haydRes] = await Promise.all([
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
           fetch(`/api/homework?date=${date}`).catch(() => null),
+          fetch(`/api/hayd`).catch(() => null),
         ]);
 
         if (cancelled) return;
+
+        if (haydRes?.ok) {
+          const data = await haydRes.json().catch(() => null);
+          if (data?.periods) setHaydPeriods(data.periods);
+        }
 
         if (eventsRes?.ok) {
           const eventsData = await eventsRes.json();
@@ -571,6 +598,34 @@ export default function DayViewClient({ date }: { date: string }) {
       window.removeEventListener("waqt:events-synced", handleSynced);
     };
   }, [date, userTimezone]);
+
+  // Global user offset (settings) applied to displayed prayer times
+  const prayerOffsetMin = prayerTimes?.timeOffsetMinutes ?? 0;
+  function adjTimeStr(time: string): string {
+    if (!prayerOffsetMin) return time;
+    const [h, m] = time.split(":").map(Number);
+    const total = Math.max(0, Math.min(1439, h * 60 + m + prayerOffsetMin));
+    return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  }
+  // Resolve iqamah "HH:MM" for a prayer: manual → fixed → adhan + offset
+  function iqamahFor(key: PrayerTimeKey): string | null {
+    const iq = prayerTimes?.masjidIqamah;
+    if (!iq) return null;
+    const idx = ["fajr", "dhuhr", "asr", "maghrib", "isha"].indexOf(key);
+    if (idx < 0) return null;
+    const manual = iq.manual?.[key as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"];
+    if (manual) return manual;
+    const fixed = iq.fixed?.[idx];
+    if (fixed) return fixed;
+    const off = iq.offsets?.[idx];
+    if (typeof off === "number") {
+      const raw = prayerTimes![key];
+      const [h, m] = raw.split(":").map(Number);
+      const total = h * 60 + m + off;
+      return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+    }
+    return null;
+  }
 
   function timeToMinutes(time: string): number {
     const [h, m] = time.split(":").map(Number);
@@ -1175,6 +1230,20 @@ export default function DayViewClient({ date }: { date: string }) {
         </div>
       )}
 
+      {/* Hayd banner — prayers excused this day, check-ins disabled */}
+      {haydDay && (
+        <div
+          className="mb-3 flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium sm:mb-4"
+          style={{
+            borderColor: "var(--color-accent)",
+            backgroundColor: "color-mix(in oklab, var(--color-accent) 8%, transparent)",
+            color: "var(--color-accent)",
+          }}
+        >
+          Hayd — prayers are excused this day.
+        </div>
+      )}
+
       {/* Prayer times bar — compact horizontal strip on mobile, cards on desktop */}
       {prayerTimes && (
         <div
@@ -1187,11 +1256,11 @@ export default function DayViewClient({ date }: { date: string }) {
             {PRAYER_NAMES.map((prayer) => {
               const rawTime = prayerTimes[prayer.key];
               if (!rawTime) return null;
-              const time = prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime;
+              const time = adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime);
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
-              const isExcused = log?.status === "excused";
-              const isClickable = prayer.isPrayer;
+              const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
+              const isClickable = prayer.isPrayer && !haydDay;
               return (
                 <button
                   key={prayer.key}
@@ -1224,11 +1293,11 @@ export default function DayViewClient({ date }: { date: string }) {
             {PRAYER_NAMES.map((prayer) => {
               const rawTime = prayerTimes[prayer.key];
               if (!rawTime) return null;
-              const time = prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime;
+              const time = adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime);
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
-              const isExcused = log?.status === "excused";
-              const isClickable = prayer.isPrayer;
+              const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
+              const isClickable = prayer.isPrayer && !haydDay;
               return (
                 <button
                   key={prayer.key}
@@ -1367,7 +1436,7 @@ export default function DayViewClient({ date }: { date: string }) {
             PRAYER_NAMES.filter((p) => p.isPrayer).map((prayer, i, arr) => {
               const rawTime = prayerTimes[prayer.key];
               if (!rawTime) return null;
-              const time = prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime;
+              const time = adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime);
               const startMin = timeToMinutes(time);
               // Window ends at the next prayer time
               const nextPrayer = arr[i + 1];
@@ -1402,14 +1471,14 @@ export default function DayViewClient({ date }: { date: string }) {
               const rawTime = prayerTimes[prayer.key];
               if (!rawTime) return null;
               // Asr time: display API time + 1 hour
-              const time = prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime;
+              const time = adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime);
               const minutes = timeToMinutes(time);
               if (minutes < HOURS[0] * 60 || minutes > (HOURS[HOURS.length - 1] + 1) * 60) return null;
               const top = minutesToTop(minutes);
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
-              const isExcused = log?.status === "excused";
-              const isClickable = prayer.isPrayer;
+              const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
+              const isClickable = prayer.isPrayer && !haydDay;
               return (
                 <div
                   key={prayer.key}
@@ -1428,12 +1497,78 @@ export default function DayViewClient({ date }: { date: string }) {
                     }}
                   >
                     {prayerLabel(prayer.key, prayer.label)} {formatTime(time)}
+                    {iqamahFor(prayer.key) && (
+                      <span className="opacity-70"> · IQ {formatTime(iqamahFor(prayer.key)!)}</span>
+                    )}
                     {isPrayed && " ✓"}
                     {isExcused && " E"}
                   </button>
                 </div>
               );
             })}
+
+          {/* Nafl markers — imsak, ishraq, night thirds (opt-in) */}
+          {prayerTimes?.showNaflTimes &&
+            ([
+              { key: "imsak", label: "Imsak", raw: prayerTimes.imsak },
+              { key: "ishraq", label: "Ishraq", raw: prayerTimes.sunrise, plusMin: 15 },
+              { key: "firstThird", label: "Night begins", raw: prayerTimes.firstThird },
+              { key: "lastThird", label: "Last third", raw: prayerTimes.lastThird },
+            ] as Array<{ key: string; label: string; raw: string | null | undefined; plusMin?: number }>)
+              .map((m) => {
+                if (!m.raw) return null;
+                const minutes = timeToMinutes(adjTimeStr(m.raw)) + (m.plusMin ?? 0);
+                if (minutes < HOURS[0] * 60 || minutes > (HOURS[HOURS.length - 1] + 1) * 60) return null;
+                const top = minutesToTop(minutes);
+                return (
+                  <div
+                    key={`nafl-${m.key}`}
+                    className="absolute z-10 flex items-center pr-1 pointer-events-none"
+                    style={{ top: top - 6, left: TIME_COL, right: 0 }}
+                  >
+                    <div
+                      className="h-px flex-1"
+                      style={{
+                        backgroundImage: "repeating-linear-gradient(90deg, var(--color-ink-muted) 0 4px, transparent 4px 8px)",
+                        opacity: 0.35,
+                      }}
+                    />
+                    <span
+                      className="shrink-0 px-1.5 text-[9px] font-medium uppercase tracking-wide"
+                      style={{ color: "var(--color-ink-muted)" }}
+                    >
+                      {m.label} {formatTime(`${String(Math.floor(minutes / 60) % 24).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`)}
+                    </span>
+                  </div>
+                );
+              })}
+
+          {/* Jumu'ah line on Fridays — masjid's khutbah time when set, else Dhuhr */}
+          {prayerTimes && isFridayDate(date) && (() => {
+            const jummahRaw = prayerTimes.masjidIqamah?.jummah ?? prayerTimes.dhuhr;
+            if (!jummahRaw) return null;
+            const minutes = timeToMinutes(adjTimeStr(jummahRaw));
+            if (minutes < HOURS[0] * 60 || minutes > (HOURS[HOURS.length - 1] + 1) * 60) return null;
+            const top = minutesToTop(minutes);
+            return (
+              <div
+                className="absolute z-10 flex items-center pr-1 pointer-events-none"
+                style={{ top: top - 7, left: TIME_COL, right: 0 }}
+              >
+                <div className="h-0.5 flex-1" style={{ backgroundColor: "var(--color-accent)", opacity: 0.35 }} />
+                <span
+                  className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold sm:px-2"
+                  style={{
+                    backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))",
+                    color: "var(--color-accent)",
+                    border: "1px solid var(--color-accent)",
+                  }}
+                >
+                  Jumu&apos;ah {formatTime(adjTimeStr(jummahRaw))}
+                </span>
+              </div>
+            );
+          })()}
 
           {/* Reminder lines — each reminder is a horizontal line with its own color */}
           {reminderEvents.map((event) => {

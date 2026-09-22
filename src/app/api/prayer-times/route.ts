@@ -29,7 +29,16 @@ export async function GET(request: NextRequest) {
   // Check if user has location set (parallel with cache lookup)
   const [settingsResult, cachedResult] = await Promise.all([
     db
-      .select({ latitude: schema.prayerSettings.latitude, madhab: schema.prayerSettings.madhab, timezone: schema.prayerSettings.timezone })
+      .select({
+        latitude: schema.prayerSettings.latitude,
+        madhab: schema.prayerSettings.madhab,
+        timezone: schema.prayerSettings.timezone,
+        masjidName: schema.prayerSettings.masjidName,
+        masjidIqamah: schema.prayerSettings.masjidIqamah,
+        useIqamahReminders: schema.prayerSettings.useIqamahReminders,
+        timeOffsetMinutes: schema.prayerSettings.timeOffsetMinutes,
+        showNaflTimes: schema.prayerSettings.showNaflTimes,
+      })
       .from(schema.prayerSettings)
       .where(eq(schema.prayerSettings.userId, session.userId))
       .limit(1),
@@ -41,6 +50,9 @@ export async function GET(request: NextRequest) {
         asr: schema.prayerTimesCache.asr,
         maghrib: schema.prayerTimesCache.maghrib,
         isha: schema.prayerTimesCache.isha,
+        imsak: schema.prayerTimesCache.imsak,
+        firstThird: schema.prayerTimesCache.firstThird,
+        lastThird: schema.prayerTimesCache.lastThird,
       })
       .from(schema.prayerTimesCache)
       .where(
@@ -63,5 +75,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.json({ ...cached, madhab: settings?.madhab || "standard", timezone: settings?.timezone || null, locationSet: true });
+  return NextResponse.json({
+    ...cached,
+    madhab: settings?.madhab || "standard",
+    timezone: settings?.timezone || null,
+    locationSet: true,
+    masjidName: settings?.masjidName || null,
+    masjidIqamah: settings?.masjidIqamah || null,
+    useIqamahReminders: settings?.useIqamahReminders || false,
+    timeOffsetMinutes: settings?.timeOffsetMinutes || 0,
+    showNaflTimes: settings?.showNaflTimes || false,
+  });
 }
