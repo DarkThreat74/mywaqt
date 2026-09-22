@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MapPin, List, Map as MapIcon, Loader2 } from "lucide-react";
+import { MapPin, List, Map as MapIcon, Loader2, Copy, Check, Navigation } from "lucide-react";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import "leaflet/dist/leaflet.css";
 
@@ -32,6 +32,9 @@ interface Masjid {
   iqamaFixed: (string | null)[] | null;
   jummah: string[] | null;
   hasIqama: boolean;
+  image: string | null;
+  phone: string | null;
+  website: string | null;
 }
 
 // Only Fajr/Dhuhr/Asr/Isha have distinct iqamah times — Maghrib iqamah is
@@ -104,8 +107,19 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [radiusKm, setRadiusKm] = useState(16); // ~10mi
+  const [selected, setSelected] = useState<Masjid | null>(null);
+  const [driveInfo, setDriveInfo] = useState<{ km: number; min: number } | null>(null);
+  const [copied, setCopied] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapObj = useRef<import("leaflet").Map | null>(null);
+
+  async function copyAddress(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard unavailable */ }
+  }
 
   const lat = loc ? parseFloat(loc.latitude) : NaN;
   const lng = loc ? parseFloat(loc.longitude) : NaN;
@@ -153,6 +167,37 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const mosques = all.slice(0, shown);
   const total = all.length;
 
+  // Reset stale drive/copy state when the selection changes (render-time
+  // adjustment — the React-sanctioned alternative to setState-in-effect)
+  const [prevSelected, setPrevSelected] = useState<Masjid | null>(null);
+  if (prevSelected !== selected) {
+    setPrevSelected(selected);
+    setDriveInfo(null);
+    setCopied(false);
+  }
+
+  // Driving distance/time via OSRM (public demo server, no key) — fetched
+  // only when a masjid is selected, never for the whole list.
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    fetch(
+      `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${selected.lng},${selected.lat}?overview=false`,
+    )
+      .then(async (r) => {
+        if (!r.ok) return;
+        const d = await r.json().catch(() => null);
+        const route = d?.routes?.[0];
+        if (!cancelled && route) {
+          setDriveInfo({ km: route.distance / 1000, min: Math.round(route.duration / 60) });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, lat, lng]);
+
   useEffect(() => {
     if (mode !== "map" || !hasLoc || !mapRef.current) return;
     let cancelled = false;
@@ -168,6 +213,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       }
       if (cancelled || !mapObj.current) return;
       const map = mapObj.current;
+      map.on("click", () => setSelected(null));
       // Clear old markers
       map.eachLayer((l) => {
         if (l instanceof L.Marker) map.removeLayer(l);
@@ -186,11 +232,9 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       });
       L.marker([lat, lng], { icon: meIcon }).addTo(map).bindPopup("You");
       for (const m of all) {
-        L.marker([m.lat, m.lng], { icon })
-          .addTo(map)
-          .bindPopup(
-            `<strong>${m.name.replace(/</g, "&lt;")}</strong><br>${m.distanceKm.toFixed(1)} km${m.hasIqama ? "<br>Iqamah times available" : ""}`,
-          );
+        const marker = L.marker([m.lat, m.lng], { icon });
+        marker.addTo(map);
+        marker.on("click", () => setSelected(m));
       }
       if (all.length > 0) {
         const bounds = L.latLngBounds([[lat, lng], ...all.map((m) => [m.lat, m.lng] as [number, number])]);
@@ -257,6 +301,98 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       {mode === "map" ? (
         <div>
           <div ref={mapRef} className="h-72 w-full rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }} />
+
+          {/* Selected masjid card — opens when a marker is tapped */}
+          {selected && (
+            <div className="mt-2 rounded-lg border p-3" style={{ borderColor: "var(--color-accent)", backgroundColor: "var(--color-paper)" }}>
+              <div className="flex items-start gap-3">
+                {selected.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={selected.image} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+                ) : (
+                  <div
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg"
+                    style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)" }}
+                  >
+                    <MapPin className="h-5 w-5" style={{ color: "var(--color-accent)" }} />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{selected.name}</p>
+                  <p className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
+                    {selected.distanceKm < 1 ? `${Math.round(selected.distanceKm * 1000)} m` : `${selected.distanceKm.toFixed(1)} km`} away
+                    {driveInfo && ` · ${driveInfo.min} min drive (${driveInfo.km.toFixed(1)} km)`}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelected(null)}
+                  className="shrink-0 rounded p-1 text-xs"
+                  style={{ color: "var(--color-ink-muted)" }}
+                  aria-label="Close details"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {selected.address && (
+                <button
+                  onClick={() => void copyAddress(selected.address!)}
+                  className="mt-2 flex w-full items-center gap-1.5 rounded-lg border px-2.5 py-2 text-left text-[11px] transition-colors"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+                >
+                  {copied ? <Check className="h-3 w-3 shrink-0" style={{ color: "var(--color-success)" }} /> : <Copy className="h-3 w-3 shrink-0" />}
+                  <span className="min-w-0 flex-1 truncate">{copied ? "Copied!" : selected.address}</span>
+                </button>
+              )}
+
+              {selected.hasIqama && (
+                <div
+                  className="mt-2 grid grid-cols-5 rounded-lg py-2 text-center"
+                  style={{ backgroundColor: "color-mix(in oklab, var(--color-paper-2) 60%, transparent)" }}
+                >
+                  {IQAMA_LABELS.map((label, i) => (
+                    <div key={label} className="min-w-0 px-0.5">
+                      <p className="truncate text-[9px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>{label}</p>
+                      <p className="mt-0.5 whitespace-nowrap text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
+                        {fmt12(iqamahTimes(selected, prayerTimes)[i])}
+                      </p>
+                    </div>
+                  ))}
+                  <div className="min-w-0 px-0.5">
+                    <p className="truncate text-[9px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Maghrib</p>
+                    <p className="mt-0.5 whitespace-nowrap text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{fmt12(prayerTimes?.maghrib)}</p>
+                  </div>
+                </div>
+              )}
+
+              {selected.jummah && selected.jummah.length > 0 && (
+                <div className="mt-2 space-y-0.5 rounded-lg px-2 py-1.5" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 8%, transparent)" }}>
+                  {selected.jummah.map((j, i) => (
+                    <p key={i} className="text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-warmth)" }}>
+                      Jumu&apos;ah{selected.jummah!.length > 1 ? ` ${i + 1}` : ""} — {fmt12(j)}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-2 flex items-center gap-3">
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-[11px] font-medium"
+                  style={{ color: "var(--color-accent)" }}
+                >
+                  <Navigation className="h-3 w-3" /> Directions
+                </a>
+                {selected.attribution?.provider && (
+                  <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    via {selected.attribution.provider}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
           <button
             onClick={() => {
               const next = Math.min(radiusKm * 2, 80);
@@ -276,8 +412,19 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             const iq = iqamahTimes(m, prayerTimes);
             return (
               <div key={m.id} className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+                <div className="flex items-start gap-3">
+                  {m.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.image} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+                  ) : (
+                    <div
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                      style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)" }}
+                    >
+                      <MapPin className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{m.name}</p>
                     <p className="truncate text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
                       {m.address || [m.city, m.country].filter(Boolean).join(", ") || "Masjid"}

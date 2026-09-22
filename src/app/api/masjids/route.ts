@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 const UPSTREAM = "https://api.islamic.app/v1/masajid";
+const MAWAQIT = "https://mawaqit.net/api/2.0/mosque/search";
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
@@ -30,6 +31,9 @@ interface MasjidEntry {
   iqamaFixed: (string | null)[] | null;
   jummah: string | string[] | null;
   hasIqama: boolean;
+  image: string | null;
+  phone: string | null;
+  website: string | null;
 }
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
@@ -67,7 +71,74 @@ async function fromIslamicApp(lat: number, lng: number, radiusKm: number): Promi
     iqamaFixed: null,
     jummah: null,
     hasIqama: true, // detail fetch needed for actual times
+    image: null,
+    phone: null,
+    website: null,
   }));
+}
+
+/**
+ * Mawaqit — the largest open mosque network (8000+, strong US coverage).
+ * Public search endpoint, no auth. Returns today's adhan times, iqamah as
+ * fixed "HH:MM" or "+N" offsets, up to 3 Jumu'ah times, photo, address.
+ * Attribution is a condition of showing Mawaqit-sourced times.
+ */
+async function fromMawaqit(lat: number, lng: number, radiusKm: number): Promise<MasjidEntry[]> {
+  const res = await fetch(`${MAWAQIT}?lat=${lat}&lon=${lng}`, {
+    headers: { "User-Agent": "Waqt/1.0 (masjid finder)" },
+    next: { revalidate: 21600 }, // 6h — matches their iqama feed refresh hint
+  });
+  if (!res.ok) return [];
+  const json = await res.json();
+  if (!Array.isArray(json)) return [];
+  const out: MasjidEntry[] = [];
+  for (const m of json) {
+    if (m?.latitude == null || m?.longitude == null) continue;
+    const dist = haversineKm(lat, lng, m.latitude, m.longitude);
+    if (dist > radiusKm) continue;
+    // iqama entries are "HH:MM" (fixed) or "+N" (minutes after adhan)
+    const iq: unknown[] = Array.isArray(m.iqama) ? m.iqama : [];
+    const fixed: (string | null)[] = [];
+    const offsets: (number | null)[] = [];
+    for (let i = 0; i < 5; i++) {
+      const v = iq[i];
+      if (typeof v === "string" && v.startsWith("+")) {
+        fixed.push(null);
+        offsets.push(parseInt(v.slice(1), 10));
+      } else if (typeof v === "string" && /^\d{1,2}:\d{2}$/.test(v)) {
+        fixed.push(v);
+        offsets.push(null);
+      } else {
+        fixed.push(null);
+        offsets.push(null);
+      }
+    }
+    const jummah = [m.jumua, m.jumua2, m.jumua3].filter(
+      (j): j is string => typeof j === "string" && !!j,
+    );
+    out.push({
+      id: `mq:${m.uuid}`,
+      slug: null, // Mawaqit slugs don't resolve on islamic.app
+      name: m.name ?? "Masjid",
+      lat: m.latitude,
+      lng: m.longitude,
+      distanceKm: dist,
+      city: null,
+      country: null,
+      address: m.localisation ?? null,
+      source: "mawaqit",
+      attribution: { provider: "Mawaqit", url: "https://mawaqit.net" },
+      url: m.slug ? `https://mawaqit.net/en/${m.slug}` : null,
+      iqamaOffsets: offsets.some((o) => o != null) ? offsets as number[] : null,
+      iqamaFixed: fixed.some((f) => f != null) ? fixed : null,
+      jummah: jummah.length ? jummah : null,
+      hasIqama: fixed.some(Boolean) || offsets.some((o) => o != null) || jummah.length > 0,
+      image: typeof m.image === "string" ? m.image : null,
+      phone: m.phone ?? null,
+      website: m.site ?? null,
+    });
+  }
+  return out;
 }
 
 /** OpenStreetMap via Overpass — broad coverage, names + coords, no iqamah. */
@@ -124,6 +195,9 @@ out center tags;`;
       iqamaFixed: null,
       jummah: null,
       hasIqama: false,
+      image: null,
+      phone: null,
+      website: null,
     });
   }
   return out;
@@ -232,11 +306,13 @@ export async function GET(request: NextRequest) {
     const offset = Math.max(parseInt(searchParams.get("offset") ?? "0") || 0, 0);
     const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "5") || 5, 1), 50);
 
-    const [ia, osm] = await Promise.all([
+    const [mq, ia, osm] = await Promise.all([
+      fromMawaqit(lat, lng, radiusKm).catch(() => []),
       fromIslamicApp(lat, lng, radiusKm).catch(() => []),
       fromOverpass(lat, lng, Math.round(radiusKm * 1000)).catch(() => []),
     ]);
-    const merged = merge(ia, osm);
+    // Mawaqit first — richest data (real iqamah + photos), so dedupe keeps it
+    const merged = merge(merge(mq, ia), osm);
     const slice = await enrich(merged.slice(offset, offset + limit));
 
     return NextResponse.json({
