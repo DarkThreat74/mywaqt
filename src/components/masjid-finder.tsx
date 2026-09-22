@@ -217,12 +217,17 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
 
   return (
     <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
           <MapPin className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
           Masjids near you
+          {total > 0 && (
+            <span className="text-[11px] font-normal" style={{ color: "var(--color-ink-muted)" }}>
+              · {total} found
+            </span>
+          )}
         </h3>
-        <div className="flex rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="flex shrink-0 rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
           <button
             onClick={() => setMode("list")}
             className="flex items-center gap-1 rounded-l-lg px-2.5 py-1 text-[11px] font-medium"
@@ -272,29 +277,39 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{m.name}</p>
                     <p className="truncate text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
-                      {m.distanceKm.toFixed(1)} km
-                      {m.address ? ` · ${m.address}` : [m.city, m.country].filter(Boolean).length ? ` · ${[m.city, m.country].filter(Boolean).join(", ")}` : ""}
+                      {m.address || [m.city, m.country].filter(Boolean).join(", ") || "Masjid"}
                     </p>
                   </div>
-                  {m.attribution?.provider && (
-                    <span className="shrink-0 text-[10px]" style={{ color: "var(--color-ink-soft)" }}>
-                      via {m.attribution.provider}
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
+                      style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)", color: "var(--color-accent)" }}
+                    >
+                      {m.distanceKm < 1 ? `${Math.round(m.distanceKm * 1000)} m` : `${m.distanceKm.toFixed(1)} km`}
                     </span>
-                  )}
+                    {m.attribution?.provider && (
+                      <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                        via {m.attribution.provider}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {m.hasIqama ? (
-                  <div className="mt-2 grid grid-cols-5 gap-1 text-center">
+                  <div
+                    className="mt-2.5 grid grid-cols-5 rounded-lg py-2 text-center"
+                    style={{ backgroundColor: "color-mix(in oklab, var(--color-paper-2) 60%, transparent)" }}
+                  >
                     {IQAMA_LABELS.map((label, i) => (
-                      <div key={label}>
-                        <p className="text-[10px] font-medium" style={{ color: "var(--color-ink-soft)" }}>{label}</p>
-                        <p className="text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>{fmt12(iq[i])}</p>
+                      <div key={label} className="min-w-0 px-0.5">
+                        <p className="truncate text-[9px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>{label}</p>
+                        <p className="mt-0.5 whitespace-nowrap text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{fmt12(iq[i])}</p>
                       </div>
                     ))}
                     {/* Maghrib iqamah is at the adhan — show sunset directly */}
-                    <div>
-                      <p className="text-[10px] font-medium" style={{ color: "var(--color-ink-soft)" }}>Maghrib</p>
-                      <p className="text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>{fmt12(prayerTimes?.maghrib)}</p>
+                    <div className="min-w-0 px-0.5">
+                      <p className="truncate text-[9px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Maghrib</p>
+                      <p className="mt-0.5 whitespace-nowrap text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{fmt12(prayerTimes?.maghrib)}</p>
                     </div>
                   </div>
                 ) : (
@@ -304,10 +319,13 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                 )}
 
                 {m.jummah && m.jummah.length > 0 && (
-                  <div className="mt-2 border-t pt-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <div
+                    className="mt-2 space-y-0.5 rounded-lg px-2 py-1.5"
+                    style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 8%, transparent)" }}
+                  >
                     {m.jummah.map((j, i) => (
-                      <p key={i} className="text-[11px] font-medium" style={{ color: "var(--color-warmth)" }}>
-                        Jumu&apos;ah{i > 0 ? ` ${i + 1}` : ""}: {fmt12(j)}
+                      <p key={i} className="text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-warmth)" }}>
+                        Jumu&apos;ah{m.jummah!.length > 1 ? ` ${i + 1}` : ""} — {fmt12(j)}
                       </p>
                     ))}
                   </div>
@@ -328,7 +346,18 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             );
           })}
 
-          {loading && (
+          {loading && mosques.length === 0 && (
+            <div className="space-y-3" aria-busy="true" aria-label="Loading masjids">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="animate-pulse rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <div className="h-3.5 w-2/3 rounded" style={{ backgroundColor: "var(--color-paper-3)" }} />
+                  <div className="mt-1.5 h-2.5 w-1/3 rounded" style={{ backgroundColor: "var(--color-paper-3)" }} />
+                  <div className="mt-2.5 h-9 rounded-lg" style={{ backgroundColor: "var(--color-paper-2)" }} />
+                </div>
+              ))}
+            </div>
+          )}
+          {loading && mosques.length > 0 && (
             <div className="flex justify-center py-2">
               <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--color-ink-soft)" }} />
             </div>
