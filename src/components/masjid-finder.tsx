@@ -373,20 +373,35 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     if (mode !== "map" || !hasLoc || !mapRef.current) return;
     let cancelled = false;
     void (async () => {
-      const maplibregl = await import("maplibre-gl");
+      const maplibregl = await import("maplibre-gl").catch(() => null);
+      if (!maplibregl) {
+        if (!cancelled) setError("Map failed to load. Check your connection.");
+        return;
+      }
       if (cancelled || !mapRef.current) return;
       if (!mapObj.current) {
+        // WebGL unavailable (old devices, battery saver) → honest fallback
+        const glTest = document.createElement("canvas").getContext("webgl2") ??
+          document.createElement("canvas").getContext("webgl");
+        if (!glTest) {
+          setError("Map needs WebGL — your browser has it disabled.");
+          return;
+        }
         // MapLibre GL (open-source renderer) + OpenFreeMap vector tiles —
-        // free, no API key, no registration. Positron style = clean, muted.
+        // free, no API key. Liberty = full cartography w/ texture + labels.
         mapObj.current = new maplibregl.Map({
           container: mapRef.current,
-          style: "https://tiles.openfreemap.org/styles/positron",
+          style: "https://tiles.openfreemap.org/styles/liberty",
           center: [lng, lat],
           zoom: 11,
           attributionControl: { compact: true },
         });
         mapObj.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
         mapObj.current.on("click", () => setSelected(null));
+        mapObj.current.on("error", (e) => {
+          // Surface tile/style failures instead of silently rendering white
+          console.warn("map error", e?.error?.message);
+        });
       }
       if (cancelled || !mapObj.current) return;
       const map = mapObj.current;
