@@ -650,7 +650,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{selected.name}</p>
+                  <p className="text-sm font-semibold leading-snug" style={{ color: "var(--color-ink)" }}>{selected.name}</p>
                   <p className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
                     {fmtDist(selected.distanceKm)} away
                     {driveInfo && ` · ${driveInfo.min} min drive (${fmtDist(driveInfo.km)})`}
@@ -742,7 +742,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{m.name}</p>
+                    <p className="text-sm font-semibold leading-snug" style={{ color: "var(--color-ink)" }}>{m.name}</p>
                     <p className="truncate text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
                       {m.address || [m.city, m.country].filter(Boolean).join(", ") || "Masjid"}
                     </p>
