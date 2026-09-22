@@ -100,6 +100,12 @@ async function fromMawaqit(lat: number, lng: number, radiusKm: number): Promise<
     if (m?.latitude == null || m?.longitude == null) continue;
     const dist = haversineKm(lat, lng, m.latitude, m.longitude);
     if (dist > radiusKm) continue;
+    out.push(mawaqitEntry(m, dist));
+  }
+  return out;
+}
+
+function mawaqitEntry(m: Record<string, unknown>, dist: number): MasjidEntry {
     // iqama entries are "HH:MM" (fixed) or "+N" (minutes after adhan)
     const iq: unknown[] = Array.isArray(m.iqama) ? m.iqama : [];
     const fixed: (string | null)[] = [];
@@ -120,16 +126,16 @@ async function fromMawaqit(lat: number, lng: number, radiusKm: number): Promise<
     const jummah = [m.jumua, m.jumua2, m.jumua3].filter(
       (j): j is string => typeof j === "string" && !!j,
     );
-    out.push({
+    return {
       id: `mq:${m.uuid}`,
       slug: null, // Mawaqit slugs don't resolve on islamic.app
-      name: m.name ?? "Masjid",
-      lat: m.latitude,
-      lng: m.longitude,
+      name: (m.name as string) ?? "Masjid",
+      lat: m.latitude as number,
+      lng: m.longitude as number,
       distanceKm: dist,
       city: null,
       country: null,
-      address: m.localisation ?? null,
+      address: (m.localisation as string) ?? null,
       source: "mawaqit",
       attribution: { provider: "Mawaqit", url: "https://mawaqit.net" },
       url: m.slug ? `https://mawaqit.net/en/${m.slug}` : null,
@@ -138,11 +144,9 @@ async function fromMawaqit(lat: number, lng: number, radiusKm: number): Promise<
       jummah: jummah.length ? jummah : null,
       hasIqama: fixed.some(Boolean) || offsets.some((o) => o != null) || jummah.length > 0,
       image: typeof m.image === "string" ? m.image : null,
-      phone: m.phone ?? null,
-      website: m.site ?? null,
-    });
-  }
-  return out;
+      phone: (m.phone as string) ?? null,
+      website: (m.site as string) ?? null,
+    };
 }
 
 /** OpenStreetMap via Overpass — broad coverage, names + coords, no iqamah. */
@@ -408,6 +412,71 @@ export async function GET(request: NextRequest) {
 
     const lat = parseFloat(searchParams.get("lat") ?? "");
     const lng = parseFloat(searchParams.get("lng") ?? "");
+    const q = searchParams.get("q")?.trim();
+
+    // Name search across every source we have: praytime registry (819 US/CA),
+    // community submissions, and Mawaqit's word search. Sorted by distance
+    // when the client passes coords.
+    if (q) {
+      if (q.length > 100) return NextResponse.json({ error: "Query too long." }, { status: 400 });
+      const hasCoords = !isNaN(lat) && !isNaN(lng);
+      const dist = (la: number, ln: number) => (hasCoords ? haversineKm(lat, lng, la, ln) : 0);
+      const pattern = `%${q}%`;
+
+      const [srcs, subs, mqRes] = await Promise.all([
+        db.select().from(schema.masjidSources)
+          .where(sql`name ilike ${pattern} or address ilike ${pattern}`)
+          .limit(30).catch(() => [] as SourceRow[]),
+        db.select().from(schema.masjidIqamah)
+          .where(sql`masjid_name ilike ${pattern}`)
+          .limit(20).catch(() => []),
+        fetch(`${MAWAQIT}?word=${encodeURIComponent(q)}`, {
+          headers: { "User-Agent": "Waqt/1.0 (masjid finder)" },
+          next: { revalidate: 21600 },
+        }).then(async (r) => (r.ok ? ((await r.json().catch(() => [])) as Record<string, unknown>[]) : []))
+          .catch(() => [] as Record<string, unknown>[]),
+      ]);
+
+      const entries: MasjidEntry[] = [
+        ...(srcs as SourceRow[]).map((s) => ({
+          id: `pt:${s.external_id}`, slug: null, name: s.name, lat: s.lat, lng: s.lng,
+          distanceKm: dist(s.lat, s.lng), city: null, country: null, address: s.address,
+          source: "registry", attribution: null, url: s.website,
+          iqamaOffsets: null, iqamaFixed: null, jummah: null, hasIqama: false,
+          image: null, phone: null, website: s.website, fetchUrl: s.fetch_url,
+        })),
+        ...subs.map((s) => ({
+          id: s.masjidId, slug: null, name: s.masjidName, lat: s.lat, lng: s.lng,
+          distanceKm: dist(s.lat, s.lng), city: null, country: null, address: null,
+          source: "community", attribution: { provider: "Community" }, url: null,
+          iqamaOffsets: null, iqamaFixed: [s.fajr, s.dhuhr, s.asr, s.maghrib, s.isha],
+          jummah: Array.isArray(s.jummah) && s.jummah.length ? s.jummah : null,
+          hasIqama: true, image: null, phone: null, website: null,
+        })),
+        ...(Array.isArray(mqRes) ? mqRes : [])
+          .filter((m) => m?.latitude != null && m?.longitude != null)
+          .map((m) => mawaqitEntry(m, dist(m.latitude as number, m.longitude as number))),
+      ];
+
+      // Dedupe + sort by distance, then enrich iqamah for registry entries
+      const seen = new Set<string>();
+      const unique = entries.filter((e) => {
+        const k = `${e.name.toLowerCase()}|${e.lat.toFixed(3)}|${e.lng.toFixed(3)}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      if (hasCoords) unique.sort((a, b) => a.distanceKm - b.distanceKm);
+      const slice = unique.slice(0, 30);
+      await Promise.all(slice.filter((m) => m.fetchUrl && !m.hasIqama).slice(0, 10).map((m) => fetchLiveIqamah(m)));
+      const out = slice.map((m) => {
+        const copy: Record<string, unknown> = { ...m };
+        delete copy.fetchUrl;
+        return copy;
+      });
+      return NextResponse.json({ mosques: out, total: unique.length, hasMore: false });
+    }
+
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       return NextResponse.json({ error: "Valid lat/lng required." }, { status: 400 });
     }

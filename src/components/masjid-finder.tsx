@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MapPin, List, Map as MapIcon, Loader2, Copy, Check, Navigation, LocateFixed } from "lucide-react";
+import { MapPin, List, Map as MapIcon, Loader2, Copy, Check, Navigation, LocateFixed, Search, X } from "lucide-react";
 import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -167,6 +167,9 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [editingIqamah, setEditingIqamah] = useState<string | null>(null);
   const [iqamahForm, setIqamahForm] = useState<Record<string, string>>({});
   const [savingIqamah, setSavingIqamah] = useState(false);
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Masjid[] | null>(null);
+  const [searching, setSearching] = useState(false);
 
   async function submitIqamah(m: Masjid) {
     const vals = ["fajr", "dhuhr", "asr", "maghrib", "isha"].map((k) => iqamahForm[k] || null);
@@ -311,8 +314,29 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLoc]); // settings cache may be seeded after first render
 
-  const mosques = all.slice(0, shown);
-  const total = all.length;
+  // Debounced name search — hits the full registry + community + Mawaqit
+  // server-side. Empty query restores the cached nearby list.
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) return;
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/masjids?q=${encodeURIComponent(q)}&lat=${lat}&lng=${lng}`);
+        const data = res.ok ? await res.json() : { mosques: [] };
+        setSearchResults(data.mosques ?? []);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [query, lat, lng]);
+
+  const isSearching = query.trim().length > 0;
+  const mosques = searchResults ?? all.slice(0, shown);
+  const total = isSearching ? (searchResults?.length ?? 0) : all.length;
 
   // Reset stale drive/copy state when the selection changes (render-time
   // adjustment — the React-sanctioned alternative to setState-in-effect)
@@ -471,6 +495,31 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           </button>
           </div>
         </div>
+      </div>
+
+      <div className="relative mb-3">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2" style={{ color: "var(--color-ink-muted)" }} />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (!e.target.value.trim()) setSearchResults(null);
+          }}
+          placeholder="Search masjids by name or address…"
+          className="w-full rounded-lg border py-2 pl-8 pr-8 text-xs outline-none"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+        />
+        {isSearching && (
+          <button
+            onClick={() => { setQuery(""); setSearchResults(null); }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5"
+            style={{ color: "var(--color-ink-muted)" }}
+            aria-label="Clear search"
+          >
+            {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -782,13 +831,13 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             </div>
           )}
 
-          {!loading && mosques.length === 0 && !error && (
+          {!loading && !searching && mosques.length === 0 && !error && (
             <p className="py-2 text-center text-xs" style={{ color: "var(--color-ink-soft)" }}>
-              No masjids found nearby.
+              {isSearching ? `No masjids match "${query.trim()}".` : "No masjids found nearby."}
             </p>
           )}
 
-          {mosques.length < total && !loading && (
+          {!isSearching && mosques.length < total && !loading && (
             <button
               onClick={() => setShown((s) => s + PAGE)}
               className="w-full rounded-lg border px-3 py-1.5 text-xs font-medium"
