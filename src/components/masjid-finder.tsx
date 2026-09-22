@@ -270,6 +270,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       setSearchCenter({ lat: la, lng: ln });
       setAddrOpen(false);
       setAddrInput("");
+      setQuery(""); // address view shouldn't fight a stale name query
       setShown(PAGE);
     } catch {
       setError("Address lookup failed. Try again.");
@@ -332,6 +333,11 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       if (isNaN(la) || isNaN(ln)) return;
       setLoading(true);
       setError(null);
+      // refresh() only ever refetches the saved location — drop any
+      // address-search view so the list/map can't show a stale area.
+      setSearchResults(null);
+      setAddrLabel(null);
+      setSearchCenter(null);
       try {
         const res = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=${radius}&offset=0&limit=50`);
         if (!res.ok) throw new Error();
@@ -391,6 +397,10 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         const res = await fetch(`/api/masjids?q=${encodeURIComponent(q)}&lat=${lat}&lng=${lng}`);
         const data = res.ok ? await res.json() : { mosques: [] };
         setSearchResults(data.mosques ?? []);
+        // Name search replaces the address view — clear its label/center or
+        // the chip mislabels name results and drive origins stay stale.
+        setAddrLabel(null);
+        setSearchCenter(null);
       } catch {
         setSearchResults([]);
       } finally {

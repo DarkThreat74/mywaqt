@@ -486,6 +486,7 @@ async function fetchLiveIqamah(e: MasjidEntry): Promise<void> {
       const res = await fetch(url, { ...opts, headers: { "User-Agent": "Waqt/1.0" } });
       if (!res.ok) return;
       const html = await res.text();
+      if (html.length > 2_000_000) return; // absurd page — don't parse megabytes
 
       if (url.includes("mawaqit.net")) {
         apply(parseMawaqitConfData(html, e.masjidTz), "Mawaqit");
@@ -505,7 +506,9 @@ async function fetchLiveIqamah(e: MasjidEntry): Promise<void> {
         }
         if (!e.hasIqama) {
           // Mohid widget iframe embedded in the masjid's homepage — follow it once
-          const mohidEmbed = html.match(/(?:src|href)=["'](https?:\/\/[^"']*mohid[^"']*)["']/i);
+          // "mohid" must be in the HOST — a path match (e.g. /mohid on an
+          // arbitrary or link-local host) would be an SSRF vector.
+          const mohidEmbed = html.match(/(?:src|href)=["'](https?:\/\/[^/"']*mohid[^/"']*\/[^"']*)["']/i);
           const targetHtml = mohidEmbed
             ? await fetch(mohidEmbed[1], { ...opts, headers: { "User-Agent": "Waqt/1.0" } })
                 .then((r) => (r.ok ? r.text() : null))
@@ -555,12 +558,15 @@ async function enrich(entries: MasjidEntry[]): Promise<MasjidEntry[]> {
           ...m,
           name: d.name ?? m.name,
           address: d.address ?? m.address,
-          iqamaOffsets: Array.isArray(d.iqama_offsets_minutes) ? d.iqama_offsets_minutes : null,
-          iqamaFixed: Array.isArray(d.iqama_fixed) ? d.iqama_fixed : null,
-          jummah: [d.jummah, d.jummah2].filter(Boolean),
+          // Prefer iqamah already set (community overlay) over upstream —
+          // a user's submission exists because upstream lacked it.
+          iqamaOffsets: m.iqamaOffsets ?? (Array.isArray(d.iqama_offsets_minutes) ? d.iqama_offsets_minutes : null),
+          iqamaFixed: m.iqamaFixed ?? (Array.isArray(d.iqama_fixed) ? d.iqama_fixed : null),
+          jummah: m.jummah ?? [d.jummah, d.jummah2].filter(Boolean),
           source: d.source ?? m.source,
           attribution: d.attribution ?? null,
           hasIqama:
+            m.hasIqama ||
             (Array.isArray(d.iqama_offsets_minutes) && d.iqama_offsets_minutes.some((x: number | null) => x != null)) ||
             (Array.isArray(d.iqama_fixed) && d.iqama_fixed.some((x: string | null) => x != null)) ||
             !!d.jummah,
@@ -874,8 +880,10 @@ export async function POST(request: NextRequest) {
           masjidName: name,
           lat,
           lng,
-          ...vals,
-          jummah,
+          // Only overwrite the times actually submitted — a partial
+          // correction mustn't wipe times a previous user provided.
+          ...Object.fromEntries(times.filter((t) => vals[t] != null).map((t) => [t, vals[t]])),
+          ...(jummah?.length ? { jummah } : {}),
           submittedBy: session.userId,
           updatedAt: new Date(),
         },
