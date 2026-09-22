@@ -5,7 +5,6 @@ import { verifyCronAuth } from "@/lib/cronAuth";
 import { isWindowClosed, getPrayerWindow } from "@/lib/prayer/stateMachine";
 import { sendPrayerPush } from "@/lib/notifications/push";
 import { recordDayCompletion } from "@/lib/prayer/social";
-import { haydCoverage } from "@/lib/prayer/hayd";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -232,24 +231,14 @@ async function processUserBatch(
     homeworkMap.get(h.userId)!.push(h);
   }
 
-  // Batch 6: hayd coverage for the relevant dates — covered days get
-  // 'excused' resolution and no notifications (obligation is lifted).
-  const haydSet = await haydCoverage(userIds, dateList);
-
   // Process each user using the batched data
   for (const s of settings) {
     try {
       const userNow = userNowAsLocalDate(s.timezone).now;
       const { today, yesterdayStr } = userNowAsLocalDate(s.timezone);
 
-      // Hayd coverage: obligation lifted — covered days resolve as 'excused'
-      // (never 'assumed_prayed') and no prayer pushes go out.
-      const haydYesterday = haydSet.has(`${s.userId}:${yesterdayStr}`);
-      const haydToday = haydSet.has(`${s.userId}:${today}`);
-
-      // 1. Resolve yesterday's unmarked prayers as assumed_prayed (or excused
-      //    when the day was covered by a hayd period)
-      const resolveStatus = haydYesterday ? "excused" : "assumed_prayed";
+      // 1. Resolve yesterday's unmarked prayers as assumed_prayed
+      const resolveStatus = "assumed_prayed" as const;
       const yesterdayCached = cachedTimesMap.get(s.userId)?.get(yesterdayStr);
       if (yesterdayCached) {
         const yesterdayTimings = {
@@ -403,7 +392,7 @@ async function processUserBatch(
         const hour = userNow.getHours();
         const isThursday = userNow.getDay() === 4;
         const subs = subsMap.get(s.userId) ?? [];
-        if (isThursday && hour >= 18 && hour < 21 && otherPref !== "none" && subs.length > 0 && !haydToday) {
+        if (isThursday && hour >= 18 && hour < 21 && otherPref !== "none" && subs.length > 0) {
           const payload = JSON.stringify({
             title: "Jumu'ah tomorrow",
             body: "Friday is almost here — a good night for Surah Al-Kahf and salawat.",
@@ -426,8 +415,7 @@ async function processUserBatch(
         }
       }
 
-      // 4. Send daily prayer schedule push — skipped entirely on hayd days
-      if (haydToday) continue;
+      // 4. Send daily prayer schedule push
       const cached = cachedTimesMap.get(s.userId)?.get(today);
       if (!cached) continue;
 

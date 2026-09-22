@@ -411,7 +411,15 @@ export default function SettingsClient({
   const [useIqamah, setUseIqamah] = useState(initialSettings?.useIqamahReminders ?? false);
   const [personalMsg, setPersonalMsg] = useState<{ ok: boolean; text: string } | null>(null);
   // Per-prayer notification prefs
-  const [perPrayer, setPerPrayer] = useState<PerPrayerMap>({});
+  const [perPrayer, setPerPrayer] = useState<PerPrayerMap>(() => {
+    try {
+      if (typeof window === "undefined") return {};
+      const raw = localStorage.getItem("waqt-per-prayer-prefs");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   // Masjid picker
   const [masjidResults, setMasjidResults] = useState<Array<{ slug: string; name: string; city: string | null; country: string | null; distanceKm: number | null }>>([]);
   const [masjidSearching, setMasjidSearching] = useState(false);
@@ -438,6 +446,7 @@ export default function SettingsClient({
 
   async function savePerPrayer(next: PerPrayerMap) {
     setPerPrayer(next);
+    try { localStorage.setItem("waqt-per-prayer-prefs", JSON.stringify(next)); } catch { /* non-critical */ }
     await fetch("/api/notifications/prefs", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -451,8 +460,11 @@ export default function SettingsClient({
     try {
       const res = await fetch(`/api/masjids?lat=${initialSettings?.latitude}&lng=${initialSettings?.longitude}`);
       const data = res.ok ? await res.json() : null;
-      setMasjidResults(data?.mosques ?? []);
-      if (!data?.mosques?.length) setMasjidMsg({ ok: false, text: "No masjids found nearby — enter times manually below." });
+      // Only directory entries (with a slug) publish iqamah times — OSM POIs
+      // are name/coords only and can't be picked.
+      const pickable = (data?.mosques ?? []).filter((m: { slug: string | null }) => m.slug);
+      setMasjidResults(pickable as typeof masjidResults);
+      if (!pickable.length) setMasjidMsg({ ok: false, text: "No masjids with published iqamah found nearby — enter times manually below." });
     } catch {
       setMasjidMsg({ ok: false, text: "Search failed." });
     } finally {

@@ -42,3 +42,41 @@ export function clearCachedPrayerSettings(): void {
     // non-critical
   }
 }
+
+/* ── Hayd periods ─────────────────────────────────────────────────────────
+ * Cached so the UI knows which days are excused while fully offline.
+ * Sensitive data: keyed to nothing identifying, cleared on logout with the
+ * rest of the settings cache.
+ */
+const HAYD_KEY = "waqt-hayd-periods";
+
+export interface CachedHaydPeriod {
+  id: string;
+  startDate: string;
+  endDate: string | null;
+}
+
+export function getCachedHaydPeriods(): CachedHaydPeriod[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(HAYD_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setCachedHaydPeriods(periods: CachedHaydPeriod[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(HAYD_KEY, JSON.stringify(periods));
+  } catch {
+    // non-critical
+  }
+}
+
+/** Client-side hayd check — same semantics as the server helper. */
+export function isHaydDate(date: string, periods = getCachedHaydPeriods()): boolean {
+  return periods.some((p) => date >= p.startDate && (p.endDate === null || date <= p.endDate));
+}

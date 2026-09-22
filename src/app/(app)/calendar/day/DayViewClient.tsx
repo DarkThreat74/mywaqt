@@ -8,7 +8,7 @@ import { useUISFX } from "@/components/uisfx-provider";
 import { getDisplayAsrTime, isFridayDate, type PrayerKey } from "@/lib/prayer/checkin";
 import { invalidateApiCache, removeOutboxItem } from "@/lib/sw-helpers";
 import { getOfflineDB } from "@/lib/offline/db";
-import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { getCachedPrayerSettings, setCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods } from "@/lib/offline/settings-cache";
 import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFromCache, upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
 import { instantToWall, wallClockToUtc } from "@/lib/timezone";
 
@@ -240,7 +240,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [isOnline, setIsOnline] = useState(true);
   const [prayerLogs, setPrayerLogs] = useState<Array<{ prayerName: string; status: string; wentToMasjid: boolean | null }>>([]);
   const [checkinPopup, setCheckinPopup] = useState<{ prayer: PrayerKey; label: string } | null>(null);
-  const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>([]);
+  const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>(() => getCachedHaydPeriods());
   // True when the viewed date falls inside a hayd period — chips render
   // excused and check-ins are disabled (the API rejects them too).
   const haydDay = haydPeriods.some(
@@ -350,7 +350,10 @@ export default function DayViewClient({ date }: { date: string }) {
 
         if (haydRes?.ok) {
           const data = await haydRes.json().catch(() => null);
-          if (data?.periods) setHaydPeriods(data.periods);
+          if (data?.periods) {
+            setHaydPeriods(data.periods);
+            setCachedHaydPeriods(data.periods);
+          }
         }
 
         if (eventsRes?.ok) {

@@ -2,8 +2,8 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
-import { recordDayCompletion } from "@/lib/prayer/social";
 import { isHaydDay } from "@/lib/prayer/hayd";
+import { recordDayCompletion } from "@/lib/prayer/social";
 
 export const dynamic = "force-dynamic";
 
@@ -57,8 +57,8 @@ export async function POST(request: NextRequest) {
   }
   const finalStatus = status ?? "prayed";
 
-  // Hayd: during a hayd period the obligation is lifted — block manual
-  // check-ins for covered dates. The cron writes 'excused' itself.
+  // Hayd: during a hayd period the obligation is lifted — the UI hides
+  // check-in controls; this blocks any queued/manual call that slips through.
   if (finalStatus !== "excused" && (await isHaydDay(session.userId, date))) {
     return NextResponse.json(
       { error: "This day is marked as hayd — prayer logging is paused.", excused: true },

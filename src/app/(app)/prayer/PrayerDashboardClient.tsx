@@ -4,11 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import { Flame, MapPin, Users, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, Heart, UsersRound } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName } from "@/lib/prayer/checkin";
-import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
 import { getOfflineDB } from "@/lib/offline/db";
 import { upsertSunnahLogToCache, cacheBlob } from "@/lib/offline/cache-writers";
+import MasjidFinder from "@/components/masjid-finder";
 
 interface PerPrayerStats {
   prayer: string;
@@ -213,7 +214,7 @@ function computeEquivTime(
   return formatMinutesToTime(equivMinutes);
 }
 
-type Tab = "comparison" | "stats" | "qadaa" | "friends";
+type Tab = "comparison" | "stats" | "qadaa" | "friends" | "masjids";
 
 type StatsRange = "weekly" | "monthly" | "yearly" | "all-time";
 
@@ -260,7 +261,7 @@ export default function PrayerDashboard() {
   // Hayd tracking — only meaningful when gender==='female' && haydTracking
   const [gender, setGender] = useState<string | null>(null);
   const [haydTracking, setHaydTracking] = useState(false);
-  const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>([]);
+  const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>(() => getCachedHaydPeriods());
   const [haydBusy, setHaydBusy] = useState(false);
 
   // Today's data for comparison tab
@@ -475,7 +476,10 @@ export default function PrayerDashboard() {
         }
         if (haydRes?.ok) {
           const data = await haydRes.json().catch(() => null);
-          if (data?.periods) setHaydPeriods(data.periods);
+          if (data?.periods) {
+            setHaydPeriods(data.periods);
+            setCachedHaydPeriods(data.periods);
+          }
         }
         if (qadaaRes?.ok) {
           const data = await qadaaRes.json().catch(() => null);
@@ -1107,7 +1111,10 @@ export default function PrayerDashboard() {
       });
       if (res.ok) {
         const list = await fetch("/api/hayd").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-        if (list?.periods) setHaydPeriods(list.periods);
+        if (list?.periods) {
+          setHaydPeriods(list.periods);
+          setCachedHaydPeriods(list.periods);
+        }
       }
     } finally {
       setHaydBusy(false);
@@ -1171,12 +1178,13 @@ export default function PrayerDashboard() {
       )}
 
       {/* ── Tab navigation ── */}
-      <div className="mb-6 grid grid-cols-4 gap-1 rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+      <div className="mb-6 grid grid-cols-5 gap-1 rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
         {([
           { key: "comparison" as Tab, label: "Today" },
           { key: "stats" as Tab, label: "Stats" },
           { key: "qadaa" as Tab, label: "Qadaa" },
           { key: "friends" as Tab, label: "Friends" },
+          { key: "masjids" as Tab, label: "Masjids" },
         ]).map((tab) => (
           <button
             key={tab.key}
@@ -2604,6 +2612,13 @@ export default function PrayerDashboard() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          TAB: MASJIDS (nearby masjids, iqamah times, map)
+          ════════════════════════════════════════════════════════════════ */}
+      {activeTab === "masjids" && (
+        <MasjidFinder prayerTimes={prayerTimes} />
       )}
     </div>
   );

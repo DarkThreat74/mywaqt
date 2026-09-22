@@ -69,6 +69,8 @@ function prayerLabel(dateStr: string, prayer: { key: keyof PrayerTimes; label: s
 // Track which prayer notifications have already fired this session
 // so we don't double-fire on re-schedule.
 const firedNotifications = new Set<string>();
+const PP_KEY = "waqt-per-prayer-prefs";
+
 // Homework reminder tags persist in localStorage (cleared on logout with the
 // other waqt-* keys) — survives page reloads so stages fire once per day.
 const HW_FIRED_KEY = "waqt-hw-fired";
@@ -82,16 +84,27 @@ export default function NotificationScheduler() {
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const perPrayerRef = useRef<PerPrayerPrefs | null | undefined>(undefined);
 
-  // Per-prayer prefs fetched once per mount (settings changes apply on reload)
+  // Per-prayer prefs — localStorage first (works offline), API refresh once
+  // per mount. Settings changes apply on reload.
   const getPerPrayerPrefs = useCallback(async (): Promise<PerPrayerPrefs | null> => {
     if (perPrayerRef.current !== undefined) return perPrayerRef.current;
     try {
-      const res = await fetch("/api/notifications/prefs");
-      const data = res.ok ? await res.json() : null;
-      perPrayerRef.current = (data?.perPrayer as PerPrayerPrefs) ?? null;
+      const cached = localStorage.getItem(PP_KEY);
+      perPrayerRef.current = cached ? (JSON.parse(cached) as PerPrayerPrefs) : null;
     } catch {
       perPrayerRef.current = null;
     }
+    fetch("/api/notifications/prefs")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        const prefs = (data?.perPrayer as PerPrayerPrefs) ?? null;
+        perPrayerRef.current = prefs;
+        try {
+          if (prefs) localStorage.setItem(PP_KEY, JSON.stringify(prefs));
+        } catch { /* non-critical */ }
+      })
+      .catch(() => {});
     return perPrayerRef.current;
   }, []);
 
