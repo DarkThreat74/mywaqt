@@ -462,7 +462,7 @@ export default function SettingsClient({
     setMasjidSearching(true);
     setMasjidMsg(null);
     try {
-      const res = await fetch(`/api/masjids?lat=${initialSettings?.latitude}&lng=${initialSettings?.longitude}`);
+      const res = await fetch(`/api/masjids?lat=${initialSettings?.latitude}&lng=${initialSettings?.longitude}&radius=32&limit=50`);
       const data = res.ok ? await res.json() : null;
       // Pickable = has iqamah data: islamic.app entries resolve it via slug,
       // Mawaqit entries carry it inline. Plain OSM POIs have neither.
@@ -1742,12 +1742,12 @@ export default function SettingsClient({
 
         <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }} />
 
-        {/* ── Sharing ── */}
-        <div className="p-4 sm:p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Link2 className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
-            <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Sharing</h2>
-          </div>
+        {/* ── Sharing — collapsible ── */}
+        <CollapsibleSection
+          icon={<Link2 className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
+          title="Sharing"
+          badge={!shareLoading && shareEnabled ? "Link active" : undefined}
+        >
           {shareLoading ? (
             <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>Loading...</p>
           ) : shareEnabled && shareUrl ? (
@@ -1876,9 +1876,7 @@ export default function SettingsClient({
           {shareError && (
             <p className="mt-2 text-xs" style={{ color: "var(--color-error)" }}>{shareError}</p>
           )}
-        </div>
-
-        <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }} />
+        </CollapsibleSection>
 
         {/* ── Notifications — collapsible ── */}
         <CollapsibleSection

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { ExternalLink, Folder, ChevronLeft, ChevronRight, Play, Clock, Headphones, Download, Search, X, Mic2, Check, Loader2, History, Circle } from "lucide-react";
 import { audioCacheKey, backfillAudioCacheSizes, getCachedAudioKeys, removeAudioOffline, saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
+import { getOfflineDB } from "@/lib/offline/db";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
 import { getFolderColor } from "@/lib/folder-colors";
 
@@ -144,6 +145,30 @@ export default function TalksClient() {
           await backfillAudioCacheSizes(loadedTalks);
         } catch { /* Cache Storage is unavailable */ }
       } catch {
+        // Offline — fall back to the download manifest so saved talks still
+        // show and play from the Cache API.
+        try {
+          const downloads = await getOfflineDB().talkDownloads.toArray();
+          if (!cancelled && downloads.length) {
+            setTalks(downloads.map((d) => ({
+              id: d.talkId,
+              title: d.title,
+              speaker: null,
+              description: null,
+              topics: null,
+              folderId: null,
+              fileSize: d.size || null,
+              duration: null,
+              externalUrl: null,
+              streamUrl: d.cacheKey, // normalized URL — the SW serves it from AUDIO_CACHE
+              addedAt: "",
+              progress: null,
+            })));
+            setDownloadedIds(new Set(downloads.map((d) => d.talkId)));
+            setActiveFilter("downloaded");
+            return;
+          }
+        } catch { /* IndexedDB unavailable — show the error below */ }
         if (!cancelled) setError("We couldn't load the talks library. Check your connection and try again.");
       } finally {
         if (!cancelled) setLoading(false);

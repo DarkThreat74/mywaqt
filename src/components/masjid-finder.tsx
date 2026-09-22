@@ -520,7 +520,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
               className="flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50"
               style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
             >
-              {addrBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Go"}
+              {addrBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Search"}
             </button>
           </div>
         )}
@@ -600,7 +600,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             className="flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50"
             style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
           >
-            {addrBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Go"}
+            {addrBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Search"}
           </button>
         </div>
       )}

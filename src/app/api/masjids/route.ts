@@ -230,13 +230,13 @@ function merge(a: MasjidEntry[], b: MasjidEntry[]): MasjidEntry[] {
 // ─── praytime registry: live iqamah from masjid platforms ───
 
 interface SourceRow {
-  external_id: string;
+  externalId: string;
   name: string;
   address: string | null;
   lat: number;
   lng: number;
   website: string | null;
-  fetch_url: string | null;
+  fetchUrl: string | null;
   platform: string | null;
 }
 
@@ -439,11 +439,11 @@ export async function GET(request: NextRequest) {
 
       const entries: MasjidEntry[] = [
         ...(srcs as SourceRow[]).map((s) => ({
-          id: `pt:${s.external_id}`, slug: null, name: s.name, lat: s.lat, lng: s.lng,
+          id: `pt:${s.externalId}`, slug: null, name: s.name, lat: s.lat, lng: s.lng,
           distanceKm: dist(s.lat, s.lng), city: null, country: null, address: s.address,
           source: "registry", attribution: null, url: s.website,
           iqamaOffsets: null, iqamaFixed: null, jummah: null, hasIqama: false,
-          image: null, phone: null, website: s.website, fetchUrl: s.fetch_url,
+          image: null, phone: null, website: s.website, fetchUrl: s.fetchUrl,
         })),
         ...subs.map((s) => ({
           id: s.masjidId, slug: null, name: s.masjidName, lat: s.lat, lng: s.lng,
@@ -502,7 +502,7 @@ export async function GET(request: NextRequest) {
     const registry: MasjidEntry[] = (sources as SourceRow[])
       .filter((s) => haversineKm(lat, lng, s.lat, s.lng) <= radiusKm)
       .map((s) => ({
-        id: `pt:${s.external_id}`,
+        id: `pt:${s.externalId}`,
         slug: null,
         name: s.name,
         lat: s.lat,
@@ -521,7 +521,7 @@ export async function GET(request: NextRequest) {
         image: null,
         phone: null,
         website: s.website,
-        fetchUrl: s.fetch_url,
+        fetchUrl: s.fetchUrl,
       }));
     // Mawaqit first — richest data (real iqamah + photos). Registry before
     // OSM so dedupe keeps the entry that carries an iqamah endpoint.
