@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { inArray } from "drizzle-orm";
+import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { logError } from "@/lib/logError";
@@ -314,6 +316,27 @@ export async function GET(request: NextRequest) {
     ]);
     // Mawaqit first — richest data (real iqamah + photos), so dedupe keeps it
     const merged = merge(merge(mq, ia), osm);
+
+    // Overlay community-submitted iqamah (our own crowdsourced table) onto
+    // any masjids missing it — this is how the US coverage gap gets filled.
+    const ids = merged.map((m) => m.id);
+    if (ids.length) {
+      const subs = await db
+        .select()
+        .from(schema.masjidIqamah)
+        .where(inArray(schema.masjidIqamah.masjidId, ids))
+        .catch(() => []);
+      const byId = new Map(subs.map((s) => [s.masjidId, s]));
+      for (const m of merged) {
+        const s = byId.get(m.id);
+        if (!s || m.hasIqama) continue;
+        m.iqamaFixed = [s.fajr, s.dhuhr, s.asr, s.maghrib, s.isha];
+        m.jummah = Array.isArray(s.jummah) && s.jummah.length ? s.jummah : m.jummah;
+        m.hasIqama = true;
+        m.attribution = { provider: "Community" };
+      }
+    }
+
     const slice = await enrich(merged.slice(offset, offset + limit));
 
     return NextResponse.json({
@@ -324,5 +347,85 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     logError(err, { route: "masjids/GET" });
     return NextResponse.json({ error: "Masjid lookup failed." }, { status: 502 });
+  }
+}
+
+const HHMM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * POST /api/masjids — submit iqamah times for a masjid (crowdsourced).
+ * Body: { masjidId, name, lat, lng, fajr?, dhuhr?, asr?, maghrib?, isha?, jummah?[] }
+ * One canonical record per masjid; a new submission overwrites the old.
+ */
+export async function POST(request: NextRequest) {
+  const session = await getSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const ip = getClientIp(request.headers);
+  if (!checkRateLimit("masjids-iqamah", ip, 10, 60 * 1000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+
+  const b = body as Record<string, unknown>;
+  const masjidId = typeof b.masjidId === "string" && b.masjidId.length <= 200 ? b.masjidId : null;
+  const name = typeof b.name === "string" && b.name.trim().length > 0 && b.name.length <= 200 ? b.name.trim() : null;
+  const lat = typeof b.lat === "number" && b.lat >= -90 && b.lat <= 90 ? b.lat : null;
+  const lng = typeof b.lng === "number" && b.lng >= -180 && b.lng <= 180 ? b.lng : null;
+  if (!masjidId || !name || lat == null || lng == null) {
+    return NextResponse.json({ error: "Missing or invalid fields." }, { status: 400 });
+  }
+
+  const times = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
+  const vals: Record<(typeof times)[number], string | null> = { fajr: null, dhuhr: null, asr: null, maghrib: null, isha: null };
+  for (const t of times) {
+    const v = b[t];
+    if (v == null) continue;
+    if (typeof v !== "string" || !HHMM_RE.test(v)) {
+      return NextResponse.json({ error: `Invalid ${t} time (use HH:MM).` }, { status: 400 });
+    }
+    vals[t] = v;
+  }
+  const jummah = Array.isArray(b.jummah)
+    ? (b.jummah as unknown[]).filter((j): j is string => typeof j === "string" && HHMM_RE.test(j)).slice(0, 3)
+    : null;
+  if (!Object.values(vals).some(Boolean) && !jummah?.length) {
+    return NextResponse.json({ error: "Submit at least one time." }, { status: 400 });
+  }
+
+  try {
+    await db
+      .insert(schema.masjidIqamah)
+      .values({
+        masjidId,
+        masjidName: name,
+        lat,
+        lng,
+        ...vals,
+        jummah,
+        submittedBy: session.userId,
+      })
+      .onConflictDoUpdate({
+        target: schema.masjidIqamah.masjidId,
+        set: {
+          masjidName: name,
+          lat,
+          lng,
+          ...vals,
+          jummah,
+          submittedBy: session.userId,
+          updatedAt: new Date(),
+        },
+      });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    logError(err, { route: "masjids/POST" });
+    return NextResponse.json({ error: "Couldn't save iqamah." }, { status: 500 });
   }
 }

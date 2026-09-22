@@ -164,6 +164,42 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [, setLocTick] = useState(0); // bump to re-read cached coords
   const [driveInfo, setDriveInfo] = useState<{ km: number; min: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editingIqamah, setEditingIqamah] = useState<string | null>(null);
+  const [iqamahForm, setIqamahForm] = useState<Record<string, string>>({});
+  const [savingIqamah, setSavingIqamah] = useState(false);
+
+  async function submitIqamah(m: Masjid) {
+    const vals = ["fajr", "dhuhr", "asr", "maghrib", "isha"].map((k) => iqamahForm[k] || null);
+    const jummah = ["j1", "j2", "j3"].map((k) => iqamahForm[k]).filter(Boolean) as string[];
+    if (!vals.some(Boolean) && !jummah.length) return;
+    setSavingIqamah(true);
+    try {
+      const res = await fetch("/api/masjids", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          masjidId: m.id, name: m.name, lat: m.lat, lng: m.lng,
+          fajr: vals[0], dhuhr: vals[1], asr: vals[2], maghrib: vals[3], isha: vals[4],
+          jummah: jummah.length ? jummah : null,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      // Merge the submission into the local list immediately
+      setAll((prev) =>
+        prev.map((x) =>
+          x.id === m.id
+            ? { ...x, iqamaFixed: vals, jummah: jummah.length ? jummah : x.jummah, hasIqama: true, attribution: { provider: "Community" } }
+            : x,
+        ),
+      );
+      setEditingIqamah(null);
+      setIqamahForm({});
+    } catch {
+      setError("Couldn't save iqamah. Try again.");
+    } finally {
+      setSavingIqamah(false);
+    }
+  }
   const mapRef = useRef<HTMLDivElement>(null);
   const mapObj = useRef<import("maplibre-gl").Map | null>(null);
   const markerObjs = useRef<import("maplibre-gl").Marker[]>([]);
@@ -607,6 +643,68 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                     </p>
                   </div>
                 ) : null}
+
+                {!m.hasIqama && editingIqamah !== m.id && (
+                  <button
+                    onClick={() => { setEditingIqamah(m.id); setIqamahForm({}); }}
+                    className="mt-2 rounded-md border px-2 py-1 text-[10px] font-medium"
+                    style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+                  >
+                    + Add iqamah times
+                  </button>
+                )}
+                {editingIqamah === m.id && (
+                  <div className="mt-2 rounded-lg border p-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                    <p className="mb-1.5 text-[10px] font-semibold" style={{ color: "var(--color-ink)" }}>
+                      Add iqamah times for {m.name}
+                    </p>
+                    <div className="grid grid-cols-5 gap-1">
+                      {["fajr", "dhuhr", "asr", "maghrib", "isha"].map((k) => (
+                        <label key={k} className="min-w-0">
+                          <span className="block truncate text-[8px] font-semibold uppercase" style={{ color: "var(--color-ink-muted)" }}>{k}</span>
+                          <input
+                            type="time"
+                            value={iqamahForm[k] ?? ""}
+                            onChange={(e) => setIqamahForm((f) => ({ ...f, [k]: e.target.value }))}
+                            className="w-full rounded border px-1 py-1 text-[11px]"
+                            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-3 gap-1">
+                      {["j1", "j2", "j3"].map((k, i) => (
+                        <label key={k} className="min-w-0">
+                          <span className="block truncate text-[8px] font-semibold uppercase" style={{ color: "var(--color-ink-muted)" }}>Jumu&apos;ah {i + 1}</span>
+                          <input
+                            type="time"
+                            value={iqamahForm[k] ?? ""}
+                            onChange={(e) => setIqamahForm((f) => ({ ...f, [k]: e.target.value }))}
+                            className="w-full rounded border px-1 py-1 text-[11px]"
+                            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        onClick={() => void submitIqamah(m)}
+                        disabled={savingIqamah}
+                        className="rounded-md px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50"
+                        style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+                      >
+                        {savingIqamah ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        onClick={() => { setEditingIqamah(null); setIqamahForm({}); }}
+                        className="text-[11px]"
+                        style={{ color: "var(--color-ink-muted)" }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {m.jummah && m.jummah.length > 0 && (
                   <div

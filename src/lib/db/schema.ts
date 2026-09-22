@@ -19,6 +19,7 @@ import {
   date,
   integer,
   numeric,
+  doublePrecision,
   varchar,
   uniqueIndex,
   index,
@@ -311,6 +312,26 @@ export const haydPeriods = pgTable('hayd_periods', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index('hayd_periods_user_idx').on(table.userId, table.startDate),
+]);
+
+// ─── Masjid Iqamah (crowdsourced iqamah times) ───
+export const masjidIqamah = pgTable('masjid_iqamah', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  masjidId: text('masjid_id').notNull().unique(), // external id: "osm:node/123", "mq:uuid"
+  masjidName: text('masjid_name').notNull(),
+  lat: doublePrecision('lat').notNull(),
+  lng: doublePrecision('lng').notNull(),
+  fajr: text('fajr'),
+  dhuhr: text('dhuhr'),
+  asr: text('asr'),
+  maghrib: text('maghrib'),
+  isha: text('isha'),
+  jummah: jsonb('jummah').$type<string[]>(),
+  submittedBy: uuid('submitted_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('masjid_iqamah_geo_idx').on(table.lat, table.lng),
 ]);
 
 // ─── Prayer Blocks (prevent unwanted friend requests) ───
@@ -876,3 +897,4 @@ export type NewHabitLog = typeof habitLogs.$inferInsert;
 export type Note = typeof notes.$inferSelect;
 export type NewNote = typeof notes.$inferInsert;
 export type HaydPeriod = typeof haydPeriods.$inferSelect;
+export type MasjidIqamah = typeof masjidIqamah.$inferSelect;
