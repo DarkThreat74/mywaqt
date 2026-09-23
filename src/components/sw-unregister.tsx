@@ -98,10 +98,11 @@ export default function UnregisterServiceWorker() {
           });
         }
 
-        // Clear waqt-* localStorage keys — but preserve theme preference and
-        // the push-endpoint dedup key (both are user-agnostic and losing them
-        // causes a theme flash + a redundant subscribe POST on next login).
-        const PRESERVE_KEYS = new Set(["waqt:theme", "waqt:push-endpoint"]);
+        // Clear waqt-* localStorage keys — but preserve theme preference,
+        // the push-endpoint dedup key, and the user-id stamp (the stamp must
+        // survive logout so a different account signing in can be detected
+        // and the previous user's outbox dropped before it replays).
+        const PRESERVE_KEYS = new Set(["waqt:theme", "waqt:push-endpoint", "waqt:uid"]);
         try {
           for (let i = localStorage.length - 1; i >= 0; i--) {
             const key = localStorage.key(i);
