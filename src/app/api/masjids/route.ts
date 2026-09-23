@@ -784,25 +784,31 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const slice = await enrich(merged.slice(offset, offset + limit));
+    const slice = merged.slice(offset, offset + limit);
 
-    // Fetch live iqamah from masjid endpoints (masjidal JSON / mohid widget
-    // pages / masjidal embeds) — capped, parallel, cached in masjid_sources.
+    // Warm iqamah caches apply synchronously before any network work.
     for (const m of slice) {
       if (m.fetchUrl && !m.hasIqama && m.iqamahCheckedAt &&
           Date.now() - m.iqamahCheckedAt.getTime() < IQAMAH_CACHE_MS) {
         applyCachedIqamah(m);
       }
     }
-    await Promise.all(
-      slice
-        .filter((m) => m.fetchUrl && !m.hasIqama)
-        .slice(0, 15)
-        .map((m) => fetchLiveIqamah(m)),
-    );
+
+    // enrich() only touches islamic.app entries (slug); fetchLiveIqamah()
+    // only touches registry entries (fetchUrl) — disjoint sets, so run both
+    // concurrently. Worst-case cold latency is one timeout, not two.
+    const [enriched] = await Promise.all([
+      enrich(slice),
+      Promise.all(
+        slice
+          .filter((m) => m.fetchUrl && !m.hasIqama)
+          .slice(0, 15)
+          .map((m) => fetchLiveIqamah(m)),
+      ),
+    ]);
 
     // Strip internal fetch endpoints before responding
-    const out = slice.map((m) => {
+    const out = enriched.map((m) => {
       const copy: Record<string, unknown> = { ...m };
       delete copy.fetchUrl;
       delete copy.srcId;
