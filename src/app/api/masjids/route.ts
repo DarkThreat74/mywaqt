@@ -155,6 +155,7 @@ function mawaqitEntry(m: Record<string, unknown>, dist: number): MasjidEntry {
       image: typeof m.image === "string" ? m.image : null,
       phone: (m.phone as string) ?? null,
       website: (m.site as string) ?? null,
+      masjidTz: (m.timezone as string) ?? null,
     };
 }
 
@@ -638,7 +639,8 @@ export async function GET(request: NextRequest) {
       if (q.length > 100) return NextResponse.json({ error: "Query too long." }, { status: 400 });
       const hasCoords = !isNaN(lat) && !isNaN(lng);
       const dist = (la: number, ln: number) => (hasCoords ? haversineKm(lat, lng, la, ln) : 0);
-      const pattern = `%${q}%`;
+      // Escape LIKE wildcards — a literal % or _ in q would match everything.
+      const pattern = `%${q.replace(/[%_\\]/g, "")}%`;
 
       const [srcs, subs, mqRes] = await Promise.all([
         db.select().from(schema.masjidSources)
@@ -698,7 +700,6 @@ export async function GET(request: NextRequest) {
       const out = slice.map((m) => {
         const copy: Record<string, unknown> = { ...m };
         delete copy.fetchUrl;
-        delete copy.masjidTz;
         delete copy.srcId;
         delete copy.iqamahCache;
         delete copy.iqamahCheckedAt;
@@ -814,7 +815,6 @@ export async function GET(request: NextRequest) {
       delete copy.srcId;
       delete copy.iqamahCache;
       delete copy.iqamahCheckedAt;
-      delete copy.masjidTz;
       return copy;
     });
     return NextResponse.json({

@@ -37,6 +37,7 @@ interface Masjid {
   image: string | null;
   phone: string | null;
   website: string | null;
+  masjidTz: string | null; // masjid's timezone — offsets/adhan need it to match ours
 }
 
 // Only Fajr/Dhuhr/Asr/Isha have distinct iqamah times — Maghrib iqamah is
@@ -118,27 +119,37 @@ function fmt12(hhmm: string | null | undefined): string {
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
 }
 
-function iqamahTimes(m: Masjid, adhan: PrayerTimes | null): (string | null)[] {
+function iqamahTimes(m: Masjid, adhan: PrayerTimes | null, sameTz: boolean): (string | null)[] {
   // iqama_offsets/iqama_fixed are [Fajr, Dhuhr, Asr, Maghrib, Isha] upstream —
-  // we render indices 0,1,2,4 (Maghrib shows the adhan/sunset time instead).
+  // we render indices 0,1,2,4 (Maghrib handled separately below).
   const IDX = [0, 1, 2, 4];
   return IQAMA_PRAYERS.map((p, i) => {
     const fixed = m.iqamaFixed?.[IDX[i]];
     if (fixed) return fixed;
     const off = m.iqamaOffsets?.[IDX[i]];
-    if (off != null && adhan?.[p]) return addMinutes(adhan[p], off);
+    // Offsets need OUR adhan times as a base — wrong when the masjid is in
+    // another timezone (address search in a different city).
+    if (sameTz && off != null && adhan?.[p]) return addMinutes(adhan[p], off);
     return null;
   });
 }
 
-/** Sideways iqamah table: Fajr · Dhuhr · Asr · Maghrib(=sunset) · Isha */
-function IqamahTable({ m, prayerTimes }: { m: Masjid; prayerTimes: PrayerTimes | null }) {
-  const iq = iqamahTimes(m, prayerTimes); // [F, D, A, I]
+/** Sideways iqamah table: Fajr · Dhuhr · Asr · Maghrib · Isha */
+function IqamahTable({ m, prayerTimes, sameTz }: { m: Masjid; prayerTimes: PrayerTimes | null; sameTz: boolean }) {
+  const iq = iqamahTimes(m, prayerTimes, sameTz); // [F, D, A, I]
+  // Maghrib iqamah: prefer the published/submitted time; else derive from
+  // offset; else (same tz only) sunset = iqamah. Foreign masjids: fixed only.
+  const maghribOff = m.iqamaOffsets?.[3];
+  const maghrib =
+    m.iqamaFixed?.[3] ??
+    (sameTz && maghribOff != null && prayerTimes?.maghrib
+      ? addMinutes(prayerTimes.maghrib, maghribOff)
+      : sameTz ? prayerTimes?.maghrib ?? null : null);
   const cells: [string, string | null][] = [
     ["Fajr", iq[0]],
     ["Dhuhr", iq[1]],
     ["Asr", iq[2]],
-    ["Maghrib", prayerTimes?.maghrib ?? null],
+    ["Maghrib", maghrib],
     ["Isha", iq[3]],
   ];
   return (
@@ -325,6 +336,10 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const lat = loc ? parseFloat(loc.latitude) : NaN;
   const lng = loc ? parseFloat(loc.longitude) : NaN;
   const hasLoc = !isNaN(lat) && !isNaN(lng);
+  // Offsets and the adhan fallback are computed from OUR prayer times — only
+  // valid when the masjid shares our timezone (or its tz is unknown → assume
+  // same, since nearby results almost always are).
+  const sameTz = (m: Masjid) => !m.masjidTz || !loc?.timezone || m.masjidTz === loc.timezone;
 
   // One fetch grabs everything in the radius; cached for a week like prayer
   // times. List pagination and the map both read from this single list.
@@ -815,7 +830,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
 
               {selected.hasIqama && (
                 <div className="mt-2">
-                  <IqamahTable m={selected} prayerTimes={prayerTimes} />
+                  <IqamahTable m={selected} prayerTimes={prayerTimes} sameTz={sameTz(selected)} />
                 </div>
               )}
 
@@ -900,9 +915,9 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
 
                 {m.hasIqama ? (
                   <div className="mt-2.5">
-                    <IqamahTable m={m} prayerTimes={prayerTimes} />
+                    <IqamahTable m={m} prayerTimes={prayerTimes} sameTz={sameTz(m)} />
                   </div>
-                ) : prayerTimes ? (
+                ) : prayerTimes && sameTz(m) ? (
                   <div className="mt-2.5">
                     <table
                       className="w-full table-fixed rounded-lg text-center"
@@ -931,6 +946,10 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                       Adhan times — this masjid hasn&apos;t published iqamah
                     </p>
                   </div>
+                ) : !sameTz(m) ? (
+                  <p className="mt-2.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    This masjid is in a different timezone — no published iqamah.
+                  </p>
                 ) : null}
 
                 {!m.hasIqama && editingIqamah !== m.id && (
