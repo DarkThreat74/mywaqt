@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MapPin, List, Map as MapIcon, Loader2, Copy, Check, Navigation, LocateFixed, Search, X } from "lucide-react";
+import { MapPin, List, Map as MapIcon, Loader2, Copy, Check, Navigation, LocateFixed, Search, X, RefreshCw } from "lucide-react";
 import { getCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import type { StyleSpecification } from "maplibre-gl";
@@ -258,7 +258,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       // changing the saved location — distances are computed from it.
       const la = parseFloat(hit.lat);
       const ln = parseFloat(hit.lon);
-      const res2 = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=32&limit=50`);
+      const res2 = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=32&limit=200`);
       const data = res2.ok ? await res2.json() : null;
       if (!data?.mosques?.length) {
         setError("No masjids found near that address.");
@@ -339,7 +339,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       setAddrLabel(null);
       setSearchCenter(null);
       try {
-        const res = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=${radius}&offset=0&limit=50`);
+        const res = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=${radius}&offset=0&limit=200`);
         if (!res.ok) throw new Error();
         const data = await res.json();
         setAll(data.mosques ?? []);
@@ -354,6 +354,26 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     },
     [lat, lng],
   );
+
+  // Manual reload — in address view it refetches the searched area into
+  // searchResults; otherwise it busts the weekly cache and refetches home.
+  async function reload() {
+    if (searchCenter) {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/masjids?lat=${searchCenter.lat}&lng=${searchCenter.lng}&radius=32&limit=200`);
+        const data = res.ok ? await res.json() : null;
+        setSearchResults(data?.mosques ?? []);
+      } catch {
+        setError("Couldn't reload. Try again.");
+      } finally {
+        setSearching(false);
+      }
+      return;
+    }
+    try { localStorage.removeItem(MASJID_CACHE_KEY); } catch { /* ignore */ }
+    void refresh(radiusKm);
+  }
 
   // Re-geolocate → applyLocation persists + refetches for the new spot.
   function refreshLocation() {
@@ -636,6 +656,16 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             title="Search an address or ZIP"
           >
             <Search className="h-3 w-3" /> Address
+          </button>
+          <button
+            onClick={() => void reload()}
+            disabled={loading || searching}
+            className="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium disabled:opacity-50"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+            aria-label="Reload masjids"
+            title="Reload masjids"
+          >
+            <RefreshCw className={`h-3 w-3 ${loading || searching ? "animate-spin" : ""}`} />
           </button>
           <div className="flex rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
             <button
@@ -997,26 +1027,15 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                   >
                     <Navigation className="h-3 w-3" /> Directions
                   </a>
-                  {m.website && (
+                  {(m.website ?? m.url) && (
                     <a
-                      href={m.website}
+                      href={m.website ?? m.url ?? "#"}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium"
                       style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
                     >
                       Website
-                    </a>
-                  )}
-                  {m.url && (
-                    <a
-                      href={m.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium"
-                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
-                    >
-                      Masjid page
                     </a>
                   )}
                 </div>

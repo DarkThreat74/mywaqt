@@ -1152,9 +1152,7 @@ export default function PrayerDashboard() {
 
   return (
     <div className="mx-auto w-full max-w-4xl overflow-x-hidden px-4 py-6 sm:px-6 sm:py-8">
-      <h1 className="mb-4 text-xl font-semibold tracking-tight sm:text-2xl" style={{ color: "var(--color-ink)" }}>
-        Prayer
-      </h1>
+      <h1 className="sr-only">Prayer</h1>
 
       {/* Offline indicator */}
       {!isOnline && (

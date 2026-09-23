@@ -708,7 +708,7 @@ export async function GET(request: NextRequest) {
     // radius in km (default 10mi ≈ 16km), offset/limit for "show more"
     const radiusKm = Math.min(Math.max(parseFloat(searchParams.get("radius") ?? "16") || 16, 1), 80);
     const offset = Math.max(parseInt(searchParams.get("offset") ?? "0") || 0, 0);
-    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "5") || 5, 1), 50);
+    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "5") || 5, 1), 200);
 
     const [mq, ia, osm] = await Promise.all([
       fromMawaqit(lat, lng, radiusKm).catch(() => []),
