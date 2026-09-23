@@ -61,6 +61,7 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
 async function fromIslamicApp(lat: number, lng: number, radiusKm: number): Promise<MasjidEntry[]> {
   const res = await fetch(`${UPSTREAM}/near?lat=${lat}&lng=${lng}&radius=${radiusKm}&limit=100`, {
     next: { revalidate: 3600 },
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT),
   });
   if (!res.ok) return [];
   const json = await res.json();
@@ -98,6 +99,7 @@ async function fromMawaqit(lat: number, lng: number, radiusKm: number): Promise<
   const res = await fetch(`${MAWAQIT}?lat=${lat}&lon=${lng}`, {
     headers: { "User-Agent": "Waqt/1.0 (masjid finder)" },
     next: { revalidate: 21600 }, // 6h — matches their iqama feed refresh hint
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT),
   });
   if (!res.ok) return [];
   const json = await res.json();
@@ -177,6 +179,9 @@ out center tags;`;
         },
         body: `data=${encodeURIComponent(q)}`,
         next: { revalidate: 86400 },
+        // Overpass is often slow (>10s) — cap each endpoint attempt so a
+        // hang can't stall the whole request until the function is killed.
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT),
       });
       if (res.ok) break;
     } catch {
@@ -549,7 +554,7 @@ async function enrich(entries: MasjidEntry[]): Promise<MasjidEntry[]> {
     entries.map(async (m) => {
       if (!m.slug || budget-- <= 0) return m;
       try {
-        const res = await fetch(`${UPSTREAM}/${m.slug}`, { next: { revalidate: 3600 } });
+        const res = await fetch(`${UPSTREAM}/${m.slug}`, { next: { revalidate: 3600 }, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT) });
         if (!res.ok) return { ...m, hasIqama: false };
         const json = await res.json();
         const d = json?.data;
@@ -601,7 +606,7 @@ export async function GET(request: NextRequest) {
       if (!SLUG_RE.test(slug)) {
         return NextResponse.json({ error: "Invalid slug." }, { status: 400 });
       }
-      const res = await fetch(`${UPSTREAM}/${slug}`, { next: { revalidate: 3600 } });
+      const res = await fetch(`${UPSTREAM}/${slug}`, { next: { revalidate: 3600 }, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT) });
       if (!res.ok) return NextResponse.json({ error: "Masjid not found." }, { status: 404 });
       const json = await res.json();
       const m = json?.data;
@@ -645,6 +650,7 @@ export async function GET(request: NextRequest) {
         fetch(`${MAWAQIT}?word=${encodeURIComponent(q)}`, {
           headers: { "User-Agent": "Waqt/1.0 (masjid finder)" },
           next: { revalidate: 21600 },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT),
         }).then(async (r) => (r.ok ? ((await r.json().catch(() => [])) as Record<string, unknown>[]) : []))
           .catch(() => [] as Record<string, unknown>[]),
       ]);
@@ -718,10 +724,13 @@ export async function GET(request: NextRequest) {
     // praytime registry (US/CA masjids + their iqamah-publishing endpoints)
     // — merged in before dedupe so OSM-only mosques gain iqamah sources.
     const deg = radiusKm / 111; // ~km per degree latitude
+    // Longitude degrees shrink with latitude — cos(lat), not a fixed 1.4x
+    // (which under-selects above ~45°N and drops masjids at the box edge).
+    const lngDeg = deg / Math.max(Math.cos((lat * Math.PI) / 180), 0.2);
     const sources = await db
       .select()
       .from(schema.masjidSources)
-      .where(sql`lat BETWEEN ${lat - deg} AND ${lat + deg} AND lng BETWEEN ${lng - deg * 1.4} AND ${lng + deg * 1.4}`)
+      .where(sql`lat BETWEEN ${lat - deg} AND ${lat + deg} AND lng BETWEEN ${lng - lngDeg} AND ${lng + lngDeg}`)
       .catch(() => [] as SourceRow[]);
     const registry: MasjidEntry[] = (sources as SourceRow[])
       .filter((s) => haversineKm(lat, lng, s.lat, s.lng) <= radiusKm)

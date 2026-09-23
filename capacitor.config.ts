@@ -4,7 +4,10 @@ import { SITE_URL, APP_BUNDLE_ID, APP_NAME } from "./src/lib/site-config";
 const config: CapacitorConfig = {
   appId: APP_BUNDLE_ID,
   appName: APP_NAME,
-  webDir: "out",
+  // Remote-URL mode: webDir only supplies the errorPath fallback page.
+  // "public" always exists in the repo (out/ is gitignored and nothing
+  // generates it, so cap sync broke on fresh clones).
+  webDir: "public",
 
   // ── Mode B: Remote URL ──
   // The WebView loads the deployed Next.js app so SSR, API routes,
