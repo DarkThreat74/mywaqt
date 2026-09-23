@@ -240,7 +240,19 @@ function merge(a: MasjidEntry[], b: MasjidEntry[]): MasjidEntry[] {
     const existing = merged[i];
     const oRich = o.hasIqama || !!o.fetchUrl;
     const eRich = existing.hasIqama || !!existing.fetchUrl;
-    if (oRich && !eRich) merged[i] = o;
+    if (oRich && !eRich) {
+      // Swap in the iqamah-capable entry, but graft display fields the
+      // replaced entry had (Mawaqit photo/address/url) that the registry
+      // record lacks.
+      merged[i] = {
+        ...o,
+        image: o.image ?? existing.image,
+        address: o.address ?? existing.address,
+        phone: o.phone ?? existing.phone,
+        url: o.url ?? existing.url,
+        website: o.website ?? existing.website,
+      };
+    }
     else if (oRich && eRich && !existing.fetchUrl && o.fetchUrl) {
       // Enrich the kept entry with the other's fetch endpoint instead of
       // swapping — keeps Mawaqit's photo/name while gaining live iqamah.
@@ -672,7 +684,10 @@ export async function GET(request: NextRequest) {
           source: "community", attribution: { provider: "Community" }, url: null,
           iqamaOffsets: null, iqamaFixed: [s.fajr, s.dhuhr, s.asr, s.maghrib, s.isha],
           jummah: Array.isArray(s.jummah) && s.jummah.length ? s.jummah : null,
-          hasIqama: true, image: null, phone: null, website: null,
+          // Jumu'ah-only submissions have no daily times — don't flag them as
+          // having iqamah or the card renders an all-"—" table.
+          hasIqama: [s.fajr, s.dhuhr, s.asr, s.maghrib, s.isha].some(Boolean),
+          image: null, phone: null, website: null,
         })),
         ...(Array.isArray(mqRes) ? mqRes : [])
           .filter((m) => m?.latitude != null && m?.longitude != null)

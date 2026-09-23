@@ -805,7 +805,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold leading-snug" style={{ color: "var(--color-ink)" }}>{selected.name}</p>
                   <p className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
-                    {fmtDist(selected.distanceKm)} away
+                    {selected.distanceKm > 0 && `${fmtDist(selected.distanceKm)} away`}
                     {driveInfo && ` · ${driveInfo.min} min drive (${fmtDist(driveInfo.km)})`}
                   </p>
                 </div>
@@ -880,8 +880,9 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       ) : (
         <div className="space-y-3">
           {mosques.map((m) => {
+            // key needs source: community rows reuse upstream ids (osm:/mq:)
             return (
-              <div key={m.id} className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+              <div key={`${m.source}:${m.id}`} className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
                 <div className="flex items-start gap-3">
                   {m.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -901,12 +902,14 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span
-                      className="rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
-                      style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)", color: "var(--color-accent)" }}
-                    >
-                      {fmtDist(m.distanceKm)}
-                    </span>
+                    {m.distanceKm > 0 && (
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
+                        style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)", color: "var(--color-accent)" }}
+                      >
+                        {fmtDist(m.distanceKm)}
+                      </span>
+                    )}
                     {m.attribution?.provider && (
                       <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                         via {m.attribution.provider}
