@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { calculateQiblaBearing, calculateDistance, bearingToCardinal } from "@/lib/prayer/qibla";
 import { logError } from "@/lib/logError";
+import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,9 @@ export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!checkRateLimit("qibla", getClientIp(request.headers), 60, 60 * 1000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
   try {

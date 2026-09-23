@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { calculateStreak, calculateBestStreak } from "@/lib/prayer/checkin";
 import { logError } from "@/lib/logError";
+import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,10 @@ export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Heavier aggregation query — tighter than plain reads.
+  if (!checkRateLimit("pl-analytics", getClientIp(request.headers), 30, 60 * 1000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
   try {

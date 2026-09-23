@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
 import { isValidUUID } from "@/lib/validation";
+import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,10 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Fires on a playback timer — loose enough to never throttle real listening.
+  if (!checkRateLimit("talks-progress", getClientIp(request.headers), 240, 60 * 1000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
 
   let body: { talkId?: string; position?: number; completed?: boolean };
   try {

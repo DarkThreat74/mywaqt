@@ -7,6 +7,7 @@ import { logError } from "@/lib/logError";
 import { downloadObjectToFile, uploadBuffer } from "@/lib/r2/client";
 import { compressAudioFile, compressAudioFileFast } from "@/lib/audio/process";
 import { isValidUUID } from "@/lib/validation";
+import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdir, stat, unlink } from "fs/promises";
@@ -32,6 +33,10 @@ export const maxDuration = 300; // Vercel Hobby max (300s). Pro allows 800s.
 export async function POST(request: NextRequest) {
   try {
     await requireAdmin(request);
+    // ffmpeg work is the most expensive thing this app does — keep it tight.
+    if (!checkRateLimit("admin-talks-process", getClientIp(request.headers), 10, 60 * 1000)) {
+      return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+    }
 
     let body: { talkId?: string };
     try {

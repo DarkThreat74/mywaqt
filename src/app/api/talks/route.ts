@@ -5,12 +5,16 @@ import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
 import { getStreamUrl } from "@/lib/r2/client";
 import { isValidUUID } from "@/lib/validation";
+import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!checkRateLimit("talks", getClientIp(request.headers), 60, 60 * 1000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
 
   try {
     const { searchParams } = new URL(request.url);

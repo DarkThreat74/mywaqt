@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { count } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
+import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,9 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     await requireAdmin(request);
+    if (!checkRateLimit("admin-stats", getClientIp(request.headers), 30, 60 * 1000)) {
+      return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+    }
     const [userRow] = await db.select({ value: count() }).from(schema.users);
     const [talksRow] = await db.select({ value: count() }).from(schema.talks);
 

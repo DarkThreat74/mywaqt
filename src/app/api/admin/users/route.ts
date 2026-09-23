@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { count, desc, sql, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
+import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,9 @@ const PAGE_SIZE = 50;
 export async function GET(request: NextRequest) {
   try {
     await requireAdmin(request);
+    if (!checkRateLimit("admin-users", getClientIp(request.headers), 30, 60 * 1000)) {
+      return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+    }
 
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
