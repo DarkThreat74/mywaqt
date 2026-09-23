@@ -500,6 +500,12 @@ export default function SettingsClient({
         m = detail;
       }
       const iqamah = { offsets: m.iqamaOffsets ?? undefined, fixed: m.iqamaFixed ?? undefined, jummah: m.jummah ?? undefined };
+      // Don't save an empty config — reminders keyed on it would silently
+      // never fire. Point the user at manual entry instead.
+      if (!iqamah.offsets?.some((o) => o != null) && !iqamah.fixed?.some(Boolean) && !iqamah.jummah?.length) {
+        setMasjidMsg({ ok: false, text: `${m.name} hasn't published iqamah — enter times manually below.` });
+        return;
+      }
       const extId = entry.slug ?? entry.id ?? m.name;
       await patchPrayerSettings(
         { masjidExternalId: extId, masjidName: m.name, masjidIqamah: iqamah },
