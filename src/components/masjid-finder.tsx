@@ -309,7 +309,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       // Merge the submission into whichever list is showing
       const applySub = (x: Masjid) =>
         x.id === m.id
-          ? { ...x, iqamaFixed: vals, jummah: jummah.length ? jummah : x.jummah, hasIqama: true, attribution: { provider: "Community" } }
+          ? { ...x, iqamaFixed: vals, jummah: jummah.length ? jummah : x.jummah, hasIqama: vals.some(Boolean), attribution: { provider: "Community" } }
           : x;
       setAll((prev) => prev.map(applySub));
       setSearchResults((prev) => prev?.map(applySub) ?? null);

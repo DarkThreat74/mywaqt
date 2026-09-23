@@ -332,7 +332,7 @@ function hhmmTo24(s: string): string | null {
   let h = parseInt(m[1]);
   if (m[3]?.toLowerCase() === "pm" && h !== 12) h += 12;
   if (m[3]?.toLowerCase() === "am" && h === 12) h = 0;
-  if (h > 23) return null;
+  if (h > 23 || Number(m[2]) > 59) return null;
   return `${String(h).padStart(2, "0")}:${m[2]}`;
 }
 
@@ -431,7 +431,7 @@ function parseGenericIqamah(body: string, tz?: string | null): { fixed: (string 
     .split(/\n+/)
     .map((l) => l.trim())
     .filter(Boolean);
-  const prayers = [/\bfajr\b/i, /\b(?:zuhr|dhuhr|dhur)\b/i, /\basr\b/i, /\bmaghrib\b/i, /\bisha/i];
+  const prayers = [/\bfajr\b/i, /\b(?:zuhr|dhuhr|dhur)\b/i, /\basr\b/i, /\bmaghrib\b/i, /\bisha\b/i];
   const timeRe = /(\d{1,2}):(\d{2})\s*(am|pm)?/gi;
   const fixed = prayers.map((re, pi) => {
     const i = lines.findIndex((l) => re.test(l));
@@ -795,7 +795,9 @@ export async function GET(request: NextRequest) {
         if (!s || m.hasIqama) continue;
         m.iqamaFixed = [s.fajr, s.dhuhr, s.asr, s.maghrib, s.isha];
         m.jummah = Array.isArray(s.jummah) && s.jummah.length ? s.jummah : m.jummah;
-        m.hasIqama = true;
+        // Jumu'ah-only submissions have no daily times — don't render an
+        // all-"—" iqamah table.
+        m.hasIqama = m.iqamaFixed.some(Boolean);
         m.attribution = { provider: "Community" };
       }
     }
