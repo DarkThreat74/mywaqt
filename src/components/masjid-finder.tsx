@@ -483,7 +483,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   }, [selected, lat, lng, searchCenter]);
 
   useEffect(() => {
-    if (mode !== "map" || !hasLoc || !mapRef.current) return;
+    if (mode !== "map" || (!hasLoc && !searchCenter) || !mapRef.current) return;
     let cancelled = false;
     void (async () => {
       const maplibregl = await import("maplibre-gl").catch(() => null);
@@ -505,7 +505,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           mapObj.current = new maplibregl.Map({
             container: mapRef.current,
             style: "https://tiles.openfreemap.org/styles/liberty",
-            center: [lng, lat],
+            center: [searchCenter?.lng ?? lng, searchCenter?.lat ?? lat],
             zoom: 11,
             attributionControl: { compact: true },
           });
@@ -591,7 +591,9 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     }
   }, [mode]);
 
-  if (!hasLoc) {
+  // Early "no location" card only when nothing is being shown — address/name
+  // search results must render even without a saved location.
+  if (!hasLoc && !searchResults) {
     return (
       <div className="rounded-xl border p-4 text-xs" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
         <p>Set your location to find masjids nearby.</p>
@@ -966,7 +968,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                     <p className="mb-1.5 text-[10px] font-semibold" style={{ color: "var(--color-ink)" }}>
                       Add iqamah times for {m.name}
                     </p>
-                    <div className="grid grid-cols-5 gap-1">
+                    <div className="grid grid-cols-3 gap-1 sm:grid-cols-5">
                       {["fajr", "dhuhr", "asr", "maghrib", "isha"].map((k) => (
                         <label key={k} className="min-w-0">
                           <span className="block truncate text-[8px] font-semibold uppercase" style={{ color: "var(--color-ink-muted)" }}>{k}</span>
