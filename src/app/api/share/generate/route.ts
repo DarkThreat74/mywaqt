@@ -74,6 +74,9 @@ export async function DELETE(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!checkRateLimit("share-revoke", getClientIp(request.headers), 20, 60 * 1000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
 
   await db
     .update(schema.users)
