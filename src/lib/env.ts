@@ -1,5 +1,5 @@
 import 'server-only';
-import { SITE_URL } from '@/lib/site-config';
+import { SITE_URL, SITE_DOMAIN } from '@/lib/site-config';
 
 /**
  * Centralized server-side environment variables.
@@ -75,7 +75,7 @@ export const env = {
   // Transactional email (Resend) — used for password reset links.
   // If unset, reset requests silently no-op (and log a warning).
   resendApiKey: process.env.RESEND_API_KEY ?? '',
-  emailFrom: process.env.EMAIL_FROM ?? 'Waqt <no-reply@waqt.app>',
+  emailFrom: process.env.EMAIL_FROM ?? `Waqt <no-reply@${SITE_DOMAIN}>`,
 
   // Cloudflare R2 (talks audio storage)
   r2AccountId: required('R2_ACCOUNT_ID'),

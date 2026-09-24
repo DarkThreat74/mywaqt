@@ -1,20 +1,20 @@
 /**
- * Central site configuration — the SINGLE place to change when switching domains.
+ * Central site configuration — the SINGLE place the domain is set.
  *
- * When you switch from waqt.app to mywaqt.app (or any other domain):
- *   1. Change `SITE_DOMAIN` below
- *   2. Change `SITE_URL` below
- *   3. Change `SUPPORT_EMAIL` below (if applicable)
- *   4. Update env vars on Vercel: APP_URL, NEXT_PUBLIC_APP_URL, VAPID_SUBJECT
- *   5. Update R2 CORS policy to include the new domain
- *   6. Update Cloudflare DNS / Vercel custom domain
+ * To switch domains, set NEXT_PUBLIC_SITE_DOMAIN in the environment
+ * (Vercel project env vars, .env for local/capacitor builds). Everything —
+ * SITE_URL, support email, metadata, sitemap, robots.txt, deep links,
+ * Capacitor server.url, Nominatim User-Agent — derives from it.
  *
- * Everything else (metadata, sitemap, robots.txt, Capacitor, deep links,
- * support email links, Nominatim User-Agent) reads from this file.
+ * Still manual on a domain change:
+ *   - DNS / Vercel custom domain for the new domain
+ *   - R2 CORS policy
+ *   - VAPID_SUBJECT / EMAIL_FROM env vars if you override them
  */
 
 /** The bare domain (no protocol). Used for deep links, CSP, etc. */
-export const SITE_DOMAIN = 'waqt.app';
+export const SITE_DOMAIN =
+  process.env.NEXT_PUBLIC_SITE_DOMAIN ?? 'mywaqtapp.vercel.app';
 
 /** The full origin URL (no trailing slash). Used for absolute URLs. */
 export const SITE_URL = `https://${SITE_DOMAIN}`;
