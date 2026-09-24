@@ -73,8 +73,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid date range." }, { status: 400 });
     }
 
-    // Cap range to 31 days to prevent unbounded queries
-    const maxRange = 32 * 24 * 60 * 60 * 1000; // 31-day range + tz buffer
+    // Cap range to 33 days — a 31-day month plus the ±tz buffer is ~32.1d,
+    // so a tighter cap rejects exactly the months the calendar needs.
+    const maxRange = 33 * 24 * 60 * 60 * 1000;
     if (toDate.getTime() - fromDate.getTime() > maxRange) {
       return NextResponse.json({ error: "Date range cannot exceed 31 days." }, { status: 400 });
     }
