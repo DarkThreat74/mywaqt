@@ -65,6 +65,9 @@ export async function DELETE(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!checkRateLimit("prayer-friend-unblock", getClientIp(request.headers), 10, 900000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
 
   const { searchParams } = new URL(request.url);
   const blockedId = searchParams.get("userId");

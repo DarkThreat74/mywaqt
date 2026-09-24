@@ -26,6 +26,9 @@ function isValidDate(value?: string): boolean {
 export async function GET(request: NextRequest) {
   try {
     await requireAdmin(request);
+    if (!checkRateLimit("admin-talks-read", getClientIp(request.headers), 30, 60000)) {
+      return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+    }
     const { searchParams } = new URL(request.url);
     const type = searchParams.get("type");
 

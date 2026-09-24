@@ -9,6 +9,9 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     await requireAdmin(request);
+    if (!checkRateLimit("admin-dhikr-read", getClientIp(request.headers), 30, 60000)) {
+      return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+    }
     const sequences = await db.select().from(schema.dhikrSequences).orderBy(schema.dhikrSequences.sequenceOrder);
     return NextResponse.json(sequences);
   } catch (e) {

@@ -20,6 +20,9 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!checkRateLimit("sadaqah-read", getClientIp(request.headers), 60, 60000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
 
   try {
     const { searchParams } = new URL(request.url);
@@ -152,6 +155,9 @@ export async function DELETE(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!checkRateLimit("sadaqah-delete", getClientIp(request.headers), 20, 3600000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
   try {

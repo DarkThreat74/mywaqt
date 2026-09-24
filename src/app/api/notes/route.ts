@@ -14,6 +14,9 @@ export async function GET(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (!checkRateLimit("notes-read", getClientIp(request.headers), 60, 60000)) {
+      return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+    }
 
     const notes = await db
       .select()
@@ -54,6 +57,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Content is required" }, { status: 400 });
     }
     const content = body.content;
+    if (content.length > 50_000) {
+      return NextResponse.json({ error: "Content must be 50,000 characters or less" }, { status: 400 });
+    }
 
     // title is optional, max 200 chars if provided
     let title: string | null = null;

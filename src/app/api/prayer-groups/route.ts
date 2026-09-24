@@ -19,6 +19,9 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!checkRateLimit("prayer-groups-read", getClientIp(request.headers), 60, 60000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
 
   try {
     const memberships = await db
