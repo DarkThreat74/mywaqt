@@ -1364,7 +1364,7 @@ export default function SettingsClient({
   const needsMadhab = !prayerSettings?.madhab;
 
   return (
-    <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 py-6 sm:px-6 sm:py-10">
+    <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 py-6 sm:px-6 sm:py-10 lg:max-w-4xl">
       <h1 className="mb-6 text-xl font-semibold tracking-tight sm:mb-8 sm:text-2xl" style={{ color: "var(--color-ink)" }}>
         Settings
       </h1>
