@@ -23,6 +23,9 @@ async function requireFemaleTracking(userId: string) {
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!checkRateLimit("hayd-read", getClientIp(request.headers), 60, 60000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
 
   const [active] = await db
     .select()
@@ -47,9 +50,6 @@ export async function POST(request: NextRequest) {
 
   const ip = getClientIp(request.headers);
   if (!checkRateLimit("hayd", ip, 20, 60 * 1000)) {
-    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  }
-  if (!checkRateLimit("hayd-read", getClientIp(request.headers), 60, 60000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
