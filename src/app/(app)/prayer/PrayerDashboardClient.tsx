@@ -116,6 +116,7 @@ interface QadaaInfo {
   ishaOwed: number;
   setupCompleted: boolean;
   unloggedMissed?: number;
+  unloggedByPrayer?: Record<string, number>;
 }
 
 interface TodayLog {
@@ -2123,7 +2124,15 @@ export default function PrayerDashboard() {
                   >
                     <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
                       {qadaa.unloggedMissed} {qadaa.unloggedMissed === 1 ? "prayer was" : "prayers were"} not logged
-                      and marked as missed since the last time you updated the qadaa tracker.
+                      and marked as missed
+                      {(() => {
+                        const labels: Record<string, string> = { fajr: "Fajr", dhuhr: "Dhuhr", asr: "Asr", maghrib: "Maghrib", isha: "Isha" };
+                        const parts = (["fajr", "dhuhr", "asr", "maghrib", "isha"] as const)
+                          .filter((k) => (qadaa.unloggedByPrayer?.[k] ?? 0) > 0)
+                          .map((k) => `${qadaa.unloggedByPrayer![k]} ${labels[k]}`);
+                        return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+                      })()}
+                      {" "}since the last time you updated the qadaa tracker.
                     </p>
                     <div className="flex shrink-0 gap-2">
                       <button
