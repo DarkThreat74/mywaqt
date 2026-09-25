@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, inArray, lt, gte, lte } from "drizzle-orm";
+import { eq, and, inArray, lt, gte, lte, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { verifyCronAuth } from "@/lib/cronAuth";
 import { isWindowClosed, getPrayerWindow } from "@/lib/prayer/stateMachine";
@@ -127,7 +127,26 @@ export async function POST(request: NextRequest) {
     logError(err, { route: "cron/checkin-scheduler", phase: "cleanup-stale-devices" });
   }
 
-  return NextResponse.json({ ok: true, notificationsSent, assumedResolved, loginAttemptsDeleted, staleDevicesDeleted });
+  // ── Sweep: accounts whose deletion grace window (5h) has expired ──
+  // Lazily enforced in the session check too; this catches users who never
+  // make another request. Cascades wipe all their data.
+  let accountsDeleted = 0;
+  try {
+    const deletionCutoff = new Date(Date.now() - 5 * 60 * 60 * 1000);
+    const deleted = await db
+      .delete(schema.users)
+      .where(
+        and(
+          lte(schema.users.deletionScheduledAt, deletionCutoff),
+          isNotNull(schema.users.deletionScheduledAt),
+        ),
+      );
+    accountsDeleted = deleted?.rowCount ?? 0;
+  } catch (err) {
+    logError(err, { route: "cron/checkin-scheduler", phase: "sweep-scheduled-deletions" });
+  }
+
+  return NextResponse.json({ ok: true, notificationsSent, assumedResolved, loginAttemptsDeleted, staleDevicesDeleted, accountsDeleted });
 }
 
 async function processUserBatch(

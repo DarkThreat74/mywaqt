@@ -78,17 +78,26 @@ export async function clearSessionCookie(): Promise<void> {
  * Password reset revalidates the `sva-${userId}` tag so revocation is still
  * immediate. Removes a Neon round-trip from every authed request/navigation.
  */
-const getSessionsValidAfter = (userId: string) =>
+const DELETION_GRACE_MS = 5 * 60 * 60 * 1000;
+
+const getSessionValidity = (userId: string) =>
   unstable_cache(
     async () => {
       const [u] = await db
-        .select({ sessionsValidAfter: schema.users.sessionsValidAfter })
+        .select({
+          sessionsValidAfter: schema.users.sessionsValidAfter,
+          deletionScheduledAt: schema.users.deletionScheduledAt,
+        })
         .from(schema.users)
         .where(eq(schema.users.id, userId))
         .limit(1);
-      // -1 = user row missing (deleted); null = no revocation cutoff
-      if (!u) return -1;
-      return u.sessionsValidAfter?.getTime() ?? null;
+      if (!u) return { validAfter: -1 as const, deletesAt: null };
+      return {
+        validAfter: u.sessionsValidAfter?.getTime() ?? null,
+        deletesAt: u.deletionScheduledAt
+          ? u.deletionScheduledAt.getTime() + DELETION_GRACE_MS
+          : null,
+      };
     },
     ['sva', userId],
     { revalidate: 60, tags: [`sva-${userId}`] }
@@ -96,7 +105,14 @@ const getSessionsValidAfter = (userId: string) =>
 
 async function isSessionActive(payload: SessionPayload): Promise<boolean> {
   try {
-    const validAfter = await getSessionsValidAfter(payload.userId);
+    const { validAfter, deletesAt } = await getSessionValidity(payload.userId);
+    // Scheduled deletion's grace window has passed — purge the account now.
+    // The cron sweep also does this, but lazily here guarantees ~5h even
+    // between daily cron runs.
+    if (deletesAt !== null && Date.now() >= deletesAt) {
+      await db.delete(schema.users).where(eq(schema.users.id, payload.userId)).catch(() => {});
+      return false;
+    }
     if (validAfter === -1) return false;
     if (validAfter === null) return true;
     const issuedAtMs = typeof payload.iat === 'number' ? payload.iat * 1000 : 0;

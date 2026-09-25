@@ -115,6 +115,7 @@ interface QadaaInfo {
   maghribOwed: number;
   ishaOwed: number;
   setupCompleted: boolean;
+  unloggedMissed?: number;
 }
 
 interface TodayLog {
@@ -256,6 +257,7 @@ export default function PrayerDashboard() {
   const [setupMaghrib, setSetupMaghrib] = useState(0);
   const [setupIsha, setSetupIsha] = useState(0);
   const [qadaaSetting, setQadaaSetting] = useState(false);
+  const [unloggedBusy, setUnloggedBusy] = useState(false);
   const [adjustPrayer, setAdjustPrayer] = useState<string>("fajr");
   const [adjustAmount, setAdjustAmount] = useState(1);
   // Hayd tracking — only meaningful when gender==='female' && haydTracking
@@ -1084,6 +1086,33 @@ export default function PrayerDashboard() {
     } catch {
       setQadaaMsg("Network error. Please try again.");
       setTimeout(() => setQadaaMsg(null), 4000);
+    }
+  }
+
+  async function handleUnlogged(action: "absorb" | "dismiss") {
+    setUnloggedBusy(true);
+    try {
+      const res = await fetch("/api/qadaa/unlogged", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data) {
+        setQadaa(data);
+        cacheBlob("qadaa", data);
+        invalidateApiCache("/api/qadaa");
+        setQadaaMsg(action === "absorb" ? "Missed prayers added to qadaa." : "Dismissed.");
+        setTimeout(() => setQadaaMsg(null), 3000);
+      } else {
+        setQadaaMsg(data?.error || "Something went wrong.");
+        setTimeout(() => setQadaaMsg(null), 4000);
+      }
+    } catch {
+      setQadaaMsg("Network error. Please try again.");
+      setTimeout(() => setQadaaMsg(null), 4000);
+    } finally {
+      setUnloggedBusy(false);
     }
   }
 
@@ -2082,6 +2111,40 @@ export default function PrayerDashboard() {
                     {qadaa.fajrOwed + qadaa.dhuhrOwed + qadaa.asrOwed + qadaa.maghribOwed + qadaa.ishaOwed}
                   </span>
                 </div>
+
+                {(qadaa.unloggedMissed ?? 0) > 0 && (
+                  <div
+                    className="mb-3 flex flex-col gap-2.5 rounded-lg border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    style={{
+                      borderColor: "var(--color-warmth)",
+                      backgroundColor: "color-mix(in oklab, var(--color-warmth) 7%, transparent)",
+                    }}
+                    role="status"
+                  >
+                    <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+                      {qadaa.unloggedMissed} {qadaa.unloggedMissed === 1 ? "prayer was" : "prayers were"} missed
+                      since the last time you updated the qadaa tracker.
+                    </p>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        onClick={() => handleUnlogged("absorb")}
+                        disabled={unloggedBusy}
+                        className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
+                        style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}
+                      >
+                        Add to qadaa
+                      </button>
+                      <button
+                        onClick={() => handleUnlogged("dismiss")}
+                        disabled={unloggedBusy}
+                        className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {qadaaMsg && (
                   <div aria-live="polite" className="mb-3 text-xs font-medium" style={{ color: "var(--color-success)" }}>

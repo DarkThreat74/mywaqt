@@ -585,8 +585,11 @@ export default function SettingsClient({
 
   // Logout state
   const [loggingOut, setLoggingOut] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteStep, setDeleteStep] = useState(0); // 0 idle · 1 warned · 2 typed
+  const [deleteTyped, setDeleteTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [deletesAt, setDeletesAt] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   // Trusted devices state
   interface TrustedDevice {
@@ -1293,6 +1296,19 @@ export default function SettingsClient({
     window.location.href = "/login";
   }
 
+  // Load any pending scheduled deletion; tick the countdown while set
+  useEffect(() => {
+    fetch("/api/auth/delete")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setDeletesAt(d?.deletesAt ?? null))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!deletesAt) return;
+    const t = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, [deletesAt]);
+
   async function handleDeleteAccount() {
     setDeleting(true);
     try {
@@ -1302,17 +1318,37 @@ export default function SettingsClient({
         credentials: "include",
         body: JSON.stringify({ confirm: "DELETE" }),
       });
-      if (res.ok) {
-        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-        window.location.href = "/login";
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.deletesAt) {
+        setDeletesAt(data.deletesAt);
+        setDeleteStep(0);
+        setDeleteTyped("");
       } else {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || "Failed to delete account. Please try again.");
-        setDeleteConfirm(false);
+        alert(data?.error || "Failed to schedule deletion. Please try again.");
       }
     } catch {
       alert("Network error. Please try again.");
-      setDeleteConfirm(false);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleCancelDeletion() {
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/auth/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "cancel" }),
+      });
+      if (res.ok) {
+        setDeletesAt(null);
+      } else {
+        alert("Couldn't cancel. Please try again.");
+      }
+    } catch {
+      alert("Network error. Please try again.");
     } finally {
       setDeleting(false);
     }
@@ -1372,11 +1408,11 @@ export default function SettingsClient({
       {/* ── Single unified settings card ── */}
       <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
         {/* ── Appearance: Theme ── */}
-        <div className="p-4 sm:p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Sun className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
-            <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Appearance</h2>
-          </div>
+        <CollapsibleSection
+          icon={<Sun className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
+          title="Appearance"
+          defaultOpen
+        >
 
           <div className="mb-1.5">
             <span className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
@@ -1424,16 +1460,13 @@ export default function SettingsClient({
               </span>
             </button>
           </div>
-        </div>
-
-        <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }} />
+        </CollapsibleSection>
 
         {/* ── Profile: Name + Prayer Code ── */}
-        <div className="p-4 sm:p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <User className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
-            <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Profile</h2>
-          </div>
+        <CollapsibleSection
+          icon={<User className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
+          title="Profile"
+        >
 
           {/* Name */}
           <div className="mb-3">
@@ -1527,16 +1560,13 @@ export default function SettingsClient({
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }} />
+        </CollapsibleSection>
 
         {/* ── Prayer Settings: Location + Method + Madhab + Times ── */}
-        <div className="p-4 sm:p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <MapPin className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
-            <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Prayer Settings</h2>
-          </div>
+        <CollapsibleSection
+          icon={<MapPin className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
+          title="Prayer Settings"
+        >
 
           {/* Location — compact display when saved, search bar only when editing/not set */}
           <div className="mb-4">
@@ -1751,9 +1781,7 @@ export default function SettingsClient({
               </p>
             )}
           </div>
-        </div>
-
-        <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }} />
+        </CollapsibleSection>
 
         {/* ── Sharing — collapsible ── */}
         <CollapsibleSection
@@ -2381,40 +2409,112 @@ export default function SettingsClient({
           defaultOpen={false}
         >
           <p className="mb-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            Advanced account settings. Deleting your account permanently removes all personal information.
-            Your prayer logs and calendar events will be anonymized but retained
-            for aggregate analytics. This action cannot be undone.
+            Deleting your account permanently removes everything — prayer logs,
+            calendar events, settings, friends, devices. Nothing is kept.
           </p>
-          {!deleteConfirm ? (
+
+          {deletesAt ? (
+            /* ── Scheduled: countdown + cancel ── */
+            <div
+              className="flex flex-col gap-3 rounded-lg border px-4 py-4"
+              style={{ borderColor: "var(--color-error)", backgroundColor: "color-mix(in oklab, var(--color-error) 6%, transparent)" }}
+              role="alert"
+            >
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" style={{ color: "var(--color-error)" }} />
+                <p className="text-sm font-semibold" style={{ color: "var(--color-error)" }}>
+                  Account deletion scheduled
+                </p>
+              </div>
+              <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+                Your account and all its data will be permanently deleted in{" "}
+                <span className="font-semibold tabular-nums" style={{ color: "var(--color-error)" }}>
+                  {(() => {
+                    const ms = Math.max(0, new Date(deletesAt).getTime() - nowTick);
+                    const h = Math.floor(ms / 3600000);
+                    const m = Math.ceil((ms % 3600000) / 60000);
+                    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+                  })()}
+                </span>
+                . Until then you can still use the app normally.
+              </p>
+              <button
+                onClick={handleCancelDeletion}
+                disabled={deleting}
+                className="self-start rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-50"
+                style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", minHeight: 44 }}
+              >
+                {deleting ? "Canceling..." : "Cancel deletion — keep my account"}
+              </button>
+            </div>
+          ) : deleteStep === 0 ? (
             <button
-              onClick={() => setDeleteConfirm(true)}
+              onClick={() => setDeleteStep(1)}
               className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
               style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }}
             >
               <Trash2 className="h-4 w-4" />
               Delete my account
             </button>
-          ) : (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <span className="text-sm font-medium" style={{ color: "var(--color-error)" }}>
-                Are you sure? This is permanent.
-              </span>
+          ) : deleteStep === 1 ? (
+            /* ── Confirmation 1: the warning ── */
+            <div className="flex flex-col gap-3 rounded-lg border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="text-sm font-medium" style={{ color: "var(--color-error)" }}>
+                This permanently deletes your account — every prayer log, event,
+                streak, and setting. There is no recovery.
+              </p>
+              <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                You&apos;ll get a 5-hour grace period to change your mind before
+                it&apos;s erased.
+              </p>
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => setDeleteConfirm(false)}
+                  onClick={() => setDeleteStep(0)}
+                  className="rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
+                >
+                  Keep my account
+                </button>
+                <button
+                  onClick={() => setDeleteStep(2)}
+                  className="rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors"
+                  style={{ borderColor: "var(--color-error)", color: "var(--color-error)", minHeight: 44 }}
+                >
+                  I understand, continue
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* ── Confirmation 2+3: type DELETE, then schedule ── */
+            <div className="flex flex-col gap-3 rounded-lg border p-4" style={{ borderColor: "var(--color-error)" }}>
+              <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+                Type <span className="font-bold tracking-wide">DELETE</span> to confirm.
+              </p>
+              <input
+                type="text"
+                value={deleteTyped}
+                onChange={(e) => setDeleteTyped(e.target.value)}
+                placeholder="DELETE"
+                autoComplete="off"
+                className="w-full max-w-xs rounded-lg border px-3 py-2.5 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => { setDeleteStep(0); setDeleteTyped(""); }}
                   disabled={deleting}
-                  className="rounded-lg border px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-50"
+                  className="rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-50"
                   style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDeleteAccount}
-                  disabled={deleting}
-                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+                  disabled={deleting || deleteTyped !== "DELETE"}
+                  className="rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
                   style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)", minHeight: 44 }}
                 >
-                  {deleting ? "Deleting..." : "Yes, delete forever"}
+                  {deleting ? "Scheduling..." : "Schedule deletion"}
                 </button>
               </div>
             </div>

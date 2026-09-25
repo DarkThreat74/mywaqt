@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { eq, and, gt, count } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -33,6 +33,19 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // Missed prayers logged after the waterline — surfaced as an "add to
+  // qadaa?" nudge under the tracker.
+  const [missedRow] = await db
+    .select({ value: count() })
+    .from(schema.prayerLog)
+    .where(
+      and(
+        eq(schema.prayerLog.userId, session.userId),
+        eq(schema.prayerLog.status, "missed"),
+        gt(schema.prayerLog.date, ledger.unloggedSeenThrough ?? "0001-01-01"),
+      ),
+    );
+
   return NextResponse.json({
     fajrOwed: ledger.fajrOwed,
     dhuhrOwed: ledger.dhuhrOwed,
@@ -40,5 +53,6 @@ export async function GET(request: NextRequest) {
     maghribOwed: ledger.maghribOwed,
     ishaOwed: ledger.ishaOwed,
     setupCompleted: ledger.setupCompleted,
+    unloggedMissed: missedRow?.value ?? 0,
   });
 }

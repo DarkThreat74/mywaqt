@@ -84,6 +84,9 @@ export const users = pgTable('users', {
   sessionsValidAfter: timestamp('sessions_valid_after', { withTimezone: true }),
   // 6-character prayer share code — share with friends to let them see your prayer streaks
   prayerCode: text('prayer_code').unique(),
+  // Scheduled account deletion — non-null means the account will be fully
+  // deleted 5h after this instant unless the user cancels first.
+  deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
 }, (table) => [
   index('users_role_idx').on(table.role),
   index('users_created_at_idx').on(table.createdAt),
@@ -496,6 +499,9 @@ export const qadaaLedger = pgTable('qadaa_ledger', {
   ishaOwed: integer('isha_owed').default(0).notNull(),
   // Whether the initial setup has been completed
   setupCompleted: boolean('setup_completed').default(false).notNull(),
+  // Waterline for the "missed prayers since last update" prompt — missed
+  // prayer_log rows with a date after this count toward the nudge.
+  unloggedSeenThrough: date('unlogged_seen_through'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
