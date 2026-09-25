@@ -51,10 +51,10 @@ const squareBuf = await sharp(trimmed)
   .toBuffer();
 const square = { clone: () => sharp(squareBuf) };
 
-// Transparent icons — resize only
+// All icons sit on the parchment background — a consistent tile in browser
+// tabs, task switchers, and home screens regardless of OS theme.
 async function png(size, file) {
-  await square.clone().resize(size, size).png().toFile(join(OUT, file));
-  console.log(`  ${file}`);
+  await opaque(size, file);
 }
 
 // Opaque icon on background color (Apple forbids transparency)
