@@ -39,9 +39,14 @@ if (meta.width !== meta.height) {
   console.warn(`warning: source is ${meta.width}x${meta.height} — icons will be cropped to a center square`);
 }
 
-// Load once into a buffer — safe when source lives in public/ (same-file in/out)
-const squareBuf = await src
-  .resize(Math.min(meta.width, meta.height), Math.min(meta.width, meta.height), { fit: "cover" })
+// Trim empty margins, then pad to a transparent square so the mark fills
+// the frame at every size (favicons stay legible).
+const trimmed = await sharp(srcArg).trim().toBuffer();
+const tMeta = await sharp(trimmed).metadata();
+// ~10% padding so iOS/Android masks don't clip the mark's edges
+const side = Math.round(Math.max(tMeta.width, tMeta.height) * 1.1);
+const squareBuf = await sharp(trimmed)
+  .resize({ width: side, height: side, fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
   .png()
   .toBuffer();
 const square = { clone: () => sharp(squareBuf) };
