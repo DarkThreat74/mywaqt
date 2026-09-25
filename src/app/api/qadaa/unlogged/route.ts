@@ -53,6 +53,25 @@ export async function POST(request: NextRequest) {
 
     const waterline = ledger.unloggedSeenThrough ?? "0001-01-01";
 
+    // Waterline = yesterday in the user's timezone — prayers missed today
+    // aren't resolved yet, and still surface tomorrow.
+    const [settings] = await db
+      .select({ timezone: schema.prayerSettings.timezone })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, session.userId))
+      .limit(1);
+    const todayStr = dateStrInTimezone(new Date(), settings?.timezone || "UTC");
+    const yesterday = new Date(`${todayStr}T00:00:00Z`);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    const newWaterline = yesterday.toISOString().slice(0, 10);
+
+    // Single UPDATE for owed columns AND waterline — atomic, so a crash
+    // between absorb and waterline can't double-add or silently drop rows.
+    const updates: Record<string, unknown> = {
+      unloggedSeenThrough: newWaterline,
+      updatedAt: new Date(),
+    };
+
     if (action === "absorb") {
       // Per-prayer missed counts since the waterline — one grouped query.
       const rows = await db
@@ -70,7 +89,6 @@ export async function POST(request: NextRequest) {
         )
         .groupBy(schema.prayerLog.prayerName);
 
-      const updates: Record<string, ReturnType<typeof sql>> = {};
       for (const r of rows) {
         const col = OWED_COL[r.prayerName as keyof typeof OWED_COL];
         if (col && r.missed > 0) {
@@ -78,26 +96,11 @@ export async function POST(request: NextRequest) {
           updates[prop] = sql`${sql.raw(col)} + ${r.missed}`;
         }
       }
-      if (Object.keys(updates).length > 0) {
-        await db
-          .update(schema.qadaaLedger)
-          .set(updates)
-          .where(eq(schema.qadaaLedger.userId, session.userId));
-      }
     }
-
-    // Advance the waterline to today in the user's timezone — today's
-    // prayers aren't resolved yet, so they don't count.
-    const [settings] = await db
-      .select({ timezone: schema.prayerSettings.timezone })
-      .from(schema.prayerSettings)
-      .where(eq(schema.prayerSettings.userId, session.userId))
-      .limit(1);
-    const today = dateStrInTimezone(new Date(), settings?.timezone || "UTC");
 
     await db
       .update(schema.qadaaLedger)
-      .set({ unloggedSeenThrough: today })
+      .set(updates)
       .where(eq(schema.qadaaLedger.userId, session.userId));
 
     const [updated] = await db

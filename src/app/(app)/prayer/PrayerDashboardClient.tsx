@@ -2122,8 +2122,8 @@ export default function PrayerDashboard() {
                     role="status"
                   >
                     <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-                      {qadaa.unloggedMissed} {qadaa.unloggedMissed === 1 ? "prayer was" : "prayers were"} missed
-                      since the last time you updated the qadaa tracker.
+                      {qadaa.unloggedMissed} {qadaa.unloggedMissed === 1 ? "prayer was" : "prayers were"} not logged
+                      and marked as missed since the last time you updated the qadaa tracker.
                     </p>
                     <div className="flex shrink-0 gap-2">
                       <button

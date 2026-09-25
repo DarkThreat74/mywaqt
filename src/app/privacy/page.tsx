@@ -50,9 +50,10 @@ export default function PrivacyPolicyPage() {
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">4. Data Retention & Deletion</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          You can delete your account at any time from Settings. This anonymizes all
-          personally identifiable information (email, name, phone) and revokes your
-          session. Anonymized prayer logs may be retained for aggregate analytics.
+          You can delete your account at any time from Settings → Advanced.
+          Deletion is scheduled with a 5-hour grace period you can cancel at any
+          point; when it ends, your account and all associated data are
+          permanently deleted.
           You can request complete data export by contacting {SUPPORT_EMAIL}. See
           our{" "}
           <a href="/data-deletion" className="font-medium underline" style={{ color: "var(--color-accent)" }}>

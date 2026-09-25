@@ -21,43 +21,30 @@ export default function DataDeletionPage() {
         </p>
         <ol className="ml-5 mt-3 list-decimal space-y-2 text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           <li>Open Waqt and go to <strong>Settings</strong>.</li>
-          <li>Scroll to <strong>Account</strong>.</li>
-          <li>Tap <strong>Delete Account</strong>.</li>
-          <li>Confirm by typing your email when prompted.</li>
+          <li>Open the <strong>Advanced</strong> section.</li>
+          <li>Tap <strong>Delete my account</strong>, acknowledge the warning, then type <strong>DELETE</strong> to confirm.</li>
+          <li>Deletion is scheduled with a <strong>5-hour grace period</strong>. A countdown appears in Settings — tap <strong>Cancel deletion</strong> any time before it ends to keep your account.</li>
         </ol>
       </section>
 
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">What Gets Deleted</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          When you delete your account, the following is immediately anonymized or removed:
+          Once the grace period ends, your account row is removed and every
+          piece of data attached to it is deleted with it — nothing personal is retained:
         </p>
         <ul className="ml-5 mt-3 list-disc space-y-1.5 text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          <li>Your email address is replaced with <code className="rounded px-1" style={{ backgroundColor: "var(--color-paper-2)" }}>[deleted]</code></li>
-          <li>Your display name and first name are cleared</li>
-          <li>Your phone number is removed</li>
-          <li>Your password hash is cleared</li>
-          <li>Your session cookies are revoked</li>
-          <li>Your trusted devices are removed</li>
-          <li>Your push notification subscriptions are removed</li>
-          <li>Your calendar share token and prayer code are revoked</li>
-          <li>Your prayer friend connections are severed</li>
-        </ul>
-      </section>
-
-      <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">What Is Retained (Anonymized)</h2>
-        <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          The following may be retained in anonymized form for aggregate analytics
-          and to preserve data integrity for friends who had prayer accountability
-          partnerships with you:
-        </p>
-        <ul className="ml-5 mt-3 list-disc space-y-1.5 text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          <li>Anonymized prayer log entries (no name, email, or identifier attached)</li>
-          <li>Anonymized event records (no title or personal content — only timestamps for aggregate usage stats)</li>
+          <li>Your account (email, names, password, phone)</li>
+          <li>All prayer logs, streaks, and qadaa records</li>
+          <li>All calendar events, goals, homework, notes, and settings</li>
+          <li>Prayer friend connections, groups, reminders, and cheers</li>
+          <li>Location, prayer settings, and share tokens</li>
+          <li>Trusted devices, push subscriptions, and listening progress</li>
         </ul>
         <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          This anonymized data cannot be linked back to you.
+          The only exception: iqamah times you submitted to the community masjid
+          database remain (they belong to the masjid, not to you) with all
+          attribution to you removed.
         </p>
       </section>
 
