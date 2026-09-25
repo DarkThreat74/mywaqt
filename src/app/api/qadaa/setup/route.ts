@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { acknowledgeQadaaWaterline } from "@/lib/qadaa";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +90,10 @@ export async function POST(request: NextRequest) {
       setupCompleted: true,
     });
   }
+
+  // Setup is "the last time you updated the qadaa tracker" — the nudge
+  // counts only misses from here forward.
+  after(() => acknowledgeQadaaWaterline(session.userId));
 
   return NextResponse.json({
     fajrOwed: amounts.fajr,

@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { acknowledgeQadaaWaterline } from "@/lib/qadaa";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,10 @@ export async function POST(request: NextRequest) {
   if (!updated) {
     return NextResponse.json({ error: "Failed to update qadaa." }, { status: 500 });
   }
+
+  // Touching the ledger acknowledges pending unlogged misses — reset the
+  // nudge waterline to today.
+  after(() => acknowledgeQadaaWaterline(session.userId));
 
   // Log the entry if it's a "prayed" adjustment (negative)
   if (cappedAmount < 0) {

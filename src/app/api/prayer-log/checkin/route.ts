@@ -4,6 +4,7 @@ import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isHaydDay } from "@/lib/prayer/hayd";
 import { recordDayCompletion } from "@/lib/prayer/social";
+import { acknowledgeQadaaWaterline } from "@/lib/qadaa";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +103,14 @@ export async function POST(request: NextRequest) {
   // 'missed'/'pending' can never newly complete a day, so skip the query.
   if (finalStatus === "prayed" || finalStatus === "assumed_prayed" || finalStatus === "excused") {
     after(() => recordDayCompletion(session.userId, date));
+  }
+
+  // Deliberately engaging resets the "unlogged misses" nudge — the waterline
+  // moves to today. 'missed' check-ins are excluded so a prayer the user just
+  // marked missed still surfaces in tomorrow's nudge instead of being
+  // swallowed by the waterline they just raised.
+  if (finalStatus !== "missed") {
+    after(() => acknowledgeQadaaWaterline(session.userId));
   }
 
   return NextResponse.json(entry, { status: 201 });
