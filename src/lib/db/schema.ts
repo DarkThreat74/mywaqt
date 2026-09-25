@@ -327,7 +327,8 @@ export const masjidIqamah = pgTable('masjid_iqamah', {
   maghrib: text('maghrib'),
   isha: text('isha'),
   jummah: jsonb('jummah').$type<string[]>(),
-  submittedBy: uuid('submitted_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // set null on account deletion — community data survives the contributor
+  submittedBy: uuid('submitted_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
@@ -618,7 +619,7 @@ export const talks = pgTable('talks', {
 // Used for "listened" checkmarks, folder progress bars, and resume playback.
 export const talkProgress = pgTable('talk_progress', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   talkId: uuid('talk_id').notNull().references(() => talks.id, { onDelete: 'cascade' }),
   // Last playback position in seconds (0 if not started)
   position: integer('position').default(0).notNull(),

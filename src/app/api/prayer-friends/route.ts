@@ -322,7 +322,7 @@ export async function GET(request: NextRequest) {
       todayVisible: settings.friendsSeeTodayStatus,
       remindedToday: [...(remindedByUserDate.get(`${friendUser.id}|${todayStr}`) ?? [])],
       cheeredToday: cheeredByUserDate.has(`${friendUser.id}|${todayStr}`),
-      sharedStreak: streakByFriend.get(friendUser.id) ?? null,
+      sharedStreak: settings.friendsSeeStreak ? (streakByFriend.get(friendUser.id) ?? null) : null,
       timezone,
     });
   }
