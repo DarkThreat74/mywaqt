@@ -10,6 +10,10 @@ import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
 
+// Real bcrypt hash of a dummy password — used only to equalize response
+// timing when the email isn't registered.
+const DUMMY_HASH = "$2b$10$uT60q.5Lut0JznWahyk/b.OebDf.1G2b697Gce6MV0DHdEISsp4VW";
+
 // Per-account brute-force protection: after 10 failed attempts in 15 min,
 // the account is locked. This is DB-backed so it survives serverless cold
 // starts and is shared across all Vercel function instances.
@@ -95,6 +99,9 @@ export async function POST(request: NextRequest) {
     .limit(1);
 
   if (!user) {
+    // Dummy bcrypt compare so response time matches the user-exists path —
+    // without it, fast-vs-slow responses reveal whether an email is registered.
+    await bcrypt.compare(password ?? "", DUMMY_HASH);
     // Record failed attempt for email enumeration protection
     await db.insert(schema.loginAttempts).values({ email: normalizedEmail });
     return NextResponse.json(

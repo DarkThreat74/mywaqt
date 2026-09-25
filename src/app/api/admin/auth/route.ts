@@ -64,7 +64,10 @@ export async function POST(request: NextRequest) {
       .where(eq(schema.users.email, normalizedEmail))
       .limit(1);
 
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    // Dummy compare on unknown email — equalizes timing so the 401 can't
+    // reveal whether the email exists.
+    const hashToCheck = user?.passwordHash ?? "$2b$10$uT60q.5Lut0JznWahyk/b.OebDf.1G2b697Gce6MV0DHdEISsp4VW";
+    if (!user || !(await bcrypt.compare(password, hashToCheck))) {
       return NextResponse.json(
         { error: "Invalid email or password." },
         { status: 401 },
