@@ -20,9 +20,20 @@ const amiri = Amiri({
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "Waqt — Prayer-centered life tracker",
+  title: {
+    default: "Waqt — Prayer-centered life tracker",
+    template: "%s · Waqt",
+  },
   description:
-    "A calendar and accountability system where the five daily prayers are the fixed anchor everything else is scheduled around.",
+    "Waqt is a free prayer-centered life tracker: a calendar where the five daily prayers are the fixed anchor, with prayer check-ins, qadaa tracking, prayer friends, masjid iqamah times, dhikr, and full offline support.",
+  keywords: [
+    "prayer times app", "salah tracker", "prayer accountability",
+    "qadaa tracker", "muslim calendar app", "iqamah times",
+    "prayer reminder app", "dhikr counter", "hijri calendar",
+    "qibla compass", "offline prayer app", "islamic productivity",
+  ],
+  category: "lifestyle",
+  creator: "Waqt",
   manifest: "/manifest.webmanifest",
   applicationName: "Waqt",
   appleWebApp: {
@@ -52,16 +63,17 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Waqt — Prayer-centered life tracker",
     description:
-      "A calendar and accountability system where the five daily prayers are the fixed anchor everything else is scheduled around.",
+      "A calendar where the five daily prayers are the fixed anchor — prayer check-ins, qadaa tracking, prayer friends, masjid iqamah times, and full offline support. Free.",
     type: "website",
+    url: "/",
     siteName: "Waqt",
     locale: "en_US",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "Waqt — Prayer-centered life tracker",
     description:
-      "A calendar and accountability system where the five daily prayers are the fixed anchor everything else is scheduled around.",
+      "A calendar where the five daily prayers are the fixed anchor — check-ins, qadaa tracking, prayer friends, masjid iqamah times. Free.",
   },
   robots: {
     index: true,

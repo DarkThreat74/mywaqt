@@ -1,0 +1,44 @@
+# Waqt
+
+> Waqt (وقت, "time") is a free prayer-centered life tracker — a calendar where the five daily Islamic prayers are the fixed anchor and everything else is scheduled around them.
+
+## What it is
+
+A PWA (web, iOS via Capacitor, Android) that combines prayer accountability with everyday planning. Prayer tracking is free forever; accountability features are never paywalled.
+
+## Core features
+
+- Prayer-anchored calendar: day, month, and list views with the five prayers rendered as fixed background bands; overlapping events stack side-by-side.
+- One-tap prayer check-in: log each salah, record masjid attendance, see green completion marks and streaks.
+- Prayer analytics: consistency percentage, average prayer time, masjid attendance rate per prayer.
+- Qadaa tracker: count down missed prayers owed per salah (fajr, dhuhr, asr, maghrib, isha).
+- Prayer friends: share a six-character code, send friend requests, compare streaks, send reminders and encouragement.
+- Prayer groups: invite-code groups (up to 20 members) for shared accountability.
+- Masjid finder: nearby masjids with iqamah and Jumu'ah times from mosque websites, community submissions, and public registries.
+- Full offline support: events, prayer logging, and qadaa queue locally and sync on reconnect.
+- Prayer time notifications: push alerts when each prayer window opens, plus event reminders.
+- Tools: dhikr counter, Qibla compass, Hijri calendar, 99 Names of Allah, Akhirah Card (sadaqah tracker), curated talks library.
+- Homework & classes, goals (weekly + long-term), recurring events, public calendar sharing via named links.
+
+## Principles
+
+- Prayer accountability is free forever.
+- Unmarked prayers auto-resolve as "assumed prayed" — the app never punishes missing data.
+- No AI-generated religious content; dhikr and talks come from a human-curated content bank.
+- No ads, no tracking pixels; user data is scoped per account and never shared between accounts.
+
+## Tech
+
+Next.js, TypeScript, Drizzle ORM on Neon Postgres, Vercel hosting, service-worker offline with IndexedDB outbox, web-push notifications, AlAdhan API for prayer times.
+
+## Links
+
+- Home: /
+- Sign up: /signup
+- Log in: /login
+- Privacy: /privacy
+- Terms: /terms
+- Cookies: /cookies
+- Data deletion: /data-deletion
+- Support: /support
+- Sitemap: /sitemap.xml

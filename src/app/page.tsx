@@ -7,16 +7,110 @@
  * Animation: CSS-only fade-ins (no motion/react) for instant first paint.
  */
 import Link from "next/link";
+import type { Metadata } from "next";
 import { ArrowRight } from "lucide-react";
+import { SITE_URL } from "@/lib/site-config";
 
 // Static — the proxy (src/proxy.ts) already redirects logged-in users
 // from / to /calendar/day, so this page only renders for logged-out visitors.
 // Prerendered at build time and served from the CDN edge for instant first load.
 export const dynamic = "force-static";
 
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
+
+// Structured data for search engines and AI crawlers (Google, Bing,
+// ChatGPT/Perplexity retrieval). Kept in sync with the visible page copy.
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": `${SITE_URL}/#website`,
+      url: SITE_URL,
+      name: "Waqt",
+      description:
+        "A prayer-centered life tracker — a calendar where the five daily prayers are the fixed anchor.",
+      inLanguage: "en",
+    },
+    {
+      "@type": "WebApplication",
+      "@id": `${SITE_URL}/#app`,
+      name: "Waqt",
+      alternateName: "MyWaqt",
+      url: SITE_URL,
+      applicationCategory: "LifestyleApplication",
+      operatingSystem: "Web, iOS, Android",
+      browserRequirements: "Requires JavaScript",
+      description:
+        "Waqt is a free prayer-centered life tracker. A calendar where the five daily prayers are the fixed anchor everything else is scheduled around — with one-tap prayer check-ins, qadaa tracking, prayer analytics, prayer friends and streaks, masjid iqamah times, homework and goals tracking, a dhikr counter, Hijri calendar, Qibla compass, 99 Names of Allah, a curated talks library, and full offline support.",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      featureList: [
+        "Prayer-anchored calendar (day, month, list views)",
+        "One-tap prayer check-in with masjid attendance",
+        "Prayer analytics and consistency streaks",
+        "Qadaa (missed prayer) tracker per salah",
+        "Prayer friends and group accountability",
+        "Masjid finder with iqamah and Jumu'ah times",
+        "Recurring events, reminders, homework and goals",
+        "Public calendar sharing",
+        "Full offline support with background sync",
+        "Prayer time notifications",
+        "Dhikr counter with curated sequences",
+        "Hijri calendar, Qibla compass, 99 Names of Allah",
+        "Curated talks library",
+      ],
+      inLanguage: "en",
+    },
+    {
+      "@type": "FAQPage",
+      "@id": `${SITE_URL}/#faq`,
+      mainEntity: [
+        {
+          "@type": "Question",
+          name: "What is Waqt?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Waqt is a prayer-centered life tracker — a calendar where the five daily prayers are fixed anchors and everything else (events, tasks, reminders) is scheduled around them. It combines prayer accountability check-ins with everyday planning.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "Is Waqt free?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Yes. Prayer tracking is free forever — accountability is never gated behind a paywall.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "Does Waqt work offline?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Yes. You can open the app, add events, log prayers, and adjust qadaa without internet. Changes queue locally and sync automatically when you reconnect.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "Does Waqt show iqamah times for local masjids?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Yes. The masjid finder shows nearby masjids with iqamah and Jumu'ah times, sourced from mosque websites, community submissions, and public registries.",
+          },
+        },
+      ],
+    },
+  ],
+};
+
 export default function MarketingPage() {
   return (
     <div className="flex min-h-dvh flex-col" style={{ fontFamily: "var(--font-spectral), Georgia, serif" }}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* ── Nav ── */}
       <header
         className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md"
@@ -53,6 +147,7 @@ export default function MarketingPage() {
         </div>
       </header>
 
+      <main>
       {/* ── Hero — full viewport, Arabic calligraphy background ── */}
       <section
         className="relative flex min-h-dvh items-center overflow-hidden pt-20"
@@ -408,6 +503,7 @@ export default function MarketingPage() {
           </div>
         </div>
       </section>
+      </main>
 
       {/* ── Footer ── */}
       <footer
