@@ -46,7 +46,7 @@ export async function generateMetadata({
       type: "website",
       images: [
         {
-          url: "/icon.svg",
+          url: "/icon-512.png",
           width: 512,
           height: 512,
           alt: "Waqt",
@@ -57,10 +57,13 @@ export async function generateMetadata({
       card: "summary",
       title,
       description,
-      images: ["/icon.svg"],
+      images: ["/icon-512.png"],
     },
     icons: {
-      icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+      icon: [
+        { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+        { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
+      ],
     },
   };
 }
