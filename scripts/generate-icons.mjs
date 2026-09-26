@@ -77,9 +77,20 @@ async function maskable(size, file) {
   console.log(`  ${file}`);
 }
 
+// Circular favicon: parchment disc with transparent corners, mark shrunk
+// to ~70% so the calligraphy breathes at 16-48px.
+async function circleIcon(size) {
+  const inner = Math.round(size * 0.7);
+  const mark = await square.clone().resize(inner, inner).png().toBuffer();
+  const disc = Buffer.from(
+    `<svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="${bg}"/></svg>`,
+  );
+  return sharp(disc).composite([{ input: mark }]).png().toBuffer();
+}
+
 // Minimal .ico writer — embeds PNG buffers (valid for all modern browsers)
-async function ico(sizes, file) {
-  const pngs = await Promise.all(sizes.map((s) => square.clone().resize(s, s).png().toBuffer()));
+async function ico(sizes, file, render = (s) => square.clone().resize(s, s).png().toBuffer()) {
+  const pngs = await Promise.all(sizes.map(render));
   const header = Buffer.alloc(6);
   header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(sizes.length, 4);
   const entries = [];
@@ -100,9 +111,11 @@ async function ico(sizes, file) {
 }
 
 console.log(`generating icons from ${srcArg} (bg ${bg})`);
-await png(16, "favicon-16.png");
-await png(32, "favicon-32.png");
-await ico([16, 32, 48], "favicon.ico");
+await writeFile(join(OUT, "favicon-16.png"), await circleIcon(16));
+console.log("  favicon-16.png");
+await writeFile(join(OUT, "favicon-32.png"), await circleIcon(32));
+console.log("  favicon-32.png");
+await ico([16, 32, 48], "favicon.ico", circleIcon);
 await opaque(180, "apple-touch-icon.png");
 await png(192, "icon-192.png");
 await png(512, "icon-512.png");
