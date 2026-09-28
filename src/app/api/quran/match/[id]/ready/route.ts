@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, asc } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -46,8 +46,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Not your match." }, { status: 403 });
   }
 
-  // Stamp my ready flag — only while the round is still unresolved so a
-  // stale request can't mark ready on a finished/future round.
+  // Ready only counts for the earliest unresolved round — pre-readying
+  // future rounds would let one side blitz through before the other's
+  // screen ever shows the ayah.
+  const [next] = await db
+    .select({ round: schema.quranMatchRounds.round })
+    .from(schema.quranMatchRounds)
+    .where(and(eq(schema.quranMatchRounds.matchId, id), isNull(schema.quranMatchRounds.resolvedAt)))
+    .orderBy(asc(schema.quranMatchRounds.round))
+    .limit(1);
+  if (next?.round !== round) {
+    return NextResponse.json({ error: "Not the current round." }, { status: 409 });
+  }
+
   await db
     .update(schema.quranMatchRounds)
     .set(meIsCreator ? { creatorReadyAt: new Date() } : { opponentReadyAt: new Date() })

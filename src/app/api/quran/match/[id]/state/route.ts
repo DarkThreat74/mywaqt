@@ -4,6 +4,8 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
+import { getCorpus } from "@/lib/content/quran-server";
+import { SURAHS, plausibleOptions, mulberry32 } from "@/lib/content/quran";
 
 export const dynamic = "force-dynamic";
 
@@ -59,14 +61,32 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const now = Date.now();
   const updates: Promise<unknown>[] = [];
 
-  // Lazy timeout: round started >90s and one side still hasn't answered.
+  // Lazy resolution — no sweeper job needed. Started rounds resolve 90s
+  // after start regardless of who answered (ghost = draw). Unstarted
+  // rounds resolve 120s after the previous round/match start, so a
+  // player who never readies can't stall the match forever.
+  let refTime = m.startedAt?.getTime() ?? now;
   for (const r of rounds) {
-    if (r.resolvedAt || !r.startedAt) continue;
+    if (r.resolvedAt) { refTime = r.resolvedAt.getTime(); continue; }
+    if (!r.startedAt) {
+      if (now - refTime > 120_000) {
+        updates.push(
+          db.update(schema.quranMatchRounds)
+            .set({ resolvedAt: new Date() })
+            .where(and(eq(schema.quranMatchRounds.matchId, id), eq(schema.quranMatchRounds.round, r.round))),
+        );
+        r.resolvedAt = new Date();
+        refTime = now;
+      }
+      continue;
+    }
     const cDone = r.creatorCorrect !== null;
     const oDone = r.opponentCorrect !== null;
-    if (cDone && oDone) continue;
-    if (now - r.startedAt.getTime() > ROUND_TIMEOUT_MS && (cDone || oDone)) {
-      // The side that answered wins if correct, else draw.
+    const timedOut = now - r.startedAt.getTime() > ROUND_TIMEOUT_MS;
+    // Resolve when both answered — covers the race where two answers
+    // landed between each other's SELECT, leaving nobody to resolve —
+    // or when the 90s window elapsed. Both-wrong / both-ghost = draw.
+    if ((cDone && oDone) || timedOut) {
       const winner = resolveWinner({
         creatorCorrect: r.creatorCorrect ?? false, creatorMs: r.creatorMs,
         opponentCorrect: r.opponentCorrect ?? false, opponentMs: r.opponentMs,
@@ -116,15 +136,28 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .where(eq(schema.users.id, oppId))
     .limit(1);
 
+  // Option sets for ≤6-option difficulties are computed HERE, seeded by
+  // match seed + round — never expose the seed: pickMatchVerses is
+  // deterministic, so a leaked seed reveals every upcoming ayah's answer.
+  let options: number[] | null = null;
+  if (current?.startedAt) {
+    const optCount = m.difficulty === "easy" ? 4 : m.difficulty === "medium" ? 6 : 114;
+    if (optCount <= 6) {
+      const verse = getCorpus().verses[current.verseIdx];
+      const rand = mulberry32(m.seed * 31 + current.round);
+      options = plausibleOptions(SURAHS[verse.s - 1], optCount, rand).map((s) => s.n);
+    }
+  }
+
   return NextResponse.json({
     status,
     difficulty: m.difficulty,
     totalRounds: m.rounds,
-    seed: m.seed, // drives identical option sets on both clients
     role: meIsCreator ? "creator" : "opponent",
     opponentName: opp?.firstName || opp?.displayName || "Opponent",
     myWins: meIsCreator ? wins.creator : wins.opponent,
     oppWins: meIsCreator ? wins.opponent : wins.creator,
+    roundsPlayed: rounds.filter((r) => r.resolvedAt).length,
     winnerId: m.winnerId,
     youWin: status === "done" ? m.winnerId === session.userId : null,
     round: current
@@ -137,6 +170,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           oppReady: !!(meIsCreator ? current.opponentReadyAt : current.creatorReadyAt),
           meAnswered: (meIsCreator ? current.creatorCorrect : current.opponentCorrect) !== null,
           oppAnswered: (meIsCreator ? current.opponentCorrect : current.creatorCorrect) !== null,
+          options,
         }
       : null,
     // Last resolved round's reveal — winner + both times for the scoreboard pause.

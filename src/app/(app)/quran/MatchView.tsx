@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Swords, Timer } from "lucide-react";
 import {
-  SURAHS, plausibleOptions, uniqueFragment, mulberry32,
+  SURAHS, uniqueFragment,
   type Surah, type Verse, type CorpusIndex,
 } from "@/lib/content/quran";
 
@@ -12,14 +12,15 @@ interface MatchState {
   role: "creator" | "opponent";
   difficulty: "easy" | "medium" | "advanced" | "elite";
   totalRounds: number;
-  seed: number;
   opponentName: string;
   myWins: number;
   oppWins: number;
+  roundsPlayed: number;
   youWin: boolean | null;
   round: {
     n: number; verseIdx: number | null; started: boolean; startedAt: string | null;
     meReady: boolean; oppReady: boolean; meAnswered: boolean; oppAnswered: boolean;
+    options: number[] | null;
   } | null;
   lastResult: {
     n: number; won: boolean | null; winnerId: string | null; verseIdx: number;
@@ -50,7 +51,6 @@ export default function MatchView({
   const shownAtRef = useRef(0);
   const sentRef = useRef<{ ready: number | null; answered: number | null }>({ ready: null, answered: null });
   const resultTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stRef = useRef<MatchState | null>(null);
 
   const fragMode = st?.difficulty === "medium" || st?.difficulty === "elite" ? "unique" : "full";
   const optCount = st?.difficulty === "easy" ? 4 : st?.difficulty === "medium" ? 6 : 114;
@@ -61,7 +61,6 @@ export default function MatchView({
       const res = await fetch(`/api/quran/match/${matchId}/state`, { cache: "no-store" });
       if (!res.ok) { setErr("Match unavailable."); return; }
       const s: MatchState = await res.json();
-      stRef.current = s;
       setSt(s);
     } catch { /* keep polling — transient blips are fine */ }
   }, [matchId]);
@@ -73,7 +72,7 @@ export default function MatchView({
         const res = await fetch(`/api/quran/match/${matchId}/state`, { cache: "no-store" });
         if (!res.ok) { if (live) setErr("Match unavailable."); return; }
         const s: MatchState = await res.json();
-        if (live) { stRef.current = s; setSt(s); }
+        if (live) setSt(s);
       } catch { /* interval retries */ }
     }
     void first();
@@ -98,13 +97,14 @@ export default function MatchView({
       return;
     }
 
-    // Round just started — materialize the verse + seeded options.
-    if (r.started && r.verseIdx !== null && sentRef.current.answered !== r.n && picked === null && !verse) {
+    // Round just started — materialize the verse + server-provided options.
+    // (≤6-option modes must wait for the option list, never fall back to 114.)
+    if (r.started && r.verseIdx !== null && sentRef.current.answered !== r.n && picked === null && !verse
+        && !(optCount <= 6 && !r.options)) {
       const v = corpus.verses[r.verseIdx];
       setVerse(v);
       setFrag(fragMode === "unique" ? uniqueFragment(v, corpus.idx) : null);
-      const rand = mulberry32(st.seed * 31 + r.n);
-      setOptions(optCount <= 6 ? plausibleOptions(SURAHS[v.s - 1], optCount, rand) : SURAHS);
+      setOptions(r.options ? r.options.map((n) => SURAHS[n - 1]) : SURAHS);
       shownAtRef.current = Date.now();
     }
   }, [st, result, verse, picked, corpus, fragMode, optCount, matchId]);
@@ -241,7 +241,7 @@ export default function MatchView({
           <h2 className="mt-3 text-xl font-semibold" style={{ color: "var(--color-ink)" }}>
             {meWon ? "You win!" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
           </h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>{st.myWins} — {st.oppWins} after {st.totalRounds} rounds</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>{st.myWins} — {st.oppWins} over {st.roundsPlayed} round{st.roundsPlayed === 1 ? "" : "s"}</p>
           <button onClick={onExit} className="mt-6 rounded-xl px-5 py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: "var(--color-accent)" }}>
             Back to Quran Challenge
           </button>
@@ -267,11 +267,13 @@ export default function MatchView({
         );
       })()}
 
-      {/* Waiting for opponent to ready */}
-      {st.status === "active" && !result && st.round && !st.round.started && (
+      {/* Waiting — opponent hasn't readied, or round starting */}
+      {st.status === "active" && !result && st.round && !verse && (
         <div className="mt-6 animate-pulse rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
           <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
-            Round {st.round.n} — waiting for {st.opponentName}…
+            {st.round.started
+              ? `Round ${st.round.n} — get ready…`
+              : `Round ${st.round.n} — waiting for ${st.opponentName}…`}
           </p>
         </div>
       )}
