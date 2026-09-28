@@ -511,6 +511,9 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         try {
           mapObj.current = new maplibregl.Map({
             container: mapRef.current,
+            // Default WebGL ctx has failIfMajorPerformanceCaveat → constructor
+            // throws on software/battery-saver GPUs → blank screen. Allow it.
+            canvasContextAttributes: { failIfMajorPerformanceCaveat: false },
             style: "https://tiles.openfreemap.org/styles/liberty",
             center: hasCenter
               ? [searchCenter?.lng ?? lng, searchCenter?.lat ?? lat]

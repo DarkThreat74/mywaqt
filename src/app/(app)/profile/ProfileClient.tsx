@@ -131,57 +131,64 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
 
   const { quran: q } = p;
   const span = q.nextRank ? q.nextRank.min - q.rank.min : 1;
-  const pct = q.nextRank ? Math.min(100, Math.round(((q.rating - q.rank.min) / span) * 100)) : 100;
+  const pct = q.nextRank ? Math.min(1, (q.rating - q.rank.min) / span) : 1;
   const accuracy = q.played > 0 ? Math.round((q.correct / q.played) * 100) : null;
+  // Progress ring around the medallion — circumference of r=44.
+  const RING_C = 2 * Math.PI * 44;
+
+  const avatar = (
+    <>
+      {p.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- data URL, no optimization needed
+        <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <span
+          className="flex h-full w-full items-center justify-center text-3xl font-bold"
+          style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+        >
+          {p.name.charAt(0).toUpperCase()}
+        </span>
+      )}
+    </>
+  );
 
   return (
-    <div className="mx-auto w-full max-w-lg px-4 py-6">
+    <div className="mx-auto w-full max-w-lg px-4 pb-10">
       <Link
         href={userId ? "/prayer?tab=friends" : "/settings"}
-        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+        className="inline-flex items-center gap-1 rounded-lg py-2 pr-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
         style={{ color: "var(--color-ink-muted)" }}
       >
         <ChevronLeft className="h-3.5 w-3.5" /> {userId ? "Friends" : "Settings"}
       </Link>
 
-      {/* Identity */}
-      <div className="mt-4 flex flex-col items-center text-center">
+      {/* Hero — portrait on a quiet radial field, name, then meta chips */}
+      <div className="relative mt-2 flex flex-col items-center pb-8 pt-6 text-center">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-44"
+          style={{ background: "radial-gradient(ellipse 65% 90% at 50% 0%, color-mix(in oklab, var(--color-accent) 9%, transparent), transparent)" }}
+        />
         {userId ? (
-          <div className="waqt-scale-in h-20 w-20 overflow-hidden rounded-full">
-            {p.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element -- data URL, no optimization needed
-              <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <span
-                className="flex h-full w-full items-center justify-center text-2xl font-bold"
-                style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
-              >
-                {p.name.charAt(0).toUpperCase()}
-              </span>
-            )}
+          <div
+            className="waqt-scale-in h-24 w-24 overflow-hidden rounded-full"
+            style={{ boxShadow: "0 0 0 4px var(--color-paper), 0 0 0 5px var(--color-paper-3)" }}
+          >
+            {avatar}
           </div>
         ) : (
           <>
             <button
               onClick={() => fileRef.current?.click()}
               disabled={avatarBusy}
-              className="waqt-scale-in group relative block h-20 w-20 overflow-hidden rounded-full transition-opacity hover:opacity-90 disabled:opacity-60"
+              className="waqt-scale-in group relative block h-24 w-24 overflow-hidden rounded-full transition-opacity hover:opacity-90 disabled:opacity-60"
+              style={{ boxShadow: "0 0 0 4px var(--color-paper), 0 0 0 5px var(--color-paper-3)" }}
               aria-label="Change profile photo"
               title="Change profile photo"
             >
-              {p.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- data URL, no optimization needed
-                <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <span
-                  className="flex h-full w-full items-center justify-center text-2xl font-bold"
-                  style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
-                >
-                  {p.name.charAt(0).toUpperCase()}
-                </span>
-              )}
+              {avatar}
               <span
-                className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 pb-1 pt-4 text-[8px] font-semibold uppercase tracking-wider"
+                className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 pb-1.5 pt-5 text-[8px] font-semibold uppercase tracking-wider"
                 style={{ background: "linear-gradient(transparent, color-mix(in oklab, var(--color-ink) 70%, transparent))", color: "var(--color-paper)" }}
               >
                 <Camera className="h-2.5 w-2.5" /> {avatarBusy ? "…" : p.avatarUrl ? "Edit" : "Photo"}
@@ -190,81 +197,107 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickAvatar} />
           </>
         )}
-        <h1 className="mt-3 text-xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>{p.name}</h1>
-        <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-          Joined {new Date(p.joinedAt).toLocaleDateString(undefined, { month: "long", year: "numeric" })}
-          {p.gender ? ` · ${p.gender === "male" ? "Male" : "Female"}` : ""}
-          {p.prayerCode ? ` · ${p.prayerCode}` : ""}
-        </p>
+        <h1 className="mt-4 text-2xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>{p.name}</h1>
         {p.isHifidh && (
-          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
-            <span style={{ fontFamily: "var(--font-arabic)" }}>حَافِظ</span> Hafidh
+          <span
+            className="mt-1.5 text-base"
+            style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}
+          >
+            حَافِظ
           </span>
         )}
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+          {[
+            `Since ${new Date(p.joinedAt).toLocaleDateString(undefined, { month: "short", year: "numeric" })}`,
+            p.gender === "male" ? "Male" : p.gender === "female" ? "Female" : null,
+            p.prayerCode,
+          ]
+            .filter(Boolean)
+            .map((m) => (
+              <span
+                key={m}
+                className="rounded-full border px-2.5 py-1 text-[10px] font-medium"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", backgroundColor: "var(--color-paper)" }}
+              >
+                {m}
+              </span>
+            ))}
+        </div>
       </div>
 
-      {/* Ranked card */}
+      {/* Rank card — medallion wears the progress ring */}
       <div
-        className="waqt-fade-up mt-6 rounded-2xl border p-5"
+        className="waqt-fade-up rounded-2xl border px-5 pb-4 pt-5"
         style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
       >
-        <div className="flex items-center justify-between">
+        <div className="flex items-baseline justify-between">
           <p className="text-[10px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--color-ink-muted)" }}>
-            Elite rank
+            Elite ladder
           </p>
-          <span className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{q.rating} pts</span>
+          <p className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+            <span className="text-sm font-bold" style={{ color: "var(--color-ink)" }}>{q.rating}</span> pts
+          </p>
         </div>
 
-        <div className="mt-4 flex items-center gap-4">
-          <RankBadge rank={q.rank} size={64} />
-          <div className="min-w-0 flex-1">
-            <p className="flex items-baseline gap-2 text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
-              {q.rank.en}
-              <span className="text-sm" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}>{q.rank.ar}</span>
-            </p>
-            {q.rank.timed && (
-              <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--color-warmth)" }}>
-                Ranked — {Math.round((q.timedLimitMs ?? 0) / 1000)}s per question
-              </p>
-            )}
-            {/* Progress to next rank */}
-            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-              <div
-                className="h-full rounded-full"
+        <div className="mt-5 flex items-center gap-5">
+          {/* Medallion + progress ring */}
+          <div className="relative h-[104px] w-[104px] shrink-0">
+            <svg viewBox="0 0 104 104" className="absolute inset-0 -rotate-90">
+              <circle cx="52" cy="52" r="44" fill="none" strokeWidth="4" style={{ stroke: "var(--color-paper-3)" }} />
+              <circle
+                cx="52" cy="52" r="44" fill="none" strokeWidth="4" strokeLinecap="round"
                 style={{
-                  width: `${barIn ? pct : 0}%`,
-                  backgroundColor: "var(--color-accent)",
-                  transition: "width 0.9s cubic-bezier(0.16, 1, 0.3, 1)",
+                  stroke: "var(--color-accent)",
+                  strokeDasharray: RING_C,
+                  strokeDashoffset: barIn ? RING_C * (1 - pct) : RING_C,
+                  transition: "stroke-dashoffset 1.1s cubic-bezier(0.16, 1, 0.3, 1)",
                 }}
               />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <RankBadge rank={q.rank} size={72} />
             </div>
-            <p className="mt-1 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              {q.nextRank ? `${q.nextRank.min - q.rating} pts to ${q.nextRank.en}` : "Highest rank reached"}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+              {q.rank.en}
+              <span className="ml-2 align-middle text-base" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}>{q.rank.ar}</span>
+            </p>
+            {q.rank.timed && (
+              <p className="mt-1 text-[11px] font-medium" style={{ color: "var(--color-warmth)" }}>
+                {Math.round((q.timedLimitMs ?? 0) / 1000)}s per question
+              </p>
+            )}
+            <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              {q.nextRank ? `${q.nextRank.min - q.rating} pts to ${q.nextRank.en}` : "The summit — nothing above."}
             </p>
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="mt-5 grid grid-cols-3 gap-2 text-center">
+        {/* Stats — hairline dividers, not boxes */}
+        <div className="mt-6 flex divide-x border-y py-3 text-center" style={{ borderColor: "var(--color-paper-3)", ["--tw-divide-opacity" as never]: 1 }}>
           {[
             { label: "Answered", value: String(q.played) },
             { label: "Accuracy", value: accuracy === null ? "—" : `${accuracy}%` },
             { label: "Best streak", value: String(q.bestStreak) },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl py-3" style={{ backgroundColor: "var(--color-paper-2)" }}>
-              <p className="text-base font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{s.value}</p>
-              <p className="mt-0.5 text-[10px] uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>{s.label}</p>
+            <div key={s.label} className="flex-1 px-1" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="text-lg font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{s.value}</p>
+              <p className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.12em]" style={{ color: "var(--color-ink-muted)" }}>{s.label}</p>
             </div>
           ))}
         </div>
 
-        <Link
-          href="/quran"
-          className="mt-4 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-          style={{ backgroundColor: "var(--color-accent)" }}
-        >
-          <Swords className="h-4 w-4" /> {userId ? "Challenge in a match" : "Play Elite — climb the ladder"}
-        </Link>
+        <div className="mt-3 text-center">
+          <Link
+            href="/quran"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold transition-colors hover:text-[var(--color-accent)]"
+            style={{ color: "var(--color-ink-soft)" }}
+          >
+            <Swords className="h-3.5 w-3.5" /> {userId ? "Challenge in a match" : "Enter Elite"}
+            <span aria-hidden="true">→</span>
+          </Link>
+        </div>
 
         {/* Ladder & scoring — tap to expand */}
         <button
