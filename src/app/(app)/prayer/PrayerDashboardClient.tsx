@@ -245,7 +245,10 @@ export default function PrayerDashboard() {
     friendsSeeSunnah: boolean;
     friendsSeeMasjidPct: boolean;
     friendsNotifyComplete: boolean;
-  }>({ friendsSeeStreak: true, friendsSeeTodayStatus: false, friendsSeeSunnah: false, friendsSeeMasjidPct: true, friendsNotifyComplete: false });
+    friendsSearchable: boolean;
+  }>({ friendsSeeStreak: true, friendsSeeTodayStatus: false, friendsSeeSunnah: false, friendsSeeMasjidPct: true, friendsNotifyComplete: false, friendsSearchable: true });
+  const [nameQuery, setNameQuery] = useState("");
+  const [nameResults, setNameResults] = useState<{ name: string; code: string; relation: string | null }[] | null>(null);
   const [groups, setGroups] = useState<PrayerGroup[]>([]);
   const [raceSort, setRaceSort] = useState<"streak" | "week">("week");
   const [groupCode, setGroupCode] = useState("");
@@ -485,6 +488,7 @@ export default function PrayerDashboard() {
               friendsSeeSunnah: data.friendsSeeSunnah,
               friendsSeeMasjidPct: data.friendsSeeMasjidPct,
               friendsNotifyComplete: data.friendsNotifyComplete === true,
+              friendsSearchable: data.friendsSearchable !== false,
             });
             setGender(data.gender ?? null);
             setHaydTracking(data.haydTracking === true);
@@ -809,8 +813,22 @@ export default function PrayerDashboard() {
     }
   }
 
-  async function handleAddFriend() {
-    if (!addFriendCode.trim()) return;
+  // Debounced "find by name" — prefix match server-side, 300ms quiet period
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const q = nameQuery.trim();
+      if (q.length < 2) { setNameResults(null); return; }
+      fetch(`/api/prayer-friends/search?q=${encodeURIComponent(q)}`)
+        .then((r) => (r.ok ? r.json() : { results: [] }))
+        .then((d) => setNameResults(Array.isArray(d.results) ? d.results : []))
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [nameQuery]);
+
+  async function handleAddFriend(codeArg?: string) {
+    const code = (codeArg ?? addFriendCode).trim().toUpperCase();
+    if (!code) return;
     setFriendError(null);
     setFriendSuccess(null);
     setAddingFriend(true);
@@ -818,12 +836,14 @@ export default function PrayerDashboard() {
       const res = await fetch("/api/prayer-friends/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: addFriendCode.trim().toUpperCase() }),
+        body: JSON.stringify({ code }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.pending) {
         setFriendSuccess(data.message || "Friend request sent! They'll need to accept it.");
         setAddFriendCode("");
+        setNameQuery("");
+        setNameResults(null);
         setTimeout(() => setFriendSuccess(null), 5000);
       } else if (res.ok && !data.offline && data.friend && !data.pending) {
         // Auto-accepted (e.g. they had already sent us a request)
@@ -836,6 +856,8 @@ export default function PrayerDashboard() {
         setPendingRequests((prev) => prev.filter((r) => r.requester.id !== data.friend.id));
         setFriendSuccess(`You are now friends with ${data.friend.firstName || data.friend.displayName || "friend"}!`);
         setAddFriendCode("");
+        setNameQuery("");
+        setNameResults(null);
         setTimeout(() => setFriendSuccess(null), 4000);
       } else if (data.offline) {
         setFriendSuccess("Saved offline — will sync when online.");
@@ -2277,7 +2299,7 @@ export default function PrayerDashboard() {
                     style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 40 }}
                   />
                   <button
-                    onClick={handleAddFriend}
+                    onClick={() => handleAddFriend()}
                     disabled={addingFriend || !addFriendCode.trim()}
                     className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50"
                     style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", minHeight: 40 }}
@@ -2286,6 +2308,49 @@ export default function PrayerDashboard() {
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* ── Find by name ── */}
+            <div className="relative mb-4">
+              <input
+                type="text"
+                value={nameQuery}
+                onChange={(e) => setNameQuery(e.target.value)}
+                placeholder="Search by name — e.g. “Saad”"
+                maxLength={40}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 40 }}
+                aria-label="Search friends by name"
+              />
+              {nameResults !== null && nameQuery.trim().length >= 2 && (
+                <div className="mt-1 space-y-1 rounded-xl border p-1.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                  {nameResults.length === 0 && (
+                    <p className="px-2 py-1.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>No one by that name — they may have hidden themselves in settings.</p>
+                  )}
+                  {nameResults.map((r) => (
+                    <div key={r.code} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5">
+                      <div className="min-w-0">
+                        <span className="block truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>{r.name}</span>
+                        <span className="text-[11px] tracking-wider" style={{ color: "var(--color-ink-muted)" }}>{r.code}</span>
+                      </div>
+                      {r.relation === "accepted" ? (
+                        <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Friends ✓</span>
+                      ) : r.relation === "pending" ? (
+                        <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Pending</span>
+                      ) : (
+                        <button
+                          onClick={() => handleAddFriend(r.code)}
+                          disabled={addingFriend}
+                          className="rounded-lg border px-2.5 py-1 text-[11px] font-medium disabled:opacity-50"
+                          style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+                        >
+                          Add
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {friendError && <p className="mb-3 text-xs" style={{ color: "var(--color-warmth)" }}>{friendError}</p>}
@@ -2303,6 +2368,7 @@ export default function PrayerDashboard() {
                   { key: "friendsSeeSunnah", label: "Today's sunnah prayers" },
                   { key: "friendsSeeMasjidPct", label: "My masjid percentage" },
                   { key: "friendsNotifyComplete", label: "Notify me when a friend completes all 5" },
+                  { key: "friendsSearchable", label: "Let others find me by name" },
                 ] as const).map((item) => (
                   <label key={item.key} className="flex items-center justify-between gap-2">
                     <span className="text-xs" style={{ color: "var(--color-ink-soft)" }}>{item.label}</span>

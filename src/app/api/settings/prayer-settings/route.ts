@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
       friendsSeeSunnah: schema.prayerSettings.friendsSeeSunnah,
       friendsSeeMasjidPct: schema.prayerSettings.friendsSeeMasjidPct,
       friendsNotifyComplete: schema.prayerSettings.friendsNotifyComplete,
+      friendsSearchable: schema.prayerSettings.friendsSearchable,
       gender: schema.prayerSettings.gender,
       haydTracking: schema.prayerSettings.haydTracking,
       masjidExternalId: schema.prayerSettings.masjidExternalId,
@@ -69,6 +70,7 @@ export async function PATCH(request: NextRequest) {
     friendsSeeSunnah?: boolean;
     friendsSeeMasjidPct?: boolean;
     friendsNotifyComplete?: boolean;
+    friendsSearchable?: boolean;
     gender?: string;
     haydTracking?: boolean;
     masjidExternalId?: string | null;
@@ -91,6 +93,7 @@ export async function PATCH(request: NextRequest) {
   if (typeof body.friendsSeeSunnah === "boolean") updates.friendsSeeSunnah = body.friendsSeeSunnah;
   if (typeof body.friendsSeeMasjidPct === "boolean") updates.friendsSeeMasjidPct = body.friendsSeeMasjidPct;
   if (typeof body.friendsNotifyComplete === "boolean") updates.friendsNotifyComplete = body.friendsNotifyComplete;
+  if (typeof body.friendsSearchable === "boolean") updates.friendsSearchable = body.friendsSearchable;
   if (body.gender === "male" || body.gender === "female") updates.gender = body.gender;
   // Hayd tracking only applies to female accounts — check effective gender
   if (typeof body.haydTracking === "boolean") {

@@ -329,6 +329,7 @@ export const prayerSettings = pgTable('prayer_settings', {
   friendsSeeTodayStatus: boolean('friends_see_today_status').default(false).notNull(),
   friendsSeeSunnah: boolean('friends_see_sunnah').default(false).notNull(),
   friendsSeeMasjidPct: boolean('friends_see_masjid_pct').default(true).notNull(),
+  friendsSearchable: boolean('friends_searchable').default(true).notNull(),
   // Opt-in: push me when an accepted friend completes all 5 prayers today
   friendsNotifyComplete: boolean('friends_notify_complete').default(false).notNull(),
   // 'male' | 'female' — captured in onboarding; gates hayd tracking
