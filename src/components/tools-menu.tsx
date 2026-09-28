@@ -3,73 +3,26 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Compass, Heart, HandHeart, BookOpen, PlayCircle, X, Sparkles, LayoutGrid, ArrowUpRight, Timer, Gamepad2 } from "lucide-react";
+import { X, LayoutGrid } from "lucide-react";
 
 interface Tool {
   href: string;
   label: string;
   arabic: string;
   description: string;
-  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 }
 
+const AR_NUMERAL = ["١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
+
 const TOOLS: Tool[] = [
-  {
-    href: "/qibla",
-    label: "Qibla",
-    arabic: "قبلة",
-    description: "Direction to the Kaaba",
-    icon: Compass,
-  },
-  {
-    href: "/dhikr",
-    label: "Dhikr",
-    arabic: "ذكر",
-    description: "Tasbih counter",
-    icon: Heart,
-  },
-  {
-    href: "/sadaqah",
-    label: "Sadaqah",
-    arabic: "صدقة",
-    description: "Track your giving",
-    icon: HandHeart,
-  },
-  {
-    href: "/names",
-    label: "99 Names",
-    arabic: "أسماء الله",
-    description: "Names of Allah",
-    icon: Sparkles,
-  },
-  {
-    href: "/study",
-    label: "Study",
-    arabic: "دراسة",
-    description: "Focus timer, sounds & fidgets",
-    icon: Timer,
-  },
-  {
-    href: "/learn",
-    label: "Learn",
-    arabic: "علم",
-    description: "Prayer knowledge",
-    icon: BookOpen,
-  },
-  {
-    href: "/quran",
-    label: "Quran Challenge",
-    arabic: "قرآن",
-    description: "Guess the surah from an ayah",
-    icon: Gamepad2,
-  },
-  {
-    href: "/talks",
-    label: "Talks",
-    arabic: "دروس",
-    description: "Lectures & khutbahs",
-    icon: PlayCircle,
-  },
+  { href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba" },
+  { href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter" },
+  { href: "/sadaqah", label: "Sadaqah", arabic: "صدقة", description: "Track your giving" },
+  { href: "/names", label: "99 Names", arabic: "أسماء الله", description: "Names of Allah" },
+  { href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer, sounds & fidgets" },
+  { href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge" },
+  { href: "/quran", label: "Quran Challenge", arabic: "قرآن", description: "Guess the surah from an ayah" },
+  { href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs" },
 ];
 
 export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "sidebar" }) {
@@ -177,18 +130,14 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
             </div>
 
             {/* Header — editorial: Arabic wordmark + close */}
-            <div className="flex items-start justify-between px-5 pt-4 pb-4 sm:pt-5">
+            <div className="flex items-end justify-between px-5 pt-5 pb-3 sm:pt-6">
               <div>
-                <p
-                  className="text-xl leading-none"
-                  style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}
-                  aria-hidden="true"
-                >
-                  أدوات
-                </p>
-                <h2 className="mt-1.5 text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+                <h2 className="text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
                   Tools
                 </h2>
+                <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                  Quiet utilities, made with care
+                </p>
               </div>
               <button
                 onClick={dismiss}
@@ -200,58 +149,47 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
               </button>
             </div>
 
-            {/* Divider */}
-            <div className="mx-5 h-px" style={{ backgroundColor: "var(--color-paper-3)" }} />
-
-            {/* Tool list — clean rows, consistent with the rest of the app */}
-            <div className="flex flex-col px-3 py-2 pb-5">
-              {TOOLS.map((tool, i) => {
-                const Icon = tool.icon;
-                return (
-                  <Link
-                    key={tool.href}
-                    href={tool.href}
-                    prefetch={false}
-                    onClick={() => setOpen(false)}
-                    className="group flex items-center gap-3.5 rounded-xl px-2.5 py-3 transition-colors hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
-                    style={{
-                      animation: `tools-item-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) ${0.035 * i + 0.05}s both`,
-                    }}
+            {/* Tool list — editorial index: Arabic-Indic numerals, hairline
+                dividers, typography first. No icon boxes. */}
+            <nav className="px-3 pb-5">
+              {TOOLS.map((tool, i) => (
+                <Link
+                  key={tool.href}
+                  href={tool.href}
+                  prefetch={false}
+                  onClick={() => setOpen(false)}
+                  className="group flex items-baseline gap-4 border-b px-2.5 py-3.5 transition-colors last:border-0 hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
+                  style={{
+                    borderColor: "var(--color-paper-3)",
+                    animation: `tools-item-in 0.34s cubic-bezier(0.16, 1, 0.3, 1) ${0.03 * i + 0.04}s both`,
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="w-6 shrink-0 self-center text-center text-lg leading-none"
+                    style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}
                   >
-                    <span
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border"
-                      style={{
-                        backgroundColor: "var(--color-paper-2)",
-                        borderColor: "var(--color-paper-3)",
-                        color: "var(--color-ink-soft)",
-                      }}
-                    >
-                      <Icon className="h-[18px] w-[18px]" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-baseline gap-2">
-                        <span className="text-[15px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
-                          {tool.label}
-                        </span>
-                        <span
-                          className="text-[13px] leading-none"
-                          style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}
-                        >
-                          {tool.arabic}
-                        </span>
+                    {AR_NUMERAL[i]}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline justify-between gap-3">
+                      <span className="text-[15px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
+                        {tool.label}
                       </span>
-                      <span className="mt-0.5 block truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                        {tool.description}
+                      <span
+                        className="shrink-0 text-[15px] leading-none"
+                        style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}
+                      >
+                        {tool.arabic}
                       </span>
                     </span>
-                    <ArrowUpRight
-                      className="h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                      style={{ color: "var(--color-ink-muted)" }}
-                    />
-                  </Link>
-                );
-              })}
-            </div>
+                    <span className="mt-0.5 block truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                      {tool.description}
+                    </span>
+                  </span>
+                </Link>
+              ))}
+            </nav>
           </div>
         </div>,
         document.body
@@ -281,7 +219,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
           to { transform: translateY(100%); }
         }
         @keyframes tools-item-in {
-          from { opacity: 0; transform: translateY(8px); }
+          from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
         }
         @media (min-width: 640px) {

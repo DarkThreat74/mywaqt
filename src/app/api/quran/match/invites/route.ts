@@ -3,6 +3,7 @@ import { eq, and, inArray, gt } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { INVITE_TTL_MS } from "@/lib/quran-match";
 
 export const dynamic = "force-dynamic";
 
@@ -17,13 +18,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  const fresh = new Date(Date.now() - 30 * 60 * 1000); // invites go stale after 30min
+  const fresh = new Date(Date.now() - INVITE_TTL_MS); // invites expire after 5min
   const rows = await db
     .select({
       id: schema.quranMatches.id,
       creatorId: schema.quranMatches.creatorId,
       difficulty: schema.quranMatches.difficulty,
       rounds: schema.quranMatches.rounds,
+      createdAt: schema.quranMatches.createdAt,
     })
     .from(schema.quranMatches)
     .where(
@@ -49,6 +51,7 @@ export async function GET(request: NextRequest) {
       from: nameOf.get(r.creatorId) ?? "A friend",
       difficulty: r.difficulty,
       rounds: r.rounds,
+      expiresAt: new Date(r.createdAt.getTime() + INVITE_TTL_MS).toISOString(),
     })),
   });
 }

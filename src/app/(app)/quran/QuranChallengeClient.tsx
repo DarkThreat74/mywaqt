@@ -247,8 +247,20 @@ export default function QuranChallengeClient() {
 
       {round && surah && (
         <>
-          {/* The ayah */}
-          <div className="mt-5 rounded-2xl border p-5 sm:p-6" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+          {/* The ayah — correct: accent border flash; wrong: shake + red */}
+          <div
+            className={`mt-5 rounded-2xl border p-5 sm:p-6 ${picked !== null && picked !== round.verse.s ? "waqt-answer-shake" : ""}`}
+            style={{
+              borderColor: picked === null
+                ? "var(--color-paper-3)"
+                : picked === round.verse.s ? "var(--color-accent)" : "#dc2626",
+              borderWidth: picked !== null ? 2 : 1,
+              backgroundColor: picked !== null && picked === round.verse.s
+                ? "color-mix(in oklab, var(--color-accent) 5%, var(--color-paper))"
+                : "var(--color-paper)",
+              transition: "border-color 0.25s, background-color 0.25s",
+            }}
+          >
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--color-ink-muted)" }}>
                 Which surah is this from?
@@ -271,7 +283,7 @@ export default function QuranChallengeClient() {
                 fontSize: round.side ? "1.6rem" : "1.45rem",
               }}
             >
-              {round.fragText}
+              {picked === null ? round.fragText : round.verse.w.join(" ")}
             </p>
 
             {/* English — full-ayah modes get the translation too */}

@@ -2,6 +2,9 @@ import { eq, and, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { sendPrayerPush } from "@/lib/notifications/push";
 
+/** Pending challenges live for 5 minutes, then expire server-side. */
+export const INVITE_TTL_MS = 5 * 60 * 1000;
+
 /** Verify the pair are accepted friends (either direction). */
 export async function areFriends(a: string, b: string): Promise<boolean> {
   const [row] = await db

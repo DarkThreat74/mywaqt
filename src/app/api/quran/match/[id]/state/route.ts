@@ -6,6 +6,7 @@ import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { getCorpus } from "@/lib/content/quran-server";
 import { SURAHS, plausibleOptions, mulberry32 } from "@/lib/content/quran";
+import { INVITE_TTL_MS } from "@/lib/quran-match";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +115,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const decided = wins.creator >= majority || wins.opponent >= majority;
   const allResolved = rounds.every((r) => r.resolvedAt);
   let status = m.status;
+  // Pending challenges live 5 minutes — expire lazily so no sweeper needed.
+  if (status === "pending" && now - m.createdAt.getTime() > INVITE_TTL_MS) {
+    status = "expired";
+    updates.push(
+      db.update(schema.quranMatches)
+        .set({ status: "expired", endedAt: new Date() })
+        .where(and(eq(schema.quranMatches.id, id), eq(schema.quranMatches.status, "pending"))),
+    );
+  }
   if (status === "active" && (decided || allResolved)) {
     status = "done";
     const winnerId = wins.creator > wins.opponent ? m.creatorId : wins.opponent > wins.creator ? m.opponentId : null;
@@ -160,6 +170,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     roundsPlayed: rounds.filter((r) => r.resolvedAt).length,
     winnerId: m.winnerId,
     youWin: status === "done" ? m.winnerId === session.userId : null,
+    inviteExpiresAt: status === "pending"
+      ? new Date(m.createdAt.getTime() + INVITE_TTL_MS).toISOString()
+      : null,
     round: current
       ? {
           n: current.round,

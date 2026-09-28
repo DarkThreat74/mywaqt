@@ -4,7 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { pickMatchVerses } from "@/lib/content/quran-server";
-import { areFriends, notifyUser } from "@/lib/quran-match";
+import { areFriends, notifyUser, INVITE_TTL_MS } from "@/lib/quran-match";
 import { isValidUUID } from "@/lib/validation";
 import crypto from "node:crypto";
 
@@ -54,8 +54,18 @@ export async function POST(request: NextRequest) {
           and(eq(schema.quranMatches.creatorId, session.userId), eq(schema.quranMatches.opponentId, opponentId)),
           and(eq(schema.quranMatches.creatorId, opponentId), eq(schema.quranMatches.opponentId, session.userId)),
         ),
-        or(eq(schema.quranMatches.status, "pending"), eq(schema.quranMatches.status, "active")),
-        gt(schema.quranMatches.createdAt, new Date(Date.now() - 2 * 60 * 60 * 1000)),
+        // Pending counts only while the 5min invite window is open; an
+        // unanswered challenge past that is expired and mustn't block a new one.
+        or(
+          and(
+            eq(schema.quranMatches.status, "pending"),
+            gt(schema.quranMatches.createdAt, new Date(Date.now() - INVITE_TTL_MS)),
+          ),
+          and(
+            eq(schema.quranMatches.status, "active"),
+            gt(schema.quranMatches.createdAt, new Date(Date.now() - 2 * 60 * 60 * 1000)),
+          ),
+        ),
       ),
     )
     .limit(1);

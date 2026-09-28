@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
-import { notifyUser } from "@/lib/quran-match";
+import { notifyUser, INVITE_TTL_MS } from "@/lib/quran-match";
 
 export const dynamic = "force-dynamic";
 
@@ -41,12 +41,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         eq(schema.quranMatches.id, id),
         eq(schema.quranMatches.opponentId, session.userId), // only the challenged may respond
         eq(schema.quranMatches.status, "pending"),
+        gt(schema.quranMatches.createdAt, new Date(Date.now() - INVITE_TTL_MS)),
       ),
     )
     .returning({ creatorId: schema.quranMatches.creatorId });
 
   if (!updated) {
-    return NextResponse.json({ error: "No pending match for you." }, { status: 404 });
+    // Lazily close stale pending invites so both sides see "expired", and a
+    // fresh challenge can be sent without waiting for a sweeper.
+    await db
+      .update(schema.quranMatches)
+      .set({ status: "expired", endedAt: new Date() })
+      .where(
+        and(
+          eq(schema.quranMatches.id, id),
+          eq(schema.quranMatches.opponentId, session.userId),
+          eq(schema.quranMatches.status, "pending"),
+        ),
+      );
+    return NextResponse.json({ error: "This challenge has expired." }, { status: 410 });
   }
 
   if (body.accept) {

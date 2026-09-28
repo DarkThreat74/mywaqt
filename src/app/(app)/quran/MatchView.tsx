@@ -8,7 +8,8 @@ import {
 } from "@/lib/content/quran";
 
 interface MatchState {
-  status: "pending" | "active" | "done" | "declined";
+  status: "pending" | "active" | "done" | "declined" | "expired";
+  inviteExpiresAt: string | null;
   role: "creator" | "opponent";
   difficulty: "easy" | "medium" | "advanced" | "elite";
   totalRounds: number;
@@ -128,6 +129,21 @@ export default function MatchView({
 
   useEffect(() => () => { if (resultTimer.current) clearTimeout(resultTimer.current); }, []);
 
+  // 1s tick drives the pending-invite countdown on both sides.
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    if (st?.status !== "pending") return;
+    setNowTick(Date.now()); // eslint-disable-line react-hooks/set-state-in-effect -- seed the countdown clock
+    const t = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [st?.status]);
+
+  const inviteSecs = st?.inviteExpiresAt
+    ? Math.max(0, Math.ceil((new Date(st.inviteExpiresAt).getTime() - nowTick) / 1000))
+    : null;
+  const inviteClock = inviteSecs === null ? null
+    : `${Math.floor(inviteSecs / 60)}:${String(inviteSecs % 60).padStart(2, "0")}`;
+
   async function respond(accept: boolean) {
     try {
       const res = await fetch(`/api/quran/match/${matchId}/respond`, {
@@ -178,6 +194,11 @@ export default function MatchView({
             <p className="mt-2 text-sm" style={{ color: "var(--color-ink-muted)" }}>
               {DIFF_LABEL[st.difficulty]} · best of {st.totalRounds}
             </p>
+            {inviteClock && (
+              <p className="mt-1.5 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                Expires in {inviteClock}
+              </p>
+            )}
             <div className="mt-6 flex justify-center gap-3">
               <button
                 onClick={() => void respond(true)}
@@ -199,8 +220,13 @@ export default function MatchView({
           <>
             <h2 className="mt-4 text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Challenge sent</h2>
             <p className="mt-2 text-sm" style={{ color: "var(--color-ink-muted)" }}>
-              Waiting for {st.opponentName} to accept — {DIFF_LABEL[st.difficulty]}, best of {st.totalRounds}.
+              Waiting for {st.opponentName}&rsquo;s reply — {DIFF_LABEL[st.difficulty]}, best of {st.totalRounds}.
             </p>
+            {inviteClock && (
+              <p className="mt-1.5 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                Closes in {inviteClock}
+              </p>
+            )}
             <button onClick={onExit} className="mt-6 text-sm font-medium" style={{ color: "var(--color-ink-muted)" }}>Leave</button>
           </>
         )}
@@ -208,10 +234,14 @@ export default function MatchView({
     );
   }
 
-  if (st.status === "declined") {
+  if (st.status === "declined" || st.status === "expired") {
     return (
       <div className="mx-auto w-full max-w-lg px-4 py-16 text-center">
-        <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>{st.opponentName} declined the match.</p>
+        <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
+          {st.status === "expired"
+            ? "The challenge expired — send a new one."
+            : `${st.opponentName} declined the match.`}
+        </p>
         <button onClick={onExit} className="mt-4 text-sm font-medium" style={{ color: "var(--color-accent)" }}>Back</button>
       </div>
     );
@@ -281,15 +311,27 @@ export default function MatchView({
       {/* Live round */}
       {st.status === "active" && !result && verse && st.round?.started && (
         <>
-          <div className="mt-5 rounded-2xl border p-5 sm:p-6" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+          <div
+            className={`mt-5 rounded-2xl border p-5 sm:p-6 ${picked !== null && picked !== verse.s ? "waqt-answer-shake" : ""}`}
+            style={{
+              borderColor: picked === null
+                ? "var(--color-paper-3)"
+                : picked === verse.s ? "var(--color-accent)" : "#dc2626",
+              borderWidth: picked !== null ? 2 : 1,
+              backgroundColor: picked !== null && picked === verse.s
+                ? "color-mix(in oklab, var(--color-accent) 5%, var(--color-paper))"
+                : "var(--color-paper)",
+              transition: "border-color 0.25s, background-color 0.25s",
+            }}
+          >
             <p className="text-[10px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--color-ink-muted)" }}>
               First to answer wins
             </p>
             <p className="mt-4 leading-[2.2]" dir="rtl" lang="ar"
-              style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink)", fontSize: frag ? "1.6rem" : "1.45rem" }}>
-              {frag ? frag.text : verse.w.join(" ")}
+              style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink)", fontSize: frag && picked === null ? "1.6rem" : "1.45rem" }}>
+              {picked === null ? (frag ? frag.text : verse.w.join(" ")) : verse.w.join(" ")}
             </p>
-            {fragMode === "full" && (
+            {(fragMode === "full" || picked !== null) && (
               <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--color-ink-soft)", fontFamily: "var(--font-serif, Georgia, serif)" }}>
                 “{verse.en}”
               </p>

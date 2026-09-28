@@ -163,14 +163,21 @@ export interface Verse {
 const MARK_RE = /[ً-ْٰـۖ-ۭ]/g;
 
 function normWord(w: string): string {
-  return w.replace(MARK_RE, "").replace(/[ٱأإآ]/g, "ا");
+  let s = w.replace(MARK_RE, "").replace(/[ٱأإآ]/g, "ا");
+  // Clitic normalization: واصبر / فاصبر / بكتاب / لكتاب are the same phrase
+  // as اصبر / كتاب to a reader — only the conjunction/preposition letter was
+  // merged onto the front. Strip one leading clitic so phrase-level dupes
+  // like "اصبر على ما يقولون" (4 ayahs) get caught. Only shrinks the pool —
+  // a false merge disqualifies a fragment, it can never create a wrong one.
+  if (s.length > 3 && /^[وفبل]/.test(s)) s = s.slice(1);
+  return s;
 }
 
 export function normalizeArabic(s: string): string[] {
   return s.split(/\s+/).filter(Boolean).map(normWord);
 }
 
-const BISMILLAH_NORM = "بسم الله الرحمن الرحيم";
+const BISMILLAH_NORM = "سم الله الرحمن الرحيم"; // بسم loses its ب clitic in normWord
 
 export function loadCorpus(raw: { s: number; verses: [number, string, string][] }[]): Verse[] {
   const out: Verse[] = [];
@@ -191,53 +198,53 @@ export function loadCorpus(raw: { s: number; verses: [number, string, string][] 
 }
 
 export interface CorpusIndex {
-  prefixes: Map<string, number>; // first-N-words → verse count
-  suffixes: Map<string, number>;
-  dupTrigrams: Set<string>; // 3-grams appearing in >1 verse
+  /** Normalized n-gram (n=3..7) → occurrence count across EVERY position of every verse. */
+  grams: Map<string, number>;
 }
 
-/** One-time index build over 6236 verses (~50ms). */
+/** One-time index build over 6236 verses. */
 export function buildIndex(verses: Verse[]): CorpusIndex {
-  const prefixes = new Map<string, number>();
-  const suffixes = new Map<string, number>();
-  const tri = new Map<string, number>();
+  const grams = new Map<string, number>();
   for (const v of verses) {
-    for (let n = 3; n <= 5; n++) {
-      if (v.nw.length >= n) {
-        const p = v.nw.slice(0, n).join(" ");
-        prefixes.set(p, (prefixes.get(p) ?? 0) + 1);
-        const s = v.nw.slice(-n).join(" ");
-        suffixes.set(s, (suffixes.get(s) ?? 0) + 1);
+    for (let n = 3; n <= 7; n++) { // up to 7: fragment 6 + one-word extension check
+      for (let i = 0; i + n <= v.nw.length; i++) {
+        const g = v.nw.slice(i, i + n).join(" ");
+        grams.set(g, (grams.get(g) ?? 0) + 1);
       }
     }
-    for (let i = 0; i + 3 <= v.nw.length; i++) {
-      const g = v.nw.slice(i, i + 3).join(" ");
-      tri.set(g, (tri.get(g) ?? 0) + 1);
-    }
   }
-  const dupTrigrams = new Set<string>();
-  for (const [g, c] of tri) if (c > 1) dupTrigrams.add(g);
-  return { prefixes, suffixes, dupTrigrams };
+  return { grams };
 }
 
 /**
- * A fragment that exists NOWHERE else in the Quran — the "alladhina kazzabu
- * bil kitab" trick. Tries openings then endings, shortest first. Returns the
- * display slice of the ORIGINAL uthmani words (normalized words index-align
- * with the stripped text only if we rebuild it, so we re-derive display words
- * from the raw text by the same positions).
+ * A fragment that exists NOWHERE else in the Quran — at ANY position, not
+ * just verse boundaries. "اصبر على ما يقولون" closes four different ayahs,
+ * so the shown text must be globally unique or a player who knows the
+ * repeated phrase gets an ambiguous question. Tries openings then endings,
+ * shortest first. Display slice comes from the original uthmani words.
  */
 export function uniqueFragment(
   v: Verse,
   idx: CorpusIndex,
 ): { text: string; side: "start" | "end" } | null {
+  // The shown fragment must be globally unique AND, when the verse continues
+  // past it, its one-word extension must be unique too — otherwise the cut
+  // sits inside a longer repeated phrase ("اصبر على ما يقولون" ends four
+  // ayahs) and the question is genuinely ambiguous.
+  const gram1 = (words: string[]) => (idx.grams.get(words.join(" ")) ?? 0);
   for (const n of [3, 4, 5, 6]) {
-    if (v.nw.length >= n && (idx.prefixes.get(v.nw.slice(0, n).join(" ")) ?? 0) === 1) {
+    if (v.nw.length < n) continue;
+    const pre = v.nw.slice(0, n);
+    if (gram1(pre) !== 1) continue;
+    if (v.nw.length === n || gram1(v.nw.slice(0, n + 1)) === 1) {
       return { text: v.w.slice(0, n).join(" ") + " …", side: "start" };
     }
   }
   for (const n of [3, 4, 5, 6]) {
-    if (v.nw.length >= n && (idx.suffixes.get(v.nw.slice(-n).join(" ")) ?? 0) === 1) {
+    if (v.nw.length < n) continue;
+    const suf = v.nw.slice(-n);
+    if (gram1(suf) !== 1) continue;
+    if (v.nw.length === n || gram1(v.nw.slice(-(n + 1))) === 1) {
       return { text: "… " + v.w.slice(-n).join(" "), side: "end" };
     }
   }

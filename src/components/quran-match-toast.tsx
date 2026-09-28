@@ -9,6 +9,7 @@ interface Invite {
   from: string;
   difficulty: string;
   rounds: number;
+  expiresAt: string;
 }
 
 const DIFF_LABEL: Record<string, string> = { easy: "Easy", medium: "Medium", advanced: "Advanced", elite: "Elite" };
@@ -41,8 +42,21 @@ export default function QuranMatchToast() {
     return () => { live = false; if (timer.current) clearInterval(timer.current); };
   }, []);
 
-  // Hide while on the quran page — the match view is the place to be.
-  const hidden = pathname === "/quran" || !invite;
+  // 1s tick for the invite countdown — 5min window, matches server expiry.
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    if (!invite) return;
+    setNowTick(Date.now()); // eslint-disable-line react-hooks/set-state-in-effect -- seed the countdown clock
+    const t = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [invite?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- re-key on the invite only
+
+  const secsLeft = invite ? Math.max(0, Math.ceil((new Date(invite.expiresAt).getTime() - nowTick) / 1000)) : 0;
+  const clock = `${Math.floor(secsLeft / 60)}:${String(secsLeft % 60).padStart(2, "0")}`;
+
+  // Hide while on the quran page — the match view is the place to be —
+  // or once the 5min window closed (server enforces the same cutoff).
+  const hidden = pathname === "/quran" || !invite || secsLeft <= 0;
 
   async function respond(accept: boolean) {
     if (!invite || busy) return;
@@ -86,6 +100,7 @@ export default function QuranMatchToast() {
           </p>
           <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
             Quran Challenge · {DIFF_LABEL[invite.difficulty] ?? invite.difficulty} · Best of {invite.rounds}
+            <span className="tabular-nums"> · {clock}</span>
           </p>
           <div className="mt-3 flex gap-2">
             <button
