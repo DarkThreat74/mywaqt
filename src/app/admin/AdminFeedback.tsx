@@ -90,7 +90,9 @@ export function AdminFeedback() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: r.id, resolved: !r.resolved }),
-    }).catch(() => load());
+    })
+      .then((res) => { if (!res.ok) load(); })
+      .catch(() => load());
   }
 
   function copyPrompt(r: FeedbackRow) {

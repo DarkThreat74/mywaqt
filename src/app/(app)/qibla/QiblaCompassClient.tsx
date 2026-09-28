@@ -184,6 +184,9 @@ export default function QiblaCompassClient() {
       // to page load, which is useless for finding north.
       if (ev.absolute === true && ev.alpha !== null &&
           typeof ev.alpha === "number" && typeof ev.beta === "number" && typeof ev.gamma === "number") {
+        // Mark before the tilt gate — an upright phone still HAS a compass;
+        // we just filter its readings, not misreport it as "relative-only".
+        hasAbsoluteRef.current = true;
 
         // Tilt gate — a qibla compass is used flat. When the phone is rolled
         // or pitched steeply, alpha's z-axis no longer points at the sky and
@@ -194,7 +197,6 @@ export default function QiblaCompassClient() {
         // tilt-compensated atan2 formula: it flips past ~60° roll and caused
         // the "messes up when I tilt side to side" bug. Flat-phone alpha is
         // stable under roll — same approach as Falah's production qibla page.
-        hasAbsoluteRef.current = true;
         updateHeading((360 - ev.alpha + screenAngle() + 360) % 360);
       }
     };

@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { logError } from "@/lib/logError";
+import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,8 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = (await request.json().catch(() => null)) as { id?: string; resolved?: boolean } | null;
-    if (!body?.id || typeof body.resolved !== "boolean") {
+    // Validate the UUID — Postgres throws on malformed uuid input → 500.
+    if (!body?.id || !isValidUUID(body.id) || typeof body.resolved !== "boolean") {
       return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     }
 
