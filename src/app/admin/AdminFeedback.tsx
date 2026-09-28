@@ -24,12 +24,21 @@ function buildPrompt(r: FeedbackRow): string {
   const who = r.userName || r.userFirstName || r.userEmail;
   const when = new Date(r.createdAt).toLocaleString();
   return [
-    `Bug report from Waqt (${when}):`,
-    `Reporter: ${who} <${r.userEmail}>`,
+    `Bug report from Waqt — Next.js 16 + React + TypeScript + Drizzle/Neon PWA.`,
+    `Reported ${when} by ${who} <${r.userEmail}>`,
     `Page: ${r.pageDetail || r.page}`,
-    `Theme: ${r.theme || "unknown"} · Viewport: ${r.viewport || "unknown"} · UA: ${r.userAgent || "unknown"}`,
+    `Theme: ${r.theme || "unknown"} · Viewport: ${r.viewport || "unknown"}`,
+    `UA: ${r.userAgent || "unknown"}`,
     "",
     r.message,
+    "",
+    "---",
+    "Audit the affected code path end to end and do deep research on the root",
+    "cause: use agent-reach (web/GitHub search) and context7 (library docs),",
+    "and check how mature open-source projects solve the same problem.",
+    "Verify the fix across platforms — Android, iOS/iPadOS Safari, installed",
+    "PWA, desktop (Windows/macOS/Linux). Fix the root cause, not the symptom,",
+    "then run: pnpm exec tsc --noEmit && pnpm exec eslint --max-warnings=0",
   ].join("\n");
 }
 

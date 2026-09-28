@@ -23,8 +23,11 @@ interface QiblaData {
  *    mixing it with true-north `deviceorientationabsolute` data corrupts the
  *    filter. Only absolute readings (e.absolute === true, or iOS
  *    webkitCompassHeading) feed the compass.
- * 3. Tilt-compensated heading via the W3C worked-example rotation components,
- *    which stays correct when the phone isn't perfectly vertical.
+ * 3. Tilt gate — readings are ignored when the phone is rolled/pitched
+ *    steeply (|beta| or |gamma| > 65°). The W3C tilt-compensated atan2
+ *    formula was removed: it flips past ~60° roll and made the dial swing
+ *    wildly when users tilted side-to-side. Flat-phone `360 − alpha`
+ *    (same as production qibla apps like Falah) stays stable under tilt.
  * 4. Alignment detection — when the Qibla marker sits under the lubber line
  *    within ±4°, the UI signals "facing Qibla" and pulses the haptic motor.
  *
@@ -156,7 +159,11 @@ export default function QiblaCompassClient() {
         filteredHeadingRef.current = raw;
         currentHeadingRef.current = raw;
       } else {
-        filteredHeadingRef.current = (prev + angleDelta(prev, raw) * SENSOR_ALPHA + 360) % 360;
+        const jump = angleDelta(prev, raw);
+        // Outlier rejection — magnetometer spikes (metal, motors, glitchy
+        // reads) can throw a single reading 90°+; drop it rather than swing.
+        if (Math.abs(jump) > 90) return;
+        filteredHeadingRef.current = (prev + jump * SENSOR_ALPHA + 360) % 360;
       }
     }
 
@@ -175,11 +182,20 @@ export default function QiblaCompassClient() {
 
       // Absolute events only — e.absolute === false means alpha is relative
       // to page load, which is useless for finding north.
-      if (ev.absolute === true && ev.alpha !== null && ev.beta !== null && ev.gamma !== null &&
+      if (ev.absolute === true && ev.alpha !== null &&
           typeof ev.alpha === "number" && typeof ev.beta === "number" && typeof ev.gamma === "number") {
+
+        // Tilt gate — a qibla compass is used flat. When the phone is rolled
+        // or pitched steeply, alpha's z-axis no longer points at the sky and
+        // the reading is meaningless; freeze the dial instead of swinging it.
+        if (Math.abs(ev.beta ?? 0) > 65 || Math.abs(ev.gamma ?? 0) > 65) return;
+
+        // heading = 360 − alpha + screen rotation. Deliberately NOT the W3C
+        // tilt-compensated atan2 formula: it flips past ~60° roll and caused
+        // the "messes up when I tilt side to side" bug. Flat-phone alpha is
+        // stable under roll — same approach as Falah's production qibla page.
         hasAbsoluteRef.current = true;
-        const h = compassHeading(ev.alpha, ev.beta, ev.gamma);
-        if (!Number.isNaN(h)) updateHeading((h + screenAngle() + 360) % 360);
+        updateHeading((360 - ev.alpha + screenAngle() + 360) % 360);
       }
     };
 
@@ -289,7 +305,7 @@ export default function QiblaCompassClient() {
         <div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Qibla</h1>
           <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            {data.bearing}° {data.cardinal} · {data.distance.toLocaleString()} km to the Kaaba
+            {data.bearing}° {data.cardinal} · {kmToMi(data.distance).toLocaleString()} mi to the Kaaba
           </p>
         </div>
         <p className="pt-0.5 text-xl leading-none" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }} aria-hidden="true">
@@ -474,7 +490,7 @@ export default function QiblaCompassClient() {
             <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>Distance to Kaaba</span>
           </div>
           <span className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>
-            {data.distance.toLocaleString()} km
+            {kmToMi(data.distance).toLocaleString()} mi ({data.distance.toLocaleString()} km)
           </span>
         </div>
 
@@ -500,25 +516,7 @@ export default function QiblaCompassClient() {
   );
 }
 
-/**
- * Tilt-compensated compass heading from deviceorientation alpha/beta/gamma —
- * the W3C worked-example rotation components, using atan2 for correct
- * quadrant handling. Returns degrees 0–360 clockwise from North (in the
- * device frame; caller adds screen orientation).
- */
-function compassHeading(alpha: number, beta: number, gamma: number): number {
-  const alphaRad = alpha * (Math.PI / 180);
-  const betaRad = beta * (Math.PI / 180);
-  const gammaRad = gamma * (Math.PI / 180);
-
-  const cA = Math.cos(alphaRad);
-  const sA = Math.sin(alphaRad);
-  const sB = Math.sin(betaRad);
-  const cG = Math.cos(gammaRad);
-  const sG = Math.sin(gammaRad);
-
-  const rA = -cA * sG - sA * sB * cG;
-  const rB = -sA * sG + cA * sB * cG;
-
-  return (Math.atan2(rA, rB) * (180 / Math.PI) + 360) % 360;
+/** km → miles */
+function kmToMi(km: number): number {
+  return Math.round(km * 0.621371);
 }
