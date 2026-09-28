@@ -44,6 +44,13 @@ export const MATCH_WIN_PTS = 48;
 export const MATCH_LOSS_PTS = -6;
 export const MATCH_DRAW_PTS = 0;
 
+/**
+ * Mercy rule — from the 4th consecutive wrong answer, a solo loss costs at
+ * most 2 points until the streak breaks with a correct answer.
+ */
+export const MERCY_TRIGGER = 4;
+export const MERCY_FLOOR = -2;
+
 export function nextRank(rating: number): Rank | null {
   return RANKS.find((k) => k.min > rating) ?? null;
 }

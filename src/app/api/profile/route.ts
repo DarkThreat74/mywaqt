@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
       firstName: schema.users.firstName,
       displayName: schema.users.displayName,
       prayerCode: schema.users.prayerCode,
+      avatarUrl: schema.users.avatarUrl,
       createdAt: schema.users.createdAt,
     })
     .from(schema.users)
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
     name: u.firstName || u.displayName || "Friend",
     displayName: u.displayName,
     prayerCode: u.prayerCode,
+    avatarUrl: u.avatarUrl,
     joinedAt: u.createdAt.toISOString(),
     isHifidh: s?.isHifidh ?? false,
     gender: s?.gender ?? null,
@@ -60,4 +62,37 @@ export async function GET(request: NextRequest) {
       timedLimitMs: rank.timed ? TIMED_LIMIT_MS : null,
     },
   });
+}
+
+// POST /api/profile — set the profile photo. Accepts a small data: URL
+// (client downscales to 128px webp) — kept in the users row, no object
+// storage. Send { avatar: null } to remove.
+const AVATAR_RE = /^data:image\/(webp|jpeg|png);base64,/;
+const AVATAR_MAX_CHARS = 90_000; // ~65KB decoded — generous for 128px webp
+
+export async function POST(request: NextRequest) {
+  const session = await getSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!checkRateLimit("profile-avatar", getClientIp(request.headers), 10, 60 * 1000)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
+
+  let body: { avatar?: unknown };
+  try { body = await request.json(); } catch {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+
+  const avatar = body.avatar;
+  if (avatar !== null && avatar !== undefined) {
+    if (typeof avatar !== "string" || avatar.length > AVATAR_MAX_CHARS || !AVATAR_RE.test(avatar)) {
+      return NextResponse.json({ error: "Avatar must be a webp/jpeg/png data URL under ~65KB." }, { status: 400 });
+    }
+  }
+
+  await db
+    .update(schema.users)
+    .set({ avatarUrl: (avatar as string | undefined) ?? null })
+    .where(eq(schema.users.id, session.userId));
+
+  return NextResponse.json({ ok: true, avatarUrl: avatar ?? null });
 }

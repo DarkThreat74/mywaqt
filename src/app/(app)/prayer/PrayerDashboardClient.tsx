@@ -68,6 +68,7 @@ interface Friend {
   id: string;
   firstName: string | null;
   displayName: string | null;
+  avatarUrl?: string | null;
   streak: number | null;
   totalCompleteDays: number | null;
   totalPrayed: number | null;
@@ -254,7 +255,7 @@ export default function PrayerDashboard() {
     friendsSearchable: boolean;
   }>({ friendsSeeStreak: true, friendsSeeTodayStatus: false, friendsSeeSunnah: false, friendsSeeMasjidPct: true, friendsNotifyComplete: false, friendsSearchable: true });
   const [nameQuery, setNameQuery] = useState("");
-  const [nameResults, setNameResults] = useState<{ name: string; code: string; relation: string | null }[] | null>(null);
+  const [nameResults, setNameResults] = useState<{ name: string; code: string; relation: string | null; avatarUrl: string | null }[] | null>(null);
   const [groups, setGroups] = useState<PrayerGroup[]>([]);
   const [raceSort, setRaceSort] = useState<"streak" | "week">("week");
   const [groupCode, setGroupCode] = useState("");
@@ -2340,9 +2341,19 @@ export default function PrayerDashboard() {
                   )}
                   {nameResults.map((r) => (
                     <div key={r.code} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5">
-                      <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        {r.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
+                          <img src={r.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" style={{ outline: "1px solid var(--color-paper-3)" }} />
+                        ) : (
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}>
+                            {r.name.charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        <div className="min-w-0">
                         <span className="block truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>{r.name}</span>
                         <span className="text-[11px] tracking-wider" style={{ color: "var(--color-ink-muted)" }}>{r.code}</span>
+                        </div>
                       </div>
                       {r.relation === "accepted" ? (
                         <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Friends ✓</span>
@@ -2566,14 +2577,32 @@ export default function PrayerDashboard() {
                       className="group relative flex items-center gap-3 rounded-xl border p-3"
                       style={{ borderColor: "var(--color-paper-3)" }}
                     >
-                      <div
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                        style={{
-                          backgroundColor: idx === 0 ? "color-mix(in oklab, var(--color-warmth) 20%, transparent)" : "var(--color-paper-2)",
-                          color: idx === 0 ? "var(--color-warmth)" : "var(--color-ink-muted)",
-                        }}
-                      >
-                        {idx + 1}
+                      <div className="relative shrink-0">
+                        {friend.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
+                          <img
+                            src={friend.avatarUrl}
+                            alt=""
+                            className="h-9 w-9 rounded-full object-cover"
+                            style={{ outline: "1px solid var(--color-paper-3)" }}
+                          />
+                        ) : (
+                          <div
+                            className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold"
+                            style={{
+                              backgroundColor: idx === 0 ? "color-mix(in oklab, var(--color-warmth) 20%, transparent)" : "var(--color-paper-2)",
+                              color: idx === 0 ? "var(--color-warmth)" : "var(--color-ink-muted)",
+                            }}
+                          >
+                            {(friend.firstName || friend.displayName || "?").charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <span
+                          className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold"
+                          style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                        >
+                          {idx + 1}
+                        </span>
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>

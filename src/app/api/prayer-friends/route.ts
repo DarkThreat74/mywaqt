@@ -79,6 +79,7 @@ export async function GET(request: NextRequest) {
           id: schema.users.id,
           firstName: schema.users.firstName,
           displayName: schema.users.displayName,
+          avatarUrl: schema.users.avatarUrl,
         })
         .from(schema.users)
         .where(inArray(schema.users.id, friendIds)),
@@ -238,6 +239,7 @@ export async function GET(request: NextRequest) {
     id: string;
     firstName: string | null;
     displayName: string | null;
+    avatarUrl: string | null;
     streak: number | null;
     totalCompleteDays: number | null;
     totalPrayed: number | null;
@@ -309,6 +311,7 @@ export async function GET(request: NextRequest) {
       id: friendUser.id,
       firstName: friendUser.firstName,
       displayName: friendUser.displayName,
+      avatarUrl: friendUser.avatarUrl,
       streak: settings.friendsSeeStreak ? streak : null,
       totalCompleteDays: settings.friendsSeeStreak ? completeDays : null,
       totalPrayed: settings.friendsSeeStreak ? totalPrayed : null,

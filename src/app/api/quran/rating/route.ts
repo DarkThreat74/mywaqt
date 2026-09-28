@@ -3,11 +3,11 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
-import { rankDelta, rankFor, nextRank, TIMED_LIMIT_MS } from "@/lib/quran-rank";
+import { rankDelta, rankFor, nextRank, TIMED_LIMIT_MS, MERCY_FLOOR, MERCY_TRIGGER } from "@/lib/quran-rank";
 
 export const dynamic = "force-dynamic";
 
-function payload(r: { rating: number; played: number; correct: number; streak: number; bestStreak: number } | undefined, delta?: number) {
+function payload(r: { rating: number; played: number; correct: number; streak: number; bestStreak: number; lossStreak?: number } | undefined, delta?: number) {
   const rating = r?.rating ?? 0;
   const rank = rankFor(rating);
   const next = nextRank(rating);
@@ -18,6 +18,7 @@ function payload(r: { rating: number; played: number; correct: number; streak: n
     correct: r?.correct ?? 0,
     streak: r?.streak ?? 0,
     bestStreak: r?.bestStreak ?? 0,
+    lossStreak: r?.lossStreak ?? 0,
     rank: { id: rank.id, en: rank.en, ar: rank.ar, min: rank.min, timed: rank.timed },
     nextRank: next ? { id: next.id, en: next.en, ar: next.ar, min: next.min } : null,
     timedLimitMs: rank.timed ? TIMED_LIMIT_MS : null,
@@ -65,7 +66,11 @@ export async function POST(request: NextRequest) {
     .limit(1);
 
   const prevRank = rankFor(row?.rating ?? 0);
-  const delta = rankDelta(body.correct, ms);
+  const lossStreak = body.correct ? 0 : (row?.lossStreak ?? 0) + 1;
+  let delta = rankDelta(body.correct, ms);
+  // Mercy rule — 4+ consecutive wrong answers cap the loss at −2 until one
+  // lands right. Keeps a rough patch from erasing a climb.
+  if (!body.correct && lossStreak >= MERCY_TRIGGER) delta = Math.max(delta, MERCY_FLOOR);
   const rating = Math.max(0, (row?.rating ?? 0) + delta);
   const streak = body.correct ? (row?.streak ?? 0) + 1 : 0;
   const next = {
@@ -74,6 +79,7 @@ export async function POST(request: NextRequest) {
     correct: (row?.correct ?? 0) + (body.correct ? 1 : 0),
     streak,
     bestStreak: Math.max(row?.bestStreak ?? 0, streak),
+    lossStreak,
     updatedAt: new Date(),
   };
 

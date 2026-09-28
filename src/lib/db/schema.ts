@@ -84,6 +84,9 @@ export const users = pgTable('users', {
   sessionsValidAfter: timestamp('sessions_valid_after', { withTimezone: true }),
   // 6-character prayer share code — share with friends to let them see your prayer streaks
   prayerCode: text('prayer_code').unique(),
+  // Profile photo — a tiny client-downscaled image stored as a data: URL
+  // (128px webp ≈ 6KB). Shown to friends; no separate object storage needed.
+  avatarUrl: text('avatar_url'),
   // Scheduled account deletion — non-null means the account will be fully
   // deleted 5h after this instant unless the user cancels first.
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
@@ -271,6 +274,8 @@ export const quranRatings = pgTable(
     correct: integer('correct').notNull().default(0),
     streak: integer('streak').notNull().default(0),
     bestStreak: integer('best_streak').notNull().default(0),
+    // Consecutive wrong answers — at 4+, losses soften to the mercy floor.
+    lossStreak: integer('loss_streak').notNull().default(0),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
 );

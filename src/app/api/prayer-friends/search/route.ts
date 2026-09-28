@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       firstName: schema.users.firstName,
       displayName: schema.users.displayName,
       prayerCode: schema.users.prayerCode,
+      avatarUrl: schema.users.avatarUrl,
       searchable: schema.prayerSettings.friendsSearchable,
     })
     .from(schema.users)
@@ -93,6 +94,7 @@ export async function GET(request: NextRequest) {
       .map((r) => ({
         name: r.firstName || r.displayName || "Waqt user",
         code: r.prayerCode,
+        avatarUrl: r.avatarUrl,
         relation: relationOf.get(r.id) ?? null, // 'accepted' | 'pending' | null
       })),
   });
