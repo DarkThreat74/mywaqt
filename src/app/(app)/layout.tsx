@@ -13,6 +13,7 @@ import PendingInvite from "@/components/pending-invite";
 import ToolsMenu from "@/components/tools-menu";
 import FunFactPopup from "@/components/fun-fact-popup";
 import FeedbackWidget from "@/components/feedback-widget";
+import { isFeedbackEnabled } from "@/lib/app-settings";
 import OfflineBanner from "@/components/offline-banner";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
 import GlobalAudioPlayer from "@/components/global-audio-player";
@@ -164,7 +165,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <DeepLinkHandler />
       <PendingInvite />
       <FunFactPopup />
-      <FeedbackWidget />
+      {(await isFeedbackEnabled()) ? <FeedbackWidget /> : null}
 
       {/* Global audio player — survives route changes for background playback */}
       <GlobalAudioPlayer />

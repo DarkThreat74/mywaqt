@@ -70,13 +70,17 @@ function buildPrompt(r: FeedbackRow): string {
 
 export function AdminFeedback() {
   const [rows, setRows] = useState<FeedbackRow[] | null>(null);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
 
   const load = useCallback(() => {
     fetch("/api/admin/feedback")
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setRows)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        setRows(d?.rows ?? []);
+        if (typeof d?.enabled === "boolean") setEnabled(d.enabled);
+      })
       .catch(() => setRows([]));
   }, []);
 
@@ -90,6 +94,18 @@ export function AdminFeedback() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: r.id, resolved: !r.resolved }),
+    })
+      .then((res) => { if (!res.ok) load(); })
+      .catch(() => load());
+  }
+
+  async function toggleEnabled() {
+    const next = !enabled;
+    setEnabled(next);
+    await fetch("/api/admin/feedback", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
     })
       .then((res) => { if (!res.ok) load(); })
       .catch(() => load());
@@ -112,6 +128,29 @@ export function AdminFeedback() {
           {openCount} open {openCount === 1 ? "report" : "reports"}
         </p>
         <div className="flex items-center gap-2">
+          {enabled !== null && (
+            <button
+              onClick={toggleEnabled}
+              role="switch"
+              aria-checked={enabled}
+              className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+            >
+              <span
+                className="relative inline-block h-4 w-7 rounded-full transition-colors"
+                style={{ backgroundColor: enabled ? "var(--color-accent)" : "var(--color-paper-3)" }}
+              >
+                <span
+                  className="absolute top-0.5 h-3 w-3 rounded-full transition-all"
+                  style={{
+                    backgroundColor: "var(--color-paper)",
+                    left: enabled ? "14px" : "2px",
+                  }}
+                />
+              </span>
+              Widget {enabled ? "on" : "off"}
+            </button>
+          )}
           <button
             onClick={() => setShowResolved((s) => !s)}
             className="rounded-lg border px-3 py-1.5 text-xs font-medium"

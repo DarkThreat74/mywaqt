@@ -53,17 +53,15 @@ export async function POST(request: NextRequest) {
 
     const waterline = ledger.unloggedSeenThrough ?? "0001-01-01";
 
-    // Waterline = yesterday in the user's timezone — prayers missed today
-    // aren't resolved yet, and still surface tomorrow.
+    // Waterline = today in the user's timezone — resolving the nudge starts
+    // fresh from the current salah; prayers missed earlier today were just
+    // absorbed/dismissed and must not resurface tomorrow.
     const [settings] = await db
       .select({ timezone: schema.prayerSettings.timezone })
       .from(schema.prayerSettings)
       .where(eq(schema.prayerSettings.userId, session.userId))
       .limit(1);
-    const todayStr = dateStrInTimezone(new Date(), settings?.timezone || "UTC");
-    const yesterday = new Date(`${todayStr}T00:00:00Z`);
-    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-    const newWaterline = yesterday.toISOString().slice(0, 10);
+    const newWaterline = dateStrInTimezone(new Date(), settings?.timezone || "UTC");
 
     // Single UPDATE for owed columns AND waterline — atomic, so a crash
     // between absorb and waterline can't double-add or silently drop rows.

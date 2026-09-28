@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { isFeedbackEnabled, setFeedbackEnabled } from "@/lib/app-settings";
 import { logError } from "@/lib/logError";
 import { isValidUUID } from "@/lib/validation";
 
@@ -37,7 +38,8 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(schema.feedbackReports.createdAt))
       .limit(200);
 
-    return NextResponse.json(rows);
+    const enabled = await isFeedbackEnabled();
+    return NextResponse.json({ rows, enabled });
   } catch (e) {
     if (e instanceof AdminAuthError) {
       return NextResponse.json({ error: e.message }, { status: e.status });
@@ -47,7 +49,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// PATCH /api/admin/feedback — toggle resolved flag. Body: { id, resolved }
+// PATCH /api/admin/feedback — two actions:
+//   { id, resolved } — toggle a report's resolved flag
+//   { enabled }      — show/hide the in-app feedback widget for all users
 export async function PATCH(request: NextRequest) {
   try {
     await requireAdmin(request);
@@ -55,9 +59,23 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
-    const body = (await request.json().catch(() => null)) as { id?: string; resolved?: boolean } | null;
+    const body = (await request.json().catch(() => null)) as
+      | { id?: string; resolved?: boolean; enabled?: boolean }
+      | null;
+    if (!body) {
+      return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    }
+
+    if (body.enabled !== undefined) {
+      if (typeof body.enabled !== "boolean") {
+        return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+      }
+      await setFeedbackEnabled(body.enabled);
+      return NextResponse.json({ ok: true, enabled: body.enabled });
+    }
+
     // Validate the UUID — Postgres throws on malformed uuid input → 500.
-    if (!body?.id || !isValidUUID(body.id) || typeof body.resolved !== "boolean") {
+    if (!body.id || !isValidUUID(body.id) || typeof body.resolved !== "boolean") {
       return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     }
 

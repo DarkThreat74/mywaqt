@@ -965,3 +965,11 @@ export const feedbackReports = pgTable('feedback_reports', {
 }));
 
 export type FeedbackReport = typeof feedbackReports.$inferSelect;
+
+// App-wide feature flags toggled from the admin portal (feedback widget, etc.)
+// Key/value singletons — absent key means the feature's default applies.
+export const appSettings = pgTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});

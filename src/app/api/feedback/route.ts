@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { isFeedbackEnabled } from "@/lib/app-settings";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,9 @@ export const dynamic = "force-dynamic";
 // Body: { message, page, pageDetail?, theme?, viewport? }
 export async function POST(request: NextRequest) {
   try {
+    if (!(await isFeedbackEnabled())) {
+      return NextResponse.json({ error: "Feedback is currently disabled." }, { status: 403 });
+    }
     const session = await getSessionFromRequest(request);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
