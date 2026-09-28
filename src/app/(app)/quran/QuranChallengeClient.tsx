@@ -152,8 +152,10 @@ export default function QuranChallengeClient() {
       body: JSON.stringify({ correct, ms }),
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: Rating | null) => {
-        if (!d) return;
+      .then((d: Rating & { offline?: boolean } | null) => {
+        // Offline — the SW queued the write for sync; the synthetic 202 has
+        // no rating payload, so don't overwrite the live rating with it.
+        if (!d || d.offline) return;
         setRating(d);
         setDeltaFlash({ v: d.delta, key: d.played });
         if (d.rankedUp) {

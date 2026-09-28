@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v41";
+const CACHE_VERSION = "waqt-v42";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -44,6 +44,7 @@ const PRECACHE_URLS = [
 const APP_PAGES = [
   "/calendar/day",
   "/prayer",
+  "/quran",
   "/settings",
 ];
 
@@ -433,7 +434,13 @@ self.addEventListener("fetch", (event) => {
     // replaying them later sends stale pushes or claims expired tokens.
     !url.pathname.startsWith("/api/prayer-friends/cheer") &&
     !url.pathname.startsWith("/api/prayer-friends/invite") &&
-    !url.pathname.startsWith("/api/prayer-groups")
+    !url.pathname.startsWith("/api/prayer-groups") &&
+    // Quran 1v1 match writes are time-sensitive — rounds resolve in ~90s and
+    // invites expire in 5min, so a queued answer/ready/respond replayed later
+    // would be meaningless (or corrupt the round). Let them fail offline.
+    // Solo rating writes (/api/quran/rating) DO stay queueable — offline Elite
+    // answers should count once you're back online.
+    !url.pathname.startsWith("/api/quran/match")
   ) {
     // Clone the request body before consuming it
     const bodyPromise = request.clone().json().catch(() => null);
@@ -592,6 +599,11 @@ self.addEventListener("fetch", (event) => {
 
   // Don't intercept settings API — always need fresh
   if (url.pathname.startsWith("/api/settings/")) return;
+
+  // Don't intercept quran API — live match state polls every ~1.4s and would
+  // serve a frozen cached response under SWR; invites/ratings also change
+  // constantly. Always fresh.
+  if (url.pathname.startsWith("/api/quran/")) return;
 
   // Don't intercept cron API
   if (url.pathname.startsWith("/api/cron/")) return;

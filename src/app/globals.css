@@ -133,6 +133,16 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* App-feel: buttons and controls shouldn't be text-selectable — iOS
+ * long-press otherwise pops the copy/translate menu over taps. */
+button,
+[role="button"],
+select,
+label:has(button) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* Text selection — use the accent hue instead of the browser default
  * (blue/gray), which flashes like a theme switch on a warm palette. */
 ::selection {
