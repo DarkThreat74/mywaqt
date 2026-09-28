@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, RefreshCw, Trophy, ChevronDown, Eye, Timer, Swords } from "lucide-react";
+import Link from "next/link";
 import {
   SURAHS, plausibleOptions, loadCorpus, buildIndex, uniqueFragment, leaksAnswer,
   type Surah, type Verse, type CorpusIndex,
@@ -296,7 +297,12 @@ export default function QuranChallengeClient() {
         </button>
         <div className="flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
           {diff === "elite" && rating && (
-            <span className="relative flex items-center gap-1 rounded-full border px-2.5 py-1" style={{ borderColor: "var(--color-accent)" }}>
+            <Link
+              href="/profile"
+              title="Your rank — view the ladder & scoring"
+              className="relative flex items-center gap-1 rounded-full border px-2.5 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-accent)" }}
+            >
               <span style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}>{rating.rank.ar}</span>
               <span className="font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{rating.rating}</span>
               {deltaFlash && (
@@ -308,7 +314,7 @@ export default function QuranChallengeClient() {
                   {deltaFlash.v >= 0 ? `+${deltaFlash.v}` : deltaFlash.v}
                 </span>
               )}
-            </span>
+            </Link>
           )}
           {score.rounds > 0 && <span className="font-semibold" style={{ color: "var(--color-ink)" }}>{score.points} pts</span>}
           {score.rounds > 0 && <span>{score.correct}/{score.rounds}</span>}
@@ -632,6 +638,12 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
               <p className="mt-3 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
                 {friend ? `${friend.name} gets a notification — if they accept, you’ll both see the same ayah at the same time. First correct answer takes each round.` : "They get a notification; if they accept, you both see the same ayah and race to answer."}
               </p>
+
+              {difficulty === "elite" && (
+                <p className="mt-2 rounded-lg border px-3 py-2 text-[11px] leading-relaxed" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)" }}>
+                  Ranked — triple points at stake. Finish the whole match: winner +48, loser −6. You can only challenge ranks within one tier of yours.
+                </p>
+              )}
 
               {err && <p className="mt-2 text-xs" style={{ color: "#dc2626" }}>{err}</p>}
 

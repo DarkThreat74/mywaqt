@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v40";
+const CACHE_VERSION = "waqt-v41";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -190,30 +190,7 @@ async function syncOutbox() {
     // otherwise show the old state for up to the TTL). We bust the whole
     // collection prefix (e.g. a write to /api/events/123 busts /api/events*).
     if (syncedCount > 0) {
-      try {
-        const cache = await caches.open(API_CACHE);
-        const keys = await cache.keys();
-        const collections = new Set(
-          [...syncedPrefixes].map((p) => p.split("/").slice(0, 3).join("/"))
-        );
-        await Promise.all(
-          keys
-            .filter((key) => {
-              try {
-                const p = new URL(key.url).pathname;
-                for (const c of collections) {
-                  if (p === c || p.startsWith(c + "/")) return true;
-                }
-                return false;
-              } catch {
-                return false;
-              }
-            })
-            .map((key) => cache.delete(key))
-        );
-      } catch {
-        // non-critical — stale data will refresh on next TTL expiry
-      }
+      await Promise.all([...syncedPrefixes].map((p) => bustApiCache(p)));
     }
 
     // Notify client that sync is complete so it can refetch fresh data
@@ -362,6 +339,32 @@ async function audioRangeResponse(request, response) {
   return new Response(buffer.slice(start, end + 1), { status: 206, statusText: "Partial Content", headers });
 }
 
+// Drop cached GETs for a collection after a write — otherwise the client's
+// immediate refetch serves the pre-write response for up to the TTL, which
+// reads as "my entry didn't save" (sadaqah, events, …). Busts the whole
+// collection prefix: /api/sadaqah/123 clears /api/sadaqah*.
+async function bustApiCache(pathname) {
+  try {
+    const collection = pathname.split("/").slice(0, 3).join("/");
+    const cache = await caches.open(API_CACHE);
+    const keys = await cache.keys();
+    await Promise.all(
+      keys
+        .filter((key) => {
+          try {
+            const p = new URL(key.url).pathname;
+            return p === collection || p.startsWith(collection + "/");
+          } catch {
+            return false;
+          }
+        })
+        .map((key) => cache.delete(key))
+    );
+  } catch {
+    // non-critical — next TTL expiry heals it
+  }
+}
+
 // fetch() with a hard timeout — on a flaky network a bare fetch can hang for
 // 30s+, which feels like the app froze. Abort so callers can fall back to cache.
 function timedFetch(request, ms) {
@@ -440,6 +443,9 @@ self.addEventListener("fetch", (event) => {
         try {
           // Try online first
           const response = await fetch(request);
+          // Await before responding — the client refetches right after this,
+          // so the stale entry must be gone first.
+          if (response.ok) await bustApiCache(url.pathname);
           return response;
         } catch {
           // Offline — store in outbox for later sync

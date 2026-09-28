@@ -245,8 +245,11 @@ export const quranMatches = pgTable(
     difficulty: text('difficulty').notNull(), // 'easy'|'medium'|'advanced'|'elite'
     rounds: integer('rounds').notNull(), // total rounds (best-of)
     seed: integer('seed').notNull(),
-    status: text('status').default('pending').notNull(), // pending|active|done|declined
+    status: text('status').default('pending').notNull(), // pending|active|done|declined|expired
     winnerId: uuid('winner_id'),
+    // Ranked points settle once on completion — flips true when applied so a
+    // lazy-re-resolve can never double-pay.
+    rated: boolean('rated').default(false).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     endedAt: timestamp('ended_at', { withTimezone: true }),

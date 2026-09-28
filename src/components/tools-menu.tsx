@@ -115,6 +115,7 @@ interface Tool {
   arabic: string;
   description: string;
   art: () => React.ReactElement;
+  ranked?: boolean;
 }
 
 const SECTIONS: { title: string; tools: Tool[] }[] = [
@@ -124,7 +125,7 @@ const SECTIONS: { title: string; tools: Tool[] }[] = [
       { href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba", art: QiblaArt },
       { href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter", art: DhikrArt },
       { href: "/sadaqah", label: "Sadaqah", arabic: "صدقة", description: "Track your giving", art: SadaqahArt },
-      { href: "/quran", label: "Quran Challenge", arabic: "قرآن", description: "Guess the surah", art: QuranArt },
+      { href: "/quran", label: "Quran Challenge", arabic: "قرآن", description: "Guess the surah", art: QuranArt, ranked: true },
     ],
   },
   {
@@ -283,12 +284,20 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                         href={tool.href}
                         prefetch={false}
                         onClick={() => setOpen(false)}
-                        className="group flex flex-col items-center rounded-2xl border px-2 pb-2.5 pt-3 text-center transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
+                        className="group relative flex flex-col items-center overflow-hidden rounded-2xl border px-2 pb-2.5 pt-3 text-center transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
                         style={{
                           borderColor: "var(--color-paper-3)",
                           animation: `tools-item-in 0.34s cubic-bezier(0.16, 1, 0.3, 1) ${0.03 * i + 0.04}s both`,
                         }}
                       >
+                        {tool.ranked && (
+                          <span
+                            className="absolute right-0 top-0 rounded-bl-lg px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-[0.1em]"
+                            style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+                          >
+                            Ranked
+                          </span>
+                        )}
                         <span
                           className="block h-11 w-11 transition-colors group-hover:text-[var(--color-accent)]"
                           style={{ color: "var(--color-ink-soft)" }}

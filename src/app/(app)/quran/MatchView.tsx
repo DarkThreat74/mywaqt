@@ -18,6 +18,7 @@ interface MatchState {
   oppWins: number;
   roundsPlayed: number;
   youWin: boolean | null;
+  ratingDelta: number | null;
   round: {
     n: number; verseIdx: number | null; started: boolean; startedAt: string | null;
     meReady: boolean; oppReady: boolean; meAnswered: boolean; oppAnswered: boolean;
@@ -194,6 +195,11 @@ export default function MatchView({
             <p className="mt-2 text-sm" style={{ color: "var(--color-ink-muted)" }}>
               {DIFF_LABEL[st.difficulty]} · best of {st.totalRounds}
             </p>
+            {st.difficulty === "elite" && (
+              <p className="mt-1.5 text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>
+                Ranked — finish the match: winner +48, loser −6
+              </p>
+            )}
             {inviteClock && (
               <p className="mt-1.5 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                 Expires in {inviteClock}
@@ -272,6 +278,20 @@ export default function MatchView({
             {meWon ? "You win!" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>{st.myWins} — {st.oppWins} over {st.roundsPlayed} round{st.roundsPlayed === 1 ? "" : "s"}</p>
+          {st.ratingDelta !== null && (
+            <p className="waqt-scale-in mt-3">
+              <span
+                className="inline-block rounded-full border px-3 py-1 text-xs font-bold tabular-nums"
+                style={{
+                  borderColor: st.ratingDelta > 0 ? "var(--color-accent)" : "#dc2626",
+                  color: st.ratingDelta > 0 ? "var(--color-accent)" : "#dc2626",
+                  backgroundColor: st.ratingDelta > 0 ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "color-mix(in oklab, #dc2626 6%, transparent)",
+                }}
+              >
+                Ranked {st.ratingDelta > 0 ? `+${st.ratingDelta}` : st.ratingDelta} pts
+              </span>
+            </p>
+          )}
           <button onClick={onExit} className="mt-6 rounded-xl px-5 py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: "var(--color-accent)" }}>
             Back to Quran Challenge
           </button>

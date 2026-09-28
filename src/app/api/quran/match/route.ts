@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, or, gt } from "drizzle-orm";
+import { eq, and, or, gt, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { pickMatchVerses } from "@/lib/content/quran-server";
 import { areFriends, notifyUser, INVITE_TTL_MS } from "@/lib/quran-match";
+import { rankIndex, rankFor } from "@/lib/quran-rank";
 import { isValidUUID } from "@/lib/validation";
 import crypto from "node:crypto";
 
@@ -42,6 +43,24 @@ export async function POST(request: NextRequest) {
   }
   if (!(await areFriends(session.userId, opponentId))) {
     return NextResponse.json({ error: "You can only challenge friends." }, { status: 403 });
+  }
+
+  // Ranked matches (Elite) stay within one tier — your rank or the ones
+  // directly above/below. Casual difficulties are open to any friend.
+  if (difficulty === "elite") {
+    const rows = await db
+      .select({ userId: schema.quranRatings.userId, rating: schema.quranRatings.rating })
+      .from(schema.quranRatings)
+      .where(inArray(schema.quranRatings.userId, [session.userId, opponentId]));
+    const myRank = rankIndex(rows.find((r) => r.userId === session.userId)?.rating ?? 0);
+    const oppRank = rankIndex(rows.find((r) => r.userId === opponentId)?.rating ?? 0);
+    if (Math.abs(myRank - oppRank) > 1) {
+      const oppTier = rankFor(rows.find((r) => r.userId === opponentId)?.rating ?? 0).en;
+      return NextResponse.json(
+        { error: `Ranked matches stay within one tier — ${oppTier} is too far from yours. Try a casual difficulty.` },
+        { status: 403 },
+      );
+    }
   }
 
   // One live match per pair — a stale pending one is reused instead of piling up.

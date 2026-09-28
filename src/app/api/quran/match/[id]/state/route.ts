@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -7,6 +7,7 @@ import { isValidUUID } from "@/lib/validation";
 import { getCorpus } from "@/lib/content/quran-server";
 import { SURAHS, plausibleOptions, mulberry32 } from "@/lib/content/quran";
 import { INVITE_TTL_MS } from "@/lib/quran-match";
+import { MATCH_WIN_PTS, MATCH_LOSS_PTS, MATCH_DRAW_PTS } from "@/lib/quran-rank";
 
 export const dynamic = "force-dynamic";
 
@@ -129,10 +130,27 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const winnerId = wins.creator > wins.opponent ? m.creatorId : wins.opponent > wins.creator ? m.opponentId : null;
     updates.push(
       db.update(schema.quranMatches)
-        .set({ status: "done", winnerId, endedAt: new Date() })
+        .set({ status: "done", winnerId, endedAt: new Date(), rated: true })
         .where(eq(schema.quranMatches.id, id)),
     );
     m.winnerId = winnerId;
+
+    // Ranked settle — Elite only, once per match (rated flag backstops the
+    // lazy path). Winner +triple base, loser −small, draw neutral.
+    if (m.difficulty === "elite" && !m.rated) {
+      for (const uid of [m.creatorId, m.opponentId]) {
+        const delta = winnerId === null ? MATCH_DRAW_PTS : uid === winnerId ? MATCH_WIN_PTS : MATCH_LOSS_PTS;
+        if (delta === 0) continue;
+        updates.push(
+          db.insert(schema.quranRatings)
+            .values({ userId: uid, rating: Math.max(0, delta), updatedAt: new Date() })
+            .onConflictDoUpdate({
+              target: schema.quranRatings.userId,
+              set: { rating: sql`greatest(0, ${schema.quranRatings.rating} + ${delta})`, updatedAt: new Date() },
+            }),
+        );
+      }
+    }
   }
   if (updates.length) await Promise.all(updates);
 
@@ -170,6 +188,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     roundsPlayed: rounds.filter((r) => r.resolvedAt).length,
     winnerId: m.winnerId,
     youWin: status === "done" ? m.winnerId === session.userId : null,
+    // Ranked stake for the done screen — Elite matches pay +48/−6 (draw 0).
+    ratingDelta: status === "done" && m.difficulty === "elite"
+      ? m.winnerId === null ? MATCH_DRAW_PTS : m.winnerId === session.userId ? MATCH_WIN_PTS : MATCH_LOSS_PTS
+      : null,
     inviteExpiresAt: status === "pending"
       ? new Date(m.createdAt.getTime() + INVITE_TTL_MS).toISOString()
       : null,

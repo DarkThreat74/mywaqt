@@ -30,6 +30,20 @@ export function rankFor(rating: number): Rank {
   return r;
 }
 
+export function rankIndex(rating: number): number {
+  return RANKS.indexOf(rankFor(rating));
+}
+
+/**
+ * Ranked 1v1 — Elite matches only. Finishing a match pays the winner triple
+ * a solo win's base (3 × 16), costs the loser a little. Draws are neutral.
+ * Awarded once, server-side, when the match resolves to done — leaving early
+ * forfeits nothing but wins you nothing either.
+ */
+export const MATCH_WIN_PTS = 48;
+export const MATCH_LOSS_PTS = -6;
+export const MATCH_DRAW_PTS = 0;
+
 export function nextRank(rating: number): Rank | null {
   return RANKS.find((k) => k.min > rating) ?? null;
 }
