@@ -213,10 +213,11 @@ export default function FeedbackWidget() {
            stays clear of the calendar's "+" FAB on the right */
         .feedback-fab{left:16px;bottom:calc(76px + env(safe-area-inset-bottom))}
         .feedback-panel{left:16px;bottom:calc(120px + env(safe-area-inset-bottom));max-height:calc(100dvh - 160px);overflow-y:auto}
-        /* Desktop: no bottom nav — sit flush in the corner */
+        /* Desktop: no bottom nav — stack above the calendar's "+" FAB
+           (48px circle at right-5 bottom-6) instead of covering it */
         @media(min-width:1024px){
-          .feedback-fab{left:auto;right:24px;bottom:24px}
-          .feedback-panel{left:auto;right:24px;bottom:72px}
+          .feedback-fab{left:auto;right:24px;bottom:84px}
+          .feedback-panel{left:auto;right:24px;bottom:132px}
         }
       `}</style>
     </>

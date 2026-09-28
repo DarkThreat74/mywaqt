@@ -483,7 +483,7 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
             <p className="animate-pulse text-sm" style={{ color: "var(--color-ink-muted)" }}>Loading friends…</p>
           ) : friends.length === 0 ? (
             <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-              No prayer friends yet — add one from the Community tab first, then challenge them here.
+              No friends yet — add one in Prayer → Friends, then challenge them here.
             </p>
           ) : (
             <>
