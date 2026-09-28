@@ -94,7 +94,7 @@ export const users = pgTable('users', {
 
 // ─── Prayer Friends (share streak access via code, with accept/reject flow) ───
 
-export const prayerFriendStatus = pgEnum('prayer_friend_status', ['pending', 'accepted', 'rejected']);
+export const prayerFriendStatus = pgEnum('prayer_friend_status', ['pending', 'accepted', 'rejected', 'expired']);
 
 export const prayerFriends = pgTable(
   'prayer_friends',

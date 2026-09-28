@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { sendPrayerPush } from "@/lib/notifications/push";
+import { FRIEND_REQUEST_TTL_MS } from "@/lib/friend-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest) {
       userId: schema.prayerFriends.userId,
       friendId: schema.prayerFriends.friendId,
       status: schema.prayerFriends.status,
+      createdAt: schema.prayerFriends.createdAt,
     })
     .from(schema.prayerFriends)
     .where(
@@ -60,6 +62,15 @@ export async function POST(request: NextRequest) {
 
   if (friendReq.status !== "pending") {
     return NextResponse.json({ error: `Request already ${friendReq.status}.` }, { status: 409 });
+  }
+
+  // 72h expiry is enforced here too — a stale pending row can't be accepted.
+  if (Date.now() - new Date(friendReq.createdAt).getTime() > FRIEND_REQUEST_TTL_MS) {
+    await db
+      .update(schema.prayerFriends)
+      .set({ status: "expired", respondedAt: new Date() })
+      .where(eq(schema.prayerFriends.id, requestId));
+    return NextResponse.json({ error: "This request has expired." }, { status: 410 });
   }
 
   if (action === "accept") {

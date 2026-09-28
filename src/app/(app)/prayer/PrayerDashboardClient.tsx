@@ -238,6 +238,12 @@ export default function PrayerDashboard() {
     createdAt: string;
     requester: { id: string; firstName: string | null; displayName: string | null };
   }>>([]);
+  const [sentRequests, setSentRequests] = useState<Array<{
+    id: string;
+    name: string;
+    status: "pending" | "accepted" | "rejected" | "expired";
+    createdAt: string;
+  }>>([]);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<{
     friendsSeeStreak: boolean;
@@ -425,7 +431,7 @@ export default function PrayerDashboard() {
 
       // ── Step 2: Fetch from API in background ──
       try {
-        const [analyticsRes, friendsRes, codeRes, qadaaRes, logsRes, sunnahRes, timesRes, pendingRes, visibilityRes, groupsRes, haydRes] = await Promise.all([
+        const [analyticsRes, friendsRes, codeRes, qadaaRes, logsRes, sunnahRes, timesRes, pendingRes, outgoingRes, visibilityRes, groupsRes, haydRes] = await Promise.all([
           fetch(`/api/prayer-log/analytics?range=${statsRange}`).catch(() => null),
           fetch("/api/prayer-friends").catch(() => null),
           fetch("/api/prayer-friends/my-code").catch(() => null),
@@ -434,6 +440,7 @@ export default function PrayerDashboard() {
           fetch(`/api/prayer-log/sunnah?date=${todayStr}`).catch(() => null),
           fetch(`/api/prayer-times?date=${todayStr}`).catch(() => null),
           fetch("/api/prayer-friends/pending").catch(() => null),
+          fetch("/api/prayer-friends/outgoing").catch(() => null),
           fetch("/api/settings/prayer-settings").catch(() => null),
           fetch("/api/prayer-groups").catch(() => null),
           fetch("/api/hayd").catch(() => null),
@@ -461,6 +468,10 @@ export default function PrayerDashboard() {
         if (pendingRes?.ok) {
           const data = await pendingRes.json().catch(() => ({ requests: [] }));
           if (data?.requests && Array.isArray(data.requests)) setPendingRequests(data.requests);
+        }
+        if (outgoingRes?.ok) {
+          const data = await outgoingRes.json().catch(() => ({ requests: [] }));
+          if (data?.requests && Array.isArray(data.requests)) setSentRequests(data.requests);
         }
         if (groupsRes?.ok) {
           const data = await groupsRes.json().catch(() => []);
@@ -2432,6 +2443,50 @@ export default function PrayerDashboard() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* ── Requests I've sent — status is server-authoritative;
+                pending lapses to "expired" 72h after sending ── */}
+            {sentRequests.length > 0 && (
+              <div className="mb-4 space-y-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  Requests you&rsquo;ve sent
+                </p>
+                {sentRequests.map((req) => {
+                  const chip = {
+                    pending: { label: "Pending", color: "var(--color-accent)" },
+                    accepted: { label: "Accepted", color: "var(--color-success)" },
+                    rejected: { label: "Declined", color: "var(--color-ink-muted)" },
+                    expired: { label: "Expired", color: "var(--color-ink-muted)" },
+                  }[req.status];
+                  return (
+                    <div
+                      key={req.id}
+                      className="flex items-center gap-3 rounded-xl border p-3"
+                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }}>
+                        {req.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{req.name}</div>
+                        <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                          sent {new Date(req.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                        </div>
+                      </div>
+                      <span
+                        className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium"
+                        style={{
+                          color: chip.color,
+                          backgroundColor: `color-mix(in oklab, ${chip.color} 10%, transparent)`,
+                        }}
+                      >
+                        {chip.label}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
 

@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { sendPrayerPush } from "@/lib/notifications/push";
+import { FRIEND_REQUEST_TTL_MS } from "@/lib/friend-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
       userId: schema.prayerFriends.userId,
       friendId: schema.prayerFriends.friendId,
       respondedAt: schema.prayerFriends.respondedAt,
+      createdAt: schema.prayerFriends.createdAt,
     })
     .from(schema.prayerFriends)
     .where(
@@ -114,6 +116,18 @@ export async function POST(request: NextRequest) {
     .limit(1);
 
   if (existing) {
+    // A pending request older than 72h is dead — flip it to expired so it
+    // can be re-sent below instead of blocking with "already sent" forever.
+    if (
+      existing.status === "pending" &&
+      Date.now() - new Date(existing.createdAt).getTime() > FRIEND_REQUEST_TTL_MS
+    ) {
+      await db
+        .update(schema.prayerFriends)
+        .set({ status: "expired", respondedAt: new Date() })
+        .where(eq(schema.prayerFriends.id, existing.id));
+      existing.status = "expired";
+    }
     if (existing.status === "accepted") {
       return NextResponse.json({ error: "Already friends." }, { status: 409 });
     }
@@ -138,6 +152,27 @@ export async function POST(request: NextRequest) {
       }
       return NextResponse.json({ error: "Friend request already sent." }, { status: 409 });
     }
+    // Expired request sent BY me — re-send on the same row, no cooldown
+    // (it lapsed; nobody declined). createdAt resets or it re-expires instantly.
+    if (existing.status === "expired" && existing.userId === session.userId) {
+      await db
+        .update(schema.prayerFriends)
+        .set({ status: "pending", respondedAt: null, createdAt: new Date() })
+        .where(eq(schema.prayerFriends.id, existing.id));
+
+      const [requester] = await db
+        .select({ firstName: schema.users.firstName, displayName: schema.users.displayName })
+        .from(schema.users)
+        .where(eq(schema.users.id, session.userId))
+        .limit(1);
+      const requesterName = requester?.firstName || requester?.displayName || "Someone";
+      await notifyUser(friendUser.id, "New friend request", `${requesterName} wants to connect with you on Waqt. Tap to accept or reject.`);
+
+      return NextResponse.json({ ok: true, pending: true, message: "Friend request sent." });
+    }
+    // An expired request in THEIR direction doesn't block a fresh one —
+    // fall through to the plain insert below (different unique-key row).
+
     if (existing.status === "rejected") {
       // Cooldown: enforce 7-day wait before re-sending
       if (existing.respondedAt) {
@@ -156,10 +191,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Unable to re-send this request." }, { status: 403 });
       }
 
-      // Re-send: update to pending, reset respondedAt
+      // Re-send: update to pending, reset respondedAt AND createdAt —
+      // without a fresh createdAt the 72h expiry would kill it instantly.
       await db
         .update(schema.prayerFriends)
-        .set({ status: "pending", respondedAt: null })
+        .set({ status: "pending", respondedAt: null, createdAt: new Date() })
         .where(eq(schema.prayerFriends.id, existing.id));
 
       // Send push notification on re-send (was missing before)

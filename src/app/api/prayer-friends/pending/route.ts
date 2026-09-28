@@ -3,6 +3,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { expireStaleFriendRequests } from "@/lib/friend-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,9 @@ export async function GET(request: NextRequest) {
   if (!checkRateLimit("pf-pending", getClientIp(request.headers), 60, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
+
+  // Flip stale pending rows first so dead requests never reach the list.
+  await expireStaleFriendRequests();
 
   // Find pending requests addressed to me (I am the friendId)
   const requests = await db
