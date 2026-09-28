@@ -26,12 +26,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     }
 
-    const { message, page, pageDetail, theme, viewport } = body as {
+    const { message, page, pageDetail, theme, viewport, context } = body as {
       message?: string;
       page?: string;
       pageDetail?: string;
       theme?: string;
       viewport?: string;
+      context?: unknown;
     };
 
     const msg = typeof message === "string" ? message.trim() : "";
@@ -49,6 +50,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Page is required." }, { status: 400 });
     }
 
+    // UI-state snapshot — client-supplied, so bound it: must be a plain
+    // object, serialized size capped, all values coerced to primitives.
+    let uiContext: Record<string, unknown> | null = null;
+    if (context && typeof context === "object" && !Array.isArray(context)) {
+      const clean: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(context as Record<string, unknown>).slice(0, 20)) {
+        if (typeof v === "string") clean[k.slice(0, 40)] = v.slice(0, 300);
+        else if (typeof v === "number" || typeof v === "boolean") clean[k.slice(0, 40)] = v;
+        else if (Array.isArray(v)) clean[k.slice(0, 40)] = v.slice(0, 8).map(String).map((s) => s.slice(0, 300));
+      }
+      if (JSON.stringify(clean).length <= 4000) uiContext = clean;
+    }
+
     await db.insert(schema.feedbackReports).values({
       userId: session.userId,
       page: safePage,
@@ -57,6 +71,7 @@ export async function POST(request: NextRequest) {
       theme: cleanPath(theme, 20),
       viewport: cleanPath(viewport, 20),
       userAgent: cleanPath(request.headers.get("user-agent"), 300),
+      uiContext,
     });
 
     return NextResponse.json({ ok: true }, { status: 201 });

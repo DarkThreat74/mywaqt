@@ -941,6 +941,9 @@ export const feedbackReports = pgTable('feedback_reports', {
   theme: text('theme'),
   viewport: text('viewport'),
   userAgent: text('user_agent'),
+  // DOM snapshot at submit: open dialogs/sheets, expanded sections, active
+  // tab, page heading, scroll depth — so "the button in X" is identifiable.
+  uiContext: jsonb('ui_context'),
   resolved: boolean('resolved').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({

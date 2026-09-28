@@ -3,6 +3,17 @@
 import { useState, useEffect, useCallback } from "react";
 import { Copy, Check, CheckCircle2, Circle, RefreshCw } from "lucide-react";
 
+interface UiContext {
+  title?: string;
+  hash?: string;
+  heading?: string;
+  dialogs?: string[];
+  expanded?: string[];
+  activeNav?: string[];
+  focused?: string;
+  scrollPct?: number;
+}
+
 interface FeedbackRow {
   id: string;
   page: string;
@@ -12,6 +23,7 @@ interface FeedbackRow {
   viewport: string | null;
   userAgent: string | null;
   resolved: boolean;
+  uiContext: UiContext | null;
   createdAt: string;
   userEmail: string;
   userName: string | null;
@@ -23,12 +35,25 @@ interface FeedbackRow {
 function buildPrompt(r: FeedbackRow): string {
   const who = r.userName || r.userFirstName || r.userEmail;
   const when = new Date(r.createdAt).toLocaleString();
-  return [
+  const ui = r.uiContext;
+  const lines = [
     `Bug report from Waqt — Next.js 16 + React + TypeScript + Drizzle/Neon PWA.`,
     `Reported ${when} by ${who} <${r.userEmail}>`,
-    `Page: ${r.pageDetail || r.page}`,
+    `Page: ${r.pageDetail || r.page}${ui?.hash || ""}`,
     `Theme: ${r.theme || "unknown"} · Viewport: ${r.viewport || "unknown"}`,
     `UA: ${r.userAgent || "unknown"}`,
+  ];
+  if (ui) {
+    const state: string[] = [];
+    if (ui.heading) state.push(`screen heading "${ui.heading}"`);
+    if (ui.activeNav?.length) state.push(`active nav/tab: ${ui.activeNav.join(", ")}`);
+    if (ui.dialogs?.length) state.push(`open dialog/sheet: ${ui.dialogs.join(", ")}`);
+    if (ui.expanded?.length) state.push(`expanded sections: ${ui.expanded.join(", ")}`);
+    if (ui.focused) state.push(`focused element: "${ui.focused}"`);
+    if (typeof ui.scrollPct === "number") state.push(`scrolled ${ui.scrollPct}%`);
+    if (state.length) lines.push(`UI state: ${state.join(" · ")}`);
+  }
+  lines.push(
     "",
     r.message,
     "",
@@ -39,7 +64,8 @@ function buildPrompt(r: FeedbackRow): string {
     "Verify the fix across platforms — Android, iOS/iPadOS Safari, installed",
     "PWA, desktop (Windows/macOS/Linux). Fix the root cause, not the symptom,",
     "then run: pnpm exec tsc --noEmit && pnpm exec eslint --max-warnings=0",
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 export function AdminFeedback() {
@@ -134,6 +160,27 @@ export function AdminFeedback() {
                 {r.theme && <span>{r.theme} mode</span>}
                 {r.viewport && <span>{r.viewport}</span>}
               </div>
+
+              {/* UI state captured at submit — open dialog, expanded sections, active tab */}
+              {r.uiContext && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {r.uiContext.dialogs?.map((d) => (
+                    <span key={d} className="rounded-md px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}>
+                      dialog: {d}
+                    </span>
+                  ))}
+                  {r.uiContext.expanded?.map((d) => (
+                    <span key={d} className="rounded-md px-1.5 py-0.5 text-[10px]" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}>
+                      open: {d}
+                    </span>
+                  ))}
+                  {r.uiContext.activeNav?.map((d) => (
+                    <span key={d} className="rounded-md px-1.5 py-0.5 text-[10px]" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}>
+                      tab: {d}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               <p className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--color-ink)" }}>
                 {r.message}

@@ -19,6 +19,63 @@ export default function FeedbackWidget() {
   const query = searchParams?.toString();
   const pageDetail = query ? `${page}?${query}` : page;
 
+  // DOM snapshot at submit — records which dialog/sheet is open, which
+  // sections are expanded, the active tab, the page heading, and scroll
+  // depth. This is what turns "this button looks bad" into "the Delete
+  // Account confirm dialog on /settings, dark mode, 374px".
+  function collectUiContext() {
+    const label = (el: Element) =>
+      (
+        el.getAttribute("aria-label") ||
+        el.querySelector("h1,h2,h3,[role='heading']")?.textContent ||
+        el.textContent ||
+        ""
+      ).trim().replace(/\s+/g, " ").slice(0, 90);
+
+    // Open dialogs, sheets, modals, popovers (exclude our own feedback panel)
+    const dialogs = Array.from(
+      document.querySelectorAll(
+        "[role='dialog'], dialog[open], [data-state='open'], [role='alertdialog']",
+      ),
+    )
+      .filter((el) => !el.closest(".feedback-panel"))
+      .map(label)
+      .filter(Boolean)
+      .slice(0, 4);
+
+    // Expanded collapsibles / accordions / open menus
+    const expanded = Array.from(document.querySelectorAll("[aria-expanded='true'], details[open] > summary"))
+      .map(label)
+      .filter(Boolean)
+      .slice(0, 6);
+
+    // Active nav item / selected tab
+    const activeNav = Array.from(
+      document.querySelectorAll("[aria-current='page'], [aria-selected='true']"),
+    )
+      .map(label)
+      .filter(Boolean)
+      .slice(0, 3);
+
+    const heading = (document.querySelector("main h1, h1")?.textContent || "").trim().slice(0, 90);
+    const maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+    const scrollPct = Math.round((window.scrollY / maxScroll) * 100);
+    const focused = document.activeElement && document.activeElement !== document.body
+      ? label(document.activeElement)
+      : undefined;
+
+    return {
+      title: document.title.slice(0, 120),
+      hash: window.location.hash.slice(0, 120) || undefined,
+      heading: heading || undefined,
+      dialogs: dialogs.length ? dialogs : undefined,
+      expanded: expanded.length ? expanded : undefined,
+      activeNav: activeNav.length ? activeNav : undefined,
+      focused: focused || undefined,
+      scrollPct,
+    };
+  }
+
   async function submit() {
     const msg = message.trim();
     if (!msg || state === "sending") return;
@@ -33,6 +90,7 @@ export default function FeedbackWidget() {
           pageDetail,
           theme: document.documentElement.getAttribute("data-theme") || "light",
           viewport: `${window.innerWidth}x${window.innerHeight}`,
+          context: collectUiContext(),
         }),
       });
       if (!res.ok) throw new Error(String(res.status));

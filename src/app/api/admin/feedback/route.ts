@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
         viewport: schema.feedbackReports.viewport,
         userAgent: schema.feedbackReports.userAgent,
         resolved: schema.feedbackReports.resolved,
+        uiContext: schema.feedbackReports.uiContext,
         createdAt: schema.feedbackReports.createdAt,
         userEmail: schema.users.email,
         userName: schema.users.displayName,
