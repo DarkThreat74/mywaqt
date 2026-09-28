@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       useIqamahReminders: schema.prayerSettings.useIqamahReminders,
       timeOffsetMinutes: schema.prayerSettings.timeOffsetMinutes,
       showNaflTimes: schema.prayerSettings.showNaflTimes,
+      isHifidh: schema.prayerSettings.isHifidh,
     })
     .from(schema.prayerSettings)
     .where(eq(schema.prayerSettings.userId, session.userId))
@@ -76,6 +77,7 @@ export async function PATCH(request: NextRequest) {
     useIqamahReminders?: boolean;
     timeOffsetMinutes?: number;
     showNaflTimes?: boolean;
+    isHifidh?: boolean;
   };
   try {
     body = await request.json();
@@ -154,6 +156,7 @@ export async function PATCH(request: NextRequest) {
     updates.timeOffsetMinutes = body.timeOffsetMinutes;
   }
   if (typeof body.showNaflTimes === "boolean") updates.showNaflTimes = body.showNaflTimes;
+  if (typeof body.isHifidh === "boolean") updates.isHifidh = body.isHifidh;
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });

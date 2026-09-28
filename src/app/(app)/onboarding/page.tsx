@@ -5,7 +5,7 @@ import Link from "next/link";
 
 import { MapPin, Bell, ArrowRight, Check, Loader2, User, Shield } from "lucide-react";
 
-type Step = "terms" | "name" | "gender" | "hayd" | "location" | "madhab" | "notifications" | "done";
+type Step = "terms" | "name" | "gender" | "hayd" | "location" | "madhab" | "hifidh" | "notifications" | "done";
 
 export default function OnboardingWizard() {
   const [step, setStep] = useState<Step>("terms");
@@ -144,6 +144,29 @@ export default function OnboardingWizard() {
       // Re-sync prayer times with the new madhab (affects Asr time)
       fetch("/api/prayer-times/sync", { method: "POST" }).catch(() => {});
 
+      setStep("hifidh");
+    } catch {
+      setError("Network error.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function saveHifidh(isHifidh: boolean) {
+    setPending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/prayer-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isHifidh }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Failed to save.");
+        setPending(false);
+        return;
+      }
       setStep("notifications");
     } catch {
       setError("Network error.");
@@ -195,8 +218,8 @@ export default function OnboardingWizard() {
 
   // Progress dots: hayd step only exists for girls — count it conditionally
   const steps: Step[] = gender === "female"
-    ? ["terms", "name", "gender", "hayd", "location", "madhab", "notifications", "done"]
-    : ["terms", "name", "gender", "location", "madhab", "notifications", "done"];
+    ? ["terms", "name", "gender", "hayd", "location", "madhab", "hifidh", "notifications", "done"]
+    : ["terms", "name", "gender", "location", "madhab", "hifidh", "notifications", "done"];
   const currentIdx = steps.indexOf(step);
 
   return (
@@ -589,6 +612,42 @@ export default function OnboardingWizard() {
           >
             {pending ? "Saving..." : "Continue"}
           </button>
+        </div>
+      )}
+
+      {/* ── Step: Hifidh ── */}
+      {step === "hifidh" && (
+        <div className="flex flex-col items-center text-center">
+          <p className="mb-4 text-4xl leading-none" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }} aria-hidden="true">
+            حَافِظ
+          </p>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+            Have you memorized the Quran?
+          </h1>
+          <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+            Huffadh get a badge and can compete with other huffadh in the Quran
+            Challenge — who recognizes an ayah&rsquo;s surah fastest.
+          </p>
+
+          <div className="mt-8 w-full max-w-sm space-y-3">
+            <button
+              onClick={() => void saveHifidh(true)}
+              disabled={pending}
+              className="w-full rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+            >
+              Yes, I&rsquo;m a hafidh
+              <ArrowRight className="ml-2 inline h-4 w-4" />
+            </button>
+            <button
+              onClick={() => void saveHifidh(false)}
+              disabled={pending}
+              className="w-full text-sm font-medium transition-opacity hover:opacity-60 disabled:opacity-50"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Not yet
+            </button>
+          </div>
         </div>
       )}
 

@@ -232,6 +232,51 @@ export const prayerGroups = pgTable(
   (table) => [uniqueIndex('prayer_groups_invite_code_idx').on(table.inviteCode)],
 );
 
+// ─── Quran 1v1 Matches (seeded rounds, server-timestamped answers) ──────
+// A match is a fixed sequence of verse indexes derived from `seed` — both
+// players get identical questions without any realtime transport.
+
+export const quranMatches = pgTable(
+  'quran_matches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    creatorId: uuid('creator_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    opponentId: uuid('opponent_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    difficulty: text('difficulty').notNull(), // 'easy'|'medium'|'advanced'|'elite'
+    rounds: integer('rounds').notNull(), // total rounds (best-of)
+    seed: integer('seed').notNull(),
+    status: text('status').default('pending').notNull(), // pending|active|done|declined
+    winnerId: uuid('winner_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('quran_matches_opponent_idx').on(table.opponentId, table.status),
+    index('quran_matches_creator_idx').on(table.creatorId, table.status),
+  ],
+);
+
+export const quranMatchRounds = pgTable(
+  'quran_match_rounds',
+  {
+    matchId: uuid('match_id').notNull().references(() => quranMatches.id, { onDelete: 'cascade' }),
+    round: integer('round').notNull(), // 1-based
+    verseIdx: integer('verse_idx').notNull(), // index into /data/quran.json corpus
+    creatorReadyAt: timestamp('creator_ready_at', { withTimezone: true }),
+    opponentReadyAt: timestamp('opponent_ready_at', { withTimezone: true }),
+    // Both seen the ayah once this is set — clients count elapsed from here
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    creatorCorrect: boolean('creator_correct'),
+    creatorMs: integer('creator_ms'),
+    opponentCorrect: boolean('opponent_correct'),
+    opponentMs: integer('opponent_ms'),
+    winnerId: uuid('winner_id'), // null = draw (both wrong)
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (table) => [primaryKey({ columns: [table.matchId, table.round] })],
+);
+
 export const prayerGroupMembers = pgTable(
   'prayer_group_members',
   {
@@ -303,6 +348,8 @@ export const prayerSettings = pgTable('prayer_settings', {
   // Global minute offset applied to all displayed prayer times
   timeOffsetMinutes: integer('time_offset_minutes').default(0).notNull(),
   showNaflTimes: boolean('show_nafl_times').default(false).notNull(),
+  // Memorized the entire Quran — gates the hifidh badge + huffadh competitions
+  isHifidh: boolean('is_hifidh').default(false).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

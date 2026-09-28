@@ -10,6 +10,7 @@ import NotificationScheduler from "@/components/notification-scheduler";
 import BiometricGate from "@/components/biometric-gate";
 import DeepLinkHandler from "@/components/deep-link-handler";
 import PendingInvite from "@/components/pending-invite";
+import QuranMatchToast from "@/components/quran-match-toast";
 import ToolsMenu from "@/components/tools-menu";
 import FunFactPopup from "@/components/fun-fact-popup";
 import FeedbackWidget from "@/components/feedback-widget";
@@ -164,6 +165,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <NotificationScheduler />
       <DeepLinkHandler />
       <PendingInvite />
+      <QuranMatchToast />
       <FunFactPopup />
       {(await isFeedbackEnabled()) ? <FeedbackWidget /> : null}
 
