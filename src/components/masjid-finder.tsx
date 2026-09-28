@@ -211,6 +211,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [addrBusy, setAddrBusy] = useState(false);
   const [addrLabel, setAddrLabel] = useState<string | null>(null); // "Near X" chip while viewing another place
   const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number } | null>(null); // map center for address view
+  const [boundsAll, setBoundsAll] = useState<Masjid[] | null>(null); // viewport-loaded masjids (map mode)
 
   // Shared by geolocation + typed-address paths: persist coords + tz,
   // seed local caches, refetch masjids for the new spot.
@@ -538,6 +539,22 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         // A blank canvas that never fires 'load' renders nothing visible —
         // resize once in case the container was laid out after init.
         map.once("load", () => map.resize());
+        // Viewport-driven loading — fetch masjids for the visible bounds on
+        // every pan/zoom (debounced). Pure-DB endpoint, no upstream calls, so
+        // zooming out shows everything the registry knows, instantly.
+        let moveTimer: ReturnType<typeof setTimeout> | null = null;
+        const loadBounds = () => {
+          const b = map.getBounds();
+          fetch(`/api/masjids?bounds=${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (d?.mosques) setBoundsAll(d.mosques); })
+            .catch(() => {});
+        };
+        map.on("moveend", () => {
+          if (moveTimer) clearTimeout(moveTimer);
+          moveTimer = setTimeout(loadBounds, 350);
+        });
+        map.once("load", loadBounds);
       }
       if (cancelled || !mapObj.current) return;
       const map = mapObj.current;
@@ -554,8 +571,12 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       markerObjs.current.push(new maplibregl.Marker({ element: meEl }).setLngLat([cLng, cLat]).addTo(map));
 
       const pinSvg = `<svg width="24" height="30" viewBox="0 0 24 30" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.4))"><path d="M12 0C5.9 0 1 4.9 1 11c0 8.3 11 19 11 19s11-10.7 11-19C23 4.9 18.1 0 12 0z" fill="var(--color-accent)" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="11" r="4" fill="#fff"/></svg>`;
-      const shown = searchResults ?? all;
-      for (const m of shown) {
+      const shown = searchResults ?? boundsAll ?? all;
+      // Cap DOM markers — thousands of elements tank mobile GPUs. Zoomed out
+      // we subsample evenly; zooming in refetches bounds and fills in.
+      const step = Math.max(1, Math.ceil(shown.length / 800));
+      for (let mi = 0; mi < shown.length; mi += step) {
+        const m = shown[mi];
         const el = document.createElement("div");
         el.title = m.name;
         el.style.cssText = "width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer";
@@ -568,7 +589,10 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([m.lng, m.lat]).addTo(map),
         );
       }
-      if (shown.length > 0) {
+      // Fit the view to results only for search/radius data — bounds-fetched
+      // masjids are already inside the viewport, and refitting would snap the
+      // map back on every pan.
+      if (shown.length > 0 && (!boundsAll || searchResults)) {
         const bounds = new maplibregl.LngLatBounds([cLng, cLat], [cLng, cLat]);
         for (const m of shown) bounds.extend([m.lng, m.lat]);
         map.fitBounds(bounds, { padding: 48, maxZoom: 13 });
@@ -579,7 +603,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     return () => {
       cancelled = true;
     };
-  }, [mode, hasLoc, lat, lng, all, searchResults, searchCenter]);
+  }, [mode, hasLoc, lat, lng, all, searchResults, searchCenter, boundsAll]);
 
   // Tear down map when leaving map mode
   useEffect(() => {

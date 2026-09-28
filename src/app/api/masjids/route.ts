@@ -3,6 +3,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { scrapeIqamah } from "@/lib/masjid/iqamah";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -283,183 +284,14 @@ interface SourceRow {
   iqamahCheckedAt: Date | null;
 }
 
-/** Masjidal's public widget API: /api/v1/time?masjid_id=X → JSON iqama. */
-function parseMasjidal(json: unknown): { fixed: (string | null)[]; jummah: string[] } | null {
-  const iq = (json as { data?: { iqama?: Record<string, string> } })?.data?.iqama;
-  if (!iq) return null;
-  const to24 = (s?: string) => {
-    if (!s) return null;
-    const m = s.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-    if (!m) return null;
-    let h = parseInt(m[1]);
-    if (m[3]?.toLowerCase() === "pm" && h !== 12) h += 12;
-    if (m[3]?.toLowerCase() === "am" && h === 12) h = 0;
-    return `${String(h).padStart(2, "0")}:${m[2]}`;
-  };
-  const fixed = [iq.fajr, iq.zuhr, iq.asr, iq.maghrib, iq.isha].map(to24);
-  const jummah = [iq.jummah1, iq.jummah2, iq.jummah3].map(to24).filter((t): t is string => !!t);
-  return fixed.some(Boolean) ? { fixed, jummah } : null;
-}
+// Parsers + scrape cascade live in @/lib/masjid/iqamah — shared with the
+// nightly cron sweep so both paths use the exact same extraction logic.
 
-/**
- * Mohid-style widget pages embed iqamah in .prayer_iqama_div blocks.
- * Many masjid homepages iframe a Mohid/Masjidal widget — one extra hop.
- */
-function parseMohidHtml(html: string): { fixed: (string | null)[]; jummah: string[] } | null {
-  const times = [...html.matchAll(/prayer_iqama_div[^>]*>\s*([\s\S]*?)</g)]
-    .map((m) => m[1].trim().match(/(\d{1,2}:\d{2}\s*(?:am|pm)?)/i)?.[1])
-    .filter((t): t is string => !!t);
-  // First cell is usually "Iqamah" label / header — praytime slices [1,6]
-  const five = times.length >= 6 ? times.slice(1, 6) : times.slice(0, 5);
-  if (five.length < 5) return null;
-  const to24 = (s: string) => {
-    const m = s.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-    if (!m) return null;
-    let h = parseInt(m[1]);
-    if (m[3]?.toLowerCase() === "pm" && h !== 12) h += 12;
-    if (m[3]?.toLowerCase() === "am" && h === 12) h = 0;
-    return `${String(h).padStart(2, "0")}:${m[2]}`;
-  };
-  const fixed = five.map(to24);
-  const juma = [...html.matchAll(/id="jummah"[\s\S]{0,2000}?(\d{1,2}:\d{2}\s*(?:am|pm)?)/gi)]
-    .map((m) => to24(m[1])).filter((t): t is string => !!t);
-  return fixed.every(Boolean) ? { fixed, jummah: juma.slice(0, 3) } : null;
-}
-
-function hhmmTo24(s: string): string | null {
-  const m = s.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-  if (!m) return null;
-  let h = parseInt(m[1]);
-  if (m[3]?.toLowerCase() === "pm" && h !== 12) h += 12;
-  if (m[3]?.toLowerCase() === "am" && h === 12) h = 0;
-  if (h > 23 || Number(m[2]) > 59) return null;
-  return `${String(h).padStart(2, "0")}:${m[2]}`;
-}
-
-/**
- * Mawaqit mosque pages/embeds embed `confData = {...}` with a per-day
- * `iqamaCalendar` (offsets like "+15" or fixed "HH:MM") and jumua times.
- */
-function parseMawaqitConfData(html: string, tz?: string | null): { fixed: (string | null)[]; offsets: (number | null)[]; jummah: string[] } | null {
-  const m = html.match(/confData\s*=\s*(\{[\s\S]*?\});/);
-  if (!m) return null;
-  let conf: Record<string, unknown>;
-  try { conf = JSON.parse(m[1]); } catch { return null; }
-  // ponytail: masjid-local date via its tz when known; off-by-one near
-  // midnight otherwise — iqamah offsets rarely change day to day anyway.
-  const now = new Date();
-  let month = now.getUTCMonth();
-  let day = now.getUTCDate();
-  if (tz) {
-    try {
-      const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "numeric", day: "numeric" }).formatToParts(now);
-      month = Number(parts.find((p) => p.type === "month")!.value) - 1;
-      day = Number(parts.find((p) => p.type === "day")!.value);
-    } catch { /* keep UTC */ }
-  }
-  const cal = conf.iqamaCalendar as Record<string, unknown[]>[] | undefined;
-  const today = cal?.[month]?.[String(day)] as unknown[] | undefined;
-  const fixed: (string | null)[] = [null, null, null, null, null];
-  const offsets: (number | null)[] = [null, null, null, null, null];
-  if (Array.isArray(today)) {
-    for (let i = 0; i < 5; i++) {
-      const v = today[i];
-      if (typeof v === "string" && v.startsWith("+")) offsets[i] = parseInt(v.slice(1), 10);
-      else if (typeof v === "string") fixed[i] = hhmmTo24(v);
-    }
-  }
-  const jummah = [conf.jumua, conf.jumua2, conf.jumua3]
-    .map((j) => (typeof j === "string" ? hhmmTo24(j) : null))
-    .filter((t): t is string => !!t);
-  return fixed.some(Boolean) || offsets.some((o) => o != null) || jummah.length ? { fixed, offsets, jummah } : null;
-}
-
-/**
- * Generic fallback for masjid/widget pages (thebcma, awqat.net, madinaapps,
- * CSV endpoints): find the line containing each prayer label and take its
- * LAST time — iqamah columns sit after adhan. A single time counts only
- * when the line mentions iqamah/jamaat.
- */
-/** CSV schedules: header row names prayer columns, data rows are per-month/week. */
-function parseCsvIqamah(body: string, tz?: string | null): { fixed: (string | null)[]; jummah: string[] } | null {
-  const lines = body.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return null;
-  const header = lines[0].split(",").map((c) => c.trim().toLowerCase());
-  const cols = ["fajr", "dhuhr|zuhr|dhur", "asr", "maghrib", "isha"].map((n) =>
-    header.findIndex((h) => new RegExp(`^${n}$`, "i").test(h)),
-  );
-  if (cols.filter((c) => c >= 0).length < 4) return null;
-  // Pick the row for the masjid-local month + week-of-month (rows are often
-  // labeled FIRST/SECOND/..._ASHURA), falling back to the first data row.
-  let month = new Date().getUTCMonth() + 1;
-  let week = Math.ceil(new Date().getUTCDate() / 7);
-  if (tz) {
-    try {
-      const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "numeric", day: "numeric" }).formatToParts(new Date());
-      month = Number(p.find((x) => x.type === "month")!.value);
-      week = Math.ceil(Number(p.find((x) => x.type === "day")!.value) / 7);
-    } catch { /* keep UTC */ }
-  }
-  const monthName = ["january","february","march","april","may","june","july","august","september","october","november","december"][month - 1];
-  const weekNames = ["first", "second", "third", "fourth", "fifth"];
-  const monthIdx = header.findIndex((h) => /month/i.test(h));
-  const seqIdx = header.findIndex((h) => /ashura|week|sequence/i.test(h));
-  const dataRows = lines.slice(1).map((l) => l.split(",").map((c) => c.trim()));
-  const monthRows = monthIdx >= 0 ? dataRows.filter((r) => (r[monthIdx] ?? "").toLowerCase() === monthName) : dataRows;
-  const pool = monthRows.length ? monthRows : dataRows;
-  let row = pool[0];
-  if (seqIdx >= 0) {
-    const want = weekNames[Math.min(week, 5) - 1];
-    row = pool.find((r) => (r[seqIdx] ?? "").toLowerCase().startsWith(want)) ?? pool[pool.length - 1];
-  }
-  const fixed = cols.map((c) => (c >= 0 ? hhmmTo24(row[c] ?? "") : null));
-  const jummah = header
-    .map((h, i) => (/jumua|jummah|friday/i.test(h) ? hhmmTo24(row[i] ?? "") : null))
-    .filter((t): t is string => !!t);
-  return fixed.filter(Boolean).length >= 4 ? { fixed, jummah } : null;
-}
-
-function parseGenericIqamah(body: string, tz?: string | null): { fixed: (string | null)[]; jummah: string[] } | null {
-  if (!body.slice(0, 400).includes("<")) return parseCsvIqamah(body, tz);
-  const docSaysIqamah = /iqam|jamat|jamaah/i.test(body);
-  // Strip tags to text lines — label and time may be on separate lines
-  // (one <td> per line is common in widget pages).
-  const lines = body
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, "\n")
-    .split(/\n+/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  const prayers = [/\bfajr\b/i, /\b(?:zuhr|dhuhr|dhur)\b/i, /\basr\b/i, /\bmaghrib\b/i, /\bisha\b/i];
-  const timeRe = /(\d{1,2}):(\d{2})\s*(am|pm)?/gi;
-  const fixed = prayers.map((re, pi) => {
-    const i = lines.findIndex((l) => re.test(l));
-    if (i < 0) return null;
-    // Label line + following lines until the next prayer label (max 3)
-    const seg: string[] = [];
-    for (let j = i; j < lines.length && seg.length < 3; j++) {
-      if (j > i && prayers.some((p, pj) => pj !== pi && p.test(lines[j]))) break;
-      seg.push(lines[j]);
-    }
-    const times = [...seg.join(" ").matchAll(timeRe)].map((m) => hhmmTo24(m[0])).filter((t): t is string => !!t);
-    return times.length >= 2 ? times[times.length - 1]
-      : times.length === 1 && docSaysIqamah ? times[0]
-      : null;
-  });
-  if (fixed.filter(Boolean).length < 4) return null;
-  const jummah: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (!/jumu|jumm?a|friday/i.test(lines[i])) continue;
-    for (const m of lines.slice(i, i + 3).join(" ").matchAll(timeRe)) {
-      const t = hhmmTo24(m[0]);
-      if (t) jummah.push(t);
-    }
-  }
-  return { fixed, jummah: [...new Set(jummah)].slice(0, 3) };
-}
-
-const IQAMAH_CACHE_MS = 12 * 60 * 60 * 1000; // re-resolve at most twice a day
+// The nightly cron (05:00 UTC) is the primary scraper — this window is just
+// wider than a day so cron-covered rows NEVER trigger a live fetch inside a
+// user request. Live scrape remains only as a cold-start fallback for rows
+// added after the last sweep (or a missed night).
+const IQAMAH_CACHE_MS = 23 * 60 * 60 * 1000;
 const UPSTREAM_TIMEOUT = 6000; // a slow masjid homepage must not stall the list
 
 /** Apply a previously cached iqamah result without any network call. */
@@ -484,63 +316,15 @@ async function fetchLiveIqamah(e: MasjidEntry): Promise<void> {
     applyCachedIqamah(e);
     return;
   }
-  const apply = (p: { fixed: (string | null)[]; offsets?: (number | null)[]; jummah: string[] } | null, provider: string) => {
-    if (!p) return;
+  // Shared scrape cascade (Masjidal → Mawaqit confData → Mohid → generic/CSV)
+  const p = await scrapeIqamah(url, e.masjidTz);
+  if (p) {
     if (p.fixed.some(Boolean)) e.iqamaFixed = p.fixed;
     if (p.offsets?.some((o) => o != null)) e.iqamaOffsets = p.offsets as number[];
     if (p.jummah.length) e.jummah = p.jummah;
     e.hasIqama = p.fixed.some(Boolean) || !!p.offsets?.some((o) => o != null) || p.jummah.length > 0;
-    e.attribution = { provider };
-  };
-  const opts = { next: { revalidate: 21600 }, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT) };
-  try {
-    if (url.includes("masjidal.com")) {
-      const res = await fetch(url, opts);
-      apply(res.ok ? parseMasjidal(await res.json().catch(() => null)) : null, "Masjidal");
-    } else {
-      // Widget page / homepage: fetch HTML, then try in order —
-      // Masjidal iframe → Mawaqit page/embed confData → Mohid iframe →
-      // generic labeled-times parse (also handles CSV endpoints).
-      const res = await fetch(url, { ...opts, headers: { "User-Agent": "Waqt/1.0" } });
-      if (!res.ok) return;
-      const html = await res.text();
-      if (html.length > 2_000_000) return; // absurd page — don't parse megabytes
-
-      if (url.includes("mawaqit.net")) {
-        apply(parseMawaqitConfData(html, e.masjidTz), "Mawaqit");
-      } else {
-        const masjidalEmbed = html.match(/masjidal\.com\/[^"' ]*masjid_id=([A-Za-z0-9]+)/);
-        if (masjidalEmbed) {
-          const r2 = await fetch(`https://masjidal.com/api/v1/time?masjid_id=${masjidalEmbed[1]}`, opts).catch(() => null);
-          apply(r2?.ok ? parseMasjidal(await r2.json().catch(() => null)) : null, "Masjidal");
-        }
-        if (!e.hasIqama) {
-          const mawaqitEmbed = html.match(/(?:src|href)=["'](https?:\/\/mawaqit\.net\/[^"']*)["']/i);
-          if (mawaqitEmbed) {
-            const r2 = await fetch(mawaqitEmbed[1], { ...opts, headers: { "User-Agent": "Waqt/1.0" } })
-              .then((r) => (r.ok ? r.text() : null)).catch(() => null);
-            if (r2) apply(parseMawaqitConfData(r2, e.masjidTz), "Mawaqit");
-          }
-        }
-        if (!e.hasIqama) {
-          // Mohid widget iframe embedded in the masjid's homepage — follow it once
-          // "mohid" must be in the HOST — a path match (e.g. /mohid on an
-          // arbitrary or link-local host) would be an SSRF vector.
-          const mohidEmbed = html.match(/(?:src|href)=["'](https?:\/\/[^/"']*mohid[^/"']*\/[^"']*)["']/i);
-          const targetHtml = mohidEmbed
-            ? await fetch(mohidEmbed[1], { ...opts, headers: { "User-Agent": "Waqt/1.0" } })
-                .then((r) => (r.ok ? r.text() : null))
-                .catch(() => null)
-            : html;
-          if (targetHtml) {
-            apply(parseMohidHtml(targetHtml), "Masjid site");
-            if (!e.hasIqama) apply(parseGenericIqamah(targetHtml, e.masjidTz), "Masjid site");
-          }
-          if (!e.hasIqama) apply(parseGenericIqamah(html, e.masjidTz), "Masjid site");
-        }
-      }
-    }
-  } catch { /* best-effort — entry just shows adhan */ }
+    if (p.provider) e.attribution = { provider: p.provider };
+  }
   // Write the resolution back so the next request for this masjid is instant.
   if (e.srcId) {
     const cache = e.hasIqama
@@ -721,6 +505,64 @@ export async function GET(request: NextRequest) {
         return copy;
       });
       return NextResponse.json({ mosques: out, total: unique.length, hasMore: false });
+    }
+
+    // ── Viewport browse: ?bounds=s,w,n,e ──
+    // Map-mode loading — pure DB (registry + community), zero upstream calls.
+    // This is why fajrlabs' map feels instant at world zoom; same trick.
+    const bounds = searchParams.get("bounds");
+    if (bounds) {
+      const p = bounds.split(",").map(Number);
+      if (p.length !== 4 || p.some((x) => !isFinite(x))) {
+        return NextResponse.json({ error: "Invalid bounds." }, { status: 400 });
+      }
+      // Clamp — MapLibre reports lng beyond ±180 when zoomed to world view.
+      const sLat = Math.max(-90, p[0]), wLng = Math.max(-180, p[1]);
+      const nLat = Math.min(90, p[2]), eLng = Math.min(180, p[3]);
+      if (nLat <= sLat) {
+        return NextResponse.json({ error: "Bounds too wide or invalid." }, { status: 400 });
+      }
+      // If the viewport spans the whole globe (w≥e after clamp), skip the lng filter.
+      const box = wLng >= eLng
+        ? sql`lat BETWEEN ${sLat} AND ${nLat}`
+        : sql`lat BETWEEN ${sLat} AND ${nLat} AND lng BETWEEN ${wLng} AND ${eLng}`;
+      const [srcs, subs] = await Promise.all([
+        db.select().from(schema.masjidSources).where(box).limit(1500).catch(() => [] as SourceRow[]),
+        db.select().from(schema.masjidIqamah).where(box).limit(300).catch(() => []),
+      ]);
+      const out: Record<string, unknown>[] = [
+        ...(srcs as SourceRow[]).map((s) => {
+          const e: MasjidEntry = {
+            id: `pt:${s.externalId}`, slug: null, name: s.name, lat: s.lat, lng: s.lng,
+            distanceKm: 0, city: null, country: null, address: s.address,
+            source: "registry", attribution: null, url: s.website,
+            iqamaOffsets: null, iqamaFixed: null, jummah: null, hasIqama: false,
+            image: null, phone: null, website: s.website,
+            srcId: s.externalId, iqamahCache: s.iqamahCache, iqamahCheckedAt: s.iqamahCheckedAt,
+          };
+          // Nightly-scraped iqamah applies with no network — map stays instant.
+          applyCachedIqamah(e);
+          const pub: Record<string, unknown> = { ...e };
+          delete pub.srcId; delete pub.iqamahCache; delete pub.iqamahCheckedAt; delete pub.fetchUrl;
+          return pub;
+        }),
+        // Community rows overlapping a registry masjid (~11m) would pin twice
+        // on the same building — registry wins, community fills gaps.
+        ...subs.filter((s) =>
+          !(srcs as SourceRow[]).some((r) =>
+            Math.abs(r.lat - s.lat) < 0.0005 && Math.abs(r.lng - s.lng) < 0.0005),
+        ).map((s) => ({
+          id: s.masjidId, slug: null, name: s.masjidName, lat: s.lat, lng: s.lng,
+          distanceKm: 0, city: null, country: null, address: null,
+          source: "community", attribution: { provider: "Community" }, url: null,
+          iqamaOffsets: null,
+          iqamaFixed: [s.fajr, s.dhuhr, s.asr, s.maghrib, s.isha],
+          jummah: Array.isArray(s.jummah) && s.jummah.length ? s.jummah : null,
+          hasIqama: [s.fajr, s.dhuhr, s.asr, s.maghrib, s.isha].some(Boolean),
+          image: null, phone: null, website: null,
+        })),
+      ];
+      return NextResponse.json({ mosques: out });
     }
 
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
