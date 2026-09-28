@@ -30,17 +30,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "This confirmation link is invalid or has expired." }, { status: 400 });
     }
 
+    // Consume the token atomically — DELETE ... RETURNING means exactly one
+    // concurrent request wins; the loser gets zero rows and sees "invalid".
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const [pending] = await db
-      .select()
-      .from(schema.pendingSignups)
+      .delete(schema.pendingSignups)
       .where(
         and(
           eq(schema.pendingSignups.tokenHash, tokenHash),
           gt(schema.pendingSignups.expiresAt, new Date()),
         ),
       )
-      .limit(1);
+      .returning();
 
     if (!pending) {
       return NextResponse.json(
@@ -48,10 +49,6 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-
-    // Race guard — someone may have completed signup for this email since
-    // the link was sent. Delete the pending row either way.
-    await db.delete(schema.pendingSignups).where(eq(schema.pendingSignups.email, pending.email));
 
     const [existing] = await db
       .select({ id: schema.users.id })
@@ -65,22 +62,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Unique 6-char prayer code for friend sharing
-    let prayerCode = "";
-    for (let i = 0; i < 10; i++) {
-      prayerCode = generatePrayerCode();
-      const [dupe] = await db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.prayerCode, prayerCode))
-        .limit(1);
-      if (!dupe) break;
+    // Unique 6-char prayer code for friend sharing — retry the INSERT itself
+    // on a unique-violation so a check-then-insert race can't slip through.
+    let user: { id: string; email: string } | undefined;
+    for (let i = 0; i < 10 && !user; i++) {
+      try {
+        [user] = await db
+          .insert(schema.users)
+          .values({ email: pending.email, passwordHash: pending.passwordHash, prayerCode: generatePrayerCode() })
+          .returning({ id: schema.users.id, email: schema.users.email });
+      } catch (err) {
+        const code = (err as { code?: string })?.code;
+        if (code === "23505") continue; // unique violation — retry with a new code
+        throw err;
+      }
     }
-
-    const [user] = await db
-      .insert(schema.users)
-      .values({ email: pending.email, passwordHash: pending.passwordHash, prayerCode })
-      .returning({ id: schema.users.id, email: schema.users.email });
 
     if (!user) {
       return NextResponse.json({ error: "Could not create your account. Please try again." }, { status: 500 });
@@ -116,7 +112,7 @@ function generatePrayerCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[crypto.randomInt(chars.length)];
   }
   return code;
 }

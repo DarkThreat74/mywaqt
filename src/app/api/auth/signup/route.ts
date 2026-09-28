@@ -128,18 +128,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(GENERIC_OK);
   }
 
-  // Pending signup — one row per email; a re-signup overwrites and
-  // invalidates the previous link (token_hash is unique).
+  // Pending signup — one row per email; a re-signup atomically overwrites
+  // and invalidates the previous link (token_hash is unique).
   const rawToken = crypto.randomBytes(32).toString("hex");
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-  await db.delete(schema.pendingSignups).where(eq(schema.pendingSignups.email, normalizedEmail));
-  await db.insert(schema.pendingSignups).values({
-    email: normalizedEmail,
-    passwordHash,
-    tokenHash,
-    fingerprintHash: fingerprintHash && isValidFingerprintHash(fingerprintHash) ? fingerprintHash : null,
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  });
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const fp = fingerprintHash && isValidFingerprintHash(fingerprintHash) ? fingerprintHash : null;
+  await db
+    .insert(schema.pendingSignups)
+    .values({ email: normalizedEmail, passwordHash, tokenHash, fingerprintHash: fp, expiresAt })
+    .onConflictDoUpdate({
+      target: schema.pendingSignups.email,
+      set: { passwordHash, tokenHash, fingerprintHash: fp, expiresAt },
+    });
 
   const verifyUrl = `${env.appUrl}/signup/verify?token=${rawToken}`;
   const sent = await sendEmail({
