@@ -16,6 +16,7 @@ export default function SignupForm() {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [doneMessage, setDoneMessage] = useState<string | null>(null);
   const turnstileRef = useRef<CaptchaHandle>(null);
 
   // ── Honeypot fields — hidden from humans, bots fill these ──
@@ -131,7 +132,9 @@ export default function SignupForm() {
         return;
       }
 
-      // Verify-email-first — the account is created via the emailed link.
+      // The server message covers both modes: verify-email-first (check your
+      // inbox) or instant-create (sign in to continue).
+      setDoneMessage(data.message || null);
       setStep("done");
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -167,11 +170,10 @@ export default function SignupForm() {
             <Check className="h-6 w-6" style={{ color: "var(--color-accent)" }} />
           </div>
           <h1 className="text-xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
-            Check your email
+            Almost done
           </h1>
           <p className="max-w-xs text-sm leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            We sent a confirmation link to <strong style={{ color: "var(--color-ink)" }}>{email}</strong>.
-            Click it to finish creating your account — it expires in 24 hours.
+            {doneMessage || <>We sent a confirmation link to <strong style={{ color: "var(--color-ink)" }}>{email}</strong>. Click it to finish creating your account — it expires in 24 hours.</>}
           </p>
           <Link href="/login" className="mt-2 text-sm font-medium" style={{ color: "var(--color-accent)" }}>
             Back to sign in

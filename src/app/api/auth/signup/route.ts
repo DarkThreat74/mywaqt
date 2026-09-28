@@ -7,6 +7,7 @@ import { isValidEmail, isHoneypotTripped, isTimeTrapTripped, isValidFingerprintH
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { sendEmail } from "@/lib/email";
+import { createUserWithPrayerCode, trustDevice } from "@/lib/auth/create-user";
 import { env } from "@/lib/env";
 import { logError } from "@/lib/logError";
 
@@ -97,14 +98,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Verify-email-first signup ──
+  // ── Anti-enumeration signup ──
   // The response is identical whether the email is free or registered —
-  // no enumeration oracle. Both paths send an email and do a bcrypt hash,
-  // so timing is uniform too. The account is only created when the emailed
-  // link is clicked (see /api/auth/signup/verify).
+  // no enumeration oracle. Two modes depending on whether email sending
+  // is configured (RESEND_API_KEY):
+  //   ON  — verify-email-first: the account is only created when the emailed
+  //         link is clicked (see /api/auth/signup/verify).
+  //   OFF — the account is created immediately but NO session is issued;
+  //         the user signs in themselves. Same generic response either way,
+  //         so existence still can't be probed.
+  const emailVerificationEnabled = !!env.resendApiKey;
   const GENERIC_OK = {
     ok: true,
-    message: "Check your email for a link to finish creating your account.",
+    message: emailVerificationEnabled
+      ? "Check your email for a link to finish creating your account."
+      : "If this email isn't already registered, your account is ready — sign in to continue.",
   };
 
   const passwordHash = await bcrypt.hash(password, 10);
@@ -116,15 +124,31 @@ export async function POST(request: NextRequest) {
     .limit(1);
 
   if (existing) {
-    // Registered email → send a notice to the owner, same response.
-    await sendEmail({
-      to: normalizedEmail,
-      subject: "Someone tried to sign up with your email",
-      text:
-        `Someone just tried to create a Waqt account with this email address.\n\n` +
-        `If it was you, sign in instead — or use "Forgot password" on the login page if you need to reset it.\n\n` +
-        `If it wasn't you, you can ignore this email — no account was created and nothing changed.`,
-    });
+    // Registered email → send a notice to the owner if we can, same response.
+    if (emailVerificationEnabled) {
+      await sendEmail({
+        to: normalizedEmail,
+        subject: "Someone tried to sign up with your email",
+        text:
+          `Someone just tried to create a Waqt account with this email address.\n\n` +
+          `If it was you, sign in instead — or use "Forgot password" on the login page if you need to reset it.\n\n` +
+          `If it wasn't you, you can ignore this email — no account was created and nothing changed.`,
+      });
+    }
+    return NextResponse.json(GENERIC_OK);
+  }
+
+  // Email off → create the account now; user signs in via /login.
+  if (!emailVerificationEnabled) {
+    const user = await createUserWithPrayerCode(normalizedEmail, passwordHash);
+    if (!user) {
+      return NextResponse.json({ error: "Could not create your account. Please try again." }, { status: 500 });
+    }
+    await trustDevice(
+      user.id,
+      fingerprintHash && isValidFingerprintHash(fingerprintHash) ? fingerprintHash : null,
+      request.headers.get("user-agent"),
+    );
     return NextResponse.json(GENERIC_OK);
   }
 

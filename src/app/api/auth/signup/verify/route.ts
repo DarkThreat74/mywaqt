@@ -4,7 +4,7 @@ import { eq, and, gt } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { setSessionCookie } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
-import { getDeviceLabel } from "@/lib/auth/device-label";
+import { createUserWithPrayerCode, trustDevice } from "@/lib/auth/create-user";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -62,22 +62,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Unique 6-char prayer code for friend sharing — retry the INSERT itself
-    // on a unique-violation so a check-then-insert race can't slip through.
-    let user: { id: string; email: string } | undefined;
-    for (let i = 0; i < 10 && !user; i++) {
-      try {
-        [user] = await db
-          .insert(schema.users)
-          .values({ email: pending.email, passwordHash: pending.passwordHash, prayerCode: generatePrayerCode() })
-          .returning({ id: schema.users.id, email: schema.users.email });
-      } catch (err) {
-        const code = (err as { code?: string })?.code;
-        if (code === "23505") continue; // unique violation — retry with a new code
-        throw err;
-      }
-    }
-
+    const user = await createUserWithPrayerCode(pending.email, pending.passwordHash);
     if (!user) {
       return NextResponse.json({ error: "Could not create your account. Please try again." }, { status: 500 });
     }
@@ -85,34 +70,11 @@ export async function POST(request: NextRequest) {
     await setSessionCookie(user);
 
     // Trust the device fingerprint captured at signup
-    if (pending.fingerprintHash) {
-      try {
-        const deviceLabel = getDeviceLabel(request.headers.get("user-agent"));
-        await db
-          .insert(schema.trustedDevices)
-          .values({ userId: user.id, fingerprintHash: pending.fingerprintHash, label: deviceLabel })
-          .onConflictDoUpdate({
-            target: [schema.trustedDevices.userId, schema.trustedDevices.fingerprintHash],
-            set: { lastUsedAt: new Date(), label: deviceLabel },
-          });
-      } catch {
-        // Non-critical — device trust is a convenience
-      }
-    }
+    await trustDevice(user.id, pending.fingerprintHash, request.headers.get("user-agent"));
 
     return NextResponse.json({ ok: true });
   } catch (err) {
     logError(err, { route: "auth/signup/verify" });
     return NextResponse.json({ error: "Could not confirm your account. Please try again." }, { status: 500 });
   }
-}
-
-// Random 6-char prayer code (uppercase + digits, no ambiguous chars)
-function generatePrayerCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += chars[crypto.randomInt(chars.length)];
-  }
-  return code;
 }
