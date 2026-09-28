@@ -117,6 +117,8 @@ await writeFile(join(OUT, "favicon-32.png"), await circleIcon(32));
 console.log("  favicon-32.png");
 await ico([16, 32, 48], "favicon.ico", circleIcon);
 await opaque(180, "apple-touch-icon.png");
+await opaque(167, "apple-touch-icon-167.png"); // iPad Pro — avoids blurry 180 downscale
+await opaque(152, "apple-touch-icon-152.png"); // older iPads
 await png(192, "icon-192.png");
 await png(512, "icon-512.png");
 await maskable(192, "icon-maskable-192.png");
