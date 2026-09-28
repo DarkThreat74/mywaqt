@@ -323,6 +323,8 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     }
   }
   const mapRef = useRef<HTMLDivElement>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const recenteredRef = useRef(false);
   const mapObj = useRef<import("maplibre-gl").Map | null>(null);
   const markerObjs = useRef<import("maplibre-gl").Marker[]>([]);
 
@@ -484,7 +486,11 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   }, [selected, lat, lng, searchCenter]);
 
   useEffect(() => {
-    if (mode !== "map" || (!hasLoc && !searchCenter) || !mapRef.current) return;
+    // Init even without a location — a blank fullscreen with no map is a bug,
+    // not a state. Center on search → saved loc → CONUS fallback; bounds
+    // loading fills masjids for whatever region is on screen regardless.
+    if (mode !== "map" || !mapRef.current) return;
+    const hasCenter = hasLoc || !!searchCenter;
     let cancelled = false;
     void (async () => {
       const maplibregl = await import("maplibre-gl").catch(() => null);
@@ -506,8 +512,10 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           mapObj.current = new maplibregl.Map({
             container: mapRef.current,
             style: "https://tiles.openfreemap.org/styles/liberty",
-            center: [searchCenter?.lng ?? lng, searchCenter?.lat ?? lat],
-            zoom: 11,
+            center: hasCenter
+              ? [searchCenter?.lng ?? lng, searchCenter?.lat ?? lat]
+              : [-98.5, 39.5], // CONUS fallback — registry is US/CA
+            zoom: hasCenter ? 11 : 4,
             attributionControl: { compact: true },
           });
         } catch (err) {
@@ -531,7 +539,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           toRaster();
         });
         const loadTimer = setTimeout(() => { if (!map.loaded()) toRaster(); }, 6000);
-        map.once("load", () => clearTimeout(loadTimer));
+        map.once("load", () => { clearTimeout(loadTimer); setMapReady(true); });
         // If even raster can't load, say so.
         setTimeout(() => {
           if (!map.loaded() && fellBack) setError("Map tiles aren't loading — check your connection.");
@@ -562,13 +570,16 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       for (const mk of markerObjs.current) mk.remove();
       markerObjs.current = [];
 
-      // Center dot = your location, or the searched address while in that view
+      // Center dot = your location, or the searched address while in that
+      // view. Skip entirely with no center — NaN coords break markers.
       const cLat = searchCenter?.lat ?? lat;
       const cLng = searchCenter?.lng ?? lng;
-      const meEl = document.createElement("div");
-      meEl.style.cssText =
-        "width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)";
-      markerObjs.current.push(new maplibregl.Marker({ element: meEl }).setLngLat([cLng, cLat]).addTo(map));
+      if (hasLoc || searchCenter) {
+        const meEl = document.createElement("div");
+        meEl.style.cssText =
+          "width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)";
+        markerObjs.current.push(new maplibregl.Marker({ element: meEl }).setLngLat([cLng, cLat]).addTo(map));
+      }
 
       const pinSvg = `<svg width="24" height="30" viewBox="0 0 24 30" style="display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.4))"><path d="M12 0C5.9 0 1 4.9 1 11c0 8.3 11 19 11 19s11-10.7 11-19C23 4.9 18.1 0 12 0z" fill="var(--color-accent)" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="11" r="4" fill="#fff"/></svg>`;
       const shown = searchResults ?? boundsAll ?? all;
@@ -599,6 +610,12 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       } else if (searchCenter) {
         map.flyTo({ center: [cLng, cLat], zoom: 12 });
       }
+      // Location resolved after the map opened on the fallback view —
+      // fly to it once (don't yank the camera on every re-render).
+      if (hasLoc && !searchCenter && !recenteredRef.current) {
+        recenteredRef.current = true;
+        map.flyTo({ center: [lng, lat], zoom: 12 });
+      }
     })();
     return () => {
       cancelled = true;
@@ -612,6 +629,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       markerObjs.current = [];
       mapObj.current.remove();
       mapObj.current = null;
+      setMapReady(false);
     }
   }, [mode]);
 
@@ -802,6 +820,25 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         <div className="fixed inset-0 z-[60]" style={{ backgroundColor: "var(--color-paper)" }}>
           <div ref={mapRef} className="absolute inset-0" />
 
+          {/* Loading state — tiles take a beat on cold connections */}
+          {!mapReady && !error && (
+            <div className="absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 justify-center">
+              <span className="flex items-center gap-2 rounded-full border px-4 py-2 text-xs shadow-lg" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink-muted)" }}>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading map…
+              </span>
+            </div>
+          )}
+
+          {/* Errors must live inside the overlay — the page-level banner is
+              behind this fullscreen layer and can never be seen here. */}
+          {error && (
+            <div className="absolute inset-x-3 z-10 flex justify-center" style={{ top: "calc(env(safe-area-inset-top) + 64px)" }}>
+              <span className="rounded-full border px-4 py-2 text-xs shadow-lg" style={{ borderColor: "var(--color-warmth)", backgroundColor: "var(--color-paper)", color: "var(--color-warmth)" }}>
+                {error}
+              </span>
+            </div>
+          )}
+
           {/* Floating top chrome */}
           <div
             className="absolute inset-x-3 z-10 flex items-center gap-2"
@@ -840,7 +877,8 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
             </div>
             <button
               onClick={() => mapObj.current?.flyTo({ center: [searchCenter?.lng ?? lng, searchCenter?.lat ?? lat], zoom: 14, duration: 600 })}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border shadow-lg backdrop-blur-md"
+              disabled={!hasLoc && !searchCenter}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border shadow-lg backdrop-blur-md disabled:opacity-50"
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)", color: "var(--color-ink)" }}
               aria-label="Center on my location"
             >
