@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, gt, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
-import { dateStrInTimezone } from "@/lib/timezone";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +19,10 @@ const OWED_COL = {
 // Body: { action: "absorb" | "dismiss" }
 //   absorb  — adds each missed prayer to its owed column, advances waterline
 //   dismiss — advances the waterline only
+// The waterline is a timestamp: "missed prayers marked since the user last
+// engaged". Resolving the nudge acknowledges everything marked up to now —
+// the counter restarts from the current salah, and a prayer marked missed
+// later today still surfaces tomorrow.
 export async function POST(request: NextRequest) {
   try {
     const session = await getSessionFromRequest(request);
@@ -51,22 +54,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Qadaa not set up yet." }, { status: 404 });
     }
 
-    const waterline = ledger.unloggedSeenThrough ?? "0001-01-01";
-
-    // Waterline = today in the user's timezone — resolving the nudge starts
-    // fresh from the current salah; prayers missed earlier today were just
-    // absorbed/dismissed and must not resurface tomorrow.
-    const [settings] = await db
-      .select({ timezone: schema.prayerSettings.timezone })
-      .from(schema.prayerSettings)
-      .where(eq(schema.prayerSettings.userId, session.userId))
-      .limit(1);
-    const newWaterline = dateStrInTimezone(new Date(), settings?.timezone || "UTC");
+    // Snapshot BEFORE counting: a check-in landing between the count and the
+    // UPDATE gets marked_at > snapshot and survives to the next nudge —
+    // nothing is ever swallowed mid-request.
+    const snapshot = new Date();
+    const oldWaterline = ledger.unloggedSeenThrough;
+    const markedExpr = sql`coalesce(${schema.prayerLog.markedAt}, ${schema.prayerLog.lastCheckinAt}, ${schema.prayerLog.date}::timestamptz)`;
 
     // Single UPDATE for owed columns AND waterline — atomic, so a crash
     // between absorb and waterline can't double-add or silently drop rows.
     const updates: Record<string, unknown> = {
-      unloggedSeenThrough: newWaterline,
+      unloggedSeenThrough: snapshot,
       updatedAt: new Date(),
     };
 
@@ -82,7 +80,7 @@ export async function POST(request: NextRequest) {
           and(
             eq(schema.prayerLog.userId, session.userId),
             eq(schema.prayerLog.status, "missed"),
-            gt(schema.prayerLog.date, waterline),
+            sql`${markedExpr} > ${oldWaterline ?? new Date(0)}`,
           ),
         )
         .groupBy(schema.prayerLog.prayerName);
@@ -96,10 +94,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await db
+    // Optimistic concurrency — the UPDATE only applies if the waterline is
+    // still what we counted against. Two concurrent absorbs can't both add:
+    // whoever commits second matches zero rows and returns the winner's state.
+    const applied = await db
       .update(schema.qadaaLedger)
       .set(updates)
-      .where(eq(schema.qadaaLedger.userId, session.userId));
+      .where(
+        and(
+          eq(schema.qadaaLedger.userId, session.userId),
+          sql`${schema.qadaaLedger.unloggedSeenThrough} IS NOT DISTINCT FROM ${oldWaterline}`,
+        ),
+      )
+      .returning({ id: schema.qadaaLedger.userId });
+
+    if (applied.length === 0) {
+      logError(new Error("qadaa/unlogged: concurrent resolve detected"), {
+        route: "qadaa/unlogged",
+      });
+    }
 
     const [updated] = await db
       .select()

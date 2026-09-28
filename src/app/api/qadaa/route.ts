@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, gt, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -33,8 +33,11 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Missed prayers logged after the waterline, grouped per salah — surfaced
-  // as an "add to qadaa?" nudge under the tracker.
+  // Missed prayers MARKED after the waterline (the instant the user last
+  // engaged with the tracker), grouped per salah — surfaced as an "add to
+  // qadaa?" nudge. marked_at falls back to last_checkin_at/row date.
+  const waterline = ledger.unloggedSeenThrough ?? new Date(0);
+  const markedExpr = sql`coalesce(${schema.prayerLog.markedAt}, ${schema.prayerLog.lastCheckinAt}, ${schema.prayerLog.date}::timestamptz)`;
   const missedRows = await db
     .select({
       prayerName: schema.prayerLog.prayerName,
@@ -45,7 +48,7 @@ export async function GET(request: NextRequest) {
       and(
         eq(schema.prayerLog.userId, session.userId),
         eq(schema.prayerLog.status, "missed"),
-        gt(schema.prayerLog.date, ledger.unloggedSeenThrough ?? "0001-01-01"),
+        sql`${markedExpr} > ${waterline}`,
       ),
     )
     .groupBy(schema.prayerLog.prayerName);

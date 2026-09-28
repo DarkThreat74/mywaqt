@@ -501,7 +501,7 @@ export const qadaaLedger = pgTable('qadaa_ledger', {
   setupCompleted: boolean('setup_completed').default(false).notNull(),
   // Waterline for the "missed prayers since last update" prompt — missed
   // prayer_log rows with a date after this count toward the nudge.
-  unloggedSeenThrough: date('unlogged_seen_through'),
+  unloggedSeenThrough: timestamp('unlogged_seen_through', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
