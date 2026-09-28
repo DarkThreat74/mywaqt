@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Flame, MapPin, Users, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, Heart, UsersRound } from "lucide-react";
+import Link from "next/link";
+import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, Heart, UsersRound, ChevronDown } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -237,14 +238,18 @@ export default function PrayerDashboard() {
   const [pendingRequests, setPendingRequests] = useState<Array<{
     id: string;
     createdAt: string;
-    requester: { id: string; firstName: string | null; displayName: string | null };
+    requester: { id: string; firstName: string | null; displayName: string | null; avatarUrl: string | null };
   }>>([]);
   const [sentRequests, setSentRequests] = useState<Array<{
     id: string;
     name: string;
+    avatarUrl: string | null;
     status: "pending" | "accepted" | "rejected" | "expired";
     createdAt: string;
+    expiresAt: string | null;
   }>>([]);
+  const [friendsView, setFriendsView] = useState<"mine" | "add">("mine");
+  const [visOpen, setVisOpen] = useState(false);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<{
     friendsSeeStreak: boolean;
@@ -2258,14 +2263,35 @@ export default function PrayerDashboard() {
       {activeTab === "friends" && (
         <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
           <div className="border-b px-4 py-3 sm:px-5" style={{ borderColor: "var(--color-paper-3)" }}>
-            <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-              <Users className="h-4 w-4" /> Friends Competition
-            </h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                <Users className="h-4 w-4" /> Friends
+              </h2>
+              <div className="flex rounded-lg border p-0.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                {([
+                  { key: "mine", label: `View friends${friends.length > 0 ? ` (${friends.length})` : ""}` },
+                  { key: "add", label: `Add friends${pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ""}` },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setFriendsView(opt.key)}
+                    className="rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors"
+                    style={{
+                      backgroundColor: friendsView === opt.key ? "var(--color-accent)" : "transparent",
+                      color: friendsView === opt.key ? "var(--color-paper)" : "var(--color-ink-muted)",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              Share your code to compete. When someone adds you, you&apos;ll get a notification to accept or reject. You can only see each other&apos;s stats after both sides accept.
+              You only see each other&apos;s stats after both sides accept — and only what each person shares.
             </p>
           </div>
           <div className="px-4 py-4 sm:px-5">
+            {friendsView === "add" && (<>
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
               <div className="flex-1">
                 <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
@@ -2378,37 +2404,61 @@ export default function PrayerDashboard() {
             {friendError && <p className="mb-3 text-xs" style={{ color: "var(--color-warmth)" }}>{friendError}</p>}
             {friendSuccess && <p className="mb-3 text-xs" style={{ color: "var(--color-success)" }}>{friendSuccess}</p>}
 
-            {/* ── Visibility controls ── */}
-            <div className="mb-4 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                What friends can see
-              </p>
-              <div className="flex flex-col gap-2">
-                {([
-                  { key: "friendsSeeStreak", label: "My streak & complete days" },
-                  { key: "friendsSeeTodayStatus", label: "Today's per-prayer status" },
-                  { key: "friendsSeeSunnah", label: "Today's sunnah prayers" },
-                  { key: "friendsSeeMasjidPct", label: "My masjid percentage" },
-                  { key: "friendsNotifyComplete", label: "Notify me when a friend completes all 5" },
-                  { key: "friendsSearchable", label: "Let others find me by name" },
-                ] as const).map((item) => (
-                  <label key={item.key} className="flex items-center justify-between gap-2">
-                    <span className="text-xs" style={{ color: "var(--color-ink-soft)" }}>{item.label}</span>
-                    <button
-                      onClick={() => handleToggleVisibility(item.key, !visibility[item.key])}
-                      className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-                      style={{ backgroundColor: visibility[item.key] ? "var(--color-accent)" : "var(--color-paper-3)" }}
-                      aria-label={`Toggle ${item.label}`}
-                      aria-pressed={visibility[item.key]}
-                    >
-                      <span
-                        className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform"
-                        style={{ left: visibility[item.key] ? "18px" : "2px" }}
-                      />
-                    </button>
-                  </label>
-                ))}
-              </div>
+            {/* ── Visibility controls — collapsed by default ── */}
+            <div className="mb-4 rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
+              <button
+                onClick={() => setVisOpen((o) => !o)}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+                aria-expanded={visOpen}
+                aria-controls="friend-visibility-panel"
+              >
+                <span>
+                  <span className="block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                    What friends can see
+                  </span>
+                  <span className="mt-0.5 block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                    Your privacy settings — apply to every friend, current and future.
+                  </span>
+                </span>
+                <ChevronDown
+                  className="h-4 w-4 shrink-0 transition-transform"
+                  style={{ color: "var(--color-ink-muted)", transform: visOpen ? "rotate(180deg)" : undefined }}
+                />
+              </button>
+              {visOpen && (
+                <div id="friend-visibility-panel" className="flex flex-col gap-3 border-t px-3 pb-3 pt-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                  {([
+                    { key: "friendsSeeStreak", label: "My streak & complete days", help: "Friends see your current streak and how many fully-complete days you've had." },
+                    { key: "friendsSeeTodayStatus", label: "Today's per-prayer status", help: "Friends see which of today's five prayers you've logged — the dots under their name." },
+                    { key: "friendsSeeSunnah", label: "Today's sunnah prayers", help: "Friends see which sunnahs you've logged today, alongside the fard dots." },
+                    { key: "friendsSeeMasjidPct", label: "My masjid percentage", help: "Friends see what share of your logged prayers were at the masjid." },
+                    { key: "friendsNotifyComplete", label: "Notify me when a friend completes all 5", help: "You get a push when a friend finishes their day — it does not share anything extra about you." },
+                    { key: "friendsSearchable", label: "Let others find me by name", help: "People who aren't your friend can find you in name search. They still need to send a request you accept." },
+                  ] as const).map((item) => (
+                    <div key={item.key} className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="block text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>{item.label}</span>
+                        <span className="mt-0.5 block text-[10px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>{item.help}</span>
+                      </div>
+                      <button
+                        onClick={() => handleToggleVisibility(item.key, !visibility[item.key])}
+                        className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+                        style={{ backgroundColor: visibility[item.key] ? "var(--color-accent)" : "var(--color-paper-3)" }}
+                        aria-label={`Toggle ${item.label}`}
+                        aria-pressed={visibility[item.key]}
+                      >
+                        <span
+                          className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform"
+                          style={{ left: visibility[item.key] ? "18px" : "2px" }}
+                        />
+                      </button>
+                    </div>
+                  ))}
+                  <p className="border-t pt-2.5 text-[10px] leading-snug" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                    Changes apply to <b>all existing friends</b> immediately — these are account-level settings, not per-friend. People who haven&apos;t accepted you (or you them) never see these stats regardless.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* ── Pending friend requests ── */}
@@ -2423,9 +2473,14 @@ export default function PrayerDashboard() {
                     className="flex items-center gap-3 rounded-xl border p-3"
                     style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 5%, transparent)" }}
                   >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
-                      {(req.requester.firstName || req.requester.displayName || "?").charAt(0).toUpperCase()}
-                    </div>
+                    {req.requester.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
+                      <img src={req.requester.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" style={{ outline: "1px solid var(--color-paper-3)" }} />
+                    ) : (
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
+                        {(req.requester.firstName || req.requester.displayName || "?").charAt(0).toUpperCase()}
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
                         {req.requester.firstName || req.requester.displayName || "Someone"}
@@ -2477,13 +2532,19 @@ export default function PrayerDashboard() {
                       className="flex items-center gap-3 rounded-xl border p-3"
                       style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
                     >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }}>
-                        {req.name.charAt(0).toUpperCase()}
-                      </div>
+                      {req.avatarUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
+                        <img src={req.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" style={{ outline: "1px solid var(--color-paper-3)" }} />
+                      ) : (
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }}>
+                          {req.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{req.name}</div>
                         <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
                           sent {new Date(req.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                          {req.expiresAt && ` · expires ${new Date(req.expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${new Date(req.expiresAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`}
                         </div>
                       </div>
                       <span
@@ -2500,13 +2561,22 @@ export default function PrayerDashboard() {
                 })}
               </div>
             )}
+            </>)}
 
+            {friendsView === "mine" && (<>
             {friends.length === 0 ? (
               <div className="rounded-lg border border-dashed py-6 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
                 <Users className="mx-auto mb-2 h-6 w-6" style={{ color: "var(--color-ink-muted)" }} />
                 <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  No friends yet. Share your code above and add a friend to start competing.
+                  No friends yet — add one in the <b>Add friends</b> tab, then compete here.
                 </p>
+                <button
+                  onClick={() => setFriendsView("add")}
+                  className="mt-3 rounded-lg border px-3 py-1.5 text-xs font-medium"
+                  style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+                >
+                  Add friends
+                </button>
               </div>
             ) : (
               <div className="space-y-2">
@@ -2621,6 +2691,15 @@ export default function PrayerDashboard() {
                           </div>
                         )}
                       </div>
+                      <Link
+                        href={`/profile/${friend.id}`}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                        aria-label={`View ${friend.firstName || friend.displayName || "friend"}'s profile`}
+                        title="View profile"
+                      >
+                        <User className="h-3.5 w-3.5" />
+                      </Link>
                       <button
                         onClick={() => handleCheerFriend(friend.id)}
                         disabled={friend.cheeredToday === true || cheering.has(friend.id)}
@@ -2695,8 +2774,8 @@ export default function PrayerDashboard() {
               <p className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
                 <UsersRound className="h-3.5 w-3.5" /> Groups — private circles
               </p>
-              <p className="mb-3 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                Family, halaqa, friends — a weekly race of complete days. Members only see what each person shares with friends.
+              <p className="mb-3 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                A private circle is a small invite-only group — family, halaqa, study friends. Create one or join with a group code; members race on complete days each week and can run timed challenges. Members only ever see what each person already shares with friends — joining a group never exposes extra stats.
               </p>
 
               <div className="mb-4 flex flex-col gap-2 sm:flex-row">
@@ -2860,6 +2939,7 @@ export default function PrayerDashboard() {
                 </div>
               ))}
             </div>
+            </>)}
           </div>
         </div>
       )}

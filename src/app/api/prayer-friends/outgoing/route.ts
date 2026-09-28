@@ -3,7 +3,7 @@ import { eq, desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
-import { expireStaleFriendRequests, namesFor } from "@/lib/friend-requests";
+import { expireStaleFriendRequests, profilesFor, FRIEND_REQUEST_TTL_MS } from "@/lib/friend-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -37,15 +37,20 @@ export async function GET(request: NextRequest) {
   // current state of each relationship.
   const seen = new Set<string>();
   const latest = rows.filter((r) => !seen.has(r.friendId) && seen.add(r.friendId));
-  const names = await namesFor(latest.map((r) => r.friendId));
+  const profiles = await profilesFor(latest.map((r) => r.friendId));
 
   return NextResponse.json({
     requests: latest.map((r) => ({
       id: r.id,
-      name: names.get(r.friendId) ?? "Someone",
+      name: profiles.get(r.friendId)?.name ?? "Someone",
+      avatarUrl: profiles.get(r.friendId)?.avatarUrl ?? null,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
       respondedAt: r.respondedAt?.toISOString() ?? null,
+      // Pending requests lapse 72h after sending — surface the deadline.
+      expiresAt: r.status === "pending"
+        ? new Date(r.createdAt.getTime() + FRIEND_REQUEST_TTL_MS).toISOString()
+        : null,
     })),
   });
 }

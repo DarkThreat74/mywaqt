@@ -21,12 +21,12 @@ export async function expireStaleFriendRequests() {
     );
 }
 
-/** Names for a set of user ids — firstName || displayName fallback. */
-export async function namesFor(userIds: string[]) {
-  if (userIds.length === 0) return new Map<string, string>();
+/** Name + avatar for a set of user ids — firstName || displayName fallback. */
+export async function profilesFor(userIds: string[]) {
+  if (userIds.length === 0) return new Map<string, { name: string; avatarUrl: string | null }>();
   const rows = await db
-    .select({ id: schema.users.id, firstName: schema.users.firstName, displayName: schema.users.displayName })
+    .select({ id: schema.users.id, firstName: schema.users.firstName, displayName: schema.users.displayName, avatarUrl: schema.users.avatarUrl })
     .from(schema.users)
     .where(inArray(schema.users.id, userIds));
-  return new Map(rows.map((u) => [u.id, u.firstName || u.displayName || "Someone"]));
+  return new Map(rows.map((u) => [u.id, { name: u.firstName || u.displayName || "Someone", avatarUrl: u.avatarUrl }]));
 }

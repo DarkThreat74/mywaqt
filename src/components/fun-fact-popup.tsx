@@ -15,6 +15,7 @@ const STORAGE_KEY_NEXT_SHOW = "waqt:funfact:nextShow"; // timestamp when next ca
 const STORAGE_KEY_INDEX = "waqt:funfact:index"; // last shown index
 const STORAGE_KEY_SEEN = "waqt:funfact:seen"; // JSON array of permanently seen indices
 const STORAGE_KEY_CURRENT = "waqt:funfact:current"; // current fact index being shown (for X-out reuse)
+const STORAGE_KEY_DISABLED = "waqt:funfact:disabled"; // "1" = user turned cards off in Settings
 
 const INTERVAL_MS = 3 * 60 * 60 * 1000; // 3 hours
 
@@ -192,6 +193,18 @@ export default function FunFactPopup() {
   const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
+    // Cards disabled in Settings — don't schedule or show anything.
+    if (localStorage.getItem(STORAGE_KEY_DISABLED) === "1") return;
+
+    // Live toggle: a card on screen disappears the moment it's switched off.
+    function onToggle() {
+      if (localStorage.getItem(STORAGE_KEY_DISABLED) === "1") {
+        setShow(false);
+        setFact(null);
+      }
+    }
+    window.addEventListener("waqt:funfact:toggle", onToggle);
+
     // Initialize next show time if not set (first visit)
     const nextShowStr = localStorage.getItem(STORAGE_KEY_NEXT_SHOW);
     if (!nextShowStr) {
@@ -206,7 +219,10 @@ export default function FunFactPopup() {
       setFactIndex(initial.factIndex);
     });
     const timer = setTimeout(() => setShow(true), 800);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("waqt:funfact:toggle", onToggle);
+    };
   }, []);
 
   // ── "Got it" / Continue: mark as permanently seen, advance to next ──

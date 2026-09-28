@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
       requesterId: schema.prayerFriends.userId,
       requesterFirstName: schema.users.firstName,
       requesterDisplayName: schema.users.displayName,
+      requesterAvatarUrl: schema.users.avatarUrl,
     })
     .from(schema.prayerFriends)
     .innerJoin(schema.users, eq(schema.prayerFriends.userId, schema.users.id))
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
         id: r.requesterId,
         firstName: r.requesterFirstName,
         displayName: r.requesterDisplayName,
+        avatarUrl: r.requesterAvatarUrl,
       },
     })),
   });

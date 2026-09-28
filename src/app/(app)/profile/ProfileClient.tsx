@@ -75,7 +75,7 @@ interface Profile {
   };
 }
 
-export default function ProfileClient() {
+export default function ProfileClient({ userId }: { userId?: string } = {}) {
   const [p, setP] = useState<Profile | null>(null);
   const [err, setErr] = useState(false);
   const [barIn, setBarIn] = useState(false);
@@ -101,7 +101,7 @@ export default function ProfileClient() {
   }
 
   useEffect(() => {
-    fetch("/api/profile")
+    fetch(userId ? `/api/profile?user=${encodeURIComponent(userId)}` : "/api/profile")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d) {
@@ -111,7 +111,7 @@ export default function ProfileClient() {
         } else setErr(true);
       })
       .catch(() => setErr(true));
-  }, []);
+  }, [userId]);
 
   if (err) {
     return (
@@ -137,41 +137,59 @@ export default function ProfileClient() {
   return (
     <div className="mx-auto w-full max-w-lg px-4 py-6">
       <Link
-        href="/settings"
+        href={userId ? "/prayer?tab=friends" : "/settings"}
         className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
         style={{ color: "var(--color-ink-muted)" }}
       >
-        <ChevronLeft className="h-3.5 w-3.5" /> Settings
+        <ChevronLeft className="h-3.5 w-3.5" /> {userId ? "Friends" : "Settings"}
       </Link>
 
       {/* Identity */}
       <div className="mt-4 flex flex-col items-center text-center">
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={avatarBusy}
-          className="waqt-scale-in group relative block h-20 w-20 overflow-hidden rounded-full transition-opacity hover:opacity-90 disabled:opacity-60"
-          aria-label="Change profile photo"
-          title="Change profile photo"
-        >
-          {p.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- data URL, no optimization needed
-            <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <span
-              className="flex h-full w-full items-center justify-center text-2xl font-bold"
-              style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+        {userId ? (
+          <div className="waqt-scale-in h-20 w-20 overflow-hidden rounded-full">
+            {p.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- data URL, no optimization needed
+              <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <span
+                className="flex h-full w-full items-center justify-center text-2xl font-bold"
+                style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+              >
+                {p.name.charAt(0).toUpperCase()}
+              </span>
+            )}
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={avatarBusy}
+              className="waqt-scale-in group relative block h-20 w-20 overflow-hidden rounded-full transition-opacity hover:opacity-90 disabled:opacity-60"
+              aria-label="Change profile photo"
+              title="Change profile photo"
             >
-              {p.name.charAt(0).toUpperCase()}
-            </span>
-          )}
-          <span
-            className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 pb-1 pt-4 text-[8px] font-semibold uppercase tracking-wider"
-            style={{ background: "linear-gradient(transparent, color-mix(in oklab, var(--color-ink) 70%, transparent))", color: "var(--color-paper)" }}
-          >
-            <Camera className="h-2.5 w-2.5" /> {avatarBusy ? "…" : p.avatarUrl ? "Edit" : "Photo"}
-          </span>
-        </button>
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickAvatar} />
+              {p.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- data URL, no optimization needed
+                <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span
+                  className="flex h-full w-full items-center justify-center text-2xl font-bold"
+                  style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+                >
+                  {p.name.charAt(0).toUpperCase()}
+                </span>
+              )}
+              <span
+                className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 pb-1 pt-4 text-[8px] font-semibold uppercase tracking-wider"
+                style={{ background: "linear-gradient(transparent, color-mix(in oklab, var(--color-ink) 70%, transparent))", color: "var(--color-paper)" }}
+              >
+                <Camera className="h-2.5 w-2.5" /> {avatarBusy ? "…" : p.avatarUrl ? "Edit" : "Photo"}
+              </span>
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickAvatar} />
+          </>
+        )}
         <h1 className="mt-3 text-xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>{p.name}</h1>
         <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
           Joined {new Date(p.joinedAt).toLocaleDateString(undefined, { month: "long", year: "numeric" })}
@@ -245,7 +263,7 @@ export default function ProfileClient() {
           className="mt-4 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
           style={{ backgroundColor: "var(--color-accent)" }}
         >
-          <Swords className="h-4 w-4" /> Play Elite — climb the ladder
+          <Swords className="h-4 w-4" /> {userId ? "Challenge in a match" : "Play Elite — climb the ladder"}
         </Link>
 
         {/* Ladder & scoring — tap to expand */}

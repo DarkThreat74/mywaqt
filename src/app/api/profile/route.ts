@@ -4,6 +4,8 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { rankFor, nextRank, TIMED_LIMIT_MS } from "@/lib/quran-rank";
+import { areFriends } from "@/lib/quran-match";
+import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
+  // ?user=<id> views a friend's profile — accepted friendship required,
+  // so it's not an enumeration surface for strangers.
+  const target = request.nextUrl.searchParams.get("user");
+  const userId = target && isValidUUID(target) ? target : session.userId;
+  if (userId !== session.userId && !(await areFriends(session.userId, userId))) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+
   const [u] = await db
     .select({
       firstName: schema.users.firstName,
@@ -24,20 +34,20 @@ export async function GET(request: NextRequest) {
       createdAt: schema.users.createdAt,
     })
     .from(schema.users)
-    .where(eq(schema.users.id, session.userId))
+    .where(eq(schema.users.id, userId))
     .limit(1);
   if (!u) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   const [s] = await db
     .select({ isHifidh: schema.prayerSettings.isHifidh, gender: schema.prayerSettings.gender })
     .from(schema.prayerSettings)
-    .where(eq(schema.prayerSettings.userId, session.userId))
+    .where(eq(schema.prayerSettings.userId, userId))
     .limit(1);
 
   const [r] = await db
     .select()
     .from(schema.quranRatings)
-    .where(eq(schema.quranRatings.userId, session.userId))
+    .where(eq(schema.quranRatings.userId, userId))
     .limit(1);
 
   const rating = r?.rating ?? 0;

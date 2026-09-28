@@ -147,6 +147,53 @@ function FunFactCountdown() {
   );
 }
 
+// Knowledge cards on/off — stored in localStorage, the popup checks it.
+function FunFactToggle() {
+  const [disabled, setDisabled] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    // Defer to avoid synchronous setState-in-effect (cascading renders).
+    Promise.resolve().then(() => {
+      setMounted(true);
+      setDisabled(localStorage.getItem("waqt:funfact:disabled") === "1");
+    });
+  }, []);
+
+  function toggle() {
+    const next = !disabled;
+    setDisabled(next);
+    if (next) localStorage.setItem("waqt:funfact:disabled", "1");
+    else localStorage.removeItem("waqt:funfact:disabled");
+    // Let the mounted popup react immediately (hide a visible card).
+    window.dispatchEvent(new Event("waqt:funfact:toggle"));
+  }
+
+  return (
+    <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+      <div className="min-w-0">
+        <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Show knowledge cards</p>
+        <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+          {disabled ? "Off — cards won\u2019t pop up." : "On — a card pops up every 3 hours."}
+        </p>
+      </div>
+      <button
+        onClick={toggle}
+        disabled={!mounted}
+        className="relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50"
+        style={{ backgroundColor: !disabled ? "var(--color-accent)" : "var(--color-paper-3)" }}
+        aria-label="Toggle knowledge cards"
+        aria-pressed={!disabled}
+      >
+        <span
+          className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform"
+          style={{ left: !disabled ? "18px" : "2px" }}
+        />
+      </button>
+    </div>
+  );
+}
+
 // Collapsible section wrapper
 function CollapsibleSection({
   icon,
@@ -2408,6 +2455,7 @@ export default function SettingsClient({
             A new knowledge card appears every 3 hours. Closing with the X lets the card reappear later.
             Tapping &ldquo;Got it&rdquo; marks it as read so it won&rsquo;t appear again.
           </p>
+          <FunFactToggle />
           <FunFactCountdown />
         </CollapsibleSection>
 
