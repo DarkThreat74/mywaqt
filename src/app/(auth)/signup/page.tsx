@@ -6,7 +6,7 @@ import { ArrowLeft, Check } from "lucide-react";
 import { CaptchaWidget, type CaptchaHandle } from "@/components/captcha-widget";
 import { getHashedFingerprint } from "@/lib/auth/fingerprint";
 
-type Step = "email" | "captcha" | "password";
+type Step = "email" | "captcha" | "password" | "done";
 
 export default function SignupForm() {
   const [step, setStep] = useState<Step>("email");
@@ -131,9 +131,8 @@ export default function SignupForm() {
         return;
       }
 
-      // Server set the session cookie — hard navigation to calendar
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-      window.location.href = "/calendar/day";
+      // Verify-email-first — the account is created via the emailed link.
+      setStep("done");
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setError("Request timed out. Check your connection and try again.");
@@ -152,11 +151,33 @@ export default function SignupForm() {
       {/* Step indicator */}
       <div className="flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
         <StepDot active={step === "email"} done={step !== "email"} label="Email" />
-        <StepLine done={step === "captcha" || step === "password"} />
-        <StepDot active={step === "captcha"} done={step === "password"} label="Verify" />
-        <StepLine done={step === "password"} />
-        <StepDot active={step === "password"} done={false} label="Password" />
+        <StepLine done={step !== "email"} />
+        <StepDot active={step === "captcha"} done={step === "password" || step === "done"} label="Verify" />
+        <StepLine done={step === "password" || step === "done"} />
+        <StepDot active={step === "password"} done={step === "done"} label="Password" />
       </div>
+
+      {/* ── Done: check-your-email confirmation ── */}
+      {step === "done" && (
+        <div className="flex flex-col items-center gap-4 py-6 text-center">
+          <div
+            className="flex h-12 w-12 items-center justify-center rounded-full"
+            style={{ backgroundColor: "var(--color-accent-faint)" }}
+          >
+            <Check className="h-6 w-6" style={{ color: "var(--color-accent)" }} />
+          </div>
+          <h1 className="text-xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+            Check your email
+          </h1>
+          <p className="max-w-xs text-sm leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+            We sent a confirmation link to <strong style={{ color: "var(--color-ink)" }}>{email}</strong>.
+            Click it to finish creating your account — it expires in 24 hours.
+          </p>
+          <Link href="/login" className="mt-2 text-sm font-medium" style={{ color: "var(--color-accent)" }}>
+            Back to sign in
+          </Link>
+        </div>
+      )}
 
       {/* ── Step 1: Email ── */}
       {step === "email" && (

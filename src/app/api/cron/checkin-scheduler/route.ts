@@ -146,7 +146,18 @@ export async function POST(request: NextRequest) {
     logError(err, { route: "cron/checkin-scheduler", phase: "sweep-scheduled-deletions" });
   }
 
-  return NextResponse.json({ ok: true, notificationsSent, assumedResolved, loginAttemptsDeleted, staleDevicesDeleted, accountsDeleted });
+  // ── Sweep: expired pending signups (verify-email-first flow) ──
+  let pendingSignupsDeleted = 0;
+  try {
+    const purged = await db
+      .delete(schema.pendingSignups)
+      .where(lte(schema.pendingSignups.expiresAt, new Date()));
+    pendingSignupsDeleted = purged?.rowCount ?? 0;
+  } catch (err) {
+    logError(err, { route: "cron/checkin-scheduler", phase: "sweep-pending-signups" });
+  }
+
+  return NextResponse.json({ ok: true, notificationsSent, assumedResolved, loginAttemptsDeleted, staleDevicesDeleted, accountsDeleted, pendingSignupsDeleted });
 }
 
 async function processUserBatch(

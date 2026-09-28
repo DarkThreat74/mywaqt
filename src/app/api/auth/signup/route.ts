@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
-import { setSessionCookie } from "@/lib/auth/session";
 import { isValidEmail, isHoneypotTripped, isTimeTrapTripped, isValidFingerprintHash } from "@/lib/validation";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
-import { getDeviceLabel } from "@/lib/auth/device-label";
 import { verifyTurnstileToken } from "@/lib/turnstile";
+import { sendEmail } from "@/lib/email";
+import { env } from "@/lib/env";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -96,73 +97,66 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Check if user already exists ──
-  const existing = await db
+  // ── Verify-email-first signup ──
+  // The response is identical whether the email is free or registered —
+  // no enumeration oracle. Both paths send an email and do a bcrypt hash,
+  // so timing is uniform too. The account is only created when the emailed
+  // link is clicked (see /api/auth/signup/verify).
+  const GENERIC_OK = {
+    ok: true,
+    message: "Check your email for a link to finish creating your account.",
+  };
+
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  const [existing] = await db
     .select({ id: schema.users.id })
     .from(schema.users)
     .where(eq(schema.users.email, normalizedEmail))
     .limit(1);
 
-  if (existing.length > 0) {
-    return NextResponse.json(
-      { error: "An account with this email already exists." },
-      { status: 409 },
-    );
+  if (existing) {
+    // Registered email → send a notice to the owner, same response.
+    await sendEmail({
+      to: normalizedEmail,
+      subject: "Someone tried to sign up with your email",
+      text:
+        `Someone just tried to create a Waqt account with this email address.\n\n` +
+        `If it was you, sign in instead — or use "Forgot password" on the login page if you need to reset it.\n\n` +
+        `If it wasn't you, you can ignore this email — no account was created and nothing changed.`,
+    });
+    return NextResponse.json(GENERIC_OK);
   }
 
-  // ── Create user ──
-  const passwordHash = await bcrypt.hash(password, 10);
+  // Pending signup — one row per email; a re-signup overwrites and
+  // invalidates the previous link (token_hash is unique).
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+  await db.delete(schema.pendingSignups).where(eq(schema.pendingSignups.email, normalizedEmail));
+  await db.insert(schema.pendingSignups).values({
+    email: normalizedEmail,
+    passwordHash,
+    tokenHash,
+    fingerprintHash: fingerprintHash && isValidFingerprintHash(fingerprintHash) ? fingerprintHash : null,
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  });
 
-  // Generate a unique 6-character prayer code for friend sharing
-  let prayerCode = "";
-  let codeAttempts = 0;
-  while (codeAttempts < 10) {
-    prayerCode = generatePrayerCode();
-    const [existingCode] = await db
-      .select({ id: schema.users.id })
-      .from(schema.users)
-      .where(eq(schema.users.prayerCode, prayerCode))
-      .limit(1);
-    if (!existingCode) break;
-    codeAttempts++;
+  const verifyUrl = `${env.appUrl}/signup/verify?token=${rawToken}`;
+  const sent = await sendEmail({
+    to: normalizedEmail,
+    subject: "Confirm your Waqt account",
+    text:
+      `Confirm your email to finish creating your Waqt account.\n\n` +
+      `Confirmation link (expires in 24 hours):\n${verifyUrl}\n\n` +
+      `If you didn't sign up for Waqt, you can ignore this email — no account will be created.`,
+  });
+  if (!sent) {
+    logError(new Error("Signup confirmation email not sent — email provider unconfigured or failed"), {
+      route: "auth/signup",
+    });
   }
 
-  const [user] = await db
-    .insert(schema.users)
-    .values({ email: normalizedEmail, passwordHash, prayerCode })
-    .returning({ id: schema.users.id, email: schema.users.email });
-
-  if (!user) {
-    return NextResponse.json(
-      { error: "An error occurred while creating your account." },
-      { status: 500 },
-    );
-  }
-
-  // ── Set session ──
-  await setSessionCookie(user);
-
-  // ── Trust this device if fingerprint provided ──
-  if (fingerprintHash && typeof fingerprintHash === "string" && isValidFingerprintHash(fingerprintHash)) {
-    try {
-      const deviceLabel = getDeviceLabel(request.headers.get('user-agent'));
-      await db
-        .insert(schema.trustedDevices)
-        .values({
-          userId: user.id,
-          fingerprintHash,
-          label: deviceLabel,
-        })
-        .onConflictDoUpdate({
-          target: [schema.trustedDevices.userId, schema.trustedDevices.fingerprintHash],
-          set: { lastUsedAt: new Date(), label: deviceLabel },
-        });
-    } catch {
-      // Non-critical — device trust is a convenience
-    }
-  }
-
-  return NextResponse.json({ ok: true });
+  return NextResponse.json(GENERIC_OK);
   } catch (err) {
     logError(err, { route: "auth/signup" });
     return NextResponse.json(
@@ -170,14 +164,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
-
-// Generate a random 6-character prayer code (uppercase letters + digits, no ambiguous chars)
-function generatePrayerCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no I, O, 0, 1
-  let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return code;
 }

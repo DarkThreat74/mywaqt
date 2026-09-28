@@ -688,6 +688,19 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
   userIdx: index('password_reset_tokens_user_idx').on(t.userId),
 }));
 
+// Signup is verify-email-first — the account is only created after the
+// emailed link is clicked. This row holds the credentials meanwhile.
+// One row per email (unique) — a re-signup overwrites the pending row.
+export const pendingSignups = pgTable('pending_signups', {
+  email: text('email').primaryKey(),
+  passwordHash: text('password_hash').notNull(),
+  // SHA-256 of the emailed verify token — raw token never stored
+  tokenHash: text('token_hash').notNull().unique(),
+  fingerprintHash: text('fingerprint_hash'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ─── Goals (hierarchical goal tracking with tree/list views) ───
 
 export const goals = pgTable('goals', {
