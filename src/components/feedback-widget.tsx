@@ -53,8 +53,11 @@ export default function FeedbackWidget() {
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Send feedback"
-        className="feedback-fab fixed z-40 flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium shadow-lg transition-colors"
+        title="Send feedback"
+        className="feedback-fab fixed z-40 flex items-center justify-center rounded-full border shadow-lg transition-colors"
         style={{
+          width: 36,
+          height: 36,
           borderColor: "var(--color-paper-3)",
           backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
           color: "var(--color-ink-muted)",
@@ -62,8 +65,7 @@ export default function FeedbackWidget() {
           WebkitBackdropFilter: "blur(8px)",
         }}
       >
-        <MessageSquarePlus className="h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />
-        Feedback
+        <MessageSquarePlus className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
       </button>
 
       {/* Panel */}
@@ -149,13 +151,14 @@ export default function FeedbackWidget() {
 
       <style>{`
         @keyframes feedback-pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
-        /* Mobile: float above the bottom nav + gesture bar safe area */
-        .feedback-fab{right:16px;bottom:calc(76px + env(safe-area-inset-bottom))}
-        .feedback-panel{right:16px;bottom:calc(120px + env(safe-area-inset-bottom));max-height:calc(100dvh - 160px);overflow-y:auto}
+        /* Mobile: bottom-left, above the bottom nav + gesture bar —
+           stays clear of the calendar's "+" FAB on the right */
+        .feedback-fab{left:16px;bottom:calc(76px + env(safe-area-inset-bottom))}
+        .feedback-panel{left:16px;bottom:calc(120px + env(safe-area-inset-bottom));max-height:calc(100dvh - 160px);overflow-y:auto}
         /* Desktop: no bottom nav — sit flush in the corner */
         @media(min-width:1024px){
-          .feedback-fab{right:24px;bottom:24px}
-          .feedback-panel{right:24px;bottom:76px}
+          .feedback-fab{left:auto;right:24px;bottom:24px}
+          .feedback-panel{left:auto;right:24px;bottom:72px}
         }
       `}</style>
     </>
