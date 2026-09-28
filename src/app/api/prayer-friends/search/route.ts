@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, or, ne, ilike, inArray } from "drizzle-orm";
+import { eq, and, or, ne, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -28,8 +28,11 @@ export async function GET(request: NextRequest) {
   if (raw.length < 2 || raw.length > 40) {
     return NextResponse.json({ results: [] });
   }
-  // Escape LIKE wildcards so the query is a literal prefix match.
-  const q = raw.replace(/[\\%_]/g, (c) => `\\${c}`);
+  // Prefix match expressed as a range scan on lower(name): "sa%" ≡
+  // >= 'sa' AND < 'sb'. Unlike a parameterized LIKE, this ALWAYS hits the
+  // text_pattern_ops index — at 100k users a seq scan per keystroke would hurt.
+  const lo = raw.toLowerCase();
+  const hi = lo.slice(0, -1) + String.fromCharCode(lo.charCodeAt(lo.length - 1) + 1);
 
   const rows = await db
     .select({
@@ -46,8 +49,14 @@ export async function GET(request: NextRequest) {
       and(
         ne(schema.users.id, session.userId),
         or(
-          ilike(schema.users.firstName, `${q}%`),
-          ilike(schema.users.displayName, `${q}%`),
+          and(
+            sql`lower(${schema.users.firstName}) >= ${lo}`,
+            sql`lower(${schema.users.firstName}) < ${hi}`,
+          ),
+          and(
+            sql`lower(${schema.users.displayName}) >= ${lo}`,
+            sql`lower(${schema.users.displayName}) < ${hi}`,
+          ),
         ),
       ),
     )

@@ -178,11 +178,19 @@ async function processUserBatch(
   }
   const dateList = Array.from(allDates);
 
-  // Batch 1: prayer times cache rows for relevant dates
+  // Batch 1: prayer times cache rows for relevant dates. MUST filter by
+  // userIds — the index is (user_id, date), so a date-only query reads every
+  // user's rows for those dates (at 100k users that's the whole table per
+  // batch). With the user filter it's an index range scan per user.
   const allCachedTimes = await db
     .select()
     .from(schema.prayerTimesCache)
-    .where(inArray(schema.prayerTimesCache.date, dateList));
+    .where(
+      and(
+        inArray(schema.prayerTimesCache.userId, userIds),
+        inArray(schema.prayerTimesCache.date, dateList),
+      ),
+    );
 
   const cachedTimesMap = new Map<string, Map<string, typeof allCachedTimes[0]>>();
   for (const row of allCachedTimes) {
