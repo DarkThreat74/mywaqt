@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Quran Challenge · Waqt" };
+export const metadata = { title: "AyaTrace · Waqt" };
 
 import QuranChallengeClient from "./QuranChallengeClient";
 

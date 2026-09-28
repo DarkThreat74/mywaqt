@@ -239,7 +239,7 @@ export default function QuranChallengeClient() {
           تحدي القرآن
         </p>
         <h1 className="mt-2 text-center text-2xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
-          Quran Challenge
+          AyaTrace
         </h1>
         <p className="mt-1 text-center text-sm" style={{ color: "var(--color-ink-muted)" }}>
           Which surah is this ayah from?

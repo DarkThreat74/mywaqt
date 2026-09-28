@@ -99,7 +99,7 @@ export default function QuranMatchToast() {
             {invite.from} challenges you
           </p>
           <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            Quran Challenge · {DIFF_LABEL[invite.difficulty] ?? invite.difficulty} · Best of {invite.rounds}
+            AyaTrace · {DIFF_LABEL[invite.difficulty] ?? invite.difficulty} · Best of {invite.rounds}
             <span className="tabular-nums"> · {clock}</span>
           </p>
           <div className="mt-3 flex gap-2">

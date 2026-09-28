@@ -125,7 +125,7 @@ const SECTIONS: { title: string; tools: Tool[] }[] = [
       { href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba", art: QiblaArt },
       { href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter", art: DhikrArt },
       { href: "/sadaqah", label: "Sadaqah", arabic: "صدقة", description: "Track your giving", art: SadaqahArt },
-      { href: "/quran", label: "Quran Challenge", arabic: "قرآن", description: "Guess the surah", art: QuranArt, ranked: true },
+      { href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah", art: QuranArt, ranked: true },
     ],
   },
   {

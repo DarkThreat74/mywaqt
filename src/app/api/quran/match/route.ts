@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
   const name = me?.firstName || me?.displayName || "A friend";
   await notifyUser(
     opponentId,
-    "Quran Challenge",
+    "AyaTrace",
     `${name} challenged you — ${difficulty} · best of ${rounds}. Open Waqt to play.`,
     `/quran?match=${match.id}`,
   );
