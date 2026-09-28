@@ -17,8 +17,19 @@ const DIFFS: {
   { id: "easy", label: "Easy", arabic: "سهل", desc: "Full ayah · 4 options · hints", options: 4, frag: "full", points: 50 },
   { id: "medium", label: "Medium", arabic: "متوسط", desc: "A fragment that exists nowhere else · 6 options", options: 6, frag: "unique", points: 100 },
   { id: "advanced", label: "Advanced", arabic: "متقدم", desc: "Full ayah · all 114 surahs", options: 114, frag: "full", points: 150 },
-  { id: "elite", label: "Elite", arabic: "نخبة", desc: "Unique fragment · all 114 surahs", options: 114, frag: "unique", points: 250 },
+  { id: "elite", label: "Elite", arabic: "نخبة", desc: "Unique fragment · all 114 · ranked", options: 114, frag: "unique", points: 250 },
 ];
+
+interface Rating {
+  rating: number;
+  delta: number;
+  played: number;
+  streak: number;
+  rank: { id: string; en: string; ar: string; timed: boolean };
+  nextRank: { en: string; ar: string; min: number } | null;
+  timedLimitMs: number | null;
+  rankedUp?: { en: string } | null;
+}
 
 interface Round {
   verse: Verse;
@@ -70,6 +81,9 @@ export default function QuranChallengeClient() {
   const [query, setQuery] = useState("");
   const [listOpen, setListOpen] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [rating, setRating] = useState<Rating | null>(null);
+  const [deltaFlash, setDeltaFlash] = useState<{ v: number; key: number } | null>(null);
+  const [rankUp, setRankUp] = useState<string | null>(null);
   const startRef = useRef(0);
   const roundRef = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -84,16 +98,28 @@ export default function QuranChallengeClient() {
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => { if (live && s?.isHifidh) setHifidh(true); })
       .catch(() => {});
+    fetch("/api/quran/rating")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (live && d) setRating(d); })
+      .catch(() => {});
     return () => { live = false; };
   }, []);
 
-  // Per-question elapsed timer (score speed bonus + displayed)
+  // Elite becomes a timed mode once ranked at Qari+ — 60s per question.
+  const timedMs = diff === "elite" ? rating?.timedLimitMs ?? null : null;
+
+  // Per-question elapsed timer (score speed bonus + displayed); in timed
+  // Elite, hitting the cap forfeits the question as a wrong answer.
   useEffect(() => {
     if (!round || picked !== null) return;
     startRef.current = Date.now();
-    const t = setInterval(() => setElapsed((Date.now() - startRef.current) / 1000), 250);
+    const t = setInterval(() => {
+      const secs = (Date.now() - startRef.current) / 1000;
+      setElapsed(secs);
+      if (timedMs !== null && secs * 1000 >= timedMs) answer(-1);
+    }, 250);
     return () => clearInterval(t);
-  }, [round, picked]);
+  }, [round, picked, timedMs]); // eslint-disable-line react-hooks/exhaustive-deps -- answer is stable enough: it only reads round/picked guards
 
   const d = diff ? DIFFS.find((x) => x.id === diff)! : null;
 
@@ -115,7 +141,29 @@ export default function QuranChallengeClient() {
       : SURAHS);
   }, [corpus]);
 
-  function guess(n: number) {
+  // Elite answers are ranked — the server owns the delta math. Timeout
+  // forfeits arrive as n=-1, i.e. a wrong answer at the time cap.
+  function postRating(correct: boolean, ms: number) {
+    if (diff !== "elite") return;
+    fetch("/api/quran/rating", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ correct, ms }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: Rating | null) => {
+        if (!d) return;
+        setRating(d);
+        setDeltaFlash({ v: d.delta, key: d.played });
+        if (d.rankedUp) {
+          setRankUp(d.rankedUp.en);
+          setTimeout(() => setRankUp(null), 4500);
+        }
+      })
+      .catch(() => {});
+  }
+
+  function answer(n: number) {
     if (picked !== null || !round || !d) return;
     setPicked(n);
     const correct = n === round.verse.s;
@@ -130,7 +178,10 @@ export default function QuranChallengeClient() {
       setBest(s);
       try { localStorage.setItem("quran-best-streak", String(s)); } catch { /* ignore */ }
     }
+    postRating(correct, Math.round(secs * 1000));
   }
+
+  function guess(n: number) { answer(n); }
 
   const surah = round ? SURAHS[round.verse.s - 1] : null;
   const filtered = query.trim()
@@ -212,7 +263,14 @@ export default function QuranChallengeClient() {
                 </span>
                 <span className="mt-0.5 block text-xs" style={{ color: "var(--color-ink-muted)" }}>{x.desc}</span>
               </span>
-              <ChevronDown className="h-4 w-4 -rotate-90" style={{ color: "var(--color-ink-muted)" }} />
+              <span className="flex items-center gap-2">
+                {x.id === "elite" && rating && (
+                  <span className="rounded-full border px-2.5 py-1 text-[10px] font-bold" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+                    {rating.rank.en} · {rating.rating}
+                  </span>
+                )}
+                <ChevronDown className="h-4 w-4 -rotate-90" style={{ color: "var(--color-ink-muted)" }} />
+              </span>
             </button>
           ))}
         </div>
@@ -237,6 +295,21 @@ export default function QuranChallengeClient() {
           ← {d.label}
         </button>
         <div className="flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+          {diff === "elite" && rating && (
+            <span className="relative flex items-center gap-1 rounded-full border px-2.5 py-1" style={{ borderColor: "var(--color-accent)" }}>
+              <span style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}>{rating.rank.ar}</span>
+              <span className="font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{rating.rating}</span>
+              {deltaFlash && (
+                <span
+                  key={deltaFlash.key}
+                  className="waqt-fade-up absolute -top-6 right-0 text-sm font-bold"
+                  style={{ color: deltaFlash.v >= 0 ? "var(--color-accent)" : "#dc2626" }}
+                >
+                  {deltaFlash.v >= 0 ? `+${deltaFlash.v}` : deltaFlash.v}
+                </span>
+              )}
+            </span>
+          )}
           {score.rounds > 0 && <span className="font-semibold" style={{ color: "var(--color-ink)" }}>{score.points} pts</span>}
           {score.rounds > 0 && <span>{score.correct}/{score.rounds}</span>}
           <span className="flex items-center gap-1 rounded-full border px-2.5 py-1" style={{ borderColor: "var(--color-paper-3)", color: streak > 0 ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
@@ -244,6 +317,18 @@ export default function QuranChallengeClient() {
           </span>
         </div>
       </div>
+
+      {/* Rank-up celebration */}
+      {rankUp && (
+        <div
+          className="waqt-scale-in mt-3 rounded-xl border px-4 py-3 text-center"
+          style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" }}
+        >
+          <p className="text-sm font-semibold" style={{ color: "var(--color-accent)" }}>
+            Ranked up — you are now <span className="font-bold">{rankUp}</span>
+          </p>
+        </div>
+      )}
 
       {round && surah && (
         <>
@@ -266,11 +351,29 @@ export default function QuranChallengeClient() {
                 Which surah is this from?
               </p>
               {picked === null && (
-                <span className="flex items-center gap-1 text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                  <Timer className="h-3 w-3" /> {elapsed.toFixed(0)}s
+                <span
+                  className="flex items-center gap-1 text-[11px] tabular-nums"
+                  style={{ color: timedMs !== null && elapsed * 1000 > timedMs - 10000 ? "#dc2626" : "var(--color-ink-muted)" }}
+                >
+                  <Timer className="h-3 w-3" />
+                  {timedMs !== null ? `${Math.ceil(Math.max(0, timedMs - elapsed * 1000) / 1000)}s` : `${elapsed.toFixed(0)}s`}
                 </span>
               )}
             </div>
+
+            {/* Ranked countdown — the bar drains over the 60s window */}
+            {timedMs !== null && picked === null && (
+              <div className="mt-2 h-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${Math.max(0, 100 - (elapsed * 1000 / timedMs) * 100)}%`,
+                    backgroundColor: elapsed * 1000 > timedMs - 10000 ? "#dc2626" : "var(--color-accent)",
+                    transition: "width 0.25s linear",
+                  }}
+                />
+              </div>
+            )}
 
             {/* Arabic — the actual challenge surface */}
             <p

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2, Headphones } from "lucide-react";
 import { invalidateApiCache, clearApiCache } from "@/lib/sw-helpers";
 import { isNativeApp, isIOS as isIOSDevice } from "@/lib/native-bridge";
@@ -1560,6 +1561,16 @@ export default function SettingsClient({
               </button>
             </div>
           </div>
+
+          {/* Full profile — identity + Elite rank card */}
+          <Link
+            href="/profile"
+            className="mt-4 flex items-center justify-between rounded-xl border px-4 py-3 transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+          >
+            <span className="text-sm font-medium">View my profile & rank</span>
+            <ChevronDown className="h-4 w-4 -rotate-90" style={{ color: "var(--color-ink-muted)" }} />
+          </Link>
         </CollapsibleSection>
 
         {/* ── Prayer Settings: Location + Method + Madhab + Times ── */}

@@ -5,24 +5,137 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { X, LayoutGrid } from "lucide-react";
 
+/**
+ * Tool picker — pictorial tiles, not a numbered list. Each tool carries its
+ * own inline SVG line-art (compass rose, tasbih beads, open hand…) drawn in
+ * the app's ink/accent strokes so the sheet reads as a set of instruments,
+ * not a settings table.
+ */
+
+const STROKE = { fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round" } as const;
+
+function QiblaArt() {
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <circle cx="24" cy="24" r="17" />
+      <circle cx="24" cy="24" r="13" opacity="0.35" />
+      <path d="M24 9v3M24 36v3M9 24h3M36 24h3" opacity="0.6" />
+      <path d="M30 18l-4.5 7.5L18 30l4.5-7.5z" fill="currentColor" stroke="none" opacity="0.9" />
+      <circle cx="24" cy="24" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function DhikrArt() {
+  // Tasbih strand: beads arcing around a tassel
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      {[...Array(9)].map((_, i) => {
+        const a = Math.PI * (0.15 + (i / 8) * 0.7);
+        return <circle key={i} cx={24 + 15 * Math.cos(a)} cy={22 + 15 * Math.sin(a)} r="2.6" />;
+      })}
+      <path d="M35 34c1.5 4 1 7-1 9" />
+      <path d="M35 43h.01" />
+      <circle cx="31.5" cy="40" r="2" />
+      <path d="M31.5 42v3" />
+    </svg>
+  );
+}
+
+function SadaqahArt() {
+  // Open palm with a coin dropping in
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <circle cx="24" cy="11" r="4.5" />
+      <path d="M24 11h.01" opacity="0" />
+      <path d="M10 24l7-3c3-1 8-.5 11 1.5l8 4c1.8 1 2 3 .3 4.2L30 35H18l-8-4.5" />
+      <path d="M10 24v12" />
+    </svg>
+  );
+}
+
+function NamesArt() {
+  // Eight-point khatam star
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M24 6l4.2 9.8L38 11.5l-4.3 9.8L43.5 24l-9.8 4.2 4.3 9.8-9.8-4.3L24 43.5l-4.2-9.8-9.8 4.3 4.3-9.8L4.5 24l9.8-4.2L10 10l9.8 4.2z" />
+      <circle cx="24" cy="24" r="4" />
+    </svg>
+  );
+}
+
+function StudyArt() {
+  // Focus timer dial
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <circle cx="24" cy="26" r="15" />
+      <path d="M24 5v4M20 5h8" />
+      <path d="M24 26V17" />
+      <path d="M24 26l6 4" opacity="0.55" />
+    </svg>
+  );
+}
+
+function LearnArt() {
+  // Open book
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M24 12c-4-2.5-9-3-14-2v28c5-1 10-.5 14 2 4-2.5 9-3 14-2V10c-5-1-10-.5-14 2z" />
+      <path d="M24 12v28" />
+      <path d="M14 17c2.5-.4 5-.2 7 .5M14 23c2.5-.4 5-.2 7 .5M34 17c-2.5-.4-5-.2-7 .5M34 23c-2.5-.4-5-.2-7 .5" opacity="0.5" />
+    </svg>
+  );
+}
+
+function QuranArt() {
+  // Mushaf with an ayah ornament
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <rect x="10" y="8" width="28" height="32" rx="2.5" />
+      <path d="M16 8v32" opacity="0.4" />
+      <circle cx="27" cy="24" r="6.5" />
+      <path d="M27 19.5l1 2.6 2.8.2-2.2 1.8.7 2.8-2.3-1.5-2.3 1.5.7-2.8-2.2-1.8 2.8-.2z" fill="currentColor" stroke="none" opacity="0.85" />
+    </svg>
+  );
+}
+
+function TalksArt() {
+  // Play triangle inside sound arcs
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <circle cx="24" cy="24" r="16" />
+      <path d="M21 18.5v11l9-5.5z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 interface Tool {
   href: string;
   label: string;
   arabic: string;
   description: string;
+  art: () => React.ReactElement;
 }
 
-const AR_NUMERAL = ["١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
-
-const TOOLS: Tool[] = [
-  { href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba" },
-  { href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter" },
-  { href: "/sadaqah", label: "Sadaqah", arabic: "صدقة", description: "Track your giving" },
-  { href: "/names", label: "99 Names", arabic: "أسماء الله", description: "Names of Allah" },
-  { href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer, sounds & fidgets" },
-  { href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge" },
-  { href: "/quran", label: "Quran Challenge", arabic: "قرآن", description: "Guess the surah from an ayah" },
-  { href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs" },
+const SECTIONS: { title: string; tools: Tool[] }[] = [
+  {
+    title: "Worship",
+    tools: [
+      { href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba", art: QiblaArt },
+      { href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter", art: DhikrArt },
+      { href: "/sadaqah", label: "Sadaqah", arabic: "صدقة", description: "Track your giving", art: SadaqahArt },
+      { href: "/quran", label: "Quran Challenge", arabic: "قرآن", description: "Guess the surah", art: QuranArt },
+    ],
+  },
+  {
+    title: "Grow",
+    tools: [
+      { href: "/names", label: "99 Names", arabic: "أسماء الله", description: "Names of Allah", art: NamesArt },
+      { href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & sounds", art: StudyArt },
+      { href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge", art: LearnArt },
+      { href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs", art: TalksArt },
+    ],
+  },
 ];
 
 export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "sidebar" }) {
@@ -69,6 +182,8 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     }, 220);
   }
 
+  let tileIdx = 0;
+
   return (
     <>
       {/* Trigger button — variant controls appearance */}
@@ -108,11 +223,10 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
             role="dialog"
             aria-modal="true"
             aria-label="Tools"
-            className="w-full overflow-hidden border sm:max-w-md"
+            className="w-full overflow-hidden border sm:max-w-lg"
             style={{
               backgroundColor: "var(--color-paper)",
               borderColor: "var(--color-paper-3)",
-              // Sheet on mobile (top corners only), floating card on desktop
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
               paddingBottom: "env(safe-area-inset-bottom)",
@@ -129,15 +243,19 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
               <div className="h-1 w-9 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
             </div>
 
-            {/* Header — editorial: Arabic wordmark + close */}
-            <div className="flex items-end justify-between px-5 pt-5 pb-3 sm:pt-6">
+            {/* Header — Arabic wordmark as ornament */}
+            <div className="flex items-start justify-between px-5 pt-5 pb-2 sm:pt-6">
               <div>
-                <h2 className="text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+                <p
+                  className="text-2xl leading-none"
+                  style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}
+                  aria-hidden="true"
+                >
+                  أدوات
+                </p>
+                <h2 className="mt-2 text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
                   Tools
                 </h2>
-                <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  Quiet utilities, made with care
-                </p>
               </div>
               <button
                 onClick={dismiss}
@@ -149,47 +267,53 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
               </button>
             </div>
 
-            {/* Tool list — editorial index: Arabic-Indic numerals, hairline
-                dividers, typography first. No icon boxes. */}
-            <nav className="px-3 pb-5">
-              {TOOLS.map((tool, i) => (
-                <Link
-                  key={tool.href}
-                  href={tool.href}
-                  prefetch={false}
-                  onClick={() => setOpen(false)}
-                  className="group flex items-baseline gap-4 border-b px-2.5 py-3.5 transition-colors last:border-0 hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
-                  style={{
-                    borderColor: "var(--color-paper-3)",
-                    animation: `tools-item-in 0.34s cubic-bezier(0.16, 1, 0.3, 1) ${0.03 * i + 0.04}s both`,
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
-                    className="w-6 shrink-0 self-center text-center text-lg leading-none"
-                    style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}
-                  >
-                    {AR_NUMERAL[i]}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline justify-between gap-3">
-                      <span className="text-[15px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
-                        {tool.label}
-                      </span>
-                      <span
-                        className="shrink-0 text-[15px] leading-none"
-                        style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}
+            {/* Sections of pictorial tiles */}
+            {SECTIONS.map((section) => (
+              <div key={section.title} className="px-5 pb-4 pt-2">
+                <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
+                  {section.title}
+                </p>
+                <div className="grid grid-cols-4 gap-2 max-[380px]:grid-cols-2">
+                  {section.tools.map((tool) => {
+                    const Art = tool.art;
+                    const i = tileIdx++;
+                    return (
+                      <Link
+                        key={tool.href}
+                        href={tool.href}
+                        prefetch={false}
+                        onClick={() => setOpen(false)}
+                        className="group flex flex-col items-center rounded-2xl border px-2 pb-2.5 pt-3 text-center transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
+                        style={{
+                          borderColor: "var(--color-paper-3)",
+                          animation: `tools-item-in 0.34s cubic-bezier(0.16, 1, 0.3, 1) ${0.03 * i + 0.04}s both`,
+                        }}
                       >
-                        {tool.arabic}
-                      </span>
-                    </span>
-                    <span className="mt-0.5 block truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                      {tool.description}
-                    </span>
-                  </span>
-                </Link>
-              ))}
-            </nav>
+                        <span
+                          className="block h-11 w-11 transition-colors group-hover:text-[var(--color-accent)]"
+                          style={{ color: "var(--color-ink-soft)" }}
+                        >
+                          <Art />
+                        </span>
+                        <span className="mt-1.5 text-[11px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
+                          {tool.label}
+                        </span>
+                        <span
+                          className="mt-0.5 text-[11px] leading-none"
+                          style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}
+                        >
+                          {tool.arabic}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            <p className="px-5 pb-5 pt-1 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              Quiet utilities, made with care
+            </p>
           </div>
         </div>,
         document.body
@@ -219,8 +343,8 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
           to { transform: translateY(100%); }
         }
         @keyframes tools-item-in {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
+          from { opacity: 0; transform: translateY(10px) scale(0.97); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
         @media (min-width: 640px) {
           @keyframes tools-slide-up {

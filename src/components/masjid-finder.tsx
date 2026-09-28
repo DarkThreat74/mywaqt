@@ -797,23 +797,87 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
       )}
 
       {mode === "map" ? (
-        <div>
-          <div className="relative">
-            <div ref={mapRef} className="h-72 w-full overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }} />
+        /* Full-viewport map — fajrlabs style: the map IS the page, controls
+           float on top, tapped masjid slides up as a bottom sheet. */
+        <div className="fixed inset-0 z-[60]" style={{ backgroundColor: "var(--color-paper)" }}>
+          <div ref={mapRef} className="absolute inset-0" />
+
+          {/* Floating top chrome */}
+          <div
+            className="absolute inset-x-3 z-10 flex items-center gap-2"
+            style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
+          >
+            <button
+              onClick={() => setMode("list")}
+              className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold shadow-lg backdrop-blur-md"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)", color: "var(--color-ink)" }}
+            >
+              ← List
+            </button>
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2" style={{ color: "var(--color-ink-muted)" }} />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  if (!e.target.value.trim()) { setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }
+                }}
+                placeholder="Search masjids…"
+                className="h-10 w-full rounded-full border py-2 pl-9 pr-8 text-xs shadow-lg outline-none backdrop-blur-md"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)", color: "var(--color-ink)" }}
+              />
+              {isSearching && (
+                <button
+                  onClick={() => { setQuery(""); setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5"
+                  style={{ color: "var(--color-ink-muted)" }}
+                  aria-label="Clear search"
+                >
+                  {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                </button>
+              )}
+            </div>
             <button
               onClick={() => mapObj.current?.flyTo({ center: [searchCenter?.lng ?? lng, searchCenter?.lat ?? lat], zoom: 14, duration: 600 })}
-              className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border shadow-lg backdrop-blur-md"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)", color: "var(--color-ink)" }}
               aria-label="Center on my location"
-              title="Center on my location"
             >
               <LocateFixed className="h-4 w-4" />
             </button>
           </div>
 
-          {/* Selected masjid card — opens when a marker is tapped */}
+          {addrLabel && (
+            <div
+              className="absolute inset-x-3 z-10 flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[11px] shadow-lg backdrop-blur-md"
+              style={{ top: "calc(env(safe-area-inset-top) + 64px)", borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)", color: "var(--color-ink-soft)" }}
+            >
+              <MapPin className="h-3 w-3 shrink-0" />
+              <span className="truncate">Results near {addrLabel} — your saved location is unchanged</span>
+              <button
+                onClick={() => { setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }}
+                className="ml-auto shrink-0 rounded p-0.5"
+                style={{ color: "var(--color-ink-muted)" }}
+                aria-label="Back to my location"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Bottom sheet — tapped masjid */}
           {selected && (
-            <div className="mt-2 rounded-lg border p-3" style={{ borderColor: "var(--color-accent)", backgroundColor: "var(--color-paper)" }}>
+            <div
+              className="absolute inset-x-0 bottom-0 z-10 rounded-t-3xl border-t p-4 shadow-2xl sm:inset-x-4 sm:bottom-4 sm:rounded-3xl sm:border"
+              style={{
+                borderColor: "var(--color-paper-3)",
+                backgroundColor: "var(--color-paper)",
+                paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
+                maxHeight: "55dvh",
+                overflowY: "auto",
+              }}
+            >
               <div className="flex items-start gap-3">
                 {selected.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -888,18 +952,25 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
               </div>
             </div>
           )}
-          <button
-            onClick={() => {
-              const next = Math.min(radiusKm * 2, 80);
-              setRadiusKm(next);
-              void refresh(next);
-            }}
-            disabled={radiusKm >= 80}
-            className="mt-2 w-full rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-40"
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
-          >
-            {radiusKm >= 80 ? "Max radius reached" : `Widen search (now ~${Math.round(radiusKm * 0.621)} mi)`}
-          </button>
+          {!selected && (
+            <button
+              onClick={() => {
+                const next = Math.min(radiusKm * 2, 80);
+                setRadiusKm(next);
+                void refresh(next);
+              }}
+              disabled={radiusKm >= 80}
+              className="absolute bottom-5 left-1/2 z-10 -translate-x-1/2 rounded-full border px-4 py-2 text-xs font-medium shadow-lg backdrop-blur-md disabled:opacity-40"
+              style={{
+                borderColor: "var(--color-paper-3)",
+                backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
+                color: "var(--color-ink-soft)",
+                marginBottom: "env(safe-area-inset-bottom)",
+              }}
+            >
+              {radiusKm >= 80 ? "Max radius reached" : `Widen search (~${Math.round(radiusKm * 0.621)} mi)`}
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
