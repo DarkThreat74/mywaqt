@@ -9,13 +9,14 @@ import {
   LayoutGrid,
   Users,
   Settings as SettingsIcon,
+  MessageSquarePlus,
   Menu,
   X,
 } from "lucide-react";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
 import GlobalAudioPlayer from "@/components/global-audio-player";
 
-export type AdminTab = "overview" | "users" | "talks" | "settings";
+export type AdminTab = "overview" | "users" | "talks" | "feedback" | "settings";
 
 interface NavItem {
   key: AdminTab;
@@ -28,6 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "overview", label: "Overview", icon: LayoutGrid, description: "Platform summary" },
   { key: "users", label: "Users", icon: Users, description: "All registered accounts" },
   { key: "talks", label: "Talks", icon: Mic, description: "Upload and manage talks" },
+  { key: "feedback", label: "Feedback", icon: MessageSquarePlus, description: "User bug reports and notes" },
   { key: "settings", label: "Settings", icon: SettingsIcon, description: "Platform configuration" },
 ];
 

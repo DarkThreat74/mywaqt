@@ -927,3 +927,25 @@ export type NewNote = typeof notes.$inferInsert;
 export type HaydPeriod = typeof haydPeriods.$inferSelect;
 export type MasjidIqamah = typeof masjidIqamah.$inferSelect;
 export type MasjidSource = typeof masjidSources.$inferSelect;
+
+// ─── Feedback Reports ───
+
+export const feedbackReports = pgTable('feedback_reports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // Pathname only, e.g. /calendar/day
+  page: text('page').notNull(),
+  // Pathname + query, e.g. /calendar/day?date=2025-10-01
+  pageDetail: text('page_detail'),
+  message: text('message').notNull(),
+  theme: text('theme'),
+  viewport: text('viewport'),
+  userAgent: text('user_agent'),
+  resolved: boolean('resolved').default(false).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  createdIdx: index('feedback_reports_created_idx').on(table.createdAt),
+  userIdIdx: index('feedback_reports_user_idx').on(table.userId),
+}));
+
+export type FeedbackReport = typeof feedbackReports.$inferSelect;

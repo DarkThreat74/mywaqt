@@ -7,6 +7,7 @@ import { AdminOverview } from "./AdminOverview";
 import { AdminUsers, AdminUserDetail } from "./AdminUsers";
 import { AdminTalks } from "./AdminTalks";
 import { AdminSettings } from "./AdminSettings";
+import { AdminFeedback } from "./AdminFeedback";
 
 interface AdminStats {
   users: number;
@@ -65,6 +66,9 @@ export default function AdminPortal() {
         }
         if (tab === "talks") {
           return <AdminTalks />;
+        }
+        if (tab === "feedback") {
+          return <AdminFeedback />;
         }
         if (tab === "settings") {
           return <AdminSettings />;
