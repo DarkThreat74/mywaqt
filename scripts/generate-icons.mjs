@@ -17,7 +17,7 @@
  * mark itself changes.
  */
 import sharp from "sharp";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const [srcArg, ...flags] = process.argv.slice(2);
@@ -66,14 +66,23 @@ async function opaque(size, file) {
   console.log(`  ${file}`);
 }
 
-// Maskable: source shrunk into the ~80% safe zone on a solid background
+// Maskable: dedicated full-bleed SVG (public/icon-maskable.svg) with artwork
+// inside the ~80% safe zone — never shrink the regular icon here, or the OS
+// mask clips the tile and you get an icon-inside-a-circle.
+const maskableSvg = join(OUT, "icon-maskable.svg");
 async function maskable(size, file) {
-  const inner = Math.round(size * 0.8);
-  const icon = await square.clone().resize(inner, inner).png().toBuffer();
-  await sharp({ create: { width: size, height: size, channels: 4, background: bg } })
-    .composite([{ input: icon }])
-    .png()
-    .toFile(join(OUT, file));
+  try {
+    const svg = await readFile(maskableSvg);
+    await sharp(svg, { density: 300 }).resize(size, size).png().toFile(join(OUT, file));
+  } catch {
+    // Fallback if the dedicated maskable source is ever removed
+    const inner = Math.round(size * 0.8);
+    const icon = await square.clone().resize(inner, inner).png().toBuffer();
+    await sharp({ create: { width: size, height: size, channels: 4, background: bg } })
+      .composite([{ input: icon }])
+      .png()
+      .toFile(join(OUT, file));
+  }
   console.log(`  ${file}`);
 }
 
