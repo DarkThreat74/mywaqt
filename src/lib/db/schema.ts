@@ -964,27 +964,7 @@ export const notes = pgTable('notes', {
   userUpdatedIdx: index('notes_user_updated_idx').on(table.userId, table.updatedAt),
 }));
 
-// ─── Sadaqah Tracker ───
-
-export const sadaqahLogs = pgTable(
-  'sadaqah_logs',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    amount: numeric('amount', { precision: 10, scale: 2 }).notNull(), // currency amount
-    currency: text('currency').default('USD').notNull(),
-    category: text('category').notNull(), // 'sadaqah' | 'zakat' | 'fidyah' | 'charity'
-    note: text('note'),
-    date: date('date').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => ({
-    userIdIdx: index('sadaqah_logs_user_id_idx').on(table.userId),
-    userDateIdx: index('sadaqah_logs_user_date_idx').on(table.userId, table.date),
-  }),
-);
+// ─── Sadaqah Tracker removed (migration 0053 dropped the table) ───
 
 // ─── Type Exports (for use in app code) ───
 
@@ -1017,8 +997,6 @@ export type Homework = typeof homeworks.$inferSelect;
 export type NewHomework = typeof homeworks.$inferInsert;
 export type Habit = typeof habits.$inferSelect;
 export type NewHabit = typeof habits.$inferInsert;
-export type SadaqahLog = typeof sadaqahLogs.$inferSelect;
-export type NewSadaqahLog = typeof sadaqahLogs.$inferInsert;
 export type HabitLog = typeof habitLogs.$inferSelect;
 export type NewHabitLog = typeof habitLogs.$inferInsert;
 export type Note = typeof notes.$inferSelect;
