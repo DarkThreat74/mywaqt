@@ -92,8 +92,11 @@ export default function MutashabihClient() {
     let pool = families;
     if (m === "ending") {
       pool = families.filter((f) => {
+        // Needs ≥2 distinct tails AND ≥2 distinct surahs — otherwise the
+        // question "which belongs to X?" is unanswerable (all tails X's).
         const tails = new Set(f.instances.map((i) => tailOf(i)));
-        return tails.size >= 2;
+        const surahs = new Set(f.instances.map((i) => i.s));
+        return tails.size >= 2 && surahs.size >= 2;
       });
     }
     if (m === "count") {
