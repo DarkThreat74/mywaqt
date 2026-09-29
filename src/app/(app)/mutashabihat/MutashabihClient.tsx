@@ -175,7 +175,7 @@ export default function MutashabihClient() {
         </p>
         <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
           {mode === "count" && "How many ayahs in the Quran carry this fragment?"}
-          {mode === "homes" && `This fragment appears in ${n} places — mark every surah. (${picked.length}/${n})`}
+          {mode === "homes" && `This fragment appears in ${n} places — mark every surah. (${picked.length}/${new Set(fam.instances.map((i) => i.s)).size})`}
           {mode === "ending" && `Which continuation belongs to ${surahName(target.s)}?`}
         </p>
       </div>
@@ -183,18 +183,22 @@ export default function MutashabihClient() {
       {/* Options */}
       <div className="mt-4">
         {mode === "count" && !done && (
-          <CountOptions n={n} onPick={(c) => settle(c === n, 10, 5)} />
+          <CountOptions key={round} n={n} onPick={(c) => settle(c === n, 10, 5)} />
         )}
         {mode === "homes" && !done && (
           <HomesOptions
+            key={round}
             fam={fam}
             picked={picked}
             onPick={(s) => {
-              const idx = fam.instances.findIndex((i, ix) => i.s === s && !picked.includes(ix));
-              if (idx >= 0) {
-                const np = [...picked, idx];
+              // A family can hold two instances in one surah — marking the
+              // surah covers all of them, or the round could never complete.
+              const idxs = fam.instances.map((i, ix) => (i.s === s ? ix : -1)).filter((ix) => ix >= 0 && !picked.includes(ix));
+              if (idxs.length > 0) {
+                const np = [...picked, ...idxs];
                 setPicked(np);
-                if (np.length === n) settle(true, 8 + n * 4, 0);
+                const done_ = new Set(np.map((i) => fam.instances[i].s)).size === new Set(fam.instances.map((i) => i.s)).size;
+                if (done_) settle(true, 8 + n * 4, 0);
               } else {
                 setMissed(true);
                 settle(false, 0, 8);
@@ -204,6 +208,7 @@ export default function MutashabihClient() {
         )}
         {mode === "ending" && !done && (
           <EndingOptions
+            key={round}
             fam={fam}
             onPick={(t) => settle(t === tailOf(target), 12, 6)}
           />

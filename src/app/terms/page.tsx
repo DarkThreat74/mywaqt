@@ -33,16 +33,7 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">3. Sadaqah Tracking</h2>
-        <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          Waqt never processes payments. The Akhirah Card tracks your charitable
-          giving as a personal record only. Waqt is a witness, not a collector.
-          Any donations are made outside the app.
-        </p>
-      </section>
-
-      <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">4. Religious Content</h2>
+        <h2 className="mb-2 text-lg font-semibold">3. Religious Content</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           All religious content (dhikr sequences, talks) is human-curated from
           vetted sources. Waqt does not generate religious content using AI.
@@ -50,7 +41,7 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">5. Assumed Prayed Policy</h2>
+        <h2 className="mb-2 text-lg font-semibold">4. Assumed Prayed Policy</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Unmarked prayers auto-resolve as assumed-prayed at day&apos;s end. We never
           assume the worst on missing data. No silent penalty, no ledger charge. A
@@ -60,7 +51,7 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">6. Your Data</h2>
+        <h2 className="mb-2 text-lg font-semibold">5. Your Data</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           You own your data. You can export or delete it at any time. See our
           <a href="/privacy" className="font-medium underline" style={{ color: "var(--color-accent)" }}> Privacy Policy </a>

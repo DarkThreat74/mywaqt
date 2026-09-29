@@ -42,18 +42,6 @@ function DhikrArt() {
   );
 }
 
-function SadaqahArt() {
-  // Open palm with a coin dropping in
-  return (
-    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
-      <circle cx="24" cy="11" r="4.5" />
-      <path d="M24 11h.01" opacity="0" />
-      <path d="M10 24l7-3c3-1 8-.5 11 1.5l8 4c1.8 1 2 3 .3 4.2L30 35H18l-8-4.5" />
-      <path d="M10 24v12" />
-    </svg>
-  );
-}
-
 function NamesArt() {
   // Eight-point khatam star
   return (
@@ -137,9 +125,8 @@ const SECTIONS: { title: string; tools: Tool[] }[] = [
     tools: [
       { href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba", art: QiblaArt },
       { href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter", art: DhikrArt },
-      { href: "/sadaqah", label: "Sadaqah", arabic: "صدقة", description: "Track your giving", art: SadaqahArt },
-      { href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah", art: QuranArt, ranked: true },
       { href: "/mutashabihat", label: "Mutashabih", arabic: "متشابه", description: "The verses that look alike", art: MutashabihArt, ranked: true },
+      { href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah", art: QuranArt, ranked: true },
     ],
   },
   {

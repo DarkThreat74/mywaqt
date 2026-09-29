@@ -8,7 +8,6 @@ type ThemeMode = "light" | "dark" | "system";
 interface AdminFeatures {
   enableTalks: boolean;
   enableDhikr: boolean;
-  enableSadaqah: boolean;
   enableQibla: boolean;
   enableNames: boolean;
   enableFriends: boolean;
@@ -34,7 +33,6 @@ interface AdminAudioSettings {
 const DEFAULT_FEATURES: AdminFeatures = {
   enableTalks: true,
   enableDhikr: true,
-  enableSadaqah: true,
   enableQibla: true,
   enableNames: true,
   enableFriends: true,
@@ -143,7 +141,6 @@ export function AdminSettings() {
           {([
             { key: "enableTalks", label: "Talks Library", desc: "Audio lectures and khutbahs" },
             { key: "enableDhikr", label: "Dhikr Counter", desc: "Tasbih counter with curated sequences" },
-            { key: "enableSadaqah", label: "Akhirah Card", desc: "Sadaqah tracking and history" },
             { key: "enableQibla", label: "Qibla Compass", desc: "Direction to the Kaaba" },
             { key: "enableNames", label: "99 Names", desc: "Names of Allah reference" },
             { key: "enableFriends", label: "Prayer Friends", desc: "Accountability partners" },

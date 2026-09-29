@@ -391,8 +391,8 @@ export default function MarketingPage() {
               body="Find the direction to the Kaaba from anywhere in the world. Smooth live compass on mobile with device sensors, static bearing on desktop. Shows exact degrees, cardinal direction, and distance to Mecca."
             />
             <Feature
-              title="Akhirah Card"
-              body="Track your charitable giving on your personal Akhirah Card. Log sadaqah, zakat, fidyah, or general charity. See your balance invested in the hereafter with a full history of every contribution."
+              title="Mutashabih"
+              body="Train the hardest part of hifdh: the verses that look alike. Three ranked modes built on a corpus of every repeated fragment in the Quran — pick the count, mark every home, choose the right ending."
             />
             <Feature
               title="99 Names of Allah"

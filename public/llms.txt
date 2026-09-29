@@ -17,7 +17,7 @@ A PWA (web, iOS via Capacitor, Android) that combines prayer accountability with
 - Masjid finder: nearby masjids with iqamah and Jumu'ah times from mosque websites, community submissions, and public registries.
 - Full offline support: events, prayer logging, and qadaa queue locally and sync on reconnect.
 - Prayer time notifications: push alerts when each prayer window opens, plus event reminders.
-- Tools: dhikr counter, Qibla compass, Hijri calendar, 99 Names of Allah, Akhirah Card (sadaqah tracker), curated talks library.
+- Tools: dhikr counter, Qibla compass, Hijri calendar, 99 Names of Allah, curated talks library.
 - Homework & classes, goals (weekly + long-term), recurring events, public calendar sharing via named links.
 
 ## Principles
