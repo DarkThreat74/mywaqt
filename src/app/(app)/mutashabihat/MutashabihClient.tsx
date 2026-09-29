@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, Loader2, Flame, Swords, ChevronDown } from "lucide-react";
 import { SURAHS } from "@/lib/content/quran";
@@ -38,10 +39,12 @@ interface Rating {
 export default function MutashabihClient() {
   const [families, setFamilies] = useState<Family[] | null>(null);
   const [loadErr, setLoadErr] = useState(false);
-  const [matchId, setMatchId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get("match");
-  });
+  // ?match= must be reactive — the toast accept does a client-side push to
+  // this same path, and a useState-initializer read would never see it.
+  const router = useRouter();
+  const urlMatch = useSearchParams().get("match");
+  const [matchId, setMatchId] = useState<string | null>(null);
+  const activeMatchId = urlMatch ?? matchId;
   const [mode, setMode] = useState<Mode | null>(null);
   const [fam, setFam] = useState<Family | null>(null);
   const [round, setRound] = useState(0);
@@ -136,15 +139,15 @@ export default function MutashabihClient() {
   }
 
   /* ── 1v1 match mode ── */
-  if (matchId) {
+  if (activeMatchId) {
     return (
       <MutashabihMatchView
-        key={matchId}
-        matchId={matchId}
+        key={activeMatchId}
+        matchId={activeMatchId}
         families={families}
         onExit={() => {
           setMatchId(null);
-          window.history.replaceState(null, "", "/mutashabihat");
+          router.replace("/mutashabihat");
           // A match lands on your shared rating — refresh it.
           fetch("/api/mutashabihat/rating")
             .then((r) => (r.ok ? r.json() : null))
@@ -191,7 +194,7 @@ export default function MutashabihClient() {
         <p className="mt-5 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
           Only fragments that repeat 2–7 times in the Quran — the ones a hafiz can actually hold.
         </p>
-        <ChallengePanel onMatch={(id) => setMatchId(id)} />
+        <ChallengePanel onMatch={(id) => { setMatchId(id); router.replace(`/mutashabihat?match=${id}`); }} />
       </Shell>
     );
   }

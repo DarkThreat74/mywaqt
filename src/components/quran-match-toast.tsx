@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Swords } from "lucide-react";
 
 interface Invite {
@@ -23,7 +23,7 @@ const POLL_MS = 20_000;
  */
 export default function QuranMatchToast() {
   const router = useRouter();
-  const pathname = usePathname();
+  const openMatch = useSearchParams().get("match");
   const [invite, setInvite] = useState<Invite | null>(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -55,9 +55,9 @@ export default function QuranMatchToast() {
   const secsLeft = invite ? Math.max(0, Math.ceil((new Date(invite.expiresAt).getTime() - nowTick) / 1000)) : 0;
   const clock = `${Math.floor(secsLeft / 60)}:${String(secsLeft % 60).padStart(2, "0")}`;
 
-  // Hide while on a game page — the match view is the place to be —
-  // or once the 5min window closed (server enforces the same cutoff).
-  const hidden = pathname === "/quran" || pathname === "/mutashabihat" || !invite || secsLeft <= 0;
+  // Hide only when this exact invite is already open in a match view —
+  // being on a game page without the match open must still show it.
+  const hidden = !invite || secsLeft <= 0 || openMatch === invite.id;
 
   async function respond(accept: boolean) {
     if (!invite || busy) return;

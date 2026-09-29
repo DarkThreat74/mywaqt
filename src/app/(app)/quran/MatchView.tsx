@@ -97,7 +97,11 @@ export default function MatchView({
       fetch(`/api/quran/match/${matchId}/ready`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ round: r.n }),
-      }).catch(() => { sentRef.current.ready = null; });
+      })
+        // ANY failure — network or a rejected status — must clear the flag,
+        // otherwise we never retry and the round resolves without us.
+        .then((res) => { if (!res.ok) sentRef.current.ready = null; })
+        .catch(() => { sentRef.current.ready = null; });
       return;
     }
 

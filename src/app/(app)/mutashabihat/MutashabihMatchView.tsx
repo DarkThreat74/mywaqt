@@ -95,7 +95,11 @@ export default function MutashabihMatchView({
       fetch(`/api/quran/match/${matchId}/ready`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ round: r.n }),
-      }).catch(() => { sentRef.current.ready = null; });
+      })
+        // ANY failure — network or a rejected status — must clear the flag,
+        // otherwise we never retry and the round resolves without us.
+        .then((res) => { if (!res.ok) sentRef.current.ready = null; })
+        .catch(() => { sentRef.current.ready = null; });
     }
   }, [st, result, matchId]);
 
@@ -111,9 +115,11 @@ export default function MutashabihMatchView({
     const f = families[liveRound.verseIdx];
     // Stale cached dataset → family indexes diverge from the server's. Fail
     // loudly rather than playing (and judging) the wrong question.
-    if (f && liveRound.frag && f.frag !== liveRound.frag) {
+    if (!f) {
       setErr("Your mutashabihat data is out of date — reconnect once, then rejoin the match.");
-    } else if (f) {
+    } else if (liveRound.frag && f.frag !== liveRound.frag) {
+      setErr("Your mutashabihat data is out of date — reconnect once, then rejoin the match.");
+    } else {
       setMatRound(liveRound.n);
       setFam(f);
       setAnswered(null);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles, RefreshCw, Trophy, ChevronDown, Eye, Timer, Swords } from "lucide-react";
 import Link from "next/link";
 import {
@@ -64,10 +65,12 @@ export default function QuranChallengeClient() {
   const [corpus, setCorpus] = useState<{ verses: Verse[]; idx: CorpusIndex } | null>(null);
   const [corpusErr, setCorpusErr] = useState(false);
   const [hifidh, setHifidh] = useState(false);
-  const [matchId, setMatchId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get("match");
-  });
+  // ?match= must be reactive — the toast accept does a client-side push to
+  // this same path, and a useState-initializer read would never see it.
+  const router = useRouter();
+  const urlMatch = useSearchParams().get("match");
+  const [matchId, setMatchId] = useState<string | null>(null);
+  const activeMatchId = urlMatch ?? matchId;
   const [diff, setDiff] = useState<Difficulty | null>(null);
   const [round, setRound] = useState<Round | null>(null);
   const [options, setOptions] = useState<Surah[]>([]);
@@ -222,13 +225,13 @@ export default function QuranChallengeClient() {
   }
 
   /* ── 1v1 match mode ── */
-  if (matchId) {
+  if (activeMatchId) {
     return (
       <MatchView
-        key={matchId}
-        matchId={matchId}
+        key={activeMatchId}
+        matchId={activeMatchId}
         corpus={corpus}
-        onExit={() => { setMatchId(null); window.history.replaceState({}, "", "/quran"); }}
+        onExit={() => { setMatchId(null); router.replace("/quran"); }}
       />
     );
   }
@@ -279,7 +282,7 @@ export default function QuranChallengeClient() {
             </button>
           ))}
         </div>
-        <ChallengePanel onMatch={setMatchId} />
+        <ChallengePanel onMatch={(id) => { setMatchId(id); router.replace(`/quran?match=${id}`); }} />
         <p className="mt-6 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
           Fragments on Medium/Elite are verified unique — no other ayah in the Quran contains them.
         </p>
