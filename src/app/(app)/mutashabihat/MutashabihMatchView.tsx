@@ -192,7 +192,7 @@ export default function MutashabihMatchView({
   /* ── Render ── */
   if (err || !st) {
     return (
-      <div className="mx-auto w-full max-w-lg px-4 py-16 text-center">
+      <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-16 text-center">
         <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>{err ?? "Loading match…"}</p>
         <button onClick={onExit} className="mt-4 text-sm font-medium" style={{ color: "var(--color-accent)" }}>Back to solo</button>
       </div>
@@ -201,7 +201,7 @@ export default function MutashabihMatchView({
 
   if (st.status === "pending") {
     return (
-      <div className="mx-auto w-full max-w-lg px-4 py-16 text-center">
+      <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-16 text-center">
         <Swords className="mx-auto h-8 w-8" style={{ color: "var(--color-accent)" }} />
         {st.role === "opponent" ? (
           <>
@@ -240,7 +240,7 @@ export default function MutashabihMatchView({
 
   if (st.status === "declined" || st.status === "expired") {
     return (
-      <div className="mx-auto w-full max-w-lg px-4 py-16 text-center">
+      <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-16 text-center">
         <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
           {st.status === "expired" ? "The challenge expired — send a new one." : `${st.opponentName} declined the match.`}
         </p>
@@ -253,7 +253,7 @@ export default function MutashabihMatchView({
   const draw = st.status === "done" && st.youWin === false && st.myWins === st.oppWins;
 
   return (
-    <div className="mx-auto w-full max-w-lg px-4 py-6">
+    <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-6">
       {/* Scoreboard */}
       <div className="flex items-center justify-between rounded-2xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
         <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>You</span>

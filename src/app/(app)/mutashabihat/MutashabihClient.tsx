@@ -296,7 +296,7 @@ export default function MutashabihClient() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-lg px-4 pb-10 pt-2">
+    <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 pb-10 pt-2">
       <div className="flex items-center justify-between">
         <Link href="/quran" className="inline-flex items-center gap-1 rounded-lg py-2 pr-2 text-xs font-medium hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }}>
           <ChevronLeft className="h-3.5 w-3.5" /> AyaTrace

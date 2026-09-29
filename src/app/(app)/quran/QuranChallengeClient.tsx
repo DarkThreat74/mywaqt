@@ -203,14 +203,14 @@ export default function QuranChallengeClient() {
   /* ── Loading / error states ── */
   if (corpusErr) {
     return (
-      <div className="mx-auto w-full max-w-lg px-4 py-16 text-center">
+      <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-16 text-center">
         <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>Couldn&rsquo;t load the Quran text — check your connection and refresh.</p>
       </div>
     );
   }
   if (!corpus) {
     return (
-      <div className="mx-auto w-full max-w-lg px-4 py-16">
+      <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-16">
         <p className="text-center text-3xl leading-none" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }} aria-hidden="true">تحدي القرآن</p>
         <div className="mt-8 animate-pulse space-y-3">
           <div className="h-4 w-2/3 rounded" style={{ backgroundColor: "var(--color-paper-3)" }} />
@@ -236,7 +236,7 @@ export default function QuranChallengeClient() {
   /* ── Difficulty picker ── */
   if (!diff || !d) {
     return (
-      <div className="mx-auto w-full max-w-lg px-4 py-8">
+      <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-8">
         <p className="text-center text-3xl leading-none" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }} aria-hidden="true">
           تحدي القرآن
         </p>
@@ -289,7 +289,7 @@ export default function QuranChallengeClient() {
 
   /* ── Game ── */
   return (
-    <div className="mx-auto w-full max-w-lg px-4 py-6">
+    <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-6">
       {/* Header row: difficulty + score + streak */}
       <div className="flex items-center justify-between">
         <button
