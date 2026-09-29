@@ -225,6 +225,7 @@ export default function QuranChallengeClient() {
   if (matchId) {
     return (
       <MatchView
+        key={matchId}
         matchId={matchId}
         corpus={corpus}
         onExit={() => { setMatchId(null); window.history.replaceState({}, "", "/quran"); }}

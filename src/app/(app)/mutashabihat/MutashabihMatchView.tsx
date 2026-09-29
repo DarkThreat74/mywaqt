@@ -26,7 +26,7 @@ interface MatchState {
   round: {
     n: number; verseIdx: number | null; started: boolean; startedAt: string | null;
     meReady: boolean; oppReady: boolean; meAnswered: boolean; oppAnswered: boolean;
-    mode: MutashabihMode | null; target: number | null;
+    mode: MutashabihMode | null; target: number | null; frag: string | null;
   } | null;
   lastResult: {
     n: number; won: boolean | null; winnerId: string | null; verseIdx: number;
@@ -109,7 +109,11 @@ export default function MutashabihMatchView({
     && matRound !== liveRound.n
   ) {
     const f = families[liveRound.verseIdx];
-    if (f) {
+    // Stale cached dataset → family indexes diverge from the server's. Fail
+    // loudly rather than playing (and judging) the wrong question.
+    if (f && liveRound.frag && f.frag !== liveRound.frag) {
+      setErr("Your mutashabihat data is out of date — reconnect once, then rejoin the match.");
+    } else if (f) {
       setMatRound(liveRound.n);
       setFam(f);
       setAnswered(null);
@@ -349,11 +353,12 @@ export default function MutashabihMatchView({
             </div>
           ) : mode === "count" ? (
             <div className="mt-4">
-              <CountOptions n={fam.instances.length} onPick={(c) => submit(c === fam.instances.length)} />
+              <CountOptions key={st.round.n} n={fam.instances.length} onPick={(c) => submit(c === fam.instances.length)} />
             </div>
           ) : mode === "homes" ? (
             <div className="mt-4">
               <HomesOptions
+                key={st.round.n}
                 fam={fam}
                 picked={homesPicked}
                 onPick={(s) => {
@@ -370,7 +375,7 @@ export default function MutashabihMatchView({
             </div>
           ) : mode === "ending" && target ? (
             <div className="mt-4">
-              <EndingOptions fam={fam} onPick={(t) => submit(t === tailOf(target))} />
+              <EndingOptions key={st.round.n} fam={fam} onPick={(t) => submit(t === tailOf(target))} />
             </div>
           ) : null}
         </>

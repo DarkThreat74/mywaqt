@@ -139,6 +139,7 @@ export default function MutashabihClient() {
   if (matchId) {
     return (
       <MutashabihMatchView
+        key={matchId}
         matchId={matchId}
         families={families}
         onExit={() => {

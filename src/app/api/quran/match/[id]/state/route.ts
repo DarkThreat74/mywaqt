@@ -8,7 +8,7 @@ import { getCorpus } from "@/lib/content/quran-server";
 import { SURAHS, plausibleOptions, mulberry32 } from "@/lib/content/quran";
 import { INVITE_TTL_MS } from "@/lib/quran-match";
 import { matchMode } from "@/lib/mutashabih";
-import { matchTarget } from "@/lib/content/mutashabihat-server";
+import { matchTarget, getMutashabihat } from "@/lib/content/mutashabihat-server";
 import { MATCH_WIN_PTS, MATCH_LOSS_PTS, MATCH_DRAW_PTS } from "@/lib/quran-rank";
 
 export const dynamic = "force-dynamic";
@@ -219,6 +219,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           options,
           mode: roundMode,
           target,
+          // Expected fragment text — lets the client detect a stale cached
+          // dataset instead of silently answering the wrong question.
+          frag: m.game === "mutashabih" && current.startedAt
+            ? getMutashabihat()[current.verseIdx]?.frag ?? null
+            : null,
         }
       : null,
     // Last resolved round's reveal — winner + both times for the scoreboard pause.
