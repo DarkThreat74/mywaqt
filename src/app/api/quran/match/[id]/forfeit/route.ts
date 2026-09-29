@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { MATCH_WIN_PTS } from "@/lib/quran-rank";
+import { recordRatingEvent } from "@/lib/quran-match";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const me = meRows[0];
   const other = otherRows[0];
 
+  // Pre-change ratings for the history log's rating_after.
+  const ratingRows = await db
+    .select({ userId: schema.quranRatings.userId, rating: schema.quranRatings.rating })
+    .from(schema.quranRatings)
+    .where(inArray(schema.quranRatings.userId, [session.userId, otherId]));
+  const ratingOf = (uid: string) => ratingRows.find((r) => r.userId === uid)?.rating ?? 0;
+
   await db
     .update(schema.quranMatches)
     .set({
@@ -98,6 +106,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         target: schema.quranRatings.userId,
         set: { rating: sql`${schema.quranRatings.rating} + ${deltas.winner}`, updatedAt: new Date() },
       });
+  }
+  if (deltas.loser !== 0 || deltas.winner !== 0) {
+    const source = aborted ? "abort" : "forfeit";
+    await Promise.all([
+      deltas.loser !== 0 &&
+        recordRatingEvent({ userId: session.userId, matchId: id, game: m.game, source, delta: deltas.loser, ratingAfter: Math.max(0, ratingOf(session.userId) + deltas.loser) }),
+      deltas.winner !== 0 &&
+        recordRatingEvent({ userId: otherId, matchId: id, game: m.game, source, delta: deltas.winner, ratingAfter: Math.max(0, ratingOf(otherId) + deltas.winner) }),
+    ]);
   }
 
   // Tell the opponent — their screen and toast both settle.

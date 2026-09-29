@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { redirect } from "next/navigation";
 import { Swords, Timer } from "lucide-react";
+import { MatchSurrender } from "@/components/match-surrender";
 import {
   SURAHS, uniqueFragment,
   type Surah, type Verse, type CorpusIndex,
@@ -21,7 +22,7 @@ interface MatchState {
   roundsPlayed: number;
   youWin: boolean | null;
   ratingDelta: number | null;
-  endReason: "completed" | "aborted" | "forfeited";
+  endReason: "completed" | "aborted" | "forfeited" | "abandoned";
   round: {
     n: number; verseIdx: number | null; started: boolean; startedAt: string | null;
     meReady: boolean; oppReady: boolean; meAnswered: boolean; oppAnswered: boolean;
@@ -280,6 +281,7 @@ export default function MatchView({
       <p className="mt-2 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
         {DIFF_LABEL[st.difficulty]} · Round {st.round?.n ?? st.totalRounds}/{st.totalRounds}
       </p>
+      {st.status === "active" && <MatchSurrender matchId={matchId} />}
 
       {/* Done */}
       {st.status === "done" && (
@@ -289,6 +291,11 @@ export default function MatchView({
             {meWon ? "You win!" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>{st.myWins} — {st.oppWins} over {st.roundsPlayed} round{st.roundsPlayed === 1 ? "" : "s"}</p>
+          {st.endReason === "abandoned" && (
+            <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              Abandoned — the match went idle, so nobody gained or lost points.
+            </p>
+          )}
           {st.endReason === "aborted" && (
             <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
               Ended early — under two rounds played, so only the quitter lost points.

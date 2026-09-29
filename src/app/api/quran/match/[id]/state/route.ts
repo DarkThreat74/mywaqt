@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, asc, sql } from "drizzle-orm";
+import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { getCorpus } from "@/lib/content/quran-server";
 import { SURAHS, plausibleOptions, mulberry32 } from "@/lib/content/quran";
-import { INVITE_TTL_MS } from "@/lib/quran-match";
+import { INVITE_TTL_MS, recordRatingEvent } from "@/lib/quran-match";
 import { matchMode } from "@/lib/mutashabih";
 import { matchTarget, getMutashabihat } from "@/lib/content/mutashabihat-server";
 import { MATCH_WIN_PTS, MATCH_LOSS_PTS, MATCH_DRAW_PTS } from "@/lib/quran-rank";
@@ -140,9 +140,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // Ranked settle — Elite only, once per match (rated flag backstops the
     // lazy path). Winner +triple base, loser −small, draw neutral.
     if (m.difficulty === "elite" && !m.rated) {
+      const ratingRows = await db
+        .select({ userId: schema.quranRatings.userId, rating: schema.quranRatings.rating })
+        .from(schema.quranRatings)
+        .where(inArray(schema.quranRatings.userId, [m.creatorId, m.opponentId]));
       for (const uid of [m.creatorId, m.opponentId]) {
         const delta = winnerId === null ? MATCH_DRAW_PTS : uid === winnerId ? MATCH_WIN_PTS : MATCH_LOSS_PTS;
         if (delta === 0) continue;
+        const ratingAfter = Math.max(0, (ratingRows.find((r) => r.userId === uid)?.rating ?? 0) + delta);
         updates.push(
           db.insert(schema.quranRatings)
             .values({ userId: uid, rating: Math.max(0, delta), updatedAt: new Date() })
@@ -150,6 +155,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
               target: schema.quranRatings.userId,
               set: { rating: sql`greatest(0, ${schema.quranRatings.rating} + ${delta})`, updatedAt: new Date() },
             }),
+          recordRatingEvent({ userId: uid, matchId: id, game: m.game, source: "match", delta, ratingAfter }),
         );
       }
     }
@@ -206,6 +212,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     endReason: m.endReason ?? "completed",
     ratingDelta: status === "done" && m.difficulty === "elite"
       ? (() => {
+          if (m.endReason === "abandoned") return null; // no stakes moved
           if (m.endReason === "aborted" || m.endReason === "forfeited") {
             if (m.forfeitedBy === session.userId) return -5;
             if (m.endReason === "aborted") return 0;

@@ -275,6 +275,30 @@ export const quranRatings = pgTable(
 // Mutashabih shares the quran_ratings ladder with AyaTrace — one collective
 // rank across both games (mode-weighted deltas, see its rating route).
 
+// Every rating change on the shared ladder — solo answers and match settles —
+// so match history can show rating-at-the-time and deltas like a chess.com log.
+export const quranRatingEvents = pgTable(
+  'quran_rating_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    // Null for solo answers; set for 1v1 settles (win/loss/draw/forfeit/abort).
+    matchId: uuid('match_id').references(() => quranMatches.id, { onDelete: 'cascade' }),
+    game: text('game').notNull().default('trace'), // 'trace' | 'mutashabih'
+    source: text('source').notNull(), // 'solo' | 'match' | 'forfeit' | 'abort'
+    // Solo only: corpus verse index (trace) or family index (mutashabih) +
+    // the mutashabih mode that produced the delta.
+    verseIdx: integer('verse_idx'),
+    mode: text('mode'),
+    correct: boolean('correct'),
+    ms: integer('ms'),
+    delta: integer('delta').notNull(),
+    ratingAfter: integer('rating_after').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('quran_rating_events_user_idx').on(table.userId, table.createdAt)],
+);
+
 export const quranMatchRounds = pgTable(
   'quran_match_rounds',
   {

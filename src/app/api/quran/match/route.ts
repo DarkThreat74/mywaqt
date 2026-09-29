@@ -5,7 +5,7 @@ import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { pickMatchVerses } from "@/lib/content/quran-server";
 import { pickMatchFamilies } from "@/lib/content/mutashabihat-server";
-import { areFriends, notifyUser, INVITE_TTL_MS } from "@/lib/quran-match";
+import { areFriends, notifyUser, INVITE_TTL_MS, expireStaleMatches } from "@/lib/quran-match";
 import { rankIndex, rankFor } from "@/lib/quran-rank";
 import { isValidUUID } from "@/lib/validation";
 import crypto from "node:crypto";
@@ -67,6 +67,9 @@ export async function POST(request: NextRequest) {
       );
     }
   }
+
+  // Close abandoned actives first so they can't block a rematch.
+  await expireStaleMatches();
 
   // One live match per pair — a stale pending one is reused instead of piling up.
   const [live] = await db

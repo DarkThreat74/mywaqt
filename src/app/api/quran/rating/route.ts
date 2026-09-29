@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { rankDelta, rankFor, nextRank, TIMED_LIMIT_MS, MERCY_FLOOR, MERCY_TRIGGER } from "@/lib/quran-rank";
+import { recordRatingEvent } from "@/lib/quran-match";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  let body: { correct?: boolean; ms?: number };
+  let body: { correct?: boolean; ms?: number; verseIdx?: number };
   try { body = await request.json(); } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
   const ms = Math.max(0, Math.min(Math.round(body.ms), TIMED_LIMIT_MS));
+  const verseIdx = typeof body.verseIdx === "number" && Number.isInteger(body.verseIdx) && body.verseIdx >= 0 && body.verseIdx < 1000000
+    ? body.verseIdx
+    : null;
 
   const [row] = await db
     .select()
@@ -88,6 +92,16 @@ export async function POST(request: NextRequest) {
   } else {
     await db.insert(schema.quranRatings).values({ userId: session.userId, ...next });
   }
+  await recordRatingEvent({
+    userId: session.userId,
+    game: "trace",
+    source: "solo",
+    delta,
+    ratingAfter: rating,
+    verseIdx: verseIdx ?? undefined,
+    correct: body.correct,
+    ms,
+  });
 
   const newRank = rankFor(rating);
   return NextResponse.json({

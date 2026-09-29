@@ -7,6 +7,7 @@ import { ChevronLeft, Loader2, Flame, Swords, ChevronDown } from "lucide-react";
 import { SURAHS } from "@/lib/content/quran";
 import MutashabihMatchView from "./MutashabihMatchView";
 import FriendPicker from "@/components/friend-picker";
+import { MatchHistory } from "@/components/match-history";
 import {
   tailOf, distinctSurahs, distinctTails,
   type MutashabihFamily as Family,
@@ -48,6 +49,7 @@ export default function MutashabihClient() {
   const activeMatchId = urlMatch ?? matchId;
   const [mode, setMode] = useState<Mode | null>(null);
   const [fam, setFam] = useState<Family | null>(null);
+  const famIdx = useRef<number | null>(null); // index into families — rating history
   const [round, setRound] = useState(0);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
@@ -75,7 +77,7 @@ export default function MutashabihClient() {
     fetch("/api/mutashabihat/rating", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ correct, ms, mode: m }),
+      body: JSON.stringify({ correct, ms, mode: m, verseIdx: famIdx.current ?? undefined }),
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -106,6 +108,7 @@ export default function MutashabihClient() {
     let f = pick(pool);
     if (f.frag === lastFrag.current && pool.length > 1) f = pick(pool); // no back-to-back repeats
     lastFrag.current = f.frag;
+    famIdx.current = families.indexOf(f);
     setFam(f);
     setDone(false);
     setPicked([]);
@@ -196,6 +199,7 @@ export default function MutashabihClient() {
           Only fragments that repeat 2–7 times in the Quran — the ones a hafiz can actually hold.
         </p>
         <ChallengePanel onMatch={(id) => { setMatchId(id); router.replace(`/mutashabihat?match=${id}`); }} />
+        <div className="mt-4"><MatchHistory /></div>
       </Shell>
     );
   }

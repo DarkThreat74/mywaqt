@@ -10,6 +10,7 @@ import {
 } from "@/lib/content/quran";
 import MatchView from "./MatchView";
 import FriendPicker from "@/components/friend-picker";
+import { MatchHistory } from "@/components/match-history";
 
 type Difficulty = "easy" | "medium" | "advanced" | "elite";
 
@@ -36,6 +37,7 @@ interface Rating {
 
 interface Round {
   verse: Verse;
+  verseIdx: number;   // index into corpus.verses — recorded in rating history
   fragText: string;   // arabic fragment (uthmani) or null → full ayah
   side: "start" | "end" | null;
 }
@@ -51,11 +53,12 @@ async function fetchCorpus(): Promise<{ verses: Verse[]; idx: CorpusIndex }> {
  *  unique-fragment required for medium/elite. ~89% of verses qualify. */
 function pickRound(corpus: Verse[], idx: CorpusIndex, frag: "full" | "unique"): Round | null {
   for (let i = 0; i < 80; i++) {
-    const v = corpus[Math.floor(Math.random() * corpus.length)];
+    const vi = Math.floor(Math.random() * corpus.length);
+    const v = corpus[vi];
     if (leaksAnswer(v)) continue;
-    if (frag === "full") return { verse: v, fragText: v.w.join(" "), side: null };
+    if (frag === "full") return { verse: v, verseIdx: vi, fragText: v.w.join(" "), side: null };
     const f = uniqueFragment(v, idx);
-    if (f) return { verse: v, fragText: f.text, side: f.side };
+    if (f) return { verse: v, verseIdx: vi, fragText: f.text, side: f.side };
   }
   return null;
 }
@@ -149,12 +152,12 @@ export default function QuranChallengeClient() {
 
   // Elite answers are ranked — the server owns the delta math. Timeout
   // forfeits arrive as n=-1, i.e. a wrong answer at the time cap.
-  function postRating(correct: boolean, ms: number) {
+  function postRating(correct: boolean, ms: number, verseIdx: number) {
     if (diff !== "elite") return;
     fetch("/api/quran/rating", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ correct, ms }),
+      body: JSON.stringify({ correct, ms, verseIdx }),
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: Rating & { offline?: boolean } | null) => {
@@ -186,7 +189,7 @@ export default function QuranChallengeClient() {
       setBest(s);
       try { localStorage.setItem("quran-best-streak", String(s)); } catch { /* ignore */ }
     }
-    postRating(correct, Math.round(secs * 1000));
+    postRating(correct, Math.round(secs * 1000), round.verseIdx);
   }
 
   function guess(n: number) { answer(n); }
@@ -284,6 +287,7 @@ export default function QuranChallengeClient() {
           ))}
         </div>
         <ChallengePanel onMatch={(id) => { setMatchId(id); router.replace(`/quran?match=${id}`); }} />
+        <div className="mt-4"><MatchHistory /></div>
         <p className="mt-6 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
           Fragments on Medium/Elite are verified unique — no other ayah in the Quran contains them.
         </p>

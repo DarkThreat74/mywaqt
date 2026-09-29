@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, or, gt, ne } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
-import { notifyUser, INVITE_TTL_MS } from "@/lib/quran-match";
+import { notifyUser, INVITE_TTL_MS, expireStaleMatches } from "@/lib/quran-match";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +27,32 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   if (typeof body.accept !== "boolean") {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+
+  // Accepting a second match while one is live would strand the first — one
+  // live match at a time. Expire abandoned actives before the check.
+  if (body.accept) {
+    await expireStaleMatches();
+    const [live] = await db
+      .select({ id: schema.quranMatches.id })
+      .from(schema.quranMatches)
+      .where(
+        and(
+          ne(schema.quranMatches.id, id),
+          eq(schema.quranMatches.status, "active"),
+          or(
+            eq(schema.quranMatches.creatorId, session.userId),
+            eq(schema.quranMatches.opponentId, session.userId),
+          ),
+        ),
+      )
+      .limit(1);
+    if (live) {
+      return NextResponse.json(
+        { error: "Finish your current match first — or surrender it from the match pill." },
+        { status: 409 },
+      );
+    }
   }
 
   const [updated] = await db

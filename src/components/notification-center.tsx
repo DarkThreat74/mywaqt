@@ -3,11 +3,22 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Bell, Swords, Megaphone, X, Clock, Swords as SwordsIcon } from "lucide-react";
+import { Bell, Swords, Megaphone, X, Clock, UserPlus, UserMinus, Swords as SwordsIcon } from "lucide-react";
 import { useInbox, refreshInbox, type Inbox } from "@/lib/inbox";
 
 const DIFF_LABEL: Record<string, string> = { easy: "Easy", medium: "Medium", advanced: "Advanced", elite: "Elite" };
 const SNOOZE_CUTOFF_MS = 2 * 60 * 60 * 1000;
+
+function typeIcon(type: string) {
+  const cls = "h-4 w-4";
+  const style = { color: "var(--color-accent)" } as const;
+  switch (type) {
+    case "friend_accepted": return <UserPlus className={cls} style={style} />;
+    case "friend_removed": return <UserMinus className={cls} style={style} />;
+    case "match_ended": return <Swords className={cls} style={style} />;
+    default: return <Megaphone className={cls} style={style} />;
+  }
+}
 
 export function inboxCount(inbox: Inbox) {
   return inbox.notifications.length + inbox.friendRequests.length + inbox.gameInvites.length;
@@ -65,7 +76,7 @@ export function NotificationBell() {
               <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--color-ink-muted)" }}>You&apos;re all caught up.</p>
             )}
             {inbox.notifications.map((n) => (
-              <PanelRow key={n.id} icon={<Megaphone className="h-4 w-4" style={{ color: "var(--color-accent)" }} />}
+              <PanelRow key={n.id} icon={typeIcon(n.type)}
                 title={n.title} sub={n.body ?? undefined} time={n.createdAt} />
             ))}
             {inbox.friendRequests.map((r) => (
@@ -167,7 +178,7 @@ export function NotificationTray() {
       {toastCount > 0 && (
         <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[85] mx-auto flex max-w-sm flex-col gap-2 lg:top-4">
           {inbox.notifications.map((n) => (
-            <ToastCard key={n.id} icon={<Megaphone className="h-4 w-4" style={{ color: "var(--color-accent)" }} />} title={n.title} sub={n.body ?? undefined}>
+            <ToastCard key={n.id} icon={typeIcon(n.type)} title={n.title} sub={n.body ?? undefined}>
               <button type="button" disabled={busy === `ack-${n.id}`} onClick={() => void ack(n.id)}
                 className="w-full rounded-xl px-3 py-2 text-sm font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
                 style={{ backgroundColor: "var(--color-accent)" }}>

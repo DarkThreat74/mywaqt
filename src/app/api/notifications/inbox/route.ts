@@ -3,7 +3,7 @@ import { eq, and, or, gt, lt, isNull, inArray, desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
-import { INVITE_TTL_MS } from "@/lib/quran-match";
+import { INVITE_TTL_MS, expireStaleMatches } from "@/lib/quran-match";
 import { FRIEND_REQUEST_TTL_MS } from "@/lib/friend-requests";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,9 @@ export async function GET(request: NextRequest) {
   }
 
   const now = Date.now();
+
+  // Abandon matches idle >10min so they can't pin the return pill forever.
+  await expireStaleMatches();
 
   const [notifs, friendReqs, invites, actives] = await Promise.all([
     db

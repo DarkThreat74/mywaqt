@@ -1,9 +1,58 @@
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { sendPrayerPush } from "@/lib/notifications/push";
 
 /** Pending challenges live for 5 minutes, then expire server-side. */
 export const INVITE_TTL_MS = 5 * 60 * 1000;
+
+/** An active match with no round activity for 10 min is abandoned — both
+ * players walked away, nobody gets penalized. */
+export const MATCH_ABANDON_MS = 10 * 60 * 1000;
+
+/**
+ * Lazily close stale active matches. Called before reading the active-match
+ * set (inbox) and before create/respond so zombies can't pin the return pill
+ * or block rematches. Idempotent; no rating changes.
+ */
+export async function expireStaleMatches() {
+  await db.execute(sql`
+    UPDATE quran_matches m
+    SET status = 'done', end_reason = 'abandoned', ended_at = now()
+    WHERE m.status = 'active'
+      AND COALESCE(
+        (SELECT MAX(GREATEST(r.resolved_at, r.started_at, r.creator_ready_at, r.opponent_ready_at))
+         FROM quran_match_rounds r WHERE r.match_id = m.id),
+        m.started_at
+      ) < now() - interval '10 minutes'
+  `);
+}
+
+/** Record one rating change on the shared ladder for match history. */
+export async function recordRatingEvent(e: {
+  userId: string;
+  matchId?: string;
+  game: string;
+  source: "solo" | "match" | "forfeit" | "abort";
+  delta: number;
+  ratingAfter: number;
+  verseIdx?: number;
+  mode?: string;
+  correct?: boolean;
+  ms?: number;
+}) {
+  await db.insert(schema.quranRatingEvents).values({
+    userId: e.userId,
+    matchId: e.matchId ?? null,
+    game: e.game,
+    source: e.source,
+    delta: e.delta,
+    ratingAfter: e.ratingAfter,
+    verseIdx: e.verseIdx ?? null,
+    mode: e.mode ?? null,
+    correct: e.correct ?? null,
+    ms: e.ms ?? null,
+  });
+}
 
 /** Verify the pair are accepted friends (either direction). */
 export async function areFriends(a: string, b: string): Promise<boolean> {
