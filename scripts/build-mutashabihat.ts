@@ -128,7 +128,7 @@ for (const fam of families.values()) {
     for (;;) {
       const i = containsRun(v.nw.slice(off), best.nw);
       if (i < 0) break;
-      inst.push({ s: v.s, a: v.a, ar: v.ar, i0: off + i, i1: off + i + best.nw.length });
+      inst.push({ s: v.s, a: v.a, ar: v.w.join(" "), i0: off + i, i1: off + i + best.nw.length });
       off += i + 1;
     }
   }
@@ -195,7 +195,7 @@ for (const [seed, pos] of seedPos) {
     const rel = containsRun(v.nw.slice(off), nw);
     const i0 = off + Math.max(0, rel);
     lastEnd.set(vi, i0 + nw.length);
-    return { s: v.s, a: v.a, ar: v.ar, i0, i1: i0 + nw.length, ok: rel >= 0 };
+    return { s: v.s, a: v.a, ar: v.w.join(" "), i0, i1: i0 + nw.length, ok: rel >= 0 };
   });
   if (instances.some((x) => !x.ok)) continue; // sanity — positions moved? skip
   const fragText = corpus[cur[0][0]].w.slice(instances[0].i0, instances[0].i1).join(" ");

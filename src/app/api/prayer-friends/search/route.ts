@@ -29,10 +29,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ results: [] });
   }
   // Prefix match expressed as a range scan on lower(name): "sa%" ≡
-  // >= 'sa' AND < 'sb'. Unlike a parameterized LIKE, this ALWAYS hits the
-  // text_pattern_ops index — at 100k users a seq scan per keystroke would hurt.
+  // >= 'sa' AND < 'sa\uFFFF'. Unlike a parameterized LIKE, this ALWAYS hits
+  // the text_pattern_ops index — at 100k users a seq scan per keystroke
+  // would hurt. (Appending the max BMP char also survives edge inputs like
+  // a query ending in U+FFFF, where incrementing the last code unit wraps.)
   const lo = raw.toLowerCase();
-  const hi = lo.slice(0, -1) + String.fromCharCode(lo.charCodeAt(lo.length - 1) + 1);
+  const hi = lo + "￿";
 
   const rows = await db
     .select({

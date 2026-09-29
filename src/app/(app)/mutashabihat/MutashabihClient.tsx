@@ -55,6 +55,7 @@ export default function MutashabihClient() {
   const [picked, setPicked] = useState<number[]>([]); // homes-mode: found surah indexes
   const [missed, setMissed] = useState(false);
   const startedAt = useRef(0);
+  const lastFrag = useRef<string | null>(null);
 
   useEffect(() => {
     fetch("/data/mutashabihat.json")
@@ -92,7 +93,10 @@ export default function MutashabihClient() {
       // Counts 2-5 are guessable; 6-7 reserved for streak ≥5 spice.
       pool = families.filter((f) => f.instances.length <= 5);
     }
-    setFam(pick(pool));
+    let f = pick(pool);
+    if (f.frag === lastFrag.current && pool.length > 1) f = pick(pool); // no back-to-back repeats
+    lastFrag.current = f.frag;
+    setFam(f);
     setDone(false);
     setPicked([]);
     setMissed(false);
