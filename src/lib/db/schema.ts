@@ -245,6 +245,7 @@ export const quranMatches = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     creatorId: uuid('creator_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     opponentId: uuid('opponent_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    game: text('game').notNull().default('trace'), // 'trace' (AyaTrace) | 'mutashabih'
     difficulty: text('difficulty').notNull(), // 'easy'|'medium'|'advanced'|'elite'
     rounds: integer('rounds').notNull(), // total rounds (best-of)
     seed: integer('seed').notNull(),
@@ -280,20 +281,8 @@ export const quranRatings = pgTable(
   },
 );
 
-// Mutashabih rating — separate ladder from AyaTrace (same scoring math).
-export const mutashabihRatings = pgTable(
-  'mutashabih_ratings',
-  {
-    userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
-    rating: integer('rating').notNull().default(0),
-    played: integer('played').notNull().default(0),
-    correct: integer('correct').notNull().default(0),
-    streak: integer('streak').notNull().default(0),
-    bestStreak: integer('best_streak').notNull().default(0),
-    lossStreak: integer('loss_streak').notNull().default(0),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-);
+// Mutashabih shares the quran_ratings ladder with AyaTrace — one collective
+// rank across both games (mode-weighted deltas, see its rating route).
 
 export const quranMatchRounds = pgTable(
   'quran_match_rounds',

@@ -2,15 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, Loader2, Flame } from "lucide-react";
+import { ChevronLeft, Loader2, Flame, Swords, ChevronDown } from "lucide-react";
 import { SURAHS } from "@/lib/content/quran";
-
-// ── Dataset types (public/data/mutashabihat.json — built by
-//    scripts/build-mutashabihat.ts, 100% offline) ──
-interface Instance { s: number; a: number; ar: string; i0: number; i1: number }
-interface Family { frag: string; instances: Instance[]; ctx?: number; curated?: boolean }
-
-type Mode = "count" | "homes" | "ending";
+import MutashabihMatchView from "./MutashabihMatchView";
+import {
+  tailOf, distinctSurahs, distinctTails,
+  type MutashabihFamily as Family,
+  type MutashabihMode as Mode,
+} from "@/lib/mutashabih";
 
 const MODES: { id: Mode; en: string; ar: string; desc: string }[] = [
   { id: "count", en: "How many times?", ar: "كم مرة", desc: "A shared fragment — how many ayahs carry it?" },
@@ -20,16 +19,10 @@ const MODES: { id: Mode; en: string; ar: string; desc: string }[] = [
 
 const surahName = (n: number) => SURAHS[n - 1]?.name ?? `#${n}`;
 
-/** Divergent tail: up to 6 display words after the shared span. */
-function tailOf(inst: Instance): string {
-  const w = inst.ar.split(/\s+/).filter(Boolean);
-  return w.slice(inst.i1, inst.i1 + 6).join(" ") || "—end of the ayah—";
-}
-
-function pick<T>(arr: T[]): T {
+export function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
-function shuffle<T>(arr: T[]): T[] {
+export function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -45,6 +38,10 @@ interface Rating {
 export default function MutashabihClient() {
   const [families, setFamilies] = useState<Family[] | null>(null);
   const [loadErr, setLoadErr] = useState(false);
+  const [matchId, setMatchId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("match");
+  });
   const [mode, setMode] = useState<Mode | null>(null);
   const [fam, setFam] = useState<Family | null>(null);
   const [round, setRound] = useState(0);
@@ -70,11 +67,11 @@ export default function MutashabihClient() {
       .catch(() => {});
   }, []);
 
-  const postRating = useCallback((correct: boolean, ms: number) => {
+  const postRating = useCallback((correct: boolean, ms: number, m: Mode) => {
     fetch("/api/mutashabihat/rating", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ correct, ms }),
+      body: JSON.stringify({ correct, ms, mode: m }),
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -94,9 +91,7 @@ export default function MutashabihClient() {
       pool = families.filter((f) => {
         // Needs ≥2 distinct tails AND ≥2 distinct surahs — otherwise the
         // question "which belongs to X?" is unanswerable (all tails X's).
-        const tails = new Set(f.instances.map((i) => tailOf(i)));
-        const surahs = new Set(f.instances.map((i) => i.s));
-        return tails.size >= 2 && surahs.size >= 2;
+        return distinctTails(f) >= 2 && distinctSurahs(f) >= 2;
       });
     }
     if (m === "count") {
@@ -117,7 +112,7 @@ export default function MutashabihClient() {
     setRound((r) => r + 1);
   }, [families, streak]);
 
-  const settle = useCallback((correct: boolean, ptsWin: number, ptsLose: number) => {
+  const settle = useCallback((correct: boolean, ptsWin: number, ptsLose: number, m: Mode) => {
     const ms = Date.now() - startedAt.current;
     setDone(true);
     setVerdict(correct ? "correct" : "wrong");
@@ -130,7 +125,7 @@ export default function MutashabihClient() {
       setScore((s) => s - ptsLose);
       setStreak(0);
     }
-    postRating(correct, ms);
+    postRating(correct, ms, m);
   }, [postRating]);
 
   if (loadErr) {
@@ -140,11 +135,43 @@ export default function MutashabihClient() {
     return <Shell><div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--color-ink-muted)" }} /></div></Shell>;
   }
 
+  /* ── 1v1 match mode ── */
+  if (matchId) {
+    return (
+      <MutashabihMatchView
+        matchId={matchId}
+        families={families}
+        onExit={() => {
+          setMatchId(null);
+          window.history.replaceState(null, "", "/mutashabihat");
+          // A match lands on your shared rating — refresh it.
+          fetch("/api/mutashabihat/rating")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (d?.rank) setRating(d); })
+            .catch(() => {});
+        }}
+      />
+    );
+  }
+
   /* ── Mode picker ── */
   if (!mode || !fam) {
     return (
       <Shell>
-        <div className="mt-6 space-y-3">
+        {/* Collective rank — one ladder shared with AyaTrace */}
+        <div className="mt-4 flex items-center justify-between rounded-2xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full text-base" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, var(--color-paper))", fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}>
+              {rating ? rating.rank.ar.charAt(0) : "·"}
+            </span>
+            <div>
+              <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{rating ? rating.rank.en : "Unranked"}</p>
+              <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Shared with AyaTrace</p>
+            </div>
+          </div>
+          <span className="text-lg font-bold tabular-nums" style={{ color: "var(--color-accent)" }}>{rating?.rating ?? 0}</span>
+        </div>
+        <div className="mt-4 space-y-3">
           {MODES.map((m, i) => (
             <button
               key={m.id}
@@ -163,6 +190,7 @@ export default function MutashabihClient() {
         <p className="mt-5 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
           Only fragments that repeat 2–7 times in the Quran — the ones a hafiz can actually hold.
         </p>
+        <ChallengePanel onMatch={(id) => setMatchId(id)} />
       </Shell>
     );
   }
@@ -212,7 +240,7 @@ export default function MutashabihClient() {
         </p>
         <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
           {mode === "count" && "How many ayahs in the Quran carry this fragment?"}
-          {mode === "homes" && `This fragment appears in ${n} places — mark every surah. (${picked.length}/${new Set(fam.instances.map((i) => i.s)).size})`}
+          {mode === "homes" && `This fragment appears in ${n} places — mark every surah. (${picked.length}/${distinctSurahs(fam)})`}
           {mode === "ending" && `Which continuation belongs to ${surahName(target.s)}?`}
         </p>
         {done && verdict && (
@@ -227,7 +255,7 @@ export default function MutashabihClient() {
       {/* Options */}
       <div className="mt-4">
         {mode === "count" && !done && (
-          <CountOptions key={round} n={n} onPick={(c) => settle(c === n, 10, 5)} />
+          <CountOptions key={round} n={n} onPick={(c) => settle(c === n, 10, 5, "count")} />
         )}
         {mode === "homes" && !done && (
           <HomesOptions
@@ -241,11 +269,10 @@ export default function MutashabihClient() {
               if (idxs.length > 0) {
                 const np = [...picked, ...idxs];
                 setPicked(np);
-                const done_ = new Set(np.map((i) => fam.instances[i].s)).size === new Set(fam.instances.map((i) => i.s)).size;
-                if (done_) settle(true, 8 + n * 4, 0);
+                if (new Set(np.map((i) => fam.instances[i].s)).size === distinctSurahs(fam)) settle(true, 8 + n * 4, 0, "homes");
               } else {
                 setMissed(true);
-                settle(false, 0, 8);
+                settle(false, 0, 8, "homes");
               }
             }}
           />
@@ -254,7 +281,7 @@ export default function MutashabihClient() {
           <EndingOptions
             key={round}
             fam={fam}
-            onPick={(t) => settle(t === tailOf(target), 12, 6)}
+            onPick={(t) => settle(t === tailOf(target), 12, 6, "ending")}
           />
         )}
         {done && <NextButton onNext={() => nextRound(mode)} />}
@@ -284,7 +311,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function CountOptions({ n, onPick }: { n: number; onPick: (c: number) => void }) {
+export function CountOptions({ n, onPick }: { n: number; onPick: (c: number) => void }) {
   const [opts] = useState(() => {
     const s = new Set<number>([n]);
     while (s.size < Math.min(4, 6)) s.add(2 + Math.floor(Math.random() * 6));
@@ -303,7 +330,7 @@ function CountOptions({ n, onPick }: { n: number; onPick: (c: number) => void })
   );
 }
 
-function HomesOptions({ fam, picked, onPick }: { fam: Family; picked: number[]; onPick: (s: number) => void }) {
+export function HomesOptions({ fam, picked, onPick }: { fam: Family; picked: number[]; onPick: (s: number) => void }) {
   const [opts] = useState(() => {
     const real = [...new Set(fam.instances.map((i) => i.s))];
     const distract = new Set<number>();
@@ -334,7 +361,7 @@ function HomesOptions({ fam, picked, onPick }: { fam: Family; picked: number[]; 
   );
 }
 
-function EndingOptions({ fam, onPick }: { fam: Family; onPick: (t: string) => void }) {
+export function EndingOptions({ fam, onPick }: { fam: Family; onPick: (t: string) => void }) {
   const [opts] = useState(() => shuffle([...new Set(fam.instances.map(tailOf))]));
   return (
     <div className="space-y-2">
@@ -362,7 +389,7 @@ function NextButton({ onNext }: { onNext: () => void }) {
 
 /** Post-answer reveal: every instance rendered with the shared span lit in
  *  accent and the divergent remainder in warmth — the difference is the lesson. */
-function FamilyReveal({ fam, missed }: { fam: Family; missed: boolean }) {
+export function FamilyReveal({ fam, missed }: { fam: Family; missed: boolean }) {
   return (
     <div className="waqt-fade-up mt-5">
       <p className="text-[10px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--color-ink-muted)" }}>
@@ -397,6 +424,126 @@ function FamilyReveal({ fam, missed }: { fam: Family; missed: boolean }) {
       <p className="mt-3 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
         Accent = the shared fragment · warm ink = what differs.
       </p>
+    </div>
+  );
+}
+
+/* ── 1v1 challenge setup ── ranked only — Mutashabih matches always run
+   on the shared ladder (Elite stakes, tier-adjacent opponents). */
+
+const ROUND_CHOICES = [3, 5, 7, 10];
+
+function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [friends, setFriends] = useState<{ id: string; name: string }[] | null>(null);
+  const [friendId, setFriendId] = useState("");
+  const [rounds, setRounds] = useState(5);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  function toggle() {
+    setOpen((o) => !o);
+    if (!friends) {
+      fetch("/api/prayer-friends")
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows: { id: string; firstName: string | null; displayName: string | null }[]) =>
+          setFriends(rows.map((f) => ({ id: f.id, name: f.firstName || f.displayName || "Friend" }))),
+        )
+        .catch(() => setFriends([]));
+    }
+  }
+
+  async function send() {
+    if (!friendId || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/quran/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opponentId: friendId, rounds, game: "mutashabih" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(data.error || "Couldn’t create the match."); return; }
+      onMatch(data.matchId);
+    } catch {
+      setErr("Couldn’t create the match — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const friend = friends?.find((f) => f.id === friendId);
+
+  return (
+    <div className="mt-4 rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+      <button
+        onClick={toggle}
+        className="flex w-full items-center justify-between rounded-2xl px-5 py-4 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2">
+          <Swords className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+          <span className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>1v1 a friend</span>
+        </span>
+        <ChevronDown className="h-4 w-4 transition-transform" style={{ color: "var(--color-ink-muted)", transform: open ? "rotate(180deg)" : undefined }} />
+      </button>
+
+      {open && (
+        <div className="border-t px-5 py-4" style={{ borderColor: "var(--color-paper-3)" }}>
+          {friends === null ? (
+            <p className="animate-pulse text-sm" style={{ color: "var(--color-ink-muted)" }}>Loading friends…</p>
+          ) : friends.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
+              No friends yet — add one in Prayer → Friends, then challenge them here.
+            </p>
+          ) : (
+            <>
+              <label className="block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }} htmlFor="muta-friend">Opponent</label>
+              <select
+                id="muta-friend"
+                value={friendId}
+                onChange={(e) => setFriendId(e.target.value)}
+                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              >
+                <option value="">Choose a friend…</option>
+                {friends.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+
+              <label className="mt-3 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }} htmlFor="muta-rounds">Rounds</label>
+              <select
+                id="muta-rounds"
+                value={rounds}
+                onChange={(e) => setRounds(Number(e.target.value))}
+                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              >
+                {ROUND_CHOICES.map((n) => <option key={n} value={n}>Best of {n}</option>)}
+              </select>
+
+              <p className="mt-3 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                {friend ? `${friend.name} gets a notification — rounds cycle How many times → Every home → Which ending. First correct answer takes each round.` : "Rounds cycle all three modes; first correct answer takes each round."}
+              </p>
+
+              <p className="mt-2 rounded-lg border px-3 py-2 text-[11px] leading-relaxed" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)" }}>
+                Ranked — same ladder as AyaTrace. Finish the whole match: winner +48, loser −6. Rank-adjacent opponents only.
+              </p>
+
+              {err && <p className="mt-2 text-xs" style={{ color: "#dc2626" }}>{err}</p>}
+
+              <button
+                onClick={send}
+                disabled={!friendId || busy}
+                className="mt-3 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: "var(--color-accent)" }}
+              >
+                {busy ? "Sending challenge…" : "Send challenge"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

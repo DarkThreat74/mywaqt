@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
     .select({
       id: schema.quranMatches.id,
       creatorId: schema.quranMatches.creatorId,
+      game: schema.quranMatches.game,
       difficulty: schema.quranMatches.difficulty,
       rounds: schema.quranMatches.rounds,
       createdAt: schema.quranMatches.createdAt,
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
     invites: rows.map((r) => ({
       id: r.id,
       from: nameOf.get(r.creatorId) ?? "A friend",
+      game: r.game,
       difficulty: r.difficulty,
       rounds: r.rounds,
       expiresAt: new Date(r.createdAt.getTime() + INVITE_TTL_MS).toISOString(),

@@ -7,6 +7,13 @@ import { rankDelta, rankFor, nextRank, TIMED_LIMIT_MS, MERCY_FLOOR, MERCY_TRIGGE
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Mutashabih feeds the SAME ladder as AyaTrace (quran_ratings) — one
+ * collective rank across both games. Mode weights: "How many times?" pays
+ * full delta like an AyaTrace answer; the multi-pick modes pay 3/4.
+ */
+const MODE_WEIGHT: Record<string, number> = { count: 1, homes: 0.75, ending: 0.75 };
+
 function payload(r: { rating: number; played: number; correct: number; streak: number; bestStreak: number; lossStreak?: number } | undefined, delta?: number) {
   const rating = r?.rating ?? 0;
   const rank = rankFor(rating);
@@ -25,7 +32,7 @@ function payload(r: { rating: number; played: number; correct: number; streak: n
   };
 }
 
-// GET /api/mutashabihat/rating — my Mutashabih ranked standing.
+// GET /api/mutashabihat/rating — the shared ranked standing.
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -34,15 +41,15 @@ export async function GET(request: NextRequest) {
   }
   const [row] = await db
     .select()
-    .from(schema.mutashabihRatings)
-    .where(eq(schema.mutashabihRatings.userId, session.userId))
+    .from(schema.quranRatings)
+    .where(eq(schema.quranRatings.userId, session.userId))
     .limit(1);
   return NextResponse.json(payload(row));
 }
 
-// POST /api/mutashabihat/rating — record one answer. Same honor-system
-// contract as AyaTrace: the client reports correct/ms, the delta math is
-// server-side so ratings can't be forged upward.
+// POST /api/mutashabihat/rating — record one answer on the shared ladder.
+// Same honor-system contract as AyaTrace: the client reports correct/ms/mode,
+// the delta math is server-side so ratings can't be forged upward.
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -50,7 +57,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  let body: { correct?: boolean; ms?: number };
+  let body: { correct?: boolean; ms?: number; mode?: string };
   try { body = await request.json(); } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
@@ -58,16 +65,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
   const ms = Math.max(0, Math.min(Math.round(body.ms), TIMED_LIMIT_MS));
+  // Unknown/absent mode → the lighter weight; the client always sends one,
+  // this just refuses full weight to hand-rolled requests.
+  const weight = MODE_WEIGHT[body.mode ?? ""] ?? 0.75;
 
   const [row] = await db
     .select()
-    .from(schema.mutashabihRatings)
-    .where(eq(schema.mutashabihRatings.userId, session.userId))
+    .from(schema.quranRatings)
+    .where(eq(schema.quranRatings.userId, session.userId))
     .limit(1);
 
   const prevRank = rankFor(row?.rating ?? 0);
   const lossStreak = body.correct ? 0 : (row?.lossStreak ?? 0) + 1;
-  let delta = rankDelta(body.correct, ms);
+  // Weighted: correct scales toward 0, wrong scales toward 0 too — the
+  // lighter modes risk less AND pay less.
+  let delta = body.correct
+    ? Math.round(rankDelta(true, ms) * weight)
+    : Math.ceil(rankDelta(false, ms) * weight); // negative → ceil = smaller loss
   if (!body.correct && lossStreak >= MERCY_TRIGGER) delta = Math.max(delta, MERCY_FLOOR);
   const rating = Math.max(0, (row?.rating ?? 0) + delta);
   const streak = body.correct ? (row?.streak ?? 0) + 1 : 0;
@@ -82,9 +96,9 @@ export async function POST(request: NextRequest) {
   };
 
   if (row) {
-    await db.update(schema.mutashabihRatings).set(next).where(eq(schema.mutashabihRatings.userId, session.userId));
+    await db.update(schema.quranRatings).set(next).where(eq(schema.quranRatings.userId, session.userId));
   } else {
-    await db.insert(schema.mutashabihRatings).values({ userId: session.userId, ...next });
+    await db.insert(schema.quranRatings).values({ userId: session.userId, ...next });
   }
 
   const newRank = rankFor(rating);

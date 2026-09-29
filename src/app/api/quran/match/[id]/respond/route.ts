@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         gt(schema.quranMatches.createdAt, new Date(Date.now() - INVITE_TTL_MS)),
       ),
     )
-    .returning({ creatorId: schema.quranMatches.creatorId });
+    .returning({ creatorId: schema.quranMatches.creatorId, game: schema.quranMatches.game });
 
   if (!updated) {
     // Lazily close stale pending invites so both sides see "expired", and a
@@ -69,7 +69,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .where(eq(schema.users.id, session.userId))
       .limit(1);
     const name = me?.firstName || me?.displayName || "Your opponent";
-    await notifyUser(updated.creatorId, "Challenge accepted", `${name} accepted — your match is on.`, `/quran?match=${id}`);
+    const base = updated.game === "mutashabih" ? "/mutashabihat" : "/quran";
+    await notifyUser(updated.creatorId, "Challenge accepted", `${name} accepted — your match is on.`, `${base}?match=${id}`);
   }
 
   return NextResponse.json({ ok: true });

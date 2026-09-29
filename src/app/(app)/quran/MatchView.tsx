@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { redirect } from "next/navigation";
 import { Swords, Timer } from "lucide-react";
 import {
   SURAHS, uniqueFragment,
@@ -9,6 +10,7 @@ import {
 
 interface MatchState {
   status: "pending" | "active" | "done" | "declined" | "expired";
+  game: string;
   inviteExpiresAt: string | null;
   role: "creator" | "opponent";
   difficulty: "easy" | "medium" | "advanced" | "elite";
@@ -174,6 +176,10 @@ export default function MatchView({
     : SURAHS;
 
   /* ── Render ── */
+  // Wrong page — a Mutashabih invite that landed here hands off. Below all
+  // hooks so the throw can't short-circuit hook order.
+  if (st?.game === "mutashabih") redirect(`/mutashabihat?match=${matchId}`);
+
   if (err || !st) {
     return (
       <div className="mx-auto w-full max-w-lg px-4 py-16 text-center">

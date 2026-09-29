@@ -7,6 +7,7 @@ import { Swords } from "lucide-react";
 interface Invite {
   id: string;
   from: string;
+  game: string;
   difficulty: string;
   rounds: number;
   expiresAt: string;
@@ -54,9 +55,9 @@ export default function QuranMatchToast() {
   const secsLeft = invite ? Math.max(0, Math.ceil((new Date(invite.expiresAt).getTime() - nowTick) / 1000)) : 0;
   const clock = `${Math.floor(secsLeft / 60)}:${String(secsLeft % 60).padStart(2, "0")}`;
 
-  // Hide while on the quran page — the match view is the place to be —
+  // Hide while on a game page — the match view is the place to be —
   // or once the 5min window closed (server enforces the same cutoff).
-  const hidden = pathname === "/quran" || !invite || secsLeft <= 0;
+  const hidden = pathname === "/quran" || pathname === "/mutashabihat" || !invite || secsLeft <= 0;
 
   async function respond(accept: boolean) {
     if (!invite || busy) return;
@@ -68,9 +69,9 @@ export default function QuranMatchToast() {
         body: JSON.stringify({ accept }),
       });
       if (res.ok && accept) {
-        const id = invite.id;
+        const { id, game } = invite;
         setInvite(null);
-        router.push(`/quran?match=${id}`);
+        router.push(`${game === "mutashabih" ? "/mutashabihat" : "/quran"}?match=${id}`);
         return;
       }
       setInvite(null); // declined or gone — either way, stop showing it
@@ -99,7 +100,7 @@ export default function QuranMatchToast() {
             {invite.from} challenges you
           </p>
           <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            AyaTrace · {DIFF_LABEL[invite.difficulty] ?? invite.difficulty} · Best of {invite.rounds}
+            {invite.game === "mutashabih" ? "Mutashabih" : "AyaTrace"} · {DIFF_LABEL[invite.difficulty] ?? invite.difficulty} · Best of {invite.rounds}
             <span className="tabular-nums"> · {clock}</span>
           </p>
           <div className="mt-3 flex gap-2">

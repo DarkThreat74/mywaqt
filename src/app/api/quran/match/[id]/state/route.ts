@@ -7,6 +7,8 @@ import { isValidUUID } from "@/lib/validation";
 import { getCorpus } from "@/lib/content/quran-server";
 import { SURAHS, plausibleOptions, mulberry32 } from "@/lib/content/quran";
 import { INVITE_TTL_MS } from "@/lib/quran-match";
+import { matchMode } from "@/lib/mutashabih";
+import { matchTarget } from "@/lib/content/mutashabihat-server";
 import { MATCH_WIN_PTS, MATCH_LOSS_PTS, MATCH_DRAW_PTS } from "@/lib/quran-rank";
 
 export const dynamic = "force-dynamic";
@@ -167,8 +169,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   // Option sets for ≤6-option difficulties are computed HERE, seeded by
   // match seed + round — never expose the seed: pickMatchVerses is
   // deterministic, so a leaked seed reveals every upcoming ayah's answer.
+  // (Mutashabih rounds need no server options — the family itself carries them.)
   let options: number[] | null = null;
-  if (current?.startedAt) {
+  if (current?.startedAt && m.game !== "mutashabih") {
     const optCount = m.difficulty === "easy" ? 4 : m.difficulty === "medium" ? 6 : 114;
     if (optCount <= 6) {
       const verse = getCorpus().verses[current.verseIdx];
@@ -177,8 +180,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
   }
 
+  // Mutashabih rounds: the mode cycles deterministically, and ending-mode
+  // needs a shared target instance (which surah is being asked about).
+  const roundMode = m.game === "mutashabih" && current ? matchMode(current.round) : null;
+  const target = current?.startedAt && roundMode === "ending"
+    ? matchTarget(m.seed, current.round, current.verseIdx)
+    : null;
+
   return NextResponse.json({
     status,
+    game: m.game,
     difficulty: m.difficulty,
     totalRounds: m.rounds,
     role: meIsCreator ? "creator" : "opponent",
@@ -206,6 +217,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           meAnswered: (meIsCreator ? current.creatorCorrect : current.opponentCorrect) !== null,
           oppAnswered: (meIsCreator ? current.opponentCorrect : current.creatorCorrect) !== null,
           options,
+          mode: roundMode,
+          target,
         }
       : null,
     // Last resolved round's reveal — winner + both times for the scoreboard pause.

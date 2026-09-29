@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { pickMatchVerses } from "@/lib/content/quran-server";
+import { pickMatchFamilies } from "@/lib/content/mutashabihat-server";
 import { areFriends, notifyUser, INVITE_TTL_MS } from "@/lib/quran-match";
 import { rankIndex, rankFor } from "@/lib/quran-rank";
 import { isValidUUID } from "@/lib/validation";
@@ -25,12 +26,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  let body: { opponentId?: string; difficulty?: string; rounds?: number };
+  let body: { opponentId?: string; difficulty?: string; rounds?: number; game?: string };
   try { body = await request.json(); } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { opponentId, difficulty } = body;
+  const { opponentId } = body;
+  // Mutashabih matches are always ranked-Elite (one shared ladder); AyaTrace
+  // keeps casual difficulties.
+  const game = body.game === "mutashabih" ? "mutashabih" : "trace";
+  const difficulty = game === "mutashabih" ? "elite" : body.difficulty;
   const rounds = body.rounds ?? 5;
   if (!opponentId || !isValidUUID(opponentId) || !difficulty || !VALID_DIFFS.has(difficulty)) {
     return NextResponse.json({ error: "Invalid match settings." }, { status: 400 });
@@ -69,6 +74,7 @@ export async function POST(request: NextRequest) {
     .from(schema.quranMatches)
     .where(
       and(
+        eq(schema.quranMatches.game, game),
         or(
           and(eq(schema.quranMatches.creatorId, session.userId), eq(schema.quranMatches.opponentId, opponentId)),
           and(eq(schema.quranMatches.creatorId, opponentId), eq(schema.quranMatches.opponentId, session.userId)),
@@ -93,18 +99,20 @@ export async function POST(request: NextRequest) {
   }
 
   const seed = crypto.randomInt(1, 2 ** 31);
-  const fragMode = FRAG_DIFFS.has(difficulty) ? "unique" : "full";
-  const verseIdxs = pickMatchVerses(seed, rounds, fragMode);
-  if (verseIdxs.length < rounds) {
+  // verseIdx column doubles as the family index for mutashabih matches.
+  const roundIdxs = game === "mutashabih"
+    ? pickMatchFamilies(seed, rounds)
+    : pickMatchVerses(seed, rounds, FRAG_DIFFS.has(difficulty) ? "unique" : "full");
+  if (roundIdxs.length < rounds) {
     return NextResponse.json({ error: "Couldn't build a match — try again." }, { status: 500 });
   }
 
   const [match] = await db
     .insert(schema.quranMatches)
-    .values({ creatorId: session.userId, opponentId, difficulty, rounds, seed })
+    .values({ creatorId: session.userId, opponentId, game, difficulty, rounds, seed })
     .returning({ id: schema.quranMatches.id });
   await db.insert(schema.quranMatchRounds).values(
-    verseIdxs.map((verseIdx, i) => ({ matchId: match.id, round: i + 1, verseIdx })),
+    roundIdxs.map((verseIdx, i) => ({ matchId: match.id, round: i + 1, verseIdx })),
   );
 
   const [me] = await db
@@ -113,11 +121,12 @@ export async function POST(request: NextRequest) {
     .where(eq(schema.users.id, session.userId))
     .limit(1);
   const name = me?.firstName || me?.displayName || "A friend";
+  const gameName = game === "mutashabih" ? "Mutashabih" : "AyaTrace";
   await notifyUser(
     opponentId,
-    "AyaTrace",
+    gameName,
     `${name} challenged you — ${difficulty} · best of ${rounds}. Open Waqt to play.`,
-    `/quran?match=${match.id}`,
+    `${game === "mutashabih" ? "/mutashabihat" : "/quran"}?match=${match.id}`,
   );
 
   return NextResponse.json({ matchId: match.id });
