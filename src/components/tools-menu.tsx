@@ -99,6 +99,19 @@ function QuranArt() {
   );
 }
 
+function MutashabihArt() {
+  // Two ayah lines sharing one path, then diverging — the mutashabih shape.
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M8 20h14c6 0 8 4 14 4" />
+      <path d="M22 20c6 0 8-4 14-4" opacity="0.45" />
+      <path d="M8 30h22" />
+      <path d="M8 30h12c6 0 8 6 14 6" opacity="0.45" />
+      <circle cx="8" cy="20" r="2.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function TalksArt() {
   // Play triangle inside sound arcs
   return (
@@ -126,6 +139,7 @@ const SECTIONS: { title: string; tools: Tool[] }[] = [
       { href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter", art: DhikrArt },
       { href: "/sadaqah", label: "Sadaqah", arabic: "صدقة", description: "Track your giving", art: SadaqahArt },
       { href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah", art: QuranArt, ranked: true },
+      { href: "/mutashabihat", label: "Mutashabih", arabic: "متشابه", description: "The verses that look alike", art: MutashabihArt, ranked: true },
     ],
   },
   {

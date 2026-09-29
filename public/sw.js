@@ -45,6 +45,7 @@ const APP_PAGES = [
   "/calendar/day",
   "/prayer",
   "/quran",
+  "/mutashabihat",
   "/settings",
 ];
 
