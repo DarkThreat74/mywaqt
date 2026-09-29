@@ -54,6 +54,8 @@ export default function MutashabihClient() {
   const [done, setDone] = useState(false);          // reveal phase
   const [picked, setPicked] = useState<number[]>([]); // homes-mode: found surah indexes
   const [missed, setMissed] = useState(false);
+  const [verdict, setVerdict] = useState<"correct" | "wrong" | null>(null);
+  const [deltaFlash, setDeltaFlash] = useState<{ v: number; key: number } | null>(null);
   const startedAt = useRef(0);
   const lastFrag = useRef<string | null>(null);
 
@@ -75,7 +77,12 @@ export default function MutashabihClient() {
       body: JSON.stringify({ correct, ms }),
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.rank) setRating(d); })
+      .then((d) => {
+        if (d?.rank) setRating(d);
+        // Server owns the delta — flash it when we got a real response
+        // (offline queued 202s carry no delta, so nothing misleading shows).
+        if (typeof d?.delta === "number" && d.delta !== 0) setDeltaFlash({ v: d.delta, key: d.played });
+      })
       .catch(() => {});
   }, []);
 
@@ -100,6 +107,7 @@ export default function MutashabihClient() {
     setDone(false);
     setPicked([]);
     setMissed(false);
+    setVerdict(null);
     startedAt.current = Date.now();
     setRound((r) => r + 1);
   }, [families]);
@@ -107,6 +115,9 @@ export default function MutashabihClient() {
   const settle = useCallback((correct: boolean, ptsWin: number, ptsLose: number) => {
     const ms = Date.now() - startedAt.current;
     setDone(true);
+    setVerdict(correct ? "correct" : "wrong");
+    // Haptic where supported (Android/Chrome; iOS Safari no-ops)
+    try { navigator.vibrate?.(correct ? 15 : [50, 40, 50]); } catch { /* unsupported */ }
     if (correct) {
       setScore((s) => s + ptsWin);
       setStreak((s) => s + 1);
@@ -165,12 +176,29 @@ export default function MutashabihClient() {
         <div className="flex items-center gap-3 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
           {rating && <span>{rating.rank.en} · {rating.rating}</span>}
           <span className="flex items-center gap-1"><Flame className="h-3 w-3" style={{ color: "var(--color-warmth)" }} />{streak}</span>
-          <span className="font-semibold" style={{ color: "var(--color-ink)" }}>{score}</span>
+          <span className="relative font-semibold" style={{ color: "var(--color-ink)" }}>
+            {score}
+            {deltaFlash && (
+              <span
+                key={deltaFlash.key}
+                className="waqt-answer-pop absolute -top-4 right-0 text-[10px] font-bold"
+                style={{ color: deltaFlash.v >= 0 ? "var(--color-accent)" : "#dc2626" }}
+              >
+                {deltaFlash.v >= 0 ? `+${deltaFlash.v}` : deltaFlash.v}
+              </span>
+            )}
+          </span>
         </div>
       </div>
 
       {/* The shared fragment */}
-      <div className="mt-6 rounded-2xl border p-5 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+      <div
+        className={`mt-6 rounded-2xl border p-5 text-center transition-colors ${verdict === "wrong" ? "waqt-answer-shake" : ""}`}
+        style={{
+          borderColor: verdict === "correct" ? "var(--color-success)" : verdict === "wrong" ? "var(--color-error, #dc2626)" : "var(--color-paper-3)",
+          backgroundColor: verdict === "correct" ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : verdict === "wrong" ? "color-mix(in oklab, #dc2626 6%, var(--color-paper))" : "var(--color-paper)",
+        }}
+      >
         <p className="text-[10px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--color-ink-muted)" }}>
           {MODES.find((m) => m.id === mode)!.en}
         </p>
@@ -182,6 +210,13 @@ export default function MutashabihClient() {
           {mode === "homes" && `This fragment appears in ${n} places — mark every surah. (${picked.length}/${new Set(fam.instances.map((i) => i.s)).size})`}
           {mode === "ending" && `Which continuation belongs to ${surahName(target.s)}?`}
         </p>
+        {done && verdict && (
+          <p className="waqt-answer-pop mt-3 text-sm font-semibold" style={{ color: verdict === "correct" ? "var(--color-success)" : "#dc2626" }}>
+            {verdict === "correct" ? "Correct" : "Wrong"}
+            {mode === "count" && verdict === "wrong" && ` — it appears ${n} times`}
+            {mode === "ending" && verdict === "wrong" && ` — in ${surahName(target.s)} it continues …${tailOf(target)}`}
+          </p>
+        )}
       </div>
 
       {/* Options */}
