@@ -10,6 +10,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowRight } from "lucide-react";
 import { SITE_URL } from "@/lib/site-config";
+import { ShareQrButton } from "@/components/share-qr";
 
 // Static — the proxy (src/proxy.ts) already redirects logged-in users
 // from / to /calendar/day, so this page only renders for logged-out visitors.
@@ -538,6 +539,7 @@ export default function MarketingPage() {
             <Link href="/support" className="transition-opacity hover:opacity-70" style={{ color: "var(--color-ink-muted)" }}>
               Support
             </Link>
+            <ShareQrButton />
             <Link
               href="/admin/login"
               className="transition-opacity hover:opacity-70"

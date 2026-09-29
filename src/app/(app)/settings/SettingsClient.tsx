@@ -8,6 +8,7 @@ import { isNativeApp, isIOS as isIOSDevice } from "@/lib/native-bridge";
 import { clearOfflineCache } from "@/lib/offline/db";
 import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
 import { HTTP_USER_AGENT } from "@/lib/site-config";
+import { ShareQrButton } from "@/components/share-qr";
 import { clearCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 
 interface PrayerSettings {
@@ -2608,6 +2609,14 @@ export default function SettingsClient({
             <LogOut className="h-4 w-4" />
             {loggingOut ? "Logging out..." : "Log out"}
           </button>
+        </div>
+
+        {/* ── Share Waqt — QR code at the very bottom ── */}
+        <div className="p-4 sm:p-6">
+          <ShareQrButton variant="icon" />
+          <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            Share Waqt — show a QR code anyone can scan to open the app and sign up.
+          </p>
         </div>
       </div>
     </div>

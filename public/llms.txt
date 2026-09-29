@@ -1,6 +1,6 @@
 # Waqt
 
-> Waqt (وقت, "time") is a free prayer-centered life tracker — a calendar where the five daily Islamic prayers are the fixed anchor and everything else is scheduled around them.
+> Waqt (وقت, "time") at https://mywaqt.app is a free prayer-centered life tracker — a calendar where the five daily Islamic prayers are the fixed anchor and everything else is scheduled around them.
 
 ## What it is
 
@@ -33,12 +33,12 @@ Next.js, TypeScript, Drizzle ORM on Neon Postgres, Vercel hosting, service-worke
 
 ## Links
 
-- Home: /
-- Sign up: /signup
-- Log in: /login
-- Privacy: /privacy
-- Terms: /terms
-- Cookies: /cookies
-- Data deletion: /data-deletion
-- Support: /support
-- Sitemap: /sitemap.xml
+- Home: https://mywaqt.app
+- Sign up: https://mywaqt.app/signup
+- Log in: https://mywaqt.app/login
+- Privacy: https://mywaqt.app/privacy
+- Terms: https://mywaqt.app/terms
+- Cookies: https://mywaqt.app/cookies
+- Data deletion: https://mywaqt.app/data-deletion
+- Support: https://mywaqt.app/support
+- Sitemap: https://mywaqt.app/sitemap.xml
