@@ -131,6 +131,7 @@ export default function QuranChallengeClient() {
     const r = pickRound(corpus.verses, corpus.idx, frag);
     if (id !== roundRef.current || !r) return;
     setPicked(null);
+    setDeltaFlash(null);
     setHintsUsed(new Set());
     setQuery("");
     setListOpen(false);

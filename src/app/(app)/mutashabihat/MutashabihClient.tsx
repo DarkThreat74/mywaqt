@@ -97,9 +97,10 @@ export default function MutashabihClient() {
       });
     }
     if (m === "count") {
-      // Counts 2-5 are guessable; 6-7 reserved for streak ≥5 spice.
-      pool = families.filter((f) => f.instances.length <= 5);
+      // Counts 2-5 are guessable; on a streak ≥5 let the rare 6-7s in.
+      pool = families.filter((f) => f.instances.length <= (streak >= 5 ? 7 : 5));
     }
+    if (pool.length === 0) pool = families; // never crash on an empty filter
     let f = pick(pool);
     if (f.frag === lastFrag.current && pool.length > 1) f = pick(pool); // no back-to-back repeats
     lastFrag.current = f.frag;
@@ -108,9 +109,10 @@ export default function MutashabihClient() {
     setPicked([]);
     setMissed(false);
     setVerdict(null);
+    setDeltaFlash(null);
     startedAt.current = Date.now();
     setRound((r) => r + 1);
-  }, [families]);
+  }, [families, streak]);
 
   const settle = useCallback((correct: boolean, ptsWin: number, ptsLose: number) => {
     const ms = Date.now() - startedAt.current;
