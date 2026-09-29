@@ -232,7 +232,7 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
       >
         <div className="flex items-baseline justify-between">
           <p className="text-[10px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--color-ink-muted)" }}>
-            Elite ladder
+            Quran ladder — AyaTrace + Mutashabih
           </p>
           <p className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
             <span className="text-sm font-bold" style={{ color: "var(--color-ink)" }}>{q.rating}</span> pts
@@ -344,12 +344,13 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
             <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>Scoring</p>
               <ul className="mt-1.5 space-y-1 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-                <li>Correct Elite answer: <b>+16</b>, up to <b>+8</b> more for speed.</li>
-                <li>Wrong answer: <b>−half</b> the points you could have gained.</li>
+                <li>One ladder across both games — every answer in AyaTrace and Mutashabih moves the same rating.</li>
+                <li>Correct answer: <b>+16</b>, up to <b>+8</b> more for speed. Mutashabih&rsquo;s multi-pick modes pay <b>¾</b>.</li>
+                <li>Wrong answer: <b>−half</b> the points you could have gained (lighter modes lose less too).</li>
                 <li>Rough patch protection: 4+ wrong in a row caps each loss at <b>−2</b> until one lands right. Rating can never go below 0.</li>
-                <li>Qari and above: Elite questions are timed — 60 seconds each.</li>
+                <li>Qari and above: questions are timed — 60 seconds each.</li>
                 <li>
-                  Ranked 1v1: finish an Elite match for <b>+{MATCH_WIN_PTS}</b> on a win,
+                  Ranked 1v1 (either game): finish the match for <b>+{MATCH_WIN_PTS}</b> on a win,
                   only <b>{MATCH_LOSS_PTS}</b> on a loss. Opponents must be your tier
                   or one directly above or below.
                 </li>
