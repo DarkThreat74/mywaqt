@@ -19,6 +19,7 @@ interface AdminUser {
   email: string;
   firstName: string | null;
   displayName: string | null;
+  avatarUrl: string | null;
   createdAt: string;
   role: string;
   prayerLogCount: number;

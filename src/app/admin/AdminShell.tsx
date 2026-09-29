@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
 import GlobalAudioPlayer from "@/components/global-audio-player";
+import { applyAdminTheme, readAdminTheme, restoreAppTheme } from "@/lib/admin-theme";
 
 export type AdminTab = "overview" | "users" | "talks" | "feedback" | "settings";
 
@@ -61,6 +62,25 @@ export function AdminShell({
       })
       .catch(() => router.push("/admin/login"));
   }, [router]);
+
+  // Apply the admin theme while this portal is mounted — it stores its own
+  // localStorage key (waqt:admin:theme) that nothing else reads. Re-apply on
+  // storage changes (the Settings toggle writes it) and on OS-level flips
+  // when set to "system". On unmount, hand data-theme back to the app theme.
+  useEffect(() => {
+    const apply = () => applyAdminTheme(readAdminTheme());
+    apply();
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    mq.addEventListener("change", apply);
+    window.addEventListener("storage", apply);
+    window.addEventListener("waqt:admin-theme", apply);
+    return () => {
+      mq.removeEventListener("change", apply);
+      window.removeEventListener("storage", apply);
+      window.removeEventListener("waqt:admin-theme", apply);
+      restoreAppTheme();
+    };
+  }, []);
 
   if (!authChecked) {
     return (

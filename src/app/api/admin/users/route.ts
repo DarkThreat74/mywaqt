@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
         email: schema.users.email,
         firstName: schema.users.firstName,
         displayName: schema.users.displayName,
+        avatarUrl: schema.users.avatarUrl,
         createdAt: schema.users.createdAt,
         role: schema.users.role,
       })

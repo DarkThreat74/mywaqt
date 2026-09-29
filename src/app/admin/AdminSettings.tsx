@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Sun, Moon, Monitor, Volume2, LayoutGrid, Save, RefreshCw, CheckCircle2, Megaphone } from "lucide-react";
+import { applyAdminTheme } from "@/lib/admin-theme";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -114,7 +115,15 @@ export function AdminSettings() {
           ] as const).map(({ value, label, icon: Icon }) => (
             <button
               key={value}
-              onClick={() => setTheme(value)}
+              onClick={() => {
+                setTheme(value);
+                try {
+                  localStorage.setItem("waqt:admin:theme", value);
+                } catch {
+                  /* non-critical */
+                }
+                applyAdminTheme(value);
+              }}
               className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors"
               style={{
                 borderColor: theme === value ? "var(--color-accent)" : "var(--color-paper-3)",

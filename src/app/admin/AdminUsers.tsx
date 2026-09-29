@@ -8,6 +8,7 @@ interface AdminUser {
   email: string;
   firstName: string | null;
   displayName: string | null;
+  avatarUrl: string | null;
   createdAt: string;
   role: string;
   prayerLogCount: number;
@@ -103,15 +104,7 @@ export function AdminUsers({ onSelect }: { onSelect: (user: AdminUser) => void }
           }}
         >
           {/* Avatar */}
-          <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
-            style={{
-              backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)",
-              color: "var(--color-accent)",
-            }}
-          >
-            {(user.firstName || user.displayName || user.email || "?")[0].toUpperCase()}
-          </div>
+          <Avatar user={user} size={40} />
 
           {/* Info */}
           <div className="min-w-0 flex-1">
@@ -189,15 +182,7 @@ export function AdminUserDetail({ user, onBack }: { user: AdminUser; onBack: () 
         className="flex items-center gap-4 rounded-2xl border p-5"
         style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
       >
-        <div
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-bold"
-          style={{
-            backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)",
-            color: "var(--color-accent)",
-          }}
-        >
-          {(user.firstName || user.displayName || user.email || "?")[0].toUpperCase()}
-        </div>
+        <Avatar user={user} size={56} />
         <div className="min-w-0 flex-1">
           <p className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>
             {user.firstName || user.displayName || "No name set"}
@@ -215,7 +200,6 @@ export function AdminUserDetail({ user, onBack }: { user: AdminUser; onBack: () 
       >
         <InfoRow icon={Mail} label="Email" value={user.email} />
         <InfoRow icon={UserCircle} label="Display Name" value={user.displayName || "Not set"} />
-        <InfoRow icon={UserCircle} label="First Name" value={user.firstName || "Not set"} />
         <InfoRow icon={Calendar} label="Joined" value={formatJoined(user.createdAt)} />
         <InfoRow icon={Activity} label="Last Prayer Check-in" value={formatLastCheckin(user.lastCheckin)} last />
       </div>
@@ -292,6 +276,34 @@ export function AdminUserDetail({ user, onBack }: { user: AdminUser; onBack: () 
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function Avatar({ user, size }: { user: AdminUser; size: number }) {
+  const style: React.CSSProperties = {
+    width: size,
+    height: size,
+    backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)",
+    color: "var(--color-accent)",
+  };
+  if (user.avatarUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- data: URL, next/image adds nothing
+      <img
+        src={user.avatarUrl}
+        alt=""
+        className="shrink-0 rounded-full object-cover"
+        style={style}
+      />
+    );
+  }
+  return (
+    <div
+      className="flex shrink-0 items-center justify-center rounded-full font-semibold"
+      style={{ ...style, fontSize: size * 0.38 }}
+    >
+      {(user.firstName || user.displayName || user.email || "?")[0].toUpperCase()}
     </div>
   );
 }
