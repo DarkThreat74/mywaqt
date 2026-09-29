@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { count, desc, sql, inArray } from "drizzle-orm";
+import { count, desc, sql, inArray, eq } from "drizzle-orm";
+import { isValidUUID } from "@/lib/validation";
 import { db, schema } from "@/lib/db/client";
 import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -101,6 +102,41 @@ export async function GET(request: NextRequest) {
       pageSize,
       totalPages: Math.ceil(total / pageSize),
     });
+  } catch (e) {
+    if (e instanceof AdminAuthError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
+    logError(e, { route: "admin/users" });
+    return NextResponse.json({ error: "Internal error." }, { status: 500 });
+  }
+}
+
+// DELETE /api/admin/users?userId=<uuid> — permanently remove an account.
+// FK cascades carry their data with them; admins can't delete admins.
+export async function DELETE(request: NextRequest) {
+  try {
+    await requireAdmin(request);
+    if (!checkRateLimit("admin-user-delete", getClientIp(request.headers), 10, 60 * 1000)) {
+      return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+    }
+
+    const userId = request.nextUrl.searchParams.get("userId");
+    if (!userId || !isValidUUID(userId)) {
+      return NextResponse.json({ error: "Invalid userId." }, { status: 400 });
+    }
+
+    const [target] = await db
+      .select({ role: schema.users.role, email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    if (!target) return NextResponse.json({ error: "User not found." }, { status: 404 });
+    if (target.role === "admin") {
+      return NextResponse.json({ error: "Admin accounts can't be deleted here." }, { status: 403 });
+    }
+
+    await db.delete(schema.users).where(eq(schema.users.id, userId));
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof AdminAuthError) {
       return NextResponse.json({ error: e.message }, { status: e.status });

@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronDown, Swords, Camera } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronDown, Swords, Camera, Flame, Check, MapPin, Link2 } from "lucide-react";
 import { RANKS, MATCH_WIN_PTS, MATCH_LOSS_PTS } from "@/lib/quran-rank";
+import { invalidateApiCache } from "@/lib/sw-helpers";
 
 /** Rank medallion — tone deepens as you climb; Shaykh carries warmth + glow. */
 const BADGE_TONE: Record<string, { bg: string; ring: string; glow: boolean }> = {
@@ -56,6 +58,18 @@ function readAvatar(file: File): Promise<string> {
   });
 }
 
+/** What the friends API shares about a friend — gated by their privacy toggles. */
+interface FriendSalah {
+  id: string;
+  streak: number | null;
+  thisWeekPrayed: number | null;
+  totalCompleteDays: number | null;
+  masjidPct: number | null;
+  todayVisible: boolean;
+  todayLogs: Array<{ prayerName: string; status: string }>;
+  sharedStreak: { streak: number; bestStreak: number } | null;
+}
+
 interface Profile {
   name: string;
   displayName: string | null;
@@ -76,12 +90,31 @@ interface Profile {
 }
 
 export default function ProfileClient({ userId }: { userId?: string } = {}) {
+  const router = useRouter();
   const [p, setP] = useState<Profile | null>(null);
   const [err, setErr] = useState(false);
   const [barIn, setBarIn] = useState(false);
   const [ladderOpen, setLadderOpen] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [salah, setSalah] = useState<FriendSalah | null | undefined>(undefined);
+  const [confirmUnfriend, setConfirmUnfriend] = useState(false);
+  const [unfriendBusy, setUnfriendBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  async function unfriend() {
+    if (!userId || unfriendBusy) return;
+    setUnfriendBusy(true);
+    try {
+      const res = await fetch(`/api/prayer-friends/remove?friendId=${userId}`, { method: "DELETE" });
+      if (res.ok) {
+        invalidateApiCache("/api/prayer-friends");
+        router.push("/prayer?tab=friends");
+        return;
+      }
+      setConfirmUnfriend(false);
+    } catch { /* offline — stay put */ }
+    setUnfriendBusy(false);
+  }
 
   async function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -101,6 +134,14 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
   }
 
   useEffect(() => {
+    if (userId) {
+      // Friend profiles get the salah card too — the friends API already
+      // computes exactly what they chose to share.
+      fetch("/api/prayer-friends")
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows: FriendSalah[]) => setSalah(rows.find((f) => f.id === userId) ?? null))
+        .catch(() => {});
+    }
     fetch(userId ? `/api/profile?user=${encodeURIComponent(userId)}` : "/api/profile")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -224,6 +265,87 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
             ))}
         </div>
       </div>
+
+      {/* Salah card — the point of the friendship. Only what they share. */}
+      {userId && (
+        <div
+          className="waqt-fade-up mb-4 rounded-2xl border px-5 py-4"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+        >
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--color-ink-muted)" }}>
+            Their salah
+          </p>
+          {salah ? (
+            <div className="mt-3 space-y-3">
+              <div className="flex divide-x border-y py-3 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
+                {[
+                  { icon: <Flame className="mx-auto h-3.5 w-3.5" style={{ color: "var(--color-warmth)" }} />, label: "Streak", value: salah.streak !== null ? `${salah.streak}d` : "—" },
+                  { icon: <Check className="mx-auto h-3.5 w-3.5" style={{ color: "var(--color-success)" }} />, label: "This week", value: salah.thisWeekPrayed !== null ? String(salah.thisWeekPrayed) : "—" },
+                  { icon: <Check className="mx-auto h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />, label: "Complete days", value: salah.totalCompleteDays !== null ? String(salah.totalCompleteDays) : "—" },
+                  { icon: <MapPin className="mx-auto h-3.5 w-3.5" style={{ color: "var(--color-ink-soft)" }} />, label: "Masjid", value: salah.masjidPct !== null ? `${salah.masjidPct}%` : "—" },
+                ].map((s) => (
+                  <div key={s.label} className="flex-1 px-1">
+                    {s.icon}
+                    <p className="mt-1 text-base font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{s.value}</p>
+                    <p className="text-[9px] font-medium uppercase tracking-[0.1em]" style={{ color: "var(--color-ink-muted)" }}>{s.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Today's prayers */}
+              <div>
+                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.12em]" style={{ color: "var(--color-ink-muted)" }}>Today</p>
+                {salah.todayVisible ? (
+                  <div className="flex items-center gap-2">
+                    {["fajr", "dhuhr", "asr", "maghrib", "isha"].map((pr) => {
+                      const log = salah.todayLogs.find((l) => l.prayerName === pr);
+                      const prayed = log?.status === "prayed" || log?.status === "assumed_prayed";
+                      const excused = log?.status === "excused";
+                      const color = prayed ? "var(--color-success)" : excused ? "var(--color-accent)" : "var(--color-paper-3)";
+                      return (
+                        <div key={pr} className="flex flex-col items-center gap-0.5">
+                          <span
+                            className="flex h-7 w-7 items-center justify-center rounded-full border-2 text-[9px] font-bold uppercase"
+                            style={{
+                              borderColor: color,
+                              backgroundColor: prayed ? color : excused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : "transparent",
+                              color: prayed ? "var(--color-paper)" : excused ? "var(--color-accent)" : "var(--color-ink-muted)",
+                            }}
+                            title={pr.charAt(0).toUpperCase() + pr.slice(1)}
+                          >
+                            {prayed ? <Check className="h-3.5 w-3.5" /> : excused ? "E" : pr.charAt(0)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    <span className="ml-auto text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                      {salah.todayLogs.filter((l) => l.status === "prayed" || l.status === "assumed_prayed").length}/5
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs italic" style={{ color: "var(--color-ink-muted)" }}>
+                    {p.name} doesn&apos;t share today&apos;s status.
+                  </p>
+                )}
+              </div>
+
+              {salah.sharedStreak && salah.sharedStreak.streak > 0 && (
+                <p className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--color-accent)" }}>
+                  <Link2 className="h-3.5 w-3.5" />
+                  {salah.sharedStreak.streak}-day complete-day chain together
+                  {salah.sharedStreak.bestStreak > salah.sharedStreak.streak && (
+                    <span style={{ color: "var(--color-ink-muted)" }}>(best {salah.sharedStreak.bestStreak})</span>
+                  )}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              {salah === undefined ? "Loading…" : "Not friends yet — salah stats appear once you're connected."}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Rank card — medallion wears the progress ring */}
       <div
@@ -359,6 +481,53 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
           </div>
         )}
       </div>
+
+      {/* Unfriend — quiet, tucked at the bottom. Custom confirm, never window.confirm. */}
+      {userId && (
+        <div className="mt-6">
+          {confirmUnfriend ? (
+            <div
+              role="alertdialog"
+              aria-label={`Unfriend ${p.name}`}
+              className="waqt-fade-up rounded-2xl border p-4"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+            >
+              <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                Unfriend {p.name}?
+              </p>
+              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                You&apos;ll both stop seeing each other&apos;s salah and streaks. They&apos;ll be notified.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => void unfriend()}
+                  disabled={unfriendBusy}
+                  className="flex-1 rounded-xl px-3 py-2 text-sm font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: "#b42318" }}
+                >
+                  {unfriendBusy ? "Removing…" : "Yes, unfriend"}
+                </button>
+                <button
+                  onClick={() => setConfirmUnfriend(false)}
+                  disabled={unfriendBusy}
+                  className="flex-1 rounded-xl border px-3 py-2 text-sm font-medium transition-colors enabled:hover:bg-[var(--color-paper-2)] disabled:opacity-50"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+                >
+                  No, keep them
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmUnfriend(true)}
+              className="mx-auto block rounded-lg px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Remove from friends
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

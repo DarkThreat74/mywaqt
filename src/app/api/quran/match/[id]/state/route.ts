@@ -199,9 +199,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     roundsPlayed: rounds.filter((r) => r.resolvedAt).length,
     winnerId: m.winnerId,
     youWin: status === "done" ? m.winnerId === session.userId : null,
-    // Ranked stake for the done screen — Elite matches pay +48/−6 (draw 0).
+    // 'completed' | 'aborted' | 'forfeited' — forfeits settle differently
+    // (quitter −5; abort = nothing for the winner; forfeit = proportional
+    // share of the stake by rounds played × their win share). Same formula
+    // as the forfeit route — rounds are frozen once done so it re-derives.
+    endReason: m.endReason ?? "completed",
     ratingDelta: status === "done" && m.difficulty === "elite"
-      ? m.winnerId === null ? MATCH_DRAW_PTS : m.winnerId === session.userId ? MATCH_WIN_PTS : MATCH_LOSS_PTS
+      ? (() => {
+          if (m.endReason === "aborted" || m.endReason === "forfeited") {
+            if (m.forfeitedBy === session.userId) return -5;
+            if (m.endReason === "aborted") return 0;
+            const res = rounds.filter((r) => r.resolvedAt);
+            const won = res.filter((r) => r.winnerId === session.userId).length;
+            return res.length ? Math.max(1, Math.round(MATCH_WIN_PTS * (res.length / m.rounds) * (won / res.length))) : 0;
+          }
+          return m.winnerId === null ? MATCH_DRAW_PTS : m.winnerId === session.userId ? MATCH_WIN_PTS : MATCH_LOSS_PTS;
+        })()
       : null,
     inviteExpiresAt: status === "pending"
       ? new Date(m.createdAt.getTime() + INVITE_TTL_MS).toISOString()

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { RefreshCw, ChevronRight, ArrowLeft, Mail, Calendar, UserCircle, Activity } from "lucide-react";
+import { RefreshCw, ChevronRight, ArrowLeft, Mail, Calendar, UserCircle, Activity, Trash2 } from "lucide-react";
 
 interface AdminUser {
   id: string;
@@ -144,6 +144,27 @@ export function AdminUsers({ onSelect }: { onSelect: (user: AdminUser) => void }
 }
 
 export function AdminUserDetail({ user, onBack }: { user: AdminUser; onBack: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
+
+  async function deleteUser() {
+    setDeleting(true);
+    setDeleteErr(null);
+    try {
+      const res = await fetch(`/api/admin/users?userId=${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      if (res.ok) { onBack(); return; }
+      const data = await res.json().catch(() => ({}));
+      setDeleteErr(data.error || "Couldn't delete this account.");
+      setConfirming(false);
+    } catch {
+      setDeleteErr("Network error.");
+      setConfirming(false);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const stats: Array<{ label: string; value: number }> = [
     { label: "Prayer Logs", value: user.prayerLogCount },
     { label: "Prayers Marked", value: user.prayedCount },
@@ -221,6 +242,56 @@ export function AdminUserDetail({ user, onBack }: { user: AdminUser; onBack: () 
           ))}
         </div>
       </div>
+
+      {/* Danger zone */}
+      {user.role !== "admin" && (
+        <div className="mt-2">
+          {confirming ? (
+            <div
+              role="alertdialog"
+              aria-label={`Delete ${user.email}`}
+              className="rounded-2xl border p-4"
+              style={{ borderColor: "color-mix(in oklab, #b42318 40%, transparent)", backgroundColor: "var(--color-paper)" }}
+            >
+              <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                Delete {user.firstName || user.displayName || user.email}?
+              </p>
+              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                The account and all its data — prayers, events, friends — go with it. This can&apos;t be undone.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => void deleteUser()}
+                  disabled={deleting}
+                  className="flex-1 rounded-xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  style={{ backgroundColor: "#b42318" }}
+                >
+                  {deleting ? "Deleting…" : "Yes, delete"}
+                </button>
+                <button
+                  onClick={() => setConfirming(false)}
+                  disabled={deleting}
+                  className="flex-1 rounded-xl border px-3 py-2 text-sm font-medium disabled:opacity-50"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+                >
+                  Keep account
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <button
+                onClick={() => setConfirming(true)}
+                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium"
+                style={{ color: "#b42318" }}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete account
+              </button>
+              {deleteErr && <p className="mt-1 text-xs" style={{ color: "#b42318" }}>{deleteErr}</p>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

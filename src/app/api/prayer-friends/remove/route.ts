@@ -46,5 +46,18 @@ export async function DELETE(request: NextRequest) {
       ),
     );
 
+  // Both sides stay in sync: the removed friend is unlocked and told.
+  const [me] = await db
+    .select({ firstName: schema.users.firstName, displayName: schema.users.displayName })
+    .from(schema.users)
+    .where(eq(schema.users.id, session.userId))
+    .limit(1);
+  await db.insert(schema.appNotifications).values({
+    userId: friendId,
+    type: "friend_removed",
+    title: "Friend removed",
+    body: `You are no longer friends with ${me?.firstName || me?.displayName || "a friend"}.`,
+  });
+
   return NextResponse.json({ ok: true });
 }

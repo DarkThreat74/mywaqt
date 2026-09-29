@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ChevronLeft, Loader2, Flame, Swords, ChevronDown } from "lucide-react";
 import { SURAHS } from "@/lib/content/quran";
 import MutashabihMatchView from "./MutashabihMatchView";
+import FriendPicker from "@/components/friend-picker";
 import {
   tailOf, distinctSurahs, distinctTails,
   type MutashabihFamily as Family,
@@ -439,7 +440,7 @@ const ROUND_CHOICES = [3, 5, 7, 10];
 
 function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
   const [open, setOpen] = useState(false);
-  const [friends, setFriends] = useState<{ id: string; name: string }[] | null>(null);
+  const [friends, setFriends] = useState<{ id: string; name: string; avatarUrl?: string | null }[] | null>(null);
   const [friendId, setFriendId] = useState("");
   const [rounds, setRounds] = useState(5);
   const [busy, setBusy] = useState(false);
@@ -450,8 +451,8 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
     if (!friends) {
       fetch("/api/prayer-friends")
         .then((r) => (r.ok ? r.json() : []))
-        .then((rows: { id: string; firstName: string | null; displayName: string | null }[]) =>
-          setFriends(rows.map((f) => ({ id: f.id, name: f.firstName || f.displayName || "Friend" }))),
+        .then((rows: { id: string; firstName: string | null; displayName: string | null; avatarUrl?: string | null }[]) =>
+          setFriends(rows.map((f) => ({ id: f.id, name: f.firstName || f.displayName || "Friend", avatarUrl: f.avatarUrl }))),
         )
         .catch(() => setFriends([]));
     }
@@ -504,16 +505,7 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
           ) : (
             <>
               <label className="block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }} htmlFor="muta-friend">Opponent</label>
-              <select
-                id="muta-friend"
-                value={friendId}
-                onChange={(e) => setFriendId(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm"
-                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-              >
-                <option value="">Choose a friend…</option>
-                {friends.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
+              <FriendPicker id="muta-friend" friends={friends} value={friendId} onChange={setFriendId} />
 
               <label className="mt-3 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }} htmlFor="muta-rounds">Rounds</label>
               <select
@@ -527,7 +519,7 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
               </select>
 
               <p className="mt-3 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                {friend ? `${friend.name} gets a notification — rounds cycle How many times → Every home → Which ending. First correct answer takes each round.` : "Rounds cycle all three modes; first correct answer takes each round."}
+                Best of {rounds} — {rounds === 1 ? "one question" : `${rounds} questions`}. You both get the same fragment at the same time; the first correct answer takes the round. Rounds cycle How many times → Every home → Which ending. Leaving mid-match forfeits (−5 rating).{friend ? ` ${friend.name} gets a notification to accept.` : ""}
               </p>
 
               <p className="mt-2 rounded-lg border px-3 py-2 text-[11px] leading-relaxed" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)" }}>

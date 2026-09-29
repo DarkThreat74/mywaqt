@@ -111,6 +111,8 @@ export const prayerFriends = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     // When the request was accepted or rejected
     respondedAt: timestamp('responded_at', { withTimezone: true }),
+    // Recipient chose "later" — toast resurfaces once this passes
+    dismissedUntil: timestamp('dismissed_until', { withTimezone: true }),
   },
   (table) => [
     uniqueIndex('prayer_friends_user_friend_idx').on(table.userId, table.friendId),
@@ -221,20 +223,6 @@ export const prayerInvites = pgTable(
   ],
 );
 
-// ─── Prayer Groups (private circles, join by code) ───
-
-export const prayerGroups = pgTable(
-  'prayer_groups',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    name: varchar('name', { length: 60 }).notNull(),
-    inviteCode: varchar('invite_code', { length: 12 }).notNull(),
-    ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [uniqueIndex('prayer_groups_invite_code_idx').on(table.inviteCode)],
-);
-
 // ─── Quran 1v1 Matches (seeded rounds, server-timestamped answers) ──────
 // A match is a fixed sequence of verse indexes derived from `seed` — both
 // players get identical questions without any realtime transport.
@@ -251,6 +239,9 @@ export const quranMatches = pgTable(
     seed: integer('seed').notNull(),
     status: text('status').default('pending').notNull(), // pending|active|done|declined|expired
     winnerId: uuid('winner_id'),
+    // 'completed' | 'aborted' | 'forfeited' — who ended it and how
+    endReason: text('end_reason'),
+    forfeitedBy: uuid('forfeited_by'),
     // Ranked points settle once on completion — flips true when applied so a
     // lazy-re-resolve can never double-pay.
     rated: boolean('rated').default(false).notNull(),
@@ -304,38 +295,6 @@ export const quranMatchRounds = pgTable(
   (table) => [primaryKey({ columns: [table.matchId, table.round] })],
 );
 
-export const prayerGroupMembers = pgTable(
-  'prayer_group_members',
-  {
-    groupId: uuid('group_id').notNull().references(() => prayerGroups.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-    role: varchar('role', { length: 10 }).default('member').notNull(), // 'owner' | 'member'
-    joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.groupId, table.userId] }),
-    index('prayer_group_members_user_idx').on(table.userId),
-  ],
-);
-
-// ─── Prayer Challenges ───
-
-export const prayerChallenges = pgTable(
-  'prayer_challenges',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    groupId: uuid('group_id').notNull().references(() => prayerGroups.id, { onDelete: 'cascade' }),
-    creatorId: uuid('creator_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-    name: varchar('name', { length: 80 }).notNull(),
-    // Number of complete days (all 5 prayed/assumed/excused) each member aims for
-    goalDays: integer('goal_days').notNull(),
-    startDate: date('start_date').notNull(),
-    endDate: date('end_date').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [index('prayer_challenges_group_idx').on(table.groupId)],
-);
-
 // ─── Prayer Settings (per-user location + calculation) ───
 
 export const prayerSettings = pgTable('prayer_settings', {
@@ -353,7 +312,7 @@ export const prayerSettings = pgTable('prayer_settings', {
   // Streak is visible by default; today's detailed per-prayer status and
   // sunnah logs are hidden by default. Users opt in to share more.
   friendsSeeStreak: boolean('friends_see_streak').default(true).notNull(),
-  friendsSeeTodayStatus: boolean('friends_see_today_status').default(false).notNull(),
+  friendsSeeTodayStatus: boolean('friends_see_today_status').default(true).notNull(),
   friendsSeeSunnah: boolean('friends_see_sunnah').default(false).notNull(),
   friendsSeeMasjidPct: boolean('friends_see_masjid_pct').default(true).notNull(),
   friendsSearchable: boolean('friends_searchable').default(true).notNull(),
@@ -993,6 +952,31 @@ export type NewNote = typeof notes.$inferInsert;
 export type HaydPeriod = typeof haydPeriods.$inferSelect;
 export type MasjidIqamah = typeof masjidIqamah.$inferSelect;
 export type MasjidSource = typeof masjidSources.$inferSelect;
+
+// ─── In-App Notifications ───
+// Durable, per-user rows for things a push can't carry: admin broadcasts,
+// "you are no longer friends", accepted requests. Friend requests and match
+// invites are derived from their own tables at read time — not duplicated here.
+// `acknowledgedAt` is the "must be dealt with" flag: a row with null
+// acknowledgedAt keeps surfacing in the toast tray until the user acts.
+
+export const appNotifications = pgTable(
+  'app_notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    type: varchar('type', { length: 32 }).notNull(), // 'broadcast' | 'friend_removed' | 'friend_accepted'
+    title: varchar('title', { length: 160 }).notNull(),
+    body: text('body'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('app_notifications_user_pending_idx').on(table.userId, table.acknowledgedAt),
+  ],
+);
+
+export type AppNotification = typeof appNotifications.$inferSelect;
 
 // ─── Feedback Reports ───
 

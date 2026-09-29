@@ -10,8 +10,8 @@ import NotificationScheduler from "@/components/notification-scheduler";
 import BiometricGate from "@/components/biometric-gate";
 import DeepLinkHandler from "@/components/deep-link-handler";
 import PendingInvite from "@/components/pending-invite";
-import QuranMatchToast from "@/components/quran-match-toast";
 import ToolsMenu from "@/components/tools-menu";
+import { NotificationBell, NotificationTray } from "@/components/notification-center";
 import FunFactPopup from "@/components/fun-fact-popup";
 import FeedbackWidget from "@/components/feedback-widget";
 import { isFeedbackEnabled } from "@/lib/app-settings";
@@ -111,7 +111,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
         {/* Tools + Logout — pinned to bottom */}
         <div className="px-3 pb-6">
-          <ToolsMenu variant="sidebar" />
+          <div className="flex items-center gap-1">
+            <div className="min-w-0 flex-1"><ToolsMenu variant="sidebar" /></div>
+            <NotificationBell />
+          </div>
           <LogoutButton />
         </div>
       </aside>
@@ -131,6 +134,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             Waqt
           </Link>
           <div className="flex items-center gap-1">
+            <NotificationBell />
             <ToolsMenu />
           </div>
         </header>
@@ -165,7 +169,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <NotificationScheduler />
       <DeepLinkHandler />
       <PendingInvite />
-      <QuranMatchToast />
+      <NotificationTray />
       <FunFactPopup />
       {(await isFeedbackEnabled()) ? <FeedbackWidget /> : null}
 

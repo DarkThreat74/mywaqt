@@ -121,6 +121,27 @@ export function AdminFeedback() {
   const visible = rows?.filter((r) => showResolved || !r.resolved) ?? null;
   const openCount = rows?.filter((r) => !r.resolved).length ?? 0;
 
+  // Every open report, each fully self-contained, one audit footer at the end.
+  function copyAll() {
+    if (!rows?.length) return;
+    const targets = rows.filter((r) => showResolved || !r.resolved);
+    const parts = targets.map((r, i) => `#${i + 1} ──────────────\n${buildPrompt(r).replace(/\n---\n[\s\S]*$/, "")}`);
+    const footer = [
+      "---",
+      `That's all ${targets.length} open ${targets.length === 1 ? "issue" : "issues"} above.`,
+      "Audit each affected code path end to end and do deep research on the root",
+      "cause: use agent-reach (web/GitHub search) and context7 (library docs),",
+      "and check how mature open-source projects solve the same problem.",
+      "Verify fixes across platforms — Android, iOS/iPadOS Safari, installed",
+      "PWA, desktop (Windows/macOS/Linux). Fix root causes, not symptoms,",
+      "then run: pnpm exec tsc --noEmit && pnpm exec eslint --max-warnings=0",
+    ];
+    navigator.clipboard.writeText([...parts, ...footer].join("\n\n")).then(() => {
+      setCopied("__all__");
+      setTimeout(() => setCopied((c) => (c === "__all__" ? null : c)), 1500);
+    });
+  }
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
@@ -128,6 +149,16 @@ export function AdminFeedback() {
           {openCount} open {openCount === 1 ? "report" : "reports"}
         </p>
         <div className="flex items-center gap-2">
+          {openCount > 0 && (
+            <button
+              onClick={copyAll}
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium"
+              style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+            >
+              {copied === "__all__" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied === "__all__" ? "Copied" : "Copy all as prompt"}
+            </button>
+          )}
           {enabled !== null && (
             <button
               onClick={toggleEnabled}

@@ -9,6 +9,7 @@ import {
   type Surah, type Verse, type CorpusIndex,
 } from "@/lib/content/quran";
 import MatchView from "./MatchView";
+import FriendPicker from "@/components/friend-picker";
 
 type Difficulty = "easy" | "medium" | "advanced" | "elite";
 
@@ -538,7 +539,7 @@ const ROUND_CHOICES = [3, 5, 7, 10];
 
 function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
   const [open, setOpen] = useState(false);
-  const [friends, setFriends] = useState<{ id: string; name: string }[] | null>(null);
+  const [friends, setFriends] = useState<{ id: string; name: string; avatarUrl?: string | null }[] | null>(null);
   const [friendId, setFriendId] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [rounds, setRounds] = useState(5);
@@ -550,8 +551,8 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
     if (!friends) {
       fetch("/api/prayer-friends")
         .then((r) => (r.ok ? r.json() : []))
-        .then((rows: { id: string; firstName: string | null; displayName: string | null }[]) =>
-          setFriends(rows.map((f) => ({ id: f.id, name: f.firstName || f.displayName || "Friend" }))),
+        .then((rows: { id: string; firstName: string | null; displayName: string | null; avatarUrl?: string | null }[]) =>
+          setFriends(rows.map((f) => ({ id: f.id, name: f.firstName || f.displayName || "Friend", avatarUrl: f.avatarUrl }))),
         )
         .catch(() => setFriends([]));
     }
@@ -604,16 +605,7 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
           ) : (
             <>
               <label className="block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }} htmlFor="match-friend">Opponent</label>
-              <select
-                id="match-friend"
-                value={friendId}
-                onChange={(e) => setFriendId(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm"
-                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-              >
-                <option value="">Choose a friend…</option>
-                {friends.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
+              <FriendPicker id="match-friend" friends={friends} value={friendId} onChange={setFriendId} />
 
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
@@ -643,7 +635,7 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
               </div>
 
               <p className="mt-3 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                {friend ? `${friend.name} gets a notification — if they accept, you’ll both see the same ayah at the same time. First correct answer takes each round.` : "They get a notification; if they accept, you both see the same ayah and race to answer."}
+                Best of {rounds} — {rounds === 1 ? "one question" : `${rounds} questions`}. You both get the same ayah at the same time; the first correct answer takes the round. Most round wins takes the match. Leaving mid-match forfeits (−5 rating).{friend ? ` ${friend.name} gets a notification to accept.` : ""}
               </p>
 
               {difficulty === "elite" && (

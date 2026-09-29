@@ -218,7 +218,18 @@ export async function GET(request: NextRequest) {
       // Excused is neutral: it doesn't count as prayed, but it also shrinks
       // the denominator so a legit pause doesn't lower consistency.
       const excusedDays = prayerLogs.filter((l) => l.status === "excused").length;
-      const expectedDays = Math.max(1, activeDays - excusedDays);
+      // A prayer whose window hasn't started yet today isn't "expected" —
+      // e.g. at 1pm the Asr denominator must be days-with-Asr-elapsed, not all
+      // days in range, or the weekly average silently counts a prayer the user
+      // couldn't possibly have logged yet.
+      const todayTimesForExpect = prayerTimesByDate.get(todayStr);
+      const nowMin = (() => {
+        const s = new Date().toLocaleString("en-US", { timeZone: timezone, hour12: false });
+        const m = s.match(/(\d+):(\d+)/);
+        return m ? (parseInt(m[1]) % 24) * 60 + parseInt(m[2]) : 0;
+      })();
+      const todayNotStarted = !!todayTimesForExpect && todayTimesForExpect[prayer] > nowMin;
+      const expectedDays = Math.max(1, activeDays - excusedDays - (todayNotStarted ? 1 : 0));
 
       // Calculate window-percentage for each check-in.
       // windowPct = (markedMinutes - prayerStart) / (windowEnd - prayerStart) * 100
@@ -381,8 +392,20 @@ export async function GET(request: NextRequest) {
       const dateStr = typeof log.date === "string" ? log.date : String(log.date);
       excusedByDow[new Date(dateStr + "T00:00:00").getDay()]++;
     }
+    // Today's not-yet-started prayers shrink today's weekday denominator too —
+    // they aren't "missed", they just haven't come due.
+    const todayDow = new Date(todayStr + "T00:00:00").getDay();
+    const nowMinForDow = (() => {
+      const s = new Date().toLocaleString("en-US", { timeZone: timezone, hour12: false });
+      const m = s.match(/(\d+):(\d+)/);
+      return m ? (parseInt(m[1]) % 24) * 60 + parseInt(m[2]) : 0;
+    })();
+    const unstartedToday = todayTimes
+      ? prayers.filter((p) => todayTimes[p] > nowMinForDow).length
+      : 0;
     for (const stat of dayOfWeekStats) {
-      const expected = Math.max(0, stat.activeDays * 5 - excusedByDow[stat.dayIndex]);
+      const notStarted = stat.dayIndex === todayDow ? unstartedToday : 0;
+      const expected = Math.max(0, stat.activeDays * 5 - excusedByDow[stat.dayIndex] - notStarted);
       const rawPct = expected > 0 ? Math.round((stat.totalPrayed / expected) * 100) : 0;
       stat.consistencyPct = Math.min(100, Math.max(0, rawPct));
     }

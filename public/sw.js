@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v45";
+const CACHE_VERSION = "waqt-v47";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -435,7 +435,9 @@ self.addEventListener("fetch", (event) => {
     // replaying them later sends stale pushes or claims expired tokens.
     !url.pathname.startsWith("/api/prayer-friends/cheer") &&
     !url.pathname.startsWith("/api/prayer-friends/invite") &&
-    !url.pathname.startsWith("/api/prayer-groups") &&
+    // Snoozing a request toast while offline would be silently ignored
+    // server-side anyway — let it fail visibly instead.
+    !url.pathname.startsWith("/api/prayer-friends/snooze") &&
     // Quran 1v1 match writes are time-sensitive — rounds resolve in ~90s and
     // invites expire in 5min, so a queued answer/ready/respond replayed later
     // would be meaningless (or corrupt the round). Let them fail offline.
@@ -485,6 +487,10 @@ self.addEventListener("fetch", (event) => {
             headers: { "Content-Type": "application/json" },
             tempId: tempId,
           });
+          // Bust the collection's cached GETs now — the client already applied
+          // this change optimistically, so a stale cached list (e.g. still
+          // showing a deleted event or an unmarked prayer) must not resurface.
+          await bustApiCache(url.pathname);
           broadcastOutboxCount();
 
           // Notify client that the write was queued offline
@@ -605,6 +611,13 @@ self.addEventListener("fetch", (event) => {
   // serve a frozen cached response under SWR; invites/ratings also change
   // constantly. Always fresh.
   if (url.pathname.startsWith("/api/quran/")) return;
+
+  // Don't intercept the notification inbox — toasts, invites and the active
+  // match must be live; a cached inbox would keep dead toasts on screen.
+  if (url.pathname.startsWith("/api/notifications/")) return;
+  // Friend requests feed the same toast tray — always fresh.
+  if (url.pathname.startsWith("/api/prayer-friends/pending")) return;
+  if (url.pathname.startsWith("/api/prayer-friends/snooze")) return;
 
   // Don't intercept cron API
   if (url.pathname.startsWith("/api/cron/")) return;

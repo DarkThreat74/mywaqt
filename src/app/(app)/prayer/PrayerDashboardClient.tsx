@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, X, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, Heart, UsersRound, ChevronDown } from "lucide-react";
+import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -83,31 +83,6 @@ interface Friend {
   cheeredToday?: boolean;
   sharedStreak?: { streak: number; bestStreak: number; lastDate: string | null } | null;
   timezone: string;
-}
-
-interface PrayerGroup {
-  id: string;
-  name: string;
-  inviteCode: string;
-  myRole: string;
-  members: Array<{
-    id: string;
-    firstName: string | null;
-    displayName: string | null;
-    role: string;
-    isMe: boolean;
-    weekCompleteDays: number | null;
-    todayComplete: boolean | null;
-  }>;
-  challenges: Array<{
-    id: string;
-    name: string;
-    goalDays: number;
-    startDate: string;
-    endDate: string;
-    active: boolean;
-    progress: Array<{ userId: string; days: number | null }>;
-  }>;
 }
 
 interface QadaaInfo {
@@ -203,7 +178,8 @@ function computeEquivTime(
       windowEnd = todayTimes.isha >= 0 ? todayTimes.isha : prayerStart + 90;
       break;
     case "isha":
-      windowEnd = 24 * 60;
+      // Isha runs until next day's Fajr — same convention as the API (>1440).
+      windowEnd = todayTimes.fajr >= 0 ? todayTimes.fajr + 1440 : prayerStart + 360;
       break;
     default:
       return null;
@@ -258,14 +234,11 @@ export default function PrayerDashboard() {
     friendsSeeMasjidPct: boolean;
     friendsNotifyComplete: boolean;
     friendsSearchable: boolean;
-  }>({ friendsSeeStreak: true, friendsSeeTodayStatus: false, friendsSeeSunnah: false, friendsSeeMasjidPct: true, friendsNotifyComplete: false, friendsSearchable: true });
+  }>({ friendsSeeStreak: true, friendsSeeTodayStatus: true, friendsSeeSunnah: false, friendsSeeMasjidPct: true, friendsNotifyComplete: false, friendsSearchable: true });
   const [nameQuery, setNameQuery] = useState("");
   const [nameResults, setNameResults] = useState<{ name: string; code: string; relation: string | null; avatarUrl: string | null }[] | null>(null);
-  const [groups, setGroups] = useState<PrayerGroup[]>([]);
   const [raceSort, setRaceSort] = useState<"streak" | "week">("week");
-  const [groupCode, setGroupCode] = useState("");
-  const [groupName, setGroupName] = useState("");
-  const [groupBusy, setGroupBusy] = useState(false);
+  const [myAvatar, setMyAvatar] = useState<string | null>(null);
   const [qadaaMsg, setQadaaMsg] = useState<string | null>(null);
   const [setupFajr, setSetupFajr] = useState(0);
   const [setupDhuhr, setSetupDhuhr] = useState(0);
@@ -437,7 +410,7 @@ export default function PrayerDashboard() {
 
       // ── Step 2: Fetch from API in background ──
       try {
-        const [analyticsRes, friendsRes, codeRes, qadaaRes, logsRes, sunnahRes, timesRes, pendingRes, outgoingRes, visibilityRes, groupsRes, haydRes] = await Promise.all([
+        const [analyticsRes, friendsRes, codeRes, qadaaRes, logsRes, sunnahRes, timesRes, pendingRes, outgoingRes, visibilityRes, profileRes, haydRes] = await Promise.all([
           fetch(`/api/prayer-log/analytics?range=${statsRange}`).catch(() => null),
           fetch("/api/prayer-friends").catch(() => null),
           fetch("/api/prayer-friends/my-code").catch(() => null),
@@ -448,7 +421,7 @@ export default function PrayerDashboard() {
           fetch("/api/prayer-friends/pending").catch(() => null),
           fetch("/api/prayer-friends/outgoing").catch(() => null),
           fetch("/api/settings/prayer-settings").catch(() => null),
-          fetch("/api/prayer-groups").catch(() => null),
+          fetch("/api/profile").catch(() => null),
           fetch("/api/hayd").catch(() => null),
         ]);
 
@@ -479,9 +452,9 @@ export default function PrayerDashboard() {
           const data = await outgoingRes.json().catch(() => ({ requests: [] }));
           if (data?.requests && Array.isArray(data.requests)) setSentRequests(data.requests);
         }
-        if (groupsRes?.ok) {
-          const data = await groupsRes.json().catch(() => []);
-          if (Array.isArray(data)) setGroups(data);
+        if (profileRes?.ok) {
+          const data = await profileRes.json().catch(() => null);
+          if (data?.avatarUrl) setMyAvatar(data.avatarUrl);
         }
         if (visibilityRes?.ok) {
           const data = await visibilityRes.json().catch(() => null);
@@ -690,145 +663,6 @@ export default function PrayerDashboard() {
     }
   }
 
-  const [cheering, setCheering] = useState<Set<string>>(new Set());
-
-  async function handleCheerFriend(friendId: string) {
-    if (cheering.has(friendId)) return;
-    setCheering((prev) => new Set(prev).add(friendId));
-    try {
-      const res = await fetch("/api/prayer-friends/cheer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ friendId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setFriends((prev) => {
-          const updated = prev.map((f) => (f.id === friendId ? { ...f, cheeredToday: true } : f));
-          cacheBlob("friends", updated);
-          return updated;
-        });
-        setFriendSuccess("Cheer sent — mashaAllah!");
-        setTimeout(() => setFriendSuccess(null), 3000);
-      } else {
-        setFriendError(data.error || "Couldn't send cheer.");
-        setTimeout(() => setFriendError(null), 4000);
-      }
-    } catch {
-      setFriendError("Network error.");
-      setTimeout(() => setFriendError(null), 4000);
-    } finally {
-      setCheering((prev) => {
-        const next = new Set(prev);
-        next.delete(friendId);
-        return next;
-      });
-    }
-  }
-
-  async function refreshGroups() {
-    const res = await fetch("/api/prayer-groups").catch(() => null);
-    if (res?.ok) {
-      const data = await res.json().catch(() => []);
-      if (Array.isArray(data)) setGroups(data);
-    }
-  }
-
-  async function handleCreateGroup() {
-    if (!groupName.trim() || groupBusy) return;
-    setGroupBusy(true);
-    setFriendError(null);
-    try {
-      const res = await fetch("/api/prayer-groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: groupName.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setGroupName("");
-        setFriendSuccess(`Group "${data.name}" created — share the code ${data.inviteCode} to invite others.`);
-        setTimeout(() => setFriendSuccess(null), 6000);
-        await refreshGroups();
-      } else {
-        setFriendError(data.error || "Couldn't create group.");
-        setTimeout(() => setFriendError(null), 4000);
-      }
-    } catch {
-      setFriendError("Network error.");
-      setTimeout(() => setFriendError(null), 4000);
-    } finally {
-      setGroupBusy(false);
-    }
-  }
-
-  async function handleJoinGroup() {
-    if (!groupCode.trim() || groupBusy) return;
-    setGroupBusy(true);
-    setFriendError(null);
-    try {
-      const res = await fetch("/api/prayer-groups/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: groupCode.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setGroupCode("");
-        setFriendSuccess(`Joined "${data.group?.name}"!`);
-        setTimeout(() => setFriendSuccess(null), 4000);
-        await refreshGroups();
-      } else {
-        setFriendError(data.error || "Couldn't join group.");
-        setTimeout(() => setFriendError(null), 4000);
-      }
-    } catch {
-      setFriendError("Network error.");
-      setTimeout(() => setFriendError(null), 4000);
-    } finally {
-      setGroupBusy(false);
-    }
-  }
-
-  async function handleLeaveGroup(groupId: string, memberId?: string) {
-    try {
-      const res = await fetch("/api/prayer-groups/leave", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId, memberId }),
-      });
-      if (res.ok) await refreshGroups();
-    } catch { /* ignore */ }
-  }
-
-  async function handleCreateChallenge(groupId: string) {
-    const name = prompt("Challenge name (e.g. '30-day consistency'):");
-    if (!name?.trim()) return;
-    const days = prompt("How many complete days is the goal? (e.g. 7)");
-    const goalDays = Number(days);
-    if (!Number.isFinite(goalDays) || goalDays < 1) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const end = new Date(new Date().getTime() + 30 * 86400000).toISOString().slice(0, 10);
-    try {
-      const res = await fetch("/api/prayer-groups/challenges", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId, name: name.trim(), goalDays, startDate: today, endDate: end }),
-      });
-      if (res.ok) {
-        setFriendSuccess("Challenge created!");
-        setTimeout(() => setFriendSuccess(null), 3000);
-        await refreshGroups();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setFriendError(data.error || "Couldn't create challenge.");
-        setTimeout(() => setFriendError(null), 4000);
-      }
-    } catch {
-      setFriendError("Network error.");
-      setTimeout(() => setFriendError(null), 4000);
-    }
-  }
 
   // Debounced "find by name" — prefix match server-side, 300ms quiet period
   useEffect(() => {
@@ -958,22 +792,6 @@ export default function PrayerDashboard() {
         next.delete(key);
         return next;
       });
-    }
-  }
-
-  async function handleRemoveFriend(friendId: string) {
-    try {
-      const res = await fetch(`/api/prayer-friends/remove?friendId=${friendId}`, { method: "DELETE" });
-      if (res.ok) {
-        invalidateApiCache("/api/prayer-friends");
-        setFriends((prev) => {
-          const updated = prev.filter((f) => f.id !== friendId);
-          cacheBlob("friends", updated);
-          return updated;
-        });
-      }
-    } catch {
-      // ignore
     }
   }
 
@@ -2267,23 +2085,39 @@ export default function PrayerDashboard() {
               <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
                 <Users className="h-4 w-4" /> Friends
               </h2>
-              <div className="flex rounded-lg border p-0.5" style={{ borderColor: "var(--color-paper-3)" }}>
-                {([
-                  { key: "mine", label: `View friends${friends.length > 0 ? ` (${friends.length})` : ""}` },
-                  { key: "add", label: `Add friends${pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ""}` },
-                ] as const).map((opt) => (
-                  <button
-                    key={opt.key}
-                    onClick={() => setFriendsView(opt.key)}
-                    className="rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors"
-                    style={{
-                      backgroundColor: friendsView === opt.key ? "var(--color-accent)" : "transparent",
-                      color: friendsView === opt.key ? "var(--color-paper)" : "var(--color-ink-muted)",
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setFriendsView("mine")}
+                  className="rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors"
+                  style={{
+                    backgroundColor: friendsView === "mine" ? "var(--color-accent)" : "transparent",
+                    color: friendsView === "mine" ? "var(--color-paper)" : "var(--color-ink-muted)",
+                    border: "1px solid var(--color-paper-3)",
+                  }}
+                >
+                  Friends{friends.length > 0 ? ` (${friends.length})` : ""}
+                </button>
+                <button
+                  onClick={() => setFriendsView("add")}
+                  aria-label={`Add friends${pendingRequests.length > 0 ? ` — ${pendingRequests.length} pending request${pendingRequests.length === 1 ? "" : "s"}` : ""}`}
+                  title="Add friends"
+                  className="relative flex h-7 w-7 items-center justify-center rounded-lg border transition-colors"
+                  style={{
+                    borderColor: "var(--color-paper-3)",
+                    backgroundColor: friendsView === "add" ? "var(--color-accent)" : "transparent",
+                    color: friendsView === "add" ? "var(--color-paper)" : "var(--color-ink-muted)",
+                  }}
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  {pendingRequests.length > 0 && (
+                    <span
+                      className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold"
+                      style={{ backgroundColor: "var(--color-warmth)", color: "var(--color-paper)" }}
+                    >
+                      {pendingRequests.length}
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
             <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -2612,9 +2446,14 @@ export default function PrayerDashboard() {
                     backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)",
                   }}
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
-                    You
-                  </div>
+                  {myAvatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
+                    <img src={myAvatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" style={{ outline: "1px solid var(--color-paper-3)" }} />
+                  ) : (
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
+                      You
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>You</div>
                     <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -2644,301 +2483,94 @@ export default function PrayerDashboard() {
                   return (
                     <div
                       key={friend.id}
-                      className="group relative flex items-center gap-3 rounded-xl border p-3"
+                      className="relative rounded-xl border p-3"
                       style={{ borderColor: "var(--color-paper-3)" }}
                     >
-                      <div className="relative shrink-0">
-                        {friend.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
-                          <img
-                            src={friend.avatarUrl}
-                            alt=""
-                            className="h-9 w-9 rounded-full object-cover"
-                            style={{ outline: "1px solid var(--color-paper-3)" }}
-                          />
-                        ) : (
-                          <div
-                            className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold"
-                            style={{
-                              backgroundColor: idx === 0 ? "color-mix(in oklab, var(--color-warmth) 20%, transparent)" : "var(--color-paper-2)",
-                              color: idx === 0 ? "var(--color-warmth)" : "var(--color-ink-muted)",
-                            }}
+                      <div className="flex items-center gap-3">
+                        <div className="relative shrink-0">
+                          {friend.avatarUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
+                            <img
+                              src={friend.avatarUrl}
+                              alt=""
+                              className="h-9 w-9 rounded-full object-cover"
+                              style={{ outline: "1px solid var(--color-paper-3)" }}
+                            />
+                          ) : (
+                            <div
+                              className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold"
+                              style={{
+                                backgroundColor: idx === 0 ? "color-mix(in oklab, var(--color-warmth) 20%, transparent)" : "var(--color-paper-2)",
+                                color: idx === 0 ? "var(--color-warmth)" : "var(--color-ink-muted)",
+                              }}
+                            >
+                              {(friend.firstName || friend.displayName || "?").charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <span
+                            className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold"
+                            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
                           >
-                            {(friend.firstName || friend.displayName || "?").charAt(0).toUpperCase()}
+                            {idx + 1}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                            {friend.firstName || friend.displayName || "Friend"}
                           </div>
-                        )}
-                        <span
-                          className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold"
-                          style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                          <div className="truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                            {subStats.length > 0 ? subStats.join(" · ") : "Stats private"}
+                          </div>
+                          {friend.sharedStreak && friend.sharedStreak.streak > 0 && (
+                            <div className="mt-0.5 flex items-center gap-1 text-[11px] font-medium" style={{ color: "var(--color-accent)" }}>
+                              <Link2 className="h-3 w-3" />
+                              {friend.sharedStreak.streak}-day chain together
+                              {friend.sharedStreak.bestStreak > friend.sharedStreak.streak && (
+                                <span style={{ color: "var(--color-ink-muted)" }}>(best {friend.sharedStreak.bestStreak})</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <Link
+                          href={`/profile/${friend.id}`}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
+                          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                          aria-label={`View ${friend.firstName || friend.displayName || "friend"}'s profile`}
+                          title="View profile"
                         >
-                          {idx + 1}
-                        </span>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                          {friend.firstName || friend.displayName || "Friend"}
-                        </div>
-                        <div className="truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                          {subStats.length > 0 ? subStats.join(" · ") : "Stats private"}
-                        </div>
-                        {friend.sharedStreak && friend.sharedStreak.streak > 0 && (
-                          <div className="mt-0.5 flex items-center gap-1 text-[11px] font-medium" style={{ color: "var(--color-accent)" }}>
-                            <Link2 className="h-3 w-3" />
-                            {friend.sharedStreak.streak}-day chain together
-                            {friend.sharedStreak.bestStreak > friend.sharedStreak.streak && (
-                              <span style={{ color: "var(--color-ink-muted)" }}>(best {friend.sharedStreak.bestStreak})</span>
-                            )}
+                          <User className="h-3.5 w-3.5" />
+                        </Link>
+                        <div className="text-right">
+                          <div className="flex items-center gap-1 text-lg font-bold tabular-nums" style={{ color: imWinning ? "var(--color-ink-soft)" : "var(--color-warmth)" }}>
+                            <Flame className="h-4 w-4" /> {streakLabel}
                           </div>
-                        )}
-                      </div>
-                      <Link
-                        href={`/profile/${friend.id}`}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
-                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                        aria-label={`View ${friend.firstName || friend.displayName || "friend"}'s profile`}
-                        title="View profile"
-                      >
-                        <User className="h-3.5 w-3.5" />
-                      </Link>
-                      <button
-                        onClick={() => handleCheerFriend(friend.id)}
-                        disabled={friend.cheeredToday === true || cheering.has(friend.id)}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors disabled:opacity-50"
-                        style={{
-                          borderColor: friend.cheeredToday ? "var(--color-warmth)" : "var(--color-paper-3)",
-                          backgroundColor: friend.cheeredToday ? "color-mix(in oklab, var(--color-warmth) 15%, transparent)" : "transparent",
-                          color: friend.cheeredToday ? "var(--color-warmth)" : "var(--color-ink-muted)",
-                        }}
-                        aria-label={friend.cheeredToday ? "Cheered today" : "Send encouragement"}
-                        title={friend.cheeredToday ? "Cheered today" : "Cheer them on"}
-                      >
-                        <Heart className="h-3.5 w-3.5" fill={friend.cheeredToday ? "currentColor" : "none"} />
-                      </button>
-                      <div className="text-right">
-                        <div className="flex items-center gap-1 text-lg font-bold tabular-nums" style={{ color: imWinning ? "var(--color-ink-soft)" : "var(--color-warmth)" }}>
-                          <Flame className="h-4 w-4" /> {streakLabel}
+                          <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>day streak</div>
                         </div>
-                        <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>day streak</div>
                       </div>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Remove ${friend.firstName || friend.displayName || "this friend"}? They won't be able to see your stats anymore.`)) {
-                            handleRemoveFriend(friend.id);
-                          }
-                        }}
-                        className="absolute right-1.5 top-1.5 rounded-full p-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100"
-                        aria-label="Remove friend"
-                        style={{ color: "var(--color-ink-muted)", backgroundColor: "var(--color-paper)" }}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      {/* Today's prayers — tap an open dot to send a reminder */}
+                      <div className="mt-2.5 flex items-center justify-center gap-2 border-t pt-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                        <PrayerDots
+                          name={friend.firstName || friend.displayName || "Friend"}
+                          isMe={false}
+                          todayLogs={friend.todayLogs}
+                          todaySunnahs={friend.todaySunnahs}
+                          sunnahDefs={getSunnahsForMadhab(madhab)}
+                          prayerTimes={prayerTimes}
+                          currentTime={currentTime}
+                          todayVisible={friend.todayVisible}
+                          remindedToday={friend.remindedToday}
+                          reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
+                          onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
+                          timezone={friend.timezone}
+                          compact
+                        />
+                      </div>
                     </div>
                   );
                 })}
               </div>
             )}
 
-            {/* ── Today: per-prayer status + remind ── */}
-            {friends.length > 0 && (
-              <div className="mt-5">
-                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                  Today — tap an open dot to send a reminder
-                </p>
-                <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
-                  <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
-                    {friends.map((friend) => (
-                      <ComparisonRow
-                        key={friend.id}
-                        name={friend.firstName || friend.displayName || "Friend"}
-                        isMe={false}
-                        streak={friend.streak ?? 0}
-                        todayLogs={friend.todayLogs}
-                        todaySunnahs={friend.todaySunnahs}
-                        prayerTimes={prayerTimes}
-                        currentTime={currentTime}
-                        madhab={madhab}
-                        timezone={friend.timezone}
-                        todayVisible={friend.todayVisible}
-                        remindedToday={friend.remindedToday}
-                        reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
-                        onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Groups & challenges ── */}
-            <div className="mt-6 border-t pt-4" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                <UsersRound className="h-3.5 w-3.5" /> Groups — private circles
-              </p>
-              <p className="mb-3 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                A private circle is a small invite-only group — family, halaqa, study friends. Create one or join with a group code; members race on complete days each week and can run timed challenges. Members only ever see what each person already shares with friends — joining a group never exposes extra stats.
-              </p>
-
-              <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-                <div className="flex flex-1 gap-2">
-                  <input
-                    type="text"
-                    value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
-                    placeholder="New group name"
-                    maxLength={60}
-                    className="flex-1 rounded-lg border px-3 py-2 text-sm"
-                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 40 }}
-                  />
-                  <button
-                    onClick={handleCreateGroup}
-                    disabled={groupBusy || groupName.trim().length < 2}
-                    className="rounded-lg border px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-                    style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", minHeight: 40 }}
-                  >
-                    Create
-                  </button>
-                </div>
-                <div className="flex flex-1 gap-2">
-                  <input
-                    type="text"
-                    value={groupCode}
-                    onChange={(e) => setGroupCode(e.target.value.toUpperCase())}
-                    placeholder="Group code"
-                    maxLength={12}
-                    className="flex-1 rounded-lg border px-3 py-2 text-sm uppercase tracking-widest"
-                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 40 }}
-                  />
-                  <button
-                    onClick={handleJoinGroup}
-                    disabled={groupBusy || !groupCode.trim()}
-                    className="rounded-lg border px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-                    style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", minHeight: 40 }}
-                  >
-                    Join
-                  </button>
-                </div>
-              </div>
-
-              {groups.map((g) => (
-                <div key={g.id} className="mb-3 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{g.name}</div>
-                      <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                        {g.members.length} member{g.members.length === 1 ? "" : "s"} · code {g.inviteCode}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 gap-1.5">
-                      <button
-                        onClick={() => {
-                          const url = `${window.location.origin}/prayer?tab=friends`;
-                          void shareNative({ title: `Join ${g.name} on Waqt`, text: `Join my Waqt group "${g.name}" — code: ${g.inviteCode}`, url });
-                        }}
-                        className="rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
-                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
-                      >
-                        Share
-                      </button>
-                      <button
-                        onClick={() => handleCreateChallenge(g.id)}
-                        className="rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
-                        style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
-                      >
-                        + Challenge
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Leave "${g.name}"?`)) handleLeaveGroup(g.id);
-                        }}
-                        className="rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
-                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                      >
-                        Leave
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Weekly race — complete days this week */}
-                  <div className="space-y-1.5">
-                    {g.members.map((m, i) => (
-                      <div key={m.id} className="flex items-center gap-2">
-                        <span className="w-4 text-center text-[11px] font-bold tabular-nums" style={{ color: i === 0 ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
-                          {i + 1}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-xs" style={{ color: m.isMe ? "var(--color-accent)" : "var(--color-ink)" }}>
-                          {m.isMe ? "You" : m.firstName || m.displayName || "Member"}
-                          {m.todayComplete === true && (
-                            <span className="ml-1.5 text-[10px] font-medium" style={{ color: "var(--color-success)" }}>· done today</span>
-                          )}
-                        </span>
-                        <span className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                          {m.weekCompleteDays === null ? "private" : `${m.weekCompleteDays}/7 days`}
-                        </span>
-                        {g.myRole === "owner" && !m.isMe && (
-                          <button
-                            onClick={() => {
-                              if (confirm(`Remove ${m.firstName || m.displayName || "this member"} from ${g.name}?`)) {
-                                handleLeaveGroup(g.id, m.id);
-                              }
-                            }}
-                            className="rounded p-0.5"
-                            style={{ color: "var(--color-ink-muted)" }}
-                            aria-label="Remove member"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Challenges */}
-                  {g.challenges.length > 0 && (
-                    <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
-                      {g.challenges.map((c) => (
-                        <div key={c.id}>
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span className="font-medium" style={{ color: "var(--color-ink)" }}>
-                              <Trophy className="mr-1 inline h-3 w-3" style={{ color: "var(--color-warmth)" }} />
-                              {c.name} — {c.goalDays} complete days
-                            </span>
-                            <span style={{ color: "var(--color-ink-muted)" }}>
-                              {c.active ? `ends ${c.endDate}` : `${c.startDate} → ${c.endDate}`}
-                            </span>
-                          </div>
-                          {c.progress.map((p) => {
-                            const m = g.members.find((mm) => mm.id === p.userId);
-                            const pct = p.days === null ? 0 : Math.min(100, Math.round((p.days / c.goalDays) * 100));
-                            return (
-                              <div key={p.userId} className="mt-1 flex items-center gap-2">
-                                <span className="w-24 truncate text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
-                                  {m?.isMe ? "You" : m?.firstName || m?.displayName || "Member"}
-                                </span>
-                                {p.days === null ? (
-                                  <span className="flex-1 text-[11px] italic" style={{ color: "var(--color-ink-muted)" }}>private</span>
-                                ) : (
-                                  <>
-                                    <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-                                      <div
-                                        className="h-full rounded-full transition-[width]"
-                                        style={{ width: `${pct}%`, backgroundColor: p.days >= c.goalDays ? "var(--color-success)" : "var(--color-accent)" }}
-                                      />
-                                    </div>
-                                    <span className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                                      {p.days}/{c.goalDays}
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
             </>)}
           </div>
         </div>
@@ -3003,39 +2635,6 @@ function ComparisonRow({
     return log?.status === "prayed" || log?.status === "assumed_prayed";
   }).length;
 
-  // Determine which prayer time we're currently at.
-  // For the viewer (isMe), use their local time + their prayer times.
-  // For friends, use the friend's timezone to get their current local time,
-  // but compare against the viewer's prayer times as an approximation
-  // (since we don't fetch each friend's prayer times individually).
-  const currentPrayerIdx = (() => {
-    if (!prayerTimes) return -1;
-    let currentMinutes: number;
-    if (isMe || !timezone) {
-      // Use viewer's local time
-      currentMinutes = (currentTime ?? new Date(0)).getHours() * 60 + (currentTime ?? new Date(0)).getMinutes();
-    } else {
-      // Use friend's timezone to get their current local time
-      try {
-        const friendTimeStr = new Date().toLocaleTimeString("en-US", {
-          timeZone: timezone,
-          hour12: false,
-        });
-        const [h, m] = friendTimeStr.split(":").map(Number);
-        currentMinutes = h * 60 + m;
-      } catch {
-        currentMinutes = (currentTime ?? new Date(0)).getHours() * 60 + (currentTime ?? new Date(0)).getMinutes();
-      }
-    }
-    for (let i = PRAYER_ORDER.length - 1; i >= 0; i--) {
-      const timeStr = prayerTimes[PRAYER_ORDER[i]];
-      if (!timeStr) continue;
-      const [h, m] = timeStr.split(" ")[0].split(":").map(Number);
-      if (!isNaN(h) && !isNaN(m) && currentMinutes >= h * 60 + m) return i;
-    }
-    return -1;
-  })();
-
   return (
     <div
       className="flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-5"
@@ -3070,80 +2669,20 @@ function ComparisonRow({
 
       {/* Prayer dots — or a "private" note when the friend doesn't share today */}
       <div className="flex flex-1 items-center justify-center gap-1 sm:gap-2">
-        {!isMe && !todayVisible ? (
-          <span className="text-[11px] italic" style={{ color: "var(--color-ink-muted)" }}>
-            Today&apos;s status is private
-          </span>
-        ) : PRAYER_ORDER.map((prayer, idx) => {
-          const log = todayLogs.find((l) => l.prayerName === prayer);
-          const prayed = log?.status === "prayed" || log?.status === "assumed_prayed";
-          const excused = log?.status === "excused";
-          const isCurrent = idx === currentPrayerIdx;
-          const color = PRAYER_COLORS[prayer];
-          // Friends who share today's status: unmarked prayers are remindable.
-          // A pending log row still counts as remindable. Excused never is.
-          const remindable =
-            !isMe && todayVisible && !prayed && !excused && (!log || log.status === "pending") && !!onRemind;
-          const alreadyReminded = remindedToday.includes(prayer);
-          const pending = reminding?.has(`${prayer}`) ?? false;
-
-          const dotStyle = {
-            borderColor: prayed ? color : excused ? "var(--color-accent)" : isCurrent ? color : "var(--color-paper-3)",
-            backgroundColor: prayed ? color : excused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : "transparent",
-            ...(isCurrent && !prayed && !excused ? { boxShadow: `0 0 0 2px color-mix(in oklab, ${color} 30%, transparent)` } : {}),
-          };
-          const dotInner = prayed ? (
-            <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4" style={{ color: "var(--color-paper)" }} />
-          ) : excused ? (
-            <span className="text-[10px] font-bold" style={{ color: "var(--color-accent)" }} title="Excused">E</span>
-          ) : alreadyReminded ? (
-            <Bell className="h-3 w-3 sm:h-3.5 sm:w-3.5" style={{ color: "var(--color-accent)" }} />
-          ) : (
-            <span className="text-[11px] font-bold uppercase" style={{ color: "var(--color-ink-muted)" }}>
-              {prayer.charAt(0).toUpperCase()}
-            </span>
-          );
-
-          return (
-            <div key={prayer} className="flex flex-col items-center gap-0.5">
-              {remindable ? (
-                <button
-                  onClick={() => onRemind!(prayer)}
-                  disabled={alreadyReminded || pending}
-                  className="flex h-7 w-7 items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-60 sm:h-8 sm:w-8"
-                  style={dotStyle}
-                  aria-label={alreadyReminded ? `Reminded ${name} about ${dotLabel(prayer, timezone)}` : `Remind ${name} to pray ${dotLabel(prayer, timezone)}`}
-                  title={alreadyReminded ? "Reminder sent" : `Remind ${name} to pray ${dotLabel(prayer, timezone)}`}
-                >
-                  {dotInner}
-                </button>
-              ) : (
-                <div
-                  className="flex h-7 w-7 items-center justify-center rounded-full border-2 transition-colors sm:h-8 sm:w-8"
-                  style={dotStyle}
-                >
-                  {dotInner}
-                </div>
-              )}
-              {/* Sunnah count badge */}
-              {(() => {
-                const sunnahCount = sunnahDefs.filter(
-                  (s) => s.associatedFard === prayer && todaySunnahs.includes(s.key),
-                ).length;
-                const totalSunnahs = sunnahDefs.filter((s) => s.associatedFard === prayer).length;
-                if (totalSunnahs === 0) return null;
-                return (
-                  <span
-                    className="text-[11px] font-medium tabular-nums"
-                    style={{ color: sunnahCount > 0 ? "var(--color-success)" : "var(--color-ink-muted)" }}
-                  >
-                    {sunnahCount}/{totalSunnahs}
-                  </span>
-                );
-              })()}
-            </div>
-          );
-        })}
+        <PrayerDots
+          name={name}
+          isMe={isMe}
+          todayLogs={todayLogs}
+          todaySunnahs={todaySunnahs}
+          sunnahDefs={sunnahDefs}
+          prayerTimes={prayerTimes}
+          currentTime={currentTime}
+          todayVisible={todayVisible}
+          remindedToday={remindedToday}
+          reminding={reminding}
+          onRemind={onRemind}
+          timezone={timezone}
+        />
       </div>
 
       {/* Progress count */}
@@ -3234,6 +2773,150 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{value}</div>
       <div className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>{label}</div>
     </div>
+  );
+}
+
+/**
+ * The five prayer dots — shared between the comparison row and friend cards.
+ * `compact` renders smaller dots for embedding inside a card.
+ */
+function PrayerDots({
+  name,
+  isMe,
+  todayLogs,
+  todaySunnahs,
+  sunnahDefs,
+  prayerTimes,
+  currentTime,
+  todayVisible,
+  remindedToday = [],
+  reminding,
+  onRemind,
+  timezone,
+  compact = false,
+}: {
+  name: string;
+  isMe: boolean;
+  todayLogs: Array<{ prayerName: string; status: string }>;
+  todaySunnahs: string[];
+  sunnahDefs: Array<{ key: string; associatedFard: string }>;
+  prayerTimes: PrayerTimes | null;
+  currentTime: Date | null;
+  todayVisible: boolean;
+  remindedToday?: string[];
+  reminding?: Set<string>;
+  onRemind?: (prayerName: string) => void;
+  timezone: string | null;
+  compact?: boolean;
+}) {
+  if (!isMe && !todayVisible) {
+    return (
+      <span className="text-[11px] italic" style={{ color: "var(--color-ink-muted)" }}>
+        Today&apos;s status is private
+      </span>
+    );
+  }
+
+  // Which prayer window we're in — viewer's clock for "You", the friend's
+  // local time (their timezone vs our prayer times) for friends.
+  const currentPrayerIdx = (() => {
+    if (!prayerTimes) return -1;
+    let currentMinutes: number;
+    const fallback = currentTime ?? new Date(0);
+    if (isMe || !timezone) {
+      currentMinutes = fallback.getHours() * 60 + fallback.getMinutes();
+    } else {
+      try {
+        const [h, m] = new Date()
+          .toLocaleTimeString("en-US", { timeZone: timezone, hour12: false })
+          .split(":")
+          .map(Number);
+        currentMinutes = h * 60 + m;
+      } catch {
+        currentMinutes = fallback.getHours() * 60 + fallback.getMinutes();
+      }
+    }
+    for (let i = PRAYER_ORDER.length - 1; i >= 0; i--) {
+      const timeStr = prayerTimes[PRAYER_ORDER[i]];
+      if (!timeStr) continue;
+      const [h, m] = timeStr.split(" ")[0].split(":").map(Number);
+      if (!isNaN(h) && !isNaN(m) && currentMinutes >= h * 60 + m) return i;
+    }
+    return -1;
+  })();
+
+  const dotSize = compact ? "h-6 w-6" : "h-7 w-7 sm:h-8 sm:w-8";
+  const iconSize = compact ? "h-3 w-3" : "h-3.5 w-3.5 sm:h-4 sm:w-4";
+  const bellSize = compact ? "h-2.5 w-2.5" : "h-3 w-3 sm:h-3.5 sm:w-3.5";
+
+  return (
+    <>
+      {PRAYER_ORDER.map((prayer, idx) => {
+        const log = todayLogs.find((l) => l.prayerName === prayer);
+        const prayed = log?.status === "prayed" || log?.status === "assumed_prayed";
+        const excused = log?.status === "excused";
+        const isCurrent = idx === currentPrayerIdx;
+        const color = PRAYER_COLORS[prayer];
+        // Friends who share today's status: unmarked prayers are remindable.
+        const remindable =
+          !isMe && todayVisible && !prayed && !excused && (!log || log.status === "pending") && !!onRemind;
+        const alreadyReminded = remindedToday.includes(prayer);
+        const pending = reminding?.has(prayer) ?? false;
+
+        const dotStyle = {
+          borderColor: prayed ? color : excused ? "var(--color-accent)" : isCurrent ? color : "var(--color-paper-3)",
+          backgroundColor: prayed ? color : excused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : "transparent",
+          ...(isCurrent && !prayed && !excused ? { boxShadow: `0 0 0 2px color-mix(in oklab, ${color} 30%, transparent)` } : {}),
+        };
+        const dotInner = prayed ? (
+          <Check className={iconSize} style={{ color: "var(--color-paper)" }} />
+        ) : excused ? (
+          <span className="text-[10px] font-bold" style={{ color: "var(--color-accent)" }} title="Excused">E</span>
+        ) : alreadyReminded ? (
+          <Bell className={bellSize} style={{ color: "var(--color-accent)" }} />
+        ) : (
+          <span className="text-[10px] font-bold uppercase" style={{ color: "var(--color-ink-muted)" }}>
+            {prayer.charAt(0).toUpperCase()}
+          </span>
+        );
+
+        return (
+          <div key={prayer} className="flex flex-col items-center gap-0.5">
+            {remindable ? (
+              <button
+                onClick={() => onRemind!(prayer)}
+                disabled={alreadyReminded || pending}
+                className={`flex ${dotSize} items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-60`}
+                style={dotStyle}
+                aria-label={alreadyReminded ? `Reminded ${name} about ${dotLabel(prayer, timezone)}` : `Remind ${name} to pray ${dotLabel(prayer, timezone)}`}
+                title={alreadyReminded ? "Reminder sent" : `Remind ${name} to pray ${dotLabel(prayer, timezone)}`}
+              >
+                {dotInner}
+              </button>
+            ) : (
+              <div className={`flex ${dotSize} items-center justify-center rounded-full border-2 transition-colors`} style={dotStyle}>
+                {dotInner}
+              </div>
+            )}
+            {!compact && (() => {
+              const sunnahCount = sunnahDefs.filter(
+                (s) => s.associatedFard === prayer && todaySunnahs.includes(s.key),
+              ).length;
+              const totalSunnahs = sunnahDefs.filter((s) => s.associatedFard === prayer).length;
+              if (totalSunnahs === 0) return null;
+              return (
+                <span
+                  className="text-[11px] font-medium tabular-nums"
+                  style={{ color: sunnahCount > 0 ? "var(--color-success)" : "var(--color-ink-muted)" }}
+                >
+                  {sunnahCount}/{totalSunnahs}
+                </span>
+              );
+            })()}
+          </div>
+        );
+      })}
+    </>
   );
 }
 

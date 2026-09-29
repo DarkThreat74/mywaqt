@@ -1549,7 +1549,15 @@ export default function DayViewClient({ date }: { date: string }) {
           {/* Jumu'ah lines on Fridays — masjid's khutbah times when set, else Dhuhr */}
           {prayerTimes && isFridayDate(date) && (() => {
             const raw = prayerTimes.masjidIqamah?.jummah;
-            const jummahs = Array.isArray(raw) && raw.length ? raw : prayerTimes.dhuhr ? [prayerTimes.dhuhr] : [];
+            const jummahTimes = Array.isArray(raw) && raw.length ? raw : prayerTimes.dhuhr ? [prayerTimes.dhuhr] : [];
+            // Dedupe by minute — a masjid entry identical to the Dhuhr marker
+            // (which already renders a "Jumu'ah" pill) or a duplicated khutbah
+            // time would stack two pills on the same spot.
+            const dhuhrMin = prayerTimes.dhuhr ? timeToMinutes(adjTimeStr(prayerTimes.dhuhr)) : null;
+            const jummahs = jummahTimes
+              .map((j) => ({ j, min: timeToMinutes(adjTimeStr(j)) }))
+              .filter((x, i, arr) => x.min !== dhuhrMin && arr.findIndex((y) => y.min === x.min) === i)
+              .map((x) => x.j);
             return jummahs.map((j, i) => {
               const minutes = timeToMinutes(adjTimeStr(j));
               if (minutes < HOURS[0] * 60 || minutes > (HOURS[HOURS.length - 1] + 1) * 60) return null;

@@ -204,8 +204,13 @@ export async function saveAudioOffline(
       .map((request) => cache.delete(request))
   );
 
-  // Download and cache
-  await cache.add(url);
+  // Download and cache. We can't use cache.add() — the stream endpoint 307s to
+  // a cross-origin R2 URL, so the response is opaque (status 0) and cache.add()
+  // rejects non-2xx, surfacing as "failed to fetch" on the first attempt.
+  // fetch + cache.put stores opaque responses correctly.
+  const res = await fetch(url, { redirect: "follow" });
+  if (!res.ok && res.type !== "opaque") throw new Error(`Download failed (${res.status})`);
+  await cache.put(new Request(url), res);
 
   // Get the actual cached size. The stream endpoint returns a 307 redirect
   // to a cross-origin R2 URL, so the cached response is often opaque.

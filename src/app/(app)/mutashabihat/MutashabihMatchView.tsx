@@ -23,6 +23,7 @@ interface MatchState {
   roundsPlayed: number;
   youWin: boolean | null;
   ratingDelta: number | null;
+  endReason: "completed" | "aborted" | "forfeited";
   round: {
     n: number; verseIdx: number | null; started: boolean; startedAt: string | null;
     meReady: boolean; oppReady: boolean; meAnswered: boolean; oppAnswered: boolean;
@@ -280,6 +281,16 @@ export default function MutashabihMatchView({
             {meWon ? "You win!" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>{st.myWins} — {st.oppWins} over {st.roundsPlayed} round{st.roundsPlayed === 1 ? "" : "s"}</p>
+          {st.endReason === "aborted" && (
+            <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              Ended early — under two rounds played, so only the quitter lost points.
+            </p>
+          )}
+          {st.endReason === "forfeited" && (
+            <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              {meWon ? `${st.opponentName} surrendered — you take a proportional share.` : "You surrendered the match."}
+            </p>
+          )}
           {st.ratingDelta !== null && (
             <p className="waqt-scale-in mt-3">
               <span

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Sun, Moon, Monitor, Volume2, LayoutGrid, Save, RefreshCw, CheckCircle2 } from "lucide-react";
+import { Sun, Moon, Monitor, Volume2, LayoutGrid, Save, RefreshCw, CheckCircle2, Megaphone } from "lucide-react";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -315,6 +315,9 @@ export function AdminSettings() {
         </div>
       </SettingsSection>
 
+      {/* Broadcast — acknowledgement-required notice to every user */}
+      <BroadcastSection />
+
       {/* Save */}
       <div className="flex items-center gap-3">
         <button
@@ -334,6 +337,75 @@ export function AdminSettings() {
         )}
       </div>
     </div>
+  );
+}
+
+function BroadcastSection() {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function send() {
+    if (!title.trim() || busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/admin/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), body: body.trim() }),
+      });
+      if (res.ok) {
+        setTitle("");
+        setBody("");
+        setMsg({ ok: true, text: "Broadcast sent — every user sees it until they acknowledge it." });
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setMsg({ ok: false, text: d.error || "Couldn't send." });
+      }
+    } catch {
+      setMsg({ ok: false, text: "Network error." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SettingsSection title="Broadcast" icon={Megaphone}>
+      <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+        Sends a notice to every user&apos;s notification tray. It stays on screen until they acknowledge it — use sparingly.
+      </p>
+      <input
+        type="text"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Title (e.g. Scheduled maintenance)"
+        maxLength={160}
+        className="w-full rounded-xl border px-3 py-2.5 text-sm"
+        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+      />
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="Optional details…"
+        maxLength={1000}
+        rows={2}
+        className="w-full rounded-xl border px-3 py-2.5 text-sm"
+        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+      />
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => void send()}
+          disabled={busy || !title.trim()}
+          className="rounded-xl px-4 py-2.5 text-sm font-medium transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
+          style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+        >
+          {busy ? "Sending…" : "Send to all users"}
+        </button>
+        {msg && <span className="text-xs" style={{ color: msg.ok ? "var(--color-success)" : "#b42318" }}>{msg.text}</span>}
+      </div>
+    </SettingsSection>
   );
 }
 

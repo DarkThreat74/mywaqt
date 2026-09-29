@@ -118,6 +118,14 @@ export async function POST(request: NextRequest) {
         .limit(1);
 
       const accepterName = accepter?.firstName || accepter?.displayName || "Someone";
+
+      await db.insert(schema.appNotifications).values({
+        userId: friendReq.userId,
+        type: "friend_accepted",
+        title: "Friend request accepted",
+        body: `${accepterName} accepted your friend request.`,
+      });
+
       const subs = await db
         .select()
         .from(schema.pushSubscriptions)
