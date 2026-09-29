@@ -14,7 +14,7 @@
 
 /** The bare domain (no protocol). Used for deep links, CSP, etc. */
 export const SITE_DOMAIN =
-  process.env.NEXT_PUBLIC_SITE_DOMAIN ?? 'mywaqtapp.vercel.app';
+  process.env.NEXT_PUBLIC_SITE_DOMAIN ?? 'mywaqt.app';
 
 /** The full origin URL (no trailing slash). Used for absolute URLs. */
 export const SITE_URL = `https://${SITE_DOMAIN}`;
