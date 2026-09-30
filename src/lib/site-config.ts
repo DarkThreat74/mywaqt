@@ -35,4 +35,4 @@ export const HTTP_USER_AGENT = `${APP_NAME}/${APP_VERSION} (${SITE_URL})`;
  * Capacitor / native app bundle ID.
  * Changing this requires a new App Store / Play Store listing.
  */
-export const APP_BUNDLE_ID = 'com.waqt.app';
+export const APP_BUNDLE_ID = 'app.mywaqt.waqt';
