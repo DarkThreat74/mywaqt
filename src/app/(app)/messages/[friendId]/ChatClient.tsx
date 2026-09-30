@@ -35,7 +35,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
   const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
-  const lastIncoming = useRef(0);
+  const lastIncoming = useRef(-1);
 
   const markRead = useCallback(() => {
     void fetch("/api/messages/read", {
@@ -60,10 +60,8 @@ export default function ChatClient({ friendId }: { friendId: string }) {
         return [...fresh, ...pending];
       });
       const incoming = data.messages.filter((m) => m.senderId === friendId).length;
-      if (incoming > lastIncoming.current) {
-        lastIncoming.current = incoming;
-        play("notification");
-      }
+      if (lastIncoming.current >= 0 && incoming > lastIncoming.current) play("notification");
+      lastIncoming.current = incoming;
       if (data.unreadIncoming > 0 && document.visibilityState === "visible") markRead();
     } catch {
       // poll failure — next tick retries
@@ -191,7 +189,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
         {messages.map((m, i) => {
           const day = dayOf(m.createdAt);
           const showSep = i === 0 || day !== dayOf(messages[i - 1].createdAt);
-          const own = m.senderId === me;
+          const own = m.optimistic || m.senderId === me;
           return (
             <div key={m.id}>
               {showSep && (

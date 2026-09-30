@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v52";
+const CACHE_VERSION = "waqt-v53";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -441,6 +441,9 @@ self.addEventListener("fetch", (event) => {
     // A dua reply belongs to a live 2-minute toast — queueing it would send
     // a thank-you the friend never typed in context.
     !url.pathname.startsWith("/api/prayer-friends/dua") &&
+    // Chat sends/marks are live-thread writes — a queued replay would
+    // duplicate or reorder messages; let them fail visibly instead.
+    !url.pathname.startsWith("/api/messages") &&
     // Quran 1v1 match writes are time-sensitive — rounds resolve in ~90s and
     // invites expire in 5min, so a queued answer/ready/respond replayed later
     // would be meaningless (or corrupt the round). Let them fail offline.
@@ -618,6 +621,10 @@ self.addEventListener("fetch", (event) => {
   // Don't intercept the notification inbox — toasts, invites and the active
   // match must be live; a cached inbox would keep dead toasts on screen.
   if (url.pathname.startsWith("/api/notifications/")) return;
+
+  // Chat threads + conversation list poll constantly — a cached response
+  // would freeze the thread. Always fresh.
+  if (url.pathname.startsWith("/api/messages")) return;
   // Friend requests feed the same toast tray — always fresh.
   if (url.pathname.startsWith("/api/prayer-friends/pending")) return;
   if (url.pathname.startsWith("/api/prayer-friends/snooze")) return;

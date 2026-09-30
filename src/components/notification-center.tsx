@@ -191,11 +191,15 @@ export function NotificationTray() {
 
   const visibleInvites = inbox.gameInvites.filter((g) => g.id !== openMatch && new Date(g.expiresAt).getTime() > now);
   const onGamePage = pathname === "/quran" || pathname === "/mutashabihat";
+  // Inside the messenger, incoming "sent you a message" toasts would just
+  // echo what the thread already shows — hide them there.
+  const onMessages = pathname.startsWith("/messages");
   // Cap visible notif toasts — a user with many unacked rows would otherwise
   // get a wall of cards covering the whole screen. The bell lists them all.
   const shownNotifs = inbox.notifications.slice(0, 3);
   const hiddenNotifs = inbox.notifications.length - shownNotifs.length;
-  const toastCount = shownNotifs.length + inbox.friendRequests.length + visibleInvites.length + (inbox.qadaaReview ? 1 : 0);
+  const shown = onMessages ? shownNotifs.filter((n) => n.type !== "message") : shownNotifs;
+  const toastCount = shown.length + inbox.friendRequests.length + visibleInvites.length + (inbox.qadaaReview ? 1 : 0);
 
   return (
     <>
@@ -207,7 +211,7 @@ export function NotificationTray() {
           style={{ paddingLeft: "calc(0.75rem + env(safe-area-inset-left))", paddingRight: "calc(0.75rem + env(safe-area-inset-right))" }}
         >
           {inbox.qadaaReview && <QadaaReviewCard review={inbox.qadaaReview} />}
-          {shownNotifs.map((n) => (
+          {shown.map((n) => (
             <ToastCard key={n.id} icon={typeIcon(n.type)} title={n.title} sub={n.body ?? undefined}>
               {n.type === "message" && (
                 <Link href="/messages" onClick={() => void ack(n.id)}

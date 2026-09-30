@@ -28,7 +28,8 @@ export default function MessagesClient() {
     const onFocus = () => void load();
     window.addEventListener("focus", onFocus);
     window.addEventListener("pageshow", onFocus);
-    return () => { clearInterval(t); window.removeEventListener("focus", onFocus); window.removeEventListener("pageshow", onFocus); };
+    document.addEventListener("visibilitychange", onFocus);
+    return () => { clearInterval(t); window.removeEventListener("focus", onFocus); window.removeEventListener("pageshow", onFocus); document.removeEventListener("visibilitychange", onFocus); };
   }, []);
 
   return (
