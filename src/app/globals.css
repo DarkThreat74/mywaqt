@@ -248,6 +248,23 @@ a,
   75% { transform: translateX(-2px); }
 }
 .waqt-answer-shake { animation: waqt-answer-shake 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+
+/* ── Prayer remind nudge ── */
+@keyframes waqt-remind-pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.28); }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+.waqt-remind-pop { animation: waqt-remind-pop 0.55s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+@keyframes waqt-bell-ring {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(20deg); }
+  40% { transform: rotate(-15deg); }
+  60% { transform: rotate(9deg); }
+  80% { transform: rotate(-4deg); }
+}
+.waqt-bell-ring { animation: waqt-bell-ring 0.7s ease-in-out; transform-origin: top center; }
 .waqt-answer-pop { animation: waqt-scale-in 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
 
 /* ── Reduced motion: respect user preference (WCAG 2.3.3) ── */

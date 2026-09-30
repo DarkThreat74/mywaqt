@@ -128,6 +128,7 @@ export async function GET(request: NextRequest) {
           recipientId: schema.prayerReminders.recipientId,
           date: schema.prayerReminders.date,
           prayerName: schema.prayerReminders.prayerName,
+          createdAt: schema.prayerReminders.createdAt,
         })
         .from(schema.prayerReminders)
         .where(
@@ -197,13 +198,14 @@ export async function GET(request: NextRequest) {
     if (!todayLogsByUserDate.get(log.userId)!.has(dateStr)) todayLogsByUserDate.get(log.userId)!.set(dateStr, []);
     todayLogsByUserDate.get(log.userId)!.get(dateStr)!.push({ prayerName: log.prayerName, status: log.status });
   }
-  // Reminders already sent today — recipientId+date+prayerName key
-  const remindedByUserDate = new Map<string, Set<string>>();
+  // Reminders already sent today — recipientId+date → prayer → last sent
+  // timestamp (the 2-minute cooldown clock on the client too).
+  const remindedByUserDate = new Map<string, Map<string, string>>();
   for (const r of remindersAll) {
     const dateStr = typeof r.date === "string" ? r.date : String(r.date);
     const key = `${r.recipientId}|${dateStr}`;
-    if (!remindedByUserDate.has(key)) remindedByUserDate.set(key, new Set());
-    remindedByUserDate.get(key)!.add(r.prayerName);
+    if (!remindedByUserDate.has(key)) remindedByUserDate.set(key, new Map());
+    remindedByUserDate.get(key)!.set(r.prayerName, r.createdAt.toISOString());
   }
   const sunnahByUserDate = new Map<string, Map<string, string[]>>();
   for (const s of todaySunnahAll) {
@@ -249,7 +251,7 @@ export async function GET(request: NextRequest) {
     todayLogs: Array<{ prayerName: string; status: string }>;
     todaySunnahs: string[];
     todayVisible: boolean;
-    remindedToday: string[];
+    remindedAt: Record<string, string>;
     cheeredToday: boolean;
     sharedStreak: { streak: number; bestStreak: number; lastDate: string | null } | null;
     timezone: string;
@@ -323,7 +325,7 @@ export async function GET(request: NextRequest) {
       todayLogs,
       todaySunnahs,
       todayVisible: settings.friendsSeeTodayStatus,
-      remindedToday: [...(remindedByUserDate.get(`${friendUser.id}|${todayStr}`) ?? [])],
+      remindedAt: Object.fromEntries(remindedByUserDate.get(`${friendUser.id}|${todayStr}`) ?? []),
       cheeredToday: cheeredByUserDate.has(`${friendUser.id}|${todayStr}`),
       sharedStreak: settings.friendsSeeStreak ? (streakByFriend.get(friendUser.id) ?? null) : null,
       timezone,

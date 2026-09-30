@@ -8,6 +8,7 @@ import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName 
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
+import { playNudge } from "@/lib/chime";
 import { getOfflineDB } from "@/lib/offline/db";
 import { upsertSunnahLogToCache, cacheBlob } from "@/lib/offline/cache-writers";
 import MasjidFinder from "@/components/masjid-finder";
@@ -79,7 +80,7 @@ interface Friend {
   todayLogs: Array<{ prayerName: string; status: string }>;
   todaySunnahs: string[];
   todayVisible: boolean;
-  remindedToday: string[];
+  remindedAt: Record<string, string>;
   cheeredToday?: boolean;
   sharedStreak?: { streak: number; bestStreak: number; lastDate: string | null } | null;
   timezone: string;
@@ -127,6 +128,8 @@ const PRAYER_COLORS: Record<string, string> = {
 };
 
 const PRAYER_ORDER = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
+// Mirrors the server: a nudge can repeat once the 2-minute cooldown passes.
+const REMIND_COOLDOWN_MS = 2 * 60 * 1000;
 
 // Format 24-hour time string ("20:59" or "20:59:00") to 12-hour AM/PM ("8:59 PM")
 function format12h(time: string | undefined): string {
@@ -757,11 +760,20 @@ export default function PrayerDashboard() {
   }
 
   const [reminding, setReminding] = useState<Set<string>>(new Set());
+  const [nudgeToast, setNudgeToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  function showNudgeToast(msg: string, ok: boolean) {
+    setNudgeToast({ msg, ok });
+    setTimeout(() => setNudgeToast(null), 2600);
+  }
 
   async function handleRemindFriend(friendId: string, prayerName: string) {
     const key = `${friendId}:${prayerName}`;
     if (reminding.has(key)) return;
     setReminding((prev) => new Set(prev).add(key));
+    playNudge(); // inside the gesture so iOS unlocks the AudioContext
+    const label = prayerName.charAt(0).toUpperCase() + prayerName.slice(1);
+    const friendName = friends.find((f) => f.id === friendId)?.displayName || friends.find((f) => f.id === friendId)?.firstName || "your friend";
     try {
       const res = await fetch("/api/prayer-friends/remind", {
         method: "POST",
@@ -772,20 +784,19 @@ export default function PrayerDashboard() {
       if (res.ok) {
         setFriends((prev) => {
           const updated = prev.map((f) =>
-            f.id === friendId ? { ...f, remindedToday: [...(f.remindedToday ?? []), prayerName] } : f,
+            f.id === friendId
+              ? { ...f, remindedAt: { ...(f.remindedAt ?? {}), [prayerName]: data.remindedAt ?? new Date().toISOString() } }
+              : f,
           );
           cacheBlob("friends", updated);
           return updated;
         });
-        setFriendSuccess(`Reminder sent for ${prayerName.charAt(0).toUpperCase() + prayerName.slice(1)}.`);
-        setTimeout(() => setFriendSuccess(null), 3000);
+        showNudgeToast(`Nudged ${friendName} to pray ${label}`, true);
       } else {
-        setFriendError(data.error || "Couldn't send reminder.");
-        setTimeout(() => setFriendError(null), 4000);
+        showNudgeToast(data.error || "Couldn't send the nudge.", false);
       }
     } catch {
-      setFriendError("Network error.");
-      setTimeout(() => setFriendError(null), 4000);
+      showNudgeToast("Network error — try again.", false);
     } finally {
       setReminding((prev) => {
         const next = new Set(prev);
@@ -1040,6 +1051,33 @@ export default function PrayerDashboard() {
   return (
     <div className="mx-auto w-full max-w-4xl overflow-x-hidden px-4 py-6 sm:px-6 sm:py-8">
       <h1 className="sr-only">Prayer</h1>
+
+      {/* Nudge toast — quick floating confirmation, self-dismisses ~2.6s */}
+      {nudgeToast && (
+        <div
+          role="status"
+          className="waqt-fade-up fixed inset-x-3 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[86] mx-auto flex max-w-sm items-center gap-2.5 rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-md lg:top-4"
+          style={{
+            borderColor: "var(--color-paper-3)",
+            backgroundColor: "color-mix(in oklab, var(--color-paper) 96%, transparent)",
+          }}
+        >
+          <span
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+            style={{
+              backgroundColor: nudgeToast.ok
+                ? "color-mix(in oklab, var(--color-success) 14%, transparent)"
+                : "color-mix(in oklab, #b42318 12%, transparent)",
+              color: nudgeToast.ok ? "var(--color-success)" : "#b42318",
+            }}
+          >
+            {nudgeToast.ok ? <Bell className="h-3.5 w-3.5 waqt-bell-ring" /> : <span className="text-xs font-bold">!</span>}
+          </span>
+          <p className="min-w-0 flex-1 text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+            {nudgeToast.msg}
+          </p>
+        </div>
+      )}
 
       {/* Offline indicator */}
       {!isOnline && (
@@ -1636,7 +1674,7 @@ export default function PrayerDashboard() {
                     madhab={madhab}
                     timezone={friend.timezone}
                     todayVisible={friend.todayVisible}
-                    remindedToday={friend.remindedToday}
+                    remindedAt={friend.remindedAt}
                     reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
                     onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
                   />
@@ -2558,7 +2596,7 @@ export default function PrayerDashboard() {
                           prayerTimes={prayerTimes}
                           currentTime={currentTime}
                           todayVisible={friend.todayVisible}
-                          remindedToday={friend.remindedToday}
+                          remindedAt={friend.remindedAt}
                           reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
                           onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
                           timezone={friend.timezone}
@@ -2611,7 +2649,7 @@ function ComparisonRow({
   madhab,
   timezone,
   todayVisible = false,
-  remindedToday = [],
+  remindedAt = {},
   reminding,
   onRemind,
 }: {
@@ -2625,7 +2663,7 @@ function ComparisonRow({
   madhab: string;
   timezone: string | null;
   todayVisible?: boolean;
-  remindedToday?: string[];
+  remindedAt?: Record<string, string>;
   reminding?: Set<string>;
   onRemind?: (prayerName: string) => void;
 }) {
@@ -2678,7 +2716,7 @@ function ComparisonRow({
           prayerTimes={prayerTimes}
           currentTime={currentTime}
           todayVisible={todayVisible}
-          remindedToday={remindedToday}
+          remindedAt={remindedAt}
           reminding={reminding}
           onRemind={onRemind}
           timezone={timezone}
@@ -2789,7 +2827,7 @@ function PrayerDots({
   prayerTimes,
   currentTime,
   todayVisible,
-  remindedToday = [],
+  remindedAt = {},
   reminding,
   onRemind,
   timezone,
@@ -2803,12 +2841,26 @@ function PrayerDots({
   prayerTimes: PrayerTimes | null;
   currentTime: Date | null;
   todayVisible: boolean;
-  remindedToday?: string[];
+  remindedAt?: Record<string, string>;
   reminding?: Set<string>;
   onRemind?: (prayerName: string) => void;
   timezone: string | null;
   compact?: boolean;
 }) {
+  // Re-render on a timer while any cooldown is live so the dots unlock
+  // the moment the 2-minute window passes. Clock = currentTime prop plus
+  // a state-fed tick (Date.now() is banned in render by the purity rule).
+  const [tickNow, setTickNow] = useState(0);
+  const now = tickNow || (currentTime ? currentTime.getTime() : 0);
+  const coolingActive = Object.values(remindedAt).some(
+    (t) => !!now && now - Date.parse(t) < REMIND_COOLDOWN_MS,
+  );
+  useEffect(() => {
+    if (!coolingActive) return;
+    const t = setInterval(() => setTickNow(Date.now()), 5000);
+    return () => clearInterval(t);
+  }, [coolingActive]);
+
   if (!isMe && !todayVisible) {
     return (
       <span className="text-[11px] italic" style={{ color: "var(--color-ink-muted)" }}>
@@ -2857,10 +2909,14 @@ function PrayerDots({
         const excused = log?.status === "excused";
         const isCurrent = idx === currentPrayerIdx;
         const color = PRAYER_COLORS[prayer];
-        // Friends who share today's status: unmarked prayers are remindable.
+        // Only the salah whose window is open RIGHT NOW is nudgeable — the
+        // server enforces the same rule against the friend's local clock.
         const remindable =
-          !isMe && todayVisible && !prayed && !excused && (!log || log.status === "pending") && !!onRemind;
-        const alreadyReminded = remindedToday.includes(prayer);
+          isCurrent && !isMe && todayVisible && !prayed && !excused && (!log || log.status === "pending") && !!onRemind;
+        const lastRemind = remindedAt[prayer] ? Date.parse(remindedAt[prayer]) : 0;
+        const cdLeftMs = lastRemind && now ? REMIND_COOLDOWN_MS - (now - lastRemind) : 0;
+        const cooling = cdLeftMs > 0;
+        const wasReminded = lastRemind > 0;
         const pending = reminding?.has(prayer) ?? false;
 
         const dotStyle = {
@@ -2872,24 +2928,25 @@ function PrayerDots({
           <Check className={iconSize} style={{ color: "var(--color-paper)" }} />
         ) : excused ? (
           <span className="text-[10px] font-bold" style={{ color: "var(--color-accent)" }} title="Excused">E</span>
-        ) : alreadyReminded ? (
-          <Bell className={bellSize} style={{ color: "var(--color-accent)" }} />
+        ) : wasReminded ? (
+          <Bell className={`${bellSize} ${pending || cooling ? "waqt-bell-ring" : ""}`} style={{ color: cooling ? "var(--color-ink-muted)" : "var(--color-accent)" }} />
         ) : (
           <span className="text-[10px] font-bold uppercase" style={{ color: "var(--color-ink-muted)" }}>
             {prayer.charAt(0).toUpperCase()}
           </span>
         );
 
+        const cdLabel = `${Math.floor(cdLeftMs / 60000)}:${String(Math.ceil((cdLeftMs % 60000) / 1000)).padStart(2, "0")}`;
         return (
           <div key={prayer} className="flex flex-col items-center gap-0.5">
             {remindable ? (
               <button
                 onClick={() => onRemind!(prayer)}
-                disabled={alreadyReminded || pending}
-                className={`flex ${dotSize} items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-60`}
+                disabled={cooling || pending}
+                className={`flex ${dotSize} items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] active:scale-90 disabled:opacity-60 ${pending ? "waqt-remind-pop" : ""}`}
                 style={dotStyle}
-                aria-label={alreadyReminded ? `Reminded ${name} about ${dotLabel(prayer, timezone)}` : `Remind ${name} to pray ${dotLabel(prayer, timezone)}`}
-                title={alreadyReminded ? "Reminder sent" : `Remind ${name} to pray ${dotLabel(prayer, timezone)}`}
+                aria-label={cooling ? `Nudge again in ${cdLabel}` : `Nudge ${name} to pray ${dotLabel(prayer, timezone)}`}
+                title={cooling ? `Nudge again in ${cdLabel}` : wasReminded ? `Nudge ${name} again` : `Nudge ${name} to pray ${dotLabel(prayer, timezone)}`}
               >
                 {dotInner}
               </button>
