@@ -84,6 +84,7 @@ interface Friend {
   cheeredToday?: boolean;
   sharedStreak?: { streak: number; bestStreak: number; lastDate: string | null } | null;
   timezone: string;
+  times?: PrayerTimes | null;
 }
 
 interface QadaaInfo {
@@ -335,12 +336,48 @@ export default function PrayerDashboard() {
     }
   }, [todayStr]);
 
+  const refreshFriends = useCallback(async () => {
+    const res = await fetch("/api/prayer-friends").catch(() => null);
+    if (res?.ok) {
+      const data = await res.json().catch(() => []);
+      if (Array.isArray(data)) {
+        setFriends(data);
+        cacheBlob("friends", data);
+      }
+    }
+  }, []);
+
   // ── Refresh data when coming back online ──
   useEffect(() => {
     const onOnline = () => void fetchTodayData();
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
   }, [fetchTodayData]);
+
+  // ── Live status propagation ──
+  // Local check-ins broadcast "waqt:prayer-updated" (fired by the check-in
+  // popup app-wide). Remote friends' updates arrive via a 15s poll while a
+  // status-bearing tab is open, plus an immediate refresh on tab return.
+  useEffect(() => {
+    const onUpdated = () => { void fetchTodayData(); void refreshFriends(); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") onUpdated();
+    };
+    window.addEventListener("waqt:prayer-updated", onUpdated);
+    window.addEventListener("waqt:dua-due", onUpdated);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("waqt:prayer-updated", onUpdated);
+      window.removeEventListener("waqt:dua-due", onUpdated);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [fetchTodayData, refreshFriends]);
+
+  useEffect(() => {
+    if (activeTab !== "friends" && activeTab !== "comparison") return;
+    const t = setInterval(() => void refreshFriends(), 15_000);
+    return () => clearInterval(t);
+  }, [activeTab, refreshFriends]);
 
   useEffect(() => {
     // Skip fetching until todayStr is resolved (prevents 1970-01-01 double-fetch)
@@ -1671,7 +1708,9 @@ export default function PrayerDashboard() {
                     streak={friend.streak ?? 0}
                     todayLogs={friend.todayLogs}
                     todaySunnahs={friend.todaySunnahs}
-                    prayerTimes={prayerTimes}
+                    // Their own cached times decide the open salah — same
+                    // inputs the remind route validates against.
+                    prayerTimes={friend.times ?? prayerTimes}
                     currentTime={currentTime}
                     madhab={madhab}
                     timezone={friend.timezone}
@@ -2604,7 +2643,7 @@ export default function PrayerDashboard() {
                           todayLogs={friend.todayLogs}
                           todaySunnahs={friend.todaySunnahs}
                           sunnahDefs={getSunnahsForMadhab(madhab)}
-                          prayerTimes={prayerTimes}
+                          prayerTimes={friend.times ?? prayerTimes}
                           currentTime={currentTime}
                           todayVisible={friend.todayVisible}
                           remindedAt={friend.remindedAt}

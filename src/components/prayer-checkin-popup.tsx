@@ -149,11 +149,16 @@ export default function PrayerCheckinPopup({
         // is stamped answered_at server-side, but there's no live toast then.
         if (!data.offline && Array.isArray(data.thanksDue) && data.thanksDue.length > 0) {
           window.dispatchEvent(new CustomEvent("waqt:dua-due", {
-            detail: { senders: data.thanksDue, prayerName: prayer },
+            detail: { senders: data.thanksDue, prayerName: prayer, date },
           }));
         }
         play("check");
         void hapticNotification("success");
+        // Every status-bearing surface refetches — prayer dashboard, day view,
+        // friend dots. Remote friends see it via their own polling/push.
+        window.dispatchEvent(new CustomEvent("waqt:prayer-updated", {
+          detail: { date, prayerName: prayer },
+        }));
         // Only show sunnah step if:
         // 1. There are sunnahs for this prayer
         // 2. This is NOT a late log (window was open when user confirmed)

@@ -21,7 +21,7 @@ const PRAYER_LABEL: Record<string, string> = {
  * hostile or unreadable reaches the nudger).
  */
 export default function DuaToast() {
-  const [due, setDue] = useState<{ senders: DueSender[]; prayerName: string } | null>(null);
+  const [due, setDue] = useState<{ senders: DueSender[]; prayerName: string; date?: string } | null>(null);
   const [idx, setIdx] = useState(0);
   const [custom, setCustom] = useState<string | null>(null); // null = presets view, string = typing
   const [customErr, setCustomErr] = useState<string | null>(null);
@@ -32,9 +32,9 @@ export default function DuaToast() {
 
   useEffect(() => {
     function onDue(e: Event) {
-      const detail = (e as CustomEvent).detail as { senders?: DueSender[]; prayerName?: string };
+      const detail = (e as CustomEvent).detail as { senders?: DueSender[]; prayerName?: string; date?: string };
       if (!detail?.senders?.length || !detail.prayerName) return;
-      setDue({ senders: detail.senders, prayerName: detail.prayerName });
+      setDue({ senders: detail.senders, prayerName: detail.prayerName, date: detail.date });
       setIdx(0);
       setDone(new Set());
       setCustom(null);
@@ -66,7 +66,7 @@ export default function DuaToast() {
       const res = await fetch("/api/prayer-friends/dua", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ senderId: sender.senderId, prayerName: due!.prayerName, ...payload }),
+        body: JSON.stringify({ senderId: sender.senderId, prayerName: due!.prayerName, date: due!.date, ...payload }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -156,6 +156,11 @@ export default function DuaToast() {
             >
               Write your own…
             </button>
+            {customErr && (
+              <p className="pt-0.5 text-[10.5px]" style={{ color: "var(--color-error, #c0392b)" }}>
+                {customErr}
+              </p>
+            )}
           </div>
         ) : (
           <div className="mt-2.5">

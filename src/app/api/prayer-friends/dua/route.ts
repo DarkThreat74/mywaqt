@@ -17,7 +17,9 @@ const PRAYER_LABEL: Record<string, string> = {
 
 /**
  * POST /api/prayer-friends/dua — the reminded friend sends a dua back to the
- * nudger after marking the salah. Body: { senderId, prayerName, preset?|text? }
+ * nudger after marking the salah. Body: { senderId, prayerName, date?, preset?|text? }
+ * `date` is the salah's logged date — late check-ins (e.g. yesterday's Dhuhr)
+ * answered that day's reminder, so the dua must target the same date.
  *
  * Gates:
  *  - an answered reminder must exist (sender → me, my today, this salah)
@@ -34,7 +36,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  let body: { senderId?: unknown; prayerName?: unknown; preset?: unknown; text?: unknown };
+  let body: { senderId?: unknown; prayerName?: unknown; date?: unknown; preset?: unknown; text?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -72,6 +74,16 @@ export async function POST(request: NextRequest) {
     const timezone = settings?.timezone || "America/Chicago";
     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: timezone });
 
+    // The dua targets the date the salah was logged for — late check-ins
+    // (yesterday's prayer) stamped that day's reminder. Bound it to the last
+    // 7 days in MY timezone so arbitrary old dates can't be mined.
+    let dateStr = todayStr;
+    if (typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
+      const weekAgo = new Date(Date.now() - 7 * 86400_000)
+        .toLocaleDateString("en-CA", { timeZone: timezone });
+      if (body.date <= todayStr && body.date >= weekAgo) dateStr = body.date;
+    }
+
     // The answered nudge this dua belongs to — one dua per reminder.
     const [reminder] = await db
       .update(schema.prayerReminders)
@@ -80,7 +92,7 @@ export async function POST(request: NextRequest) {
         and(
           eq(schema.prayerReminders.senderId, body.senderId),
           eq(schema.prayerReminders.recipientId, session.userId),
-          eq(schema.prayerReminders.date, todayStr),
+          eq(schema.prayerReminders.date, dateStr),
           eq(schema.prayerReminders.prayerName, body.prayerName as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"),
           isNotNull(schema.prayerReminders.answeredAt),
           isNull(schema.prayerReminders.duaAt),

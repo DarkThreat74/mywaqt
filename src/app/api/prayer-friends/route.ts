@@ -71,8 +71,8 @@ export async function GET(request: NextRequest) {
   );
   const distinctTodayStrs = [...new Set(todayByUser.values())];
 
-  // Batch all reads in parallel (8 queries total, not 5 per friend)
-  const [friendUsers, friendLogsAll, todayLogsAll, todaySunnahAll, remindersAll, streaksAll, cheersAll] =
+  // Batch all reads in parallel (9 queries total, not 5 per friend)
+  const [friendUsers, friendLogsAll, todayLogsAll, todaySunnahAll, remindersAll, streaksAll, cheersAll, timesAll] =
     await Promise.all([
       db
         .select({
@@ -174,6 +174,26 @@ export async function GET(request: NextRequest) {
             inArray(schema.prayerCheers.date, distinctTodayStrs.length ? distinctTodayStrs : ["9999-12-31"]),
           ),
         ),
+      // Each friend's cached times for THEIR today — the open-salah window is
+      // computed from these, matching the remind route's server-side check.
+      db
+        .select({
+          userId: schema.prayerTimesCache.userId,
+          date: schema.prayerTimesCache.date,
+          fajr: schema.prayerTimesCache.fajr,
+          sunrise: schema.prayerTimesCache.sunrise,
+          dhuhr: schema.prayerTimesCache.dhuhr,
+          asr: schema.prayerTimesCache.asr,
+          maghrib: schema.prayerTimesCache.maghrib,
+          isha: schema.prayerTimesCache.isha,
+        })
+        .from(schema.prayerTimesCache)
+        .where(
+          and(
+            inArray(schema.prayerTimesCache.userId, friendIds),
+            inArray(schema.prayerTimesCache.date, distinctTodayStrs.length ? distinctTodayStrs : ["9999-12-31"]),
+          ),
+        ),
     ]);
 
   // Index lookups — include visibility settings
@@ -236,6 +256,15 @@ export async function GET(request: NextRequest) {
     const dateStr = typeof c.date === "string" ? c.date : String(c.date);
     cheeredByUserDate.add(`${c.recipientId}|${dateStr}`);
   }
+  // Friend-local times keyed userId|date — the client highlights the open
+  // salah from THESE, not the viewer's own times.
+  const timesByUserDate = new Map<string, { fajr: string; sunrise: string; dhuhr: string; asr: string; maghrib: string; isha: string }>();
+  for (const t of timesAll) {
+    const dateStr = typeof t.date === "string" ? t.date : String(t.date);
+    timesByUserDate.set(`${t.userId}|${dateStr}`, {
+      fajr: t.fajr, sunrise: t.sunrise, dhuhr: t.dhuhr, asr: t.asr, maghrib: t.maghrib, isha: t.isha,
+    });
+  }
 
   const friends: Array<{
     id: string;
@@ -255,6 +284,7 @@ export async function GET(request: NextRequest) {
     cheeredToday: boolean;
     sharedStreak: { streak: number; bestStreak: number; lastDate: string | null } | null;
     timezone: string;
+    times: { fajr: string; sunrise: string; dhuhr: string; asr: string; maghrib: string; isha: string } | null;
   }> = [];
 
   for (const friendUser of friendUsers) {
@@ -329,6 +359,11 @@ export async function GET(request: NextRequest) {
       cheeredToday: cheeredByUserDate.has(`${friendUser.id}|${todayStr}`),
       sharedStreak: settings.friendsSeeStreak ? (streakByFriend.get(friendUser.id) ?? null) : null,
       timezone,
+      // Times only ride along when today's status is shared — that's the only
+      // UI that needs them (open-salah highlight + nudge).
+      times: settings.friendsSeeTodayStatus
+        ? (timesByUserDate.get(`${friendUser.id}|${todayStr}`) ?? null)
+        : null,
     });
   }
 
