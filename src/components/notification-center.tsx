@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Bell, Swords, Megaphone, X, Clock, UserPlus, UserMinus, HandHeart, BellRing, Swords as SwordsIcon } from "lucide-react";
+import { Bell, Swords, Megaphone, X, Clock, UserPlus, UserMinus, HandHeart, BellRing, ChevronDown, CalendarClock, Swords as SwordsIcon } from "lucide-react";
 import { useInbox, refreshInbox, type Inbox } from "@/lib/inbox";
 
 const DIFF_LABEL: Record<string, string> = { easy: "Easy", medium: "Medium", advanced: "Advanced", elite: "Elite" };
@@ -193,7 +193,7 @@ export function NotificationTray() {
   // get a wall of cards covering the whole screen. The bell lists them all.
   const shownNotifs = inbox.notifications.slice(0, 3);
   const hiddenNotifs = inbox.notifications.length - shownNotifs.length;
-  const toastCount = shownNotifs.length + inbox.friendRequests.length + visibleInvites.length;
+  const toastCount = shownNotifs.length + inbox.friendRequests.length + visibleInvites.length + (inbox.qadaaReview ? 1 : 0);
 
   return (
     <>
@@ -204,6 +204,7 @@ export function NotificationTray() {
           className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[85] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 lg:top-4"
           style={{ paddingLeft: "calc(0.75rem + env(safe-area-inset-left))", paddingRight: "calc(0.75rem + env(safe-area-inset-right))" }}
         >
+          {inbox.qadaaReview && <QadaaReviewCard review={inbox.qadaaReview} />}
           {shownNotifs.map((n) => (
             <ToastCard key={n.id} icon={typeIcon(n.type)} title={n.title} sub={n.body ?? undefined}>
               <ToastBtn solid disabled={busy === `ack-${n.id}`} onClick={() => void ack(n.id)}>Got it</ToastBtn>
@@ -278,6 +279,71 @@ function ToastCard({ icon, avatar, title, sub, children }: {
         {sub && <p className="truncate text-[11px] leading-tight" style={{ color: "var(--color-ink-muted)" }}>{sub}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+/* ── Weekly qadaa review — Sundays after Fajr ends. Stays until the user
+     absorbs the misses into the ledger or dismisses (waterline advances,
+     count restarts from that Fajr onward). ── */
+const QADAA_LABEL: Record<string, string> = { fajr: "Fajr", dhuhr: "Dhuhr", asr: "Asr", maghrib: "Maghrib", isha: "Isha" };
+
+function QadaaReviewCard({ review }: { review: NonNullable<Inbox["qadaaReview"]> }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const byPrayer = Object.entries(review.byPrayer)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${n} ${QADAA_LABEL[k] ?? k}`)
+    .join(", ");
+
+  async function resolve(action: "absorb" | "dismiss") {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fetch("/api/qadaa/unlogged", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      refreshInbox();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div role="alert"
+      className="rounded-xl border py-2 pl-2.5 pr-2 shadow-lg backdrop-blur-md"
+      style={{ borderColor: "var(--color-warmth)", backgroundColor: "color-mix(in oklab, var(--color-paper) 97%, transparent)" }}>
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 14%, var(--color-paper))" }}>
+          <CalendarClock className="h-4 w-4" style={{ color: "var(--color-warmth)" }} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
+            Weekly review — {review.count} missed {review.count === 1 ? "prayer" : "prayers"}
+          </p>
+          <p className="truncate text-[11px] leading-tight" style={{ color: "var(--color-ink-muted)" }}>{byPrayer}</p>
+        </div>
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-label={open ? "Hide details" : "Show details"}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors enabled:hover:bg-[var(--color-paper-2)]"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+          <ChevronDown className="h-3.5 w-3.5 transition-transform" style={{ transform: open ? "rotate(180deg)" : undefined }} />
+        </button>
+        <ToastBtn solid onClick={() => void resolve("absorb")} disabled={busy}>Add to qadaa</ToastBtn>
+        <ToastBtn onClick={() => void resolve("dismiss")} disabled={busy}>Dismiss</ToastBtn>
+      </div>
+      {open && (
+        <div className="mt-2 max-h-40 overflow-y-auto overscroll-contain rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)" }}>
+          {review.rows.map((r, i) => (
+            <p key={i} className="flex justify-between py-0.5 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+              <span className="font-medium">{QADAA_LABEL[r.prayerName] ?? r.prayerName}</span>
+              <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                {new Date(r.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+              </span>
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

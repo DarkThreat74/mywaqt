@@ -30,10 +30,16 @@ export type Inbox = {
   recent: (InboxNotification & { acked: boolean })[];
   friendRequests: InboxFriendRequest[];
   gameInvites: InboxGameInvite[];
+  /** Sunday-after-Fajr weekly review of missed prayers — null unless due. */
+  qadaaReview: {
+    count: number;
+    byPrayer: Record<string, number>;
+    rows: { date: string; prayerName: string }[];
+  } | null;
   activeMatch: { id: string; game: string; opponentName: string } | null;
 };
 
-const EMPTY: Inbox = { notifications: [], recent: [], friendRequests: [], gameInvites: [], activeMatch: null };
+const EMPTY: Inbox = { notifications: [], recent: [], friendRequests: [], gameInvites: [], qadaaReview: null, activeMatch: null };
 const POLL_MS = 12_000;
 
 let snapshot: Inbox = EMPTY;

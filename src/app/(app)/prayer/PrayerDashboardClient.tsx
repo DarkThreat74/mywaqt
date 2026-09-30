@@ -1053,51 +1053,6 @@ export default function PrayerDashboard() {
     <div className="mx-auto w-full max-w-4xl overflow-x-hidden px-4 py-6 sm:px-6 sm:py-8">
       <h1 className="sr-only">Prayer</h1>
 
-      {/* Unlogged-missed prompt — surfaces on every tab of this page the
-          moment the ledger sees missed prayers you haven't resolved.
-          Previously buried inside the Qadaa tab where nobody saw it. */}
-      {qadaa && (qadaa.unloggedMissed ?? 0) > 0 && (
-        <div
-          role="alert"
-          className="mb-4 flex items-center gap-2.5 rounded-xl border px-3 py-2.5 shadow-sm"
-          style={{
-            borderColor: "var(--color-warmth)",
-            backgroundColor: "color-mix(in oklab, var(--color-warmth) 7%, var(--color-paper))",
-          }}
-        >
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
-              {qadaa.unloggedMissed} missed {qadaa.unloggedMissed === 1 ? "prayer" : "prayers"} unaccounted
-            </p>
-            <p className="text-[11px] leading-tight" style={{ color: "var(--color-ink-muted)" }}>
-              {(() => {
-                const labels: Record<string, string> = { fajr: "Fajr", dhuhr: "Dhuhr", asr: "Asr", maghrib: "Maghrib", isha: "Isha" };
-                const parts = (["fajr", "dhuhr", "asr", "maghrib", "isha"] as const)
-                  .filter((k) => (qadaa.unloggedByPrayer?.[k] ?? 0) > 0)
-                  .map((k) => `${qadaa.unloggedByPrayer![k]} ${labels[k]}`);
-                return parts.length ? parts.join(", ") : "Marked missed since your last qadaa update";
-              })()}
-            </p>
-          </div>
-          <button
-            onClick={() => handleUnlogged("absorb")}
-            disabled={unloggedBusy}
-            className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: "var(--color-warmth)", minHeight: 32 }}
-          >
-            Add to qadaa
-          </button>
-          <button
-            onClick={() => handleUnlogged("dismiss")}
-            disabled={unloggedBusy}
-            className="shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors enabled:hover:bg-[var(--color-paper-2)] disabled:opacity-50"
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 32 }}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
       {/* Nudge toast — quick floating confirmation, self-dismisses ~2.6s */}
       {nudgeToast && (
         <div

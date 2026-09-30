@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, or, gt, lt, isNull, inArray, desc } from "drizzle-orm";
+import { eq, and, or, gt, lt, isNull, inArray, desc, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -121,6 +121,72 @@ export async function GET(request: NextRequest) {
       .limit(1),
   ]);
 
+  // Weekly qadaa review — surfaces Sunday after Fajr ends (sunrise), in the
+  // user's own timezone, whenever missed prayers were marked since the last
+  // time they resolved the prompt. Must be absorbed or dismissed.
+  let qadaaReview: {
+    count: number;
+    byPrayer: Record<string, number>;
+    rows: { date: string; prayerName: string }[];
+  } | null = null;
+  try {
+    const [ps] = await db
+      .select({ timezone: schema.prayerSettings.timezone })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, session.userId))
+      .limit(1);
+    const tz = ps?.timezone || "America/Chicago";
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(new Date());
+    const part = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+    const localMins = (parseInt(part("hour"), 10) % 24) * 60 + parseInt(part("minute"), 10);
+
+    if (part("weekday") === "Sun") {
+      const [times] = await db
+        .select({ sunrise: schema.prayerTimesCache.sunrise })
+        .from(schema.prayerTimesCache)
+        .where(and(eq(schema.prayerTimesCache.userId, session.userId), eq(schema.prayerTimesCache.date, todayStr)))
+        .limit(1);
+      const [sh, sm] = (times?.sunrise ?? "23:59").split(":").map(Number);
+      const fajrEnd = (Number.isFinite(sh) ? sh : 23) * 60 + (Number.isFinite(sm) ? sm : 59);
+
+      if (localMins >= fajrEnd) {
+        const [ledger] = await db
+          .select({ unloggedSeenThrough: schema.qadaaLedger.unloggedSeenThrough, setupCompleted: schema.qadaaLedger.setupCompleted })
+          .from(schema.qadaaLedger)
+          .where(eq(schema.qadaaLedger.userId, session.userId))
+          .limit(1);
+        if (ledger?.setupCompleted) {
+          const markedExpr = sql`coalesce(${schema.prayerLog.markedAt}, ${schema.prayerLog.lastCheckinAt}, ${schema.prayerLog.date}::timestamptz)`;
+          const rows = await db
+            .select({ date: schema.prayerLog.date, prayerName: schema.prayerLog.prayerName })
+            .from(schema.prayerLog)
+            .where(
+              and(
+                eq(schema.prayerLog.userId, session.userId),
+                eq(schema.prayerLog.status, "missed"),
+                sql`${markedExpr} > ${ledger.unloggedSeenThrough ?? new Date(0)}`,
+              ),
+            )
+            .orderBy(schema.prayerLog.date);
+          if (rows.length > 0) {
+            const byPrayer: Record<string, number> = {};
+            for (const r of rows) byPrayer[r.prayerName] = (byPrayer[r.prayerName] ?? 0) + 1;
+            qadaaReview = {
+              count: rows.length,
+              byPrayer,
+              rows: rows.map((r) => ({ date: String(r.date), prayerName: r.prayerName })),
+            };
+          }
+        }
+      }
+    }
+  } catch {
+    // tz/times lookup failures just mean no prompt this poll
+  }
+
   // Names for invite creators + active-match opponents in one batch.
   const otherIds = new Set<string>();
   for (const i of invites) otherIds.add(i.creatorId);
@@ -166,6 +232,7 @@ export async function GET(request: NextRequest) {
       rounds: r.rounds,
       expiresAt: new Date(r.createdAt.getTime() + INVITE_TTL_MS).toISOString(),
     })),
+    qadaaReview,
     activeMatch: active
       ? {
           id: active.id,
