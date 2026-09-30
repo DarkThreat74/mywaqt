@@ -130,16 +130,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (status === "active" && (decided || allResolved)) {
     status = "done";
     const winnerId = wins.creator > wins.opponent ? m.creatorId : wins.opponent > wins.creator ? m.opponentId : null;
-    updates.push(
-      db.update(schema.quranMatches)
-        .set({ status: "done", winnerId, endedAt: new Date(), rated: true })
-        .where(eq(schema.quranMatches.id, id)),
-    );
+    // Two concurrent pollers can both reach this block — the status/rated
+    // guard makes the UPDATE atomic so only ONE request actually settles;
+    // the loser skips the rating writes (no double delta).
+    const [settled] = await db
+      .update(schema.quranMatches)
+      .set({ status: "done", winnerId, endedAt: new Date(), rated: true })
+      .where(and(eq(schema.quranMatches.id, id), eq(schema.quranMatches.status, "active"), eq(schema.quranMatches.rated, false)))
+      .returning({ id: schema.quranMatches.id });
     m.winnerId = winnerId;
 
     // Ranked settle — Elite only, once per match (rated flag backstops the
     // lazy path). Winner +triple base, loser −small, draw neutral.
-    if (m.difficulty === "elite" && !m.rated) {
+    if (settled && m.difficulty === "elite" && !m.rated) {
       const ratingRows = await db
         .select({ userId: schema.quranRatings.userId, rating: schema.quranRatings.rating })
         .from(schema.quranRatings)

@@ -89,6 +89,35 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   if (body.accept) {
+    // The acceptor-side check above isn't enough: the CREATOR may have
+    // entered a different live match since sending the invite. If so,
+    // unwind this one to 'expired' (no rounds played, no rating) rather
+    // than stranding the creator in two matches.
+    const [creatorLive] = await db
+      .select({ id: schema.quranMatches.id })
+      .from(schema.quranMatches)
+      .where(
+        and(
+          ne(schema.quranMatches.id, id),
+          eq(schema.quranMatches.status, "active"),
+          or(
+            eq(schema.quranMatches.creatorId, updated.creatorId),
+            eq(schema.quranMatches.opponentId, updated.creatorId),
+          ),
+        ),
+      )
+      .limit(1);
+    if (creatorLive) {
+      await db
+        .update(schema.quranMatches)
+        .set({ status: "expired", endedAt: new Date() })
+        .where(eq(schema.quranMatches.id, id));
+      return NextResponse.json(
+        { error: "Your opponent is already in another match." },
+        { status: 409 },
+      );
+    }
+
     const [me] = await db
       .select({ firstName: schema.users.firstName, displayName: schema.users.displayName })
       .from(schema.users)

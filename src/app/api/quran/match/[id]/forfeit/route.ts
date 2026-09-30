@@ -77,7 +77,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .where(inArray(schema.quranRatings.userId, [session.userId, otherId]));
   const ratingOf = (uid: string) => ratingRows.find((r) => r.userId === uid)?.rating ?? 0;
 
-  await db
+  const [settled] = await db
     .update(schema.quranMatches)
     .set({
       status: "done",
@@ -87,7 +87,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       endedAt: new Date(),
       rated: true,
     })
-    .where(and(eq(schema.quranMatches.id, id), eq(schema.quranMatches.status, "active")));
+    .where(and(eq(schema.quranMatches.id, id), eq(schema.quranMatches.status, "active")))
+    .returning({ id: schema.quranMatches.id });
+  // The match settled elsewhere between our SELECT and this UPDATE
+  // (normal completion or a racing surrender) — writing ratings/events
+  // now would double-apply deltas.
+  if (!settled) {
+    return NextResponse.json({ error: "Match already ended." }, { status: 409 });
+  }
 
   if (deltas.loser !== 0) {
     await db

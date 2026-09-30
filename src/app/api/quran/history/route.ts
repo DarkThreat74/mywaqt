@@ -66,12 +66,18 @@ export async function GET(request: NextRequest) {
     const oppById = new Map(oppUsers.map((u) => [u.id, u]));
 
     // Daily rollup for solo answers — bucketed in the user's own timezone.
-    const tz = tzRows[0]?.timezone ?? "UTC";
+    let tz = tzRows[0]?.timezone ?? "UTC";
+    try {
+      new Date().toLocaleDateString("en-CA", { timeZone: tz });
+    } catch {
+      tz = "UTC"; // corrupt/unknown tz stored — don't 500 the whole route
+    }
     const dayKey = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: tz });
+    const dayLabel = (d: Date) => d.toLocaleDateString("en-US", { timeZone: tz, month: "short", day: "numeric" });
     const days = new Map<string, { day: string; delta: number; played: number; correct: number }>();
     for (const e of soloEvents) {
       const k = dayKey(e.createdAt);
-      const d = days.get(k) ?? { day: k, delta: 0, played: 0, correct: 0 };
+      const d = days.get(k) ?? { day: dayLabel(e.createdAt), delta: 0, played: 0, correct: 0 };
       d.delta += e.delta;
       d.played += 1;
       d.correct += e.correct ? 1 : 0;

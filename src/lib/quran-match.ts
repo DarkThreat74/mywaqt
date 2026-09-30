@@ -14,7 +14,13 @@ export const MATCH_ABANDON_MS = 10 * 60 * 1000;
  * set (inbox) and before create/respond so zombies can't pin the return pill
  * or block rematches. Idempotent; no rating changes.
  */
+// Runs inside per-user inbox polls — throttle the sweep so 100k users
+// polling every 12s don't each fire a table UPDATE. Per-instance, best
+// effort (ponytail: stragglers can lag up to ~30s extra before closing).
+let lastSweep = 0;
 export async function expireStaleMatches() {
+  if (Date.now() - lastSweep < 30_000) return;
+  lastSweep = Date.now();
   await db.execute(sql`
     UPDATE quran_matches m
     SET status = 'done', end_reason = 'abandoned', ended_at = now()
@@ -22,7 +28,7 @@ export async function expireStaleMatches() {
       AND COALESCE(
         (SELECT MAX(GREATEST(r.resolved_at, r.started_at, r.creator_ready_at, r.opponent_ready_at))
          FROM quran_match_rounds r WHERE r.match_id = m.id),
-        m.started_at
+        m.started_at, m.created_at
       ) < now() - interval '10 minutes'
   `);
 }

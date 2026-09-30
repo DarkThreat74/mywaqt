@@ -239,7 +239,7 @@ function MatchCard({
   const played = m.rounds.filter((r) => r.meCorrect !== null || r.oppCorrect !== null).length;
 
   const result = m.endReason === "abandoned" ? { t: "Abandoned", c: "var(--color-ink-muted)" }
-    : m.endReason === "aborted" ? { t: m.iSurrendered ? "Aborted by you" : "Aborted", c: "var(--color-ink-muted)" }
+    : m.endReason === "aborted" ? { t: m.iSurrendered ? "Aborted by you" : "They aborted", c: "var(--color-ink-muted)" }
     : m.youWin === null ? { t: "Draw", c: "var(--color-ink-soft)" }
     : m.youWin ? { t: "Won", c: "var(--color-success)" }
     : { t: "Lost", c: "#b42318" };
