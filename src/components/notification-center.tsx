@@ -71,7 +71,7 @@ export function NotificationBell() {
         const seenToday = (inbox.recent ?? []).filter((n) => n.acked && !liveIds.has(n.id));
         return (
         <div
-          className="absolute right-0 top-11 z-[90] w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border shadow-xl max-lg:fixed max-lg:left-1/2 max-lg:right-auto max-lg:top-[calc(env(safe-area-inset-top)+3.25rem)] max-lg:w-[calc(100vw-1.5rem)] max-lg:max-w-sm max-lg:-translate-x-1/2"
+          className="absolute right-0 top-11 z-[90] w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border shadow-xl max-lg:fixed max-lg:left-1/2 max-lg:right-auto max-lg:top-[calc(env(safe-area-inset-top)+3.25rem)] max-lg:w-[calc(100vw-1.5rem)] max-lg:max-w-sm max-lg:-translate-x-1/2 lg:bottom-12 lg:left-0 lg:right-auto lg:top-auto"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
           role="dialog"
           aria-label="Notifications"
