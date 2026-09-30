@@ -71,8 +71,8 @@ export function NotificationBell() {
         const seenToday = (inbox.recent ?? []).filter((n) => n.acked && !liveIds.has(n.id));
         return (
         <div
-          className="absolute right-0 top-11 z-[90] w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border shadow-xl max-lg:fixed max-lg:left-1/2 max-lg:right-auto max-lg:top-[calc(env(safe-area-inset-top)+3.25rem)] max-lg:w-[calc(100vw-1.5rem)] max-lg:max-w-sm max-lg:-translate-x-1/2 lg:bottom-12 lg:left-0 lg:right-auto lg:top-auto"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          className="absolute right-0 top-11 z-[90] w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border shadow-xl backdrop-blur-md max-lg:fixed max-lg:left-1/2 max-lg:right-auto max-lg:top-[calc(env(safe-area-inset-top)+3.25rem)] max-lg:w-[calc(100vw-1.5rem)] max-lg:max-w-sm max-lg:-translate-x-1/2 lg:bottom-12 lg:left-0 lg:right-auto lg:top-auto"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 94%, transparent)" }}
           role="dialog"
           aria-label="Notifications"
         >
@@ -464,7 +464,7 @@ function MatchPill({ inbox, hidden }: { inbox: Inbox; hidden: boolean }) {
       style={{ bottom: "calc(env(safe-area-inset-bottom) + 4.5rem)" }}>
       {confirming ? (
         <div className="rounded-2xl border p-4 shadow-xl backdrop-blur-md"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 94%, transparent)" }}
           role="alertdialog" aria-label="Surrender match">
           <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Surrender to {m.opponentName}?</p>
           <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
