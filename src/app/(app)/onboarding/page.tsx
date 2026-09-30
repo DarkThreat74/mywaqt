@@ -6,7 +6,54 @@ import Link from "next/link";
 import { MapPin, Bell, ArrowRight, Check, Loader2, User, Shield, Camera } from "lucide-react";
 import { readAvatarFile, presetAvatarDataUrl, AVATAR_PRESETS } from "@/lib/avatar";
 
-type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "location" | "madhab" | "hifidh" | "notifications" | "done";
+type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "location" | "madhab" | "hifidh" | "notifications" | "tour" | "done";
+
+interface TourSlide {
+  icon: string;
+  title: string;
+  points: string[];
+}
+
+const TOUR_SLIDES: TourSlide[] = [
+  {
+    icon: "🕌",
+    title: "Prayer comes first",
+    points: [
+      "Tap a prayer dot to check in — streaks, masjid %, and weekly stats build automatically",
+      "Unmarked prayers resolve as assumed prayed at day's end — no silent penalties",
+      "Qadaa tracking for missed prayers, iqamah times from your masjid, and hayd-paused tracking",
+    ],
+  },
+  {
+    icon: "🤝",
+    title: "Pray with friends",
+    points: [
+      "Add friends to see today's salah dots on their card — you control exactly what's shared",
+      "Nudge a friend during the live salah window (3 per prayer, 2min apart)",
+      "When they pray after your nudge, they send you a dua back 🤲",
+      "Shared streaks and complete-day badges keep each other honest",
+    ],
+  },
+  {
+    icon: "⚔️",
+    title: "Quran games",
+    points: [
+      "AyaTrace: name the surah an ayah belongs to — solo or ranked Elite",
+      "Mutashabihat: tell apart the look-alike verses every hifidh mixes up",
+      "Challenge friends to 1v1 best-of matches — first correct takes the round",
+      "One shared leaderboard, full match history with question-by-question replay",
+    ],
+  },
+  {
+    icon: "🧰",
+    title: "Tools & more",
+    points: [
+      "Dhikr counter, Qibla compass, 99 Names, Hijri converter, and a talks library",
+      "Goals, habits, notes, and homework live around your prayer times",
+      "Installs as an app — works offline and syncs when you're back",
+    ],
+  },
+];
 
 export default function OnboardingWizard() {
   const [step, setStep] = useState<Step>("terms");
@@ -42,6 +89,9 @@ export default function OnboardingWizard() {
   const [earlyMid, setEarlyMid] = useState("push");
   const [finalReminder, setFinalReminder] = useState("push");
   const [otherReminders, setOtherReminders] = useState("push");
+
+  // Feature tour slide index
+  const [tourIdx, setTourIdx] = useState(0);
 
   function handleGetLocation() {
     setLocationStatus("getting");
@@ -252,7 +302,7 @@ export default function OnboardingWizard() {
         return;
       }
 
-      setStep("done");
+      setStep("tour");
     } catch {
       setError("Network error.");
     } finally {
@@ -262,8 +312,8 @@ export default function OnboardingWizard() {
 
   // Progress dots: hayd step only exists for girls — count it conditionally
   const steps: Step[] = gender === "female"
-    ? ["terms", "name", "avatar", "gender", "hayd", "location", "madhab", "hifidh", "notifications", "done"]
-    : ["terms", "name", "avatar", "gender", "location", "madhab", "hifidh", "notifications", "done"];
+    ? ["terms", "name", "avatar", "gender", "hayd", "location", "madhab", "hifidh", "notifications", "tour", "done"]
+    : ["terms", "name", "avatar", "gender", "location", "madhab", "hifidh", "notifications", "tour", "done"];
   const currentIdx = steps.indexOf(step);
 
   return (
@@ -825,6 +875,73 @@ export default function OnboardingWizard() {
           </div>
         </div>
       )}
+
+      {/* ── Feature tour — what Waqt can do ── */}
+      {step === "tour" && (() => {
+        const slide = TOUR_SLIDES[tourIdx];
+        const last = tourIdx === TOUR_SLIDES.length - 1;
+        return (
+          <div className="flex flex-col items-center text-center">
+            <p className="text-5xl leading-none" aria-hidden>{slide.icon}</p>
+            <h1 className="mt-5 text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+              {slide.title}
+            </h1>
+
+            <ul className="mt-6 w-full max-w-md space-y-2.5 text-left">
+              {slide.points.map((pt) => (
+                <li key={pt} className="flex items-start gap-2.5 text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+                  <Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+                  <span>{pt}</span>
+                </li>
+              ))}
+            </ul>
+
+            {/* Slide dots */}
+            <div className="mt-8 flex items-center gap-2">
+              {TOUR_SLIDES.map((s, i) => (
+                <button
+                  key={s.title}
+                  onClick={() => setTourIdx(i)}
+                  aria-label={`Slide ${i + 1}: ${s.title}`}
+                  className="h-1.5 rounded-full transition-[background-color,width] duration-300"
+                  style={{
+                    width: i === tourIdx ? 24 : 6,
+                    backgroundColor: i === tourIdx ? "var(--color-accent)" : "var(--color-paper-3)",
+                  }}
+                />
+              ))}
+            </div>
+
+            <div className="mt-6 flex w-full max-w-sm items-center justify-between gap-3">
+              {tourIdx > 0 ? (
+                <button
+                  onClick={() => setTourIdx((i) => i - 1)}
+                  className="text-sm font-medium transition-opacity hover:opacity-60"
+                  style={{ color: "var(--color-ink-muted)" }}
+                >
+                  Back
+                </button>
+              ) : (
+                <button
+                  onClick={() => setStep("done")}
+                  className="text-sm font-medium transition-opacity hover:opacity-60"
+                  style={{ color: "var(--color-ink-muted)" }}
+                >
+                  Skip tour
+                </button>
+              )}
+              <button
+                onClick={() => (last ? setStep("done") : setTourIdx((i) => i + 1))}
+                className="inline-flex items-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+              >
+                {last ? "Finish" : "Next"}
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Done ── */}
       {step === "done" && (
