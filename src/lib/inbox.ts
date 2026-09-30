@@ -36,10 +36,11 @@ export type Inbox = {
     byPrayer: Record<string, number>;
     rows: { date: string; prayerName: string }[];
   } | null;
+  unreadMessages: number;
   activeMatch: { id: string; game: string; opponentName: string } | null;
 };
 
-const EMPTY: Inbox = { notifications: [], recent: [], friendRequests: [], gameInvites: [], qadaaReview: null, activeMatch: null };
+const EMPTY: Inbox = { notifications: [], recent: [], friendRequests: [], gameInvites: [], qadaaReview: null, unreadMessages: 0, activeMatch: null };
 const POLL_MS = 12_000;
 
 let snapshot: Inbox = EMPTY;

@@ -12,6 +12,7 @@ import DeepLinkHandler from "@/components/deep-link-handler";
 import PendingInvite from "@/components/pending-invite";
 import ToolsMenu from "@/components/tools-menu";
 import { NotificationBell, NotificationTray } from "@/components/notification-center";
+import MessagesNavItem from "@/components/messages-nav-item";
 import DuaToast from "@/components/dua-toast";
 import FunFactPopup from "@/components/fun-fact-popup";
 import FeedbackWidget from "@/components/feedback-widget";
@@ -108,6 +109,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {navItems.map((item) => (
             <NavItem key={item.href} {...item} />
           ))}
+          <MessagesNavItem />
         </nav>
 
         {/* Tools + Logout — pinned to bottom */}
@@ -160,6 +162,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {navItems.map((item) => (
           <MobileNavItem key={item.href} {...item} />
         ))}
+        <MessagesNavItem mobile />
       </nav>
 
       {/* Service worker + notification scheduler + deep links + fun fact popup */}

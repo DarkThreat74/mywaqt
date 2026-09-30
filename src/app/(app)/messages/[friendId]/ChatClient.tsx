@@ -160,9 +160,10 @@ export default function ChatClient({ friendId }: { friendId: string }) {
   const dayOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-4rem)] w-full max-w-2xl flex-col px-3 sm:px-4">
+    <div className="fixed inset-0 z-[70] flex flex-col" style={{ backgroundColor: "var(--color-paper)" }}>
       {/* Header */}
-      <div className="flex items-center gap-3 border-b py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+      <div className="mx-auto flex w-full max-w-3xl items-center gap-3 border-b px-3 py-3 sm:px-4"
+        style={{ borderColor: "var(--color-paper-3)", paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
         <button onClick={() => router.back()} aria-label="Back"
           className="flex h-9 w-9 items-center justify-center rounded-lg border transition-colors enabled:hover:bg-[var(--color-paper-2)]"
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
@@ -181,7 +182,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
       </div>
 
       {/* Thread */}
-      <div ref={listRef} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain py-3">
+      <div ref={listRef} onScroll={onScroll} className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4">
         {messages.length === 0 && (
           <p className="py-16 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
             No messages yet — say salaam.
@@ -251,7 +252,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
 
       {/* Reply preview */}
       {replyTo && (
-        <div className="mb-2 flex items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="mx-auto mb-2 flex w-full max-w-3xl items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)" }}>
           <Reply className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />
           <p className="min-w-0 flex-1 truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>{replyTo.content}</p>
           <button onClick={() => setReplyTo(null)} aria-label="Cancel reply" style={{ color: "var(--color-ink-muted)" }}>
@@ -261,7 +262,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
       )}
 
       {/* Composer */}
-      <div className="flex items-end gap-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-1">
+      <div className="mx-auto flex w-full max-w-3xl items-end gap-2 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-1 sm:px-4">
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

@@ -187,6 +187,12 @@ export async function GET(request: NextRequest) {
     // tz/times lookup failures just mean no prompt this poll
   }
 
+  // Unread direct messages — feeds the nav badge.
+  const [unread] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.friendMessages)
+    .where(and(eq(schema.friendMessages.recipientId, session.userId), isNull(schema.friendMessages.readAt)));
+
   // Names for invite creators + active-match opponents in one batch.
   const otherIds = new Set<string>();
   for (const i of invites) otherIds.add(i.creatorId);
@@ -233,6 +239,7 @@ export async function GET(request: NextRequest) {
       expiresAt: new Date(r.createdAt.getTime() + INVITE_TTL_MS).toISOString(),
     })),
     qadaaReview,
+    unreadMessages: unread?.n ?? 0,
     activeMatch: active
       ? {
           id: active.id,

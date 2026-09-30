@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, or, desc, inArray } from "drizzle-orm";
+import { eq, and, or, desc, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -52,6 +52,71 @@ export async function GET(request: NextRequest) {
   }
 
   const friendId = request.nextUrl.searchParams.get("friend") ?? "";
+
+  // No friend param → conversation list: every accepted friend, their last
+  // message and unread count.
+  if (!friendId) {
+    try {
+      const friendships = await db
+        .select({ friendId: schema.prayerFriends.friendId })
+        .from(schema.prayerFriends)
+        .where(and(eq(schema.prayerFriends.userId, session.userId), eq(schema.prayerFriends.status, "accepted")))
+        .limit(100);
+      if (friendships.length === 0) return NextResponse.json({ conversations: [] });
+      const ids = friendships.map((f) => f.friendId);
+
+      const [names, recent, unreadRows] = await Promise.all([
+        db
+          .select({ id: schema.users.id, firstName: schema.users.firstName, displayName: schema.users.displayName, avatarUrl: schema.users.avatarUrl })
+          .from(schema.users)
+          .where(inArray(schema.users.id, ids)),
+        db
+          .select()
+          .from(schema.friendMessages)
+          .where(or(
+            and(eq(schema.friendMessages.senderId, session.userId), inArray(schema.friendMessages.recipientId, ids)),
+            and(inArray(schema.friendMessages.senderId, ids), eq(schema.friendMessages.recipientId, session.userId)),
+          ))
+          .orderBy(desc(schema.friendMessages.createdAt))
+          .limit(500),
+        db
+          .select({ senderId: schema.friendMessages.senderId, n: sql<number>`count(*)::int` })
+          .from(schema.friendMessages)
+          .where(and(eq(schema.friendMessages.recipientId, session.userId), inArray(schema.friendMessages.senderId, ids), isNull(schema.friendMessages.readAt)))
+          .groupBy(schema.friendMessages.senderId),
+      ]);
+
+      const nameById = new Map(names.map((u) => [u.id, u]));
+      const unreadById = new Map(unreadRows.map((r) => [r.senderId, r.n]));
+      const lastById = new Map<string, typeof recent[number]>();
+      for (const m of recent) {
+        const other = m.senderId === session.userId ? m.recipientId : m.senderId;
+        if (!lastById.has(other)) lastById.set(other, m);
+      }
+
+      const conversations = ids
+        .map((id) => {
+          const u = nameById.get(id);
+          const last = lastById.get(id);
+          return {
+            friendId: id,
+            name: u?.firstName || u?.displayName || "Friend",
+            avatarUrl: u?.avatarUrl ?? null,
+            lastMessage: last ? (last.deletedAt ? "" : last.content) : null,
+            lastAt: last?.createdAt ?? null,
+            lastFromMe: last?.senderId === session.userId,
+            unread: unreadById.get(id) ?? 0,
+          };
+        })
+        .sort((a, b) => new Date(b.lastAt ?? 0).getTime() - new Date(a.lastAt ?? 0).getTime());
+
+      return NextResponse.json({ conversations });
+    } catch (err) {
+      logError(err, { route: "messages/list" });
+      return NextResponse.json({ error: "Could not load conversations." }, { status: 500 });
+    }
+  }
+
   if (!/^[0-9a-f-]{36}$/i.test(friendId)) {
     return NextResponse.json({ error: "Invalid friend." }, { status: 400 });
   }

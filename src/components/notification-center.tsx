@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Bell, Swords, Megaphone, X, Clock, UserPlus, UserMinus, HandHeart, BellRing, ChevronDown, CalendarClock, MessageCircle, Swords as SwordsIcon } from "lucide-react";
 import { useInbox, refreshInbox, type Inbox } from "@/lib/inbox";
@@ -208,6 +209,13 @@ export function NotificationTray() {
           {inbox.qadaaReview && <QadaaReviewCard review={inbox.qadaaReview} />}
           {shownNotifs.map((n) => (
             <ToastCard key={n.id} icon={typeIcon(n.type)} title={n.title} sub={n.body ?? undefined}>
+              {n.type === "message" && (
+                <Link href="/messages" onClick={() => void ack(n.id)}
+                  className="flex h-8 shrink-0 items-center rounded-lg border px-2.5 text-[11px] font-semibold transition-colors enabled:hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                  Open
+                </Link>
+              )}
               <ToastBtn solid disabled={busy === `ack-${n.id}`} onClick={() => void ack(n.id)}>Got it</ToastBtn>
             </ToastCard>
           ))}
