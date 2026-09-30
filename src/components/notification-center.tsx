@@ -155,7 +155,7 @@ export function NotificationTray() {
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(0);
 
-  const needsClock = inbox.gameInvites.length > 0 || inbox.friendRequests.length > 0;
+  const needsClock = inbox.gameInvites.length > 0 || inbox.friendRequests.length > 0 || inbox.outgoingInvites.length > 0;
   useEffect(() => {
     if (!needsClock) return;
     setNow(Date.now()); // eslint-disable-line react-hooks/set-state-in-effect -- seed countdown clock
@@ -189,7 +189,13 @@ export function NotificationTray() {
       if (res.ok && accept) router.push(`${g.game === "mutashabih" ? "/mutashabihat" : "/quran"}?match=${g.id}`);
     });
 
+  const cancelInvite = (id: string) =>
+    act(`cancel-${id}`, async () => {
+      await fetch(`/api/quran/match/${id}/cancel`, { method: "POST" });
+    });
+
   const visibleInvites = inbox.gameInvites.filter((g) => g.id !== openMatch && new Date(g.expiresAt).getTime() > now);
+  const visibleOutgoing = inbox.outgoingInvites.filter((g) => new Date(g.expiresAt).getTime() > now);
   const onGamePage = pathname === "/quran" || pathname === "/mutashabihat";
   // Inside the messenger, incoming "sent you a message" toasts would just
   // echo what the thread already shows — hide them there.
@@ -199,7 +205,7 @@ export function NotificationTray() {
   const shownNotifs = inbox.notifications.slice(0, 3);
   const hiddenNotifs = inbox.notifications.length - shownNotifs.length;
   const shown = onMessages ? shownNotifs.filter((n) => n.type !== "message") : shownNotifs;
-  const toastCount = shown.length + inbox.friendRequests.length + visibleInvites.length + (inbox.qadaaReview ? 1 : 0);
+  const toastCount = shown.length + inbox.friendRequests.length + visibleInvites.length + visibleOutgoing.length + (inbox.qadaaReview ? 1 : 0);
 
   return (
     <>
@@ -264,6 +270,12 @@ export function NotificationTray() {
               </ToastCard>
             );
           })}
+
+          {visibleOutgoing.map((g) => (
+            <OutgoingInviteCard key={g.id} inv={g} now={now} busy={busy === `cancel-${g.id}`}
+              accepted={inbox.activeMatch?.id === g.id}
+              onCancel={() => void cancelInvite(g.id)} />
+          ))}
         </div>,
         document.body,
       )}
@@ -358,6 +370,58 @@ function QadaaReviewCard({ review }: { review: NonNullable<Inbox["qadaaReview"]>
         </div>
       )}
     </div>
+  );
+}
+
+/* ── Sender-side challenge card — persistent while the invite is pending.
+     Minimizes to a small square, expands again on tap, and can be cancelled
+     (which also clears the opponent's card on their next inbox poll). ── */
+function OutgoingInviteCard({ inv, now, busy, accepted, onCancel }: {
+  inv: Inbox["outgoingInvites"][number];
+  now: number;
+  busy: boolean;
+  accepted: boolean;
+  onCancel: () => void;
+}) {
+  const router = useRouter();
+  const [min, setMin] = useState(false);
+  const secs = now ? Math.max(0, Math.ceil((new Date(inv.expiresAt).getTime() - now) / 1000)) : 0;
+  const clock = now ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}` : "…";
+  const gameLabel = inv.game === "mutashabih" ? "Mutashabih" : "AyaTrace";
+  const href = `${inv.game === "mutashabih" ? "/mutashabihat" : "/quran"}?match=${inv.id}`;
+
+  if (min) {
+    return (
+      <button
+        type="button"
+        onClick={() => setMin(false)}
+        aria-label={`Expand challenge to ${inv.to} — ${clock} left`}
+        className="ml-auto flex h-10 w-10 flex-col items-center justify-center rounded-xl border shadow-lg backdrop-blur-md transition-colors hover:bg-[var(--color-paper-2)]"
+        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 97%, transparent)" }}
+      >
+        <Swords className="h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />
+        <span className="text-[8px] font-bold tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{clock}</span>
+      </button>
+    );
+  }
+
+  return (
+    <ToastCard icon={<Swords className="h-4 w-4" style={{ color: "var(--color-accent)" }} />}
+      title={accepted ? `${inv.to} accepted!` : `Waiting for ${inv.to}`}
+      sub={`${gameLabel} · ${DIFF_LABEL[inv.difficulty] ?? inv.difficulty} · ${accepted ? "match is live" : `${clock} left`}`}>
+      {accepted ? (
+        <ToastBtn solid onClick={() => router.push(href)}>Enter</ToastBtn>
+      ) : (
+        <>
+          <ToastBtn onClick={onCancel} disabled={busy}>{busy ? "…" : "Cancel"}</ToastBtn>
+          <button type="button" onClick={() => setMin(true)} aria-label="Minimize"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors enabled:hover:bg-[var(--color-paper-2)]"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        </>
+      )}
+    </ToastCard>
   );
 }
 

@@ -87,6 +87,8 @@ export const users = pgTable('users', {
   // Profile photo — a tiny client-downscaled image stored as a data: URL
   // (128px webp ≈ 6KB). Shown to friends; no separate object storage needed.
   avatarUrl: text('avatar_url'),
+  // Nav/tool tabs the user chose to hide (keys: 'messages', tool hrefs like '/qibla').
+  hiddenTabs: text('hidden_tabs').array(),
   // Scheduled account deletion — non-null means the account will be fully
   // deleted 5h after this instant unless the user cancels first.
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),

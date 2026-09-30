@@ -159,7 +159,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         }}
         aria-label="Mobile navigation"
       >
-        {navItems.map((item) => (
+        {navItems.slice(0, 2).map((item) => (
+          <MobileNavItem key={item.href} {...item} />
+        ))}
+        {/* Center action — the app's heartbeat: check in for the current salah */}
+        <Link
+          href="/prayer"
+          className="flex min-w-0 flex-1 flex-col items-center"
+          aria-label="Prayer check-in"
+        >
+          <span
+            className="flex h-12 w-12 -translate-y-2 items-center justify-center rounded-full shadow-lg"
+            style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+          >
+            <Flame className="h-6 w-6" />
+          </span>
+        </Link>
+        {navItems.slice(2).map((item) => (
           <MobileNavItem key={item.href} {...item} />
         ))}
         <MessagesNavItem mobile />

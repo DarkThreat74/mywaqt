@@ -8,6 +8,7 @@ import { SURAHS } from "@/lib/content/quran";
 import MutashabihMatchView from "./MutashabihMatchView";
 import FriendPicker from "@/components/friend-picker";
 import { MatchHistory } from "@/components/match-history";
+import { refreshInbox } from "@/lib/inbox";
 import {
   tailOf, distinctSurahs, distinctTails,
   type MutashabihFamily as Family,
@@ -198,7 +199,9 @@ export default function MutashabihClient() {
         <p className="mt-5 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
           Only fragments that repeat 2–7 times in the Quran — the ones a hafiz can actually hold.
         </p>
-        <ChallengePanel onMatch={(id) => { setMatchId(id); router.replace(`/mutashabihat?match=${id}`); }} />
+        {/* Sending a challenge surfaces the global tray card instead of
+            stranding you on a waiting screen. */}
+        <ChallengePanel onMatch={() => refreshInbox()} />
         <div className="mt-4"><MatchHistory /></div>
       </Shell>
     );

@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   // Abandon matches idle >10min so they can't pin the return pill forever.
   await expireStaleMatches();
 
-  const [notifs, recent, friendReqs, invites, actives] = await Promise.all([
+  const [notifs, recent, friendReqs, invites, outgoing, actives] = await Promise.all([
     db
       .select()
       .from(schema.appNotifications)
@@ -93,6 +93,27 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           eq(schema.quranMatches.opponentId, session.userId),
+          eq(schema.quranMatches.status, "pending"),
+          gt(schema.quranMatches.createdAt, new Date(now - INVITE_TTL_MS)),
+        ),
+      )
+      .limit(5),
+
+    // Challenges I SENT that are still awaiting an answer — powers the
+    // persistent sender-side card (minimizable, cancellable).
+    db
+      .select({
+        id: schema.quranMatches.id,
+        opponentId: schema.quranMatches.opponentId,
+        game: schema.quranMatches.game,
+        difficulty: schema.quranMatches.difficulty,
+        rounds: schema.quranMatches.rounds,
+        createdAt: schema.quranMatches.createdAt,
+      })
+      .from(schema.quranMatches)
+      .where(
+        and(
+          eq(schema.quranMatches.creatorId, session.userId),
           eq(schema.quranMatches.status, "pending"),
           gt(schema.quranMatches.createdAt, new Date(now - INVITE_TTL_MS)),
         ),
@@ -196,6 +217,7 @@ export async function GET(request: NextRequest) {
   // Names for invite creators + active-match opponents in one batch.
   const otherIds = new Set<string>();
   for (const i of invites) otherIds.add(i.creatorId);
+  for (const o of outgoing) otherIds.add(o.opponentId);
   for (const a of actives) otherIds.add(a.creatorId === session.userId ? a.opponentId : a.creatorId);
   const names = otherIds.size
     ? await db
@@ -233,6 +255,14 @@ export async function GET(request: NextRequest) {
     gameInvites: invites.map((r) => ({
       id: r.id,
       from: nameOf.get(r.creatorId) ?? "A friend",
+      game: r.game,
+      difficulty: r.difficulty,
+      rounds: r.rounds,
+      expiresAt: new Date(r.createdAt.getTime() + INVITE_TTL_MS).toISOString(),
+    })),
+    outgoingInvites: outgoing.map((r) => ({
+      id: r.id,
+      to: nameOf.get(r.opponentId) ?? "A friend",
       game: r.game,
       difficulty: r.difficulty,
       rounds: r.rounds,

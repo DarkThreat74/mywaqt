@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2, Headphones } from "lucide-react";
+import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2, Headphones, LayoutGrid } from "lucide-react";
+import { HIDEABLE_TABS } from "@/lib/nav-tabs";
+import { useHiddenTabs, refreshNavPrefs } from "@/lib/nav-prefs";
 import { invalidateApiCache, clearApiCache } from "@/lib/sw-helpers";
 import { isNativeApp, isIOS as isIOSDevice } from "@/lib/native-bridge";
 import { clearOfflineCache } from "@/lib/offline/db";
@@ -191,6 +193,57 @@ function FunFactToggle() {
           style={{ left: !disabled ? "18px" : "2px" }}
         />
       </button>
+    </div>
+  );
+}
+
+// Navigation visibility — toggle which secondary tabs/tools appear.
+// The four mains (Calendar, Prayer, Today, Settings) are fixed.
+function NavTabsEditor() {
+  const hidden = useHiddenTabs();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function toggle(key: string) {
+    if (busy) return;
+    setBusy(key);
+    const next = new Set(hidden);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    try {
+      const res = await fetch("/api/settings/tabs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hiddenTabs: [...next] }),
+      });
+      if (res.ok) refreshNavPrefs();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div>
+      <p className="mb-3 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+        Shown by default: Calendar, Prayer, Today, Settings. Toggle the rest — hidden tabs still work if you open them directly.
+      </p>
+      {HIDEABLE_TABS.map((tab) => {
+        const shown = !hidden.has(tab.key);
+        return (
+          <div key={tab.key} className="mb-2 flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+            <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>{tab.label}</p>
+            <button
+              onClick={() => toggle(tab.key)}
+              disabled={busy === tab.key}
+              className="relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50"
+              style={{ backgroundColor: shown ? "var(--color-accent)" : "var(--color-paper-3)" }}
+              aria-label={`Toggle ${tab.label}`}
+              aria-pressed={shown}
+            >
+              <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform" style={{ left: shown ? "18px" : "2px" }} />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1526,6 +1579,14 @@ export default function SettingsClient({
               </span>
             </button>
           </div>
+        </CollapsibleSection>
+
+        {/* ── Navigation: show/hide secondary tabs ── */}
+        <CollapsibleSection
+          icon={<LayoutGrid className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
+          title="Navigation"
+        >
+          <NavTabsEditor />
         </CollapsibleSection>
 
         {/* ── Profile: Name + Prayer Code ── */}

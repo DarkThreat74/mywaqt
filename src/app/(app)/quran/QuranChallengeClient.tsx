@@ -11,6 +11,7 @@ import {
 import MatchView from "./MatchView";
 import FriendPicker from "@/components/friend-picker";
 import { MatchHistory } from "@/components/match-history";
+import { refreshInbox } from "@/lib/inbox";
 
 type Difficulty = "easy" | "medium" | "advanced" | "elite";
 
@@ -286,7 +287,9 @@ export default function QuranChallengeClient() {
             </button>
           ))}
         </div>
-        <ChallengePanel onMatch={(id) => { setMatchId(id); router.replace(`/quran?match=${id}`); }} />
+        {/* Sending a challenge no longer strands you on a waiting screen —
+            the global tray card tracks it (countdown, minimize, cancel). */}
+        <ChallengePanel onMatch={() => refreshInbox()} />
         <div className="mt-4"><MatchHistory /></div>
         <p className="mt-6 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
           Fragments on Medium/Elite are verified unique — no other ayah in the Quran contains them.

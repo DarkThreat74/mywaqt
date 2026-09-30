@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { X, LayoutGrid } from "lucide-react";
+import { useHiddenTabs } from "@/lib/nav-prefs";
 
 /**
  * Tool picker — pictorial tiles, not a numbered list. Each tool carries its
@@ -145,6 +146,10 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
   const [mounted, setMounted] = useState(false);
   const [closing, setClosing] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const hiddenTabs = useHiddenTabs();
+  const sections = SECTIONS
+    .map((s) => ({ ...s, tools: s.tools.filter((t) => !hiddenTabs.has(t.href)) }))
+    .filter((s) => s.tools.length > 0);
 
   // Mount guard for portal (document.body doesn't exist during SSR)
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -270,7 +275,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
             </div>
 
             {/* Sections of pictorial tiles */}
-            {SECTIONS.map((section) => (
+            {sections.map((section) => (
               <div key={section.title} className="px-5 pb-4 pt-2">
                 <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
                   {section.title}

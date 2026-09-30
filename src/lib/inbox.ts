@@ -24,12 +24,22 @@ export type InboxGameInvite = {
   rounds: number;
   expiresAt: string;
 };
+export type InboxOutgoingInvite = {
+  id: string;
+  to: string;
+  game: string;
+  difficulty: string;
+  rounds: number;
+  expiresAt: string;
+};
 export type Inbox = {
   notifications: InboxNotification[];
   /** Last 24h of notifications, acked or not — the bell's history list. */
   recent: (InboxNotification & { acked: boolean })[];
   friendRequests: InboxFriendRequest[];
   gameInvites: InboxGameInvite[];
+  /** Challenges I sent that are still awaiting an answer. */
+  outgoingInvites: InboxOutgoingInvite[];
   /** Sunday-after-Fajr weekly review of missed prayers — null unless due. */
   qadaaReview: {
     count: number;
@@ -40,7 +50,7 @@ export type Inbox = {
   activeMatch: { id: string; game: string; opponentName: string } | null;
 };
 
-const EMPTY: Inbox = { notifications: [], recent: [], friendRequests: [], gameInvites: [], qadaaReview: null, unreadMessages: 0, activeMatch: null };
+const EMPTY: Inbox = { notifications: [], recent: [], friendRequests: [], gameInvites: [], outgoingInvites: [], qadaaReview: null, unreadMessages: 0, activeMatch: null };
 const POLL_MS = 12_000;
 
 let snapshot: Inbox = EMPTY;

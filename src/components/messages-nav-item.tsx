@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { MessageCircle } from "lucide-react";
 import { useInbox } from "@/lib/inbox";
+import { useHiddenTabs } from "@/lib/nav-prefs";
 
 /* Messages nav link with a live unread badge (shared inbox poll). */
 export default function MessagesNavItem({ mobile = false }: { mobile?: boolean }) {
   const inbox = useInbox();
+  const hiddenTabs = useHiddenTabs();
   const unread = inbox.unreadMessages ?? 0;
   const badge = unread > 0 && (
     <span
@@ -17,6 +19,8 @@ export default function MessagesNavItem({ mobile = false }: { mobile?: boolean }
       {unread > 99 ? "99+" : unread}
     </span>
   );
+
+  if (hiddenTabs.has("messages")) return null;
 
   if (mobile) {
     return (
