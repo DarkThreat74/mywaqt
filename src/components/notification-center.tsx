@@ -323,12 +323,12 @@ function MatchPill({ inbox, hidden }: { inbox: Inbox; hidden: boolean }) {
             Match vs {m.opponentName}
           </p>
           <button type="button" onClick={back}
-            className="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+            className="shrink-0 rounded-full px-3.5 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
             style={{ backgroundColor: "var(--color-accent)" }}>
             Finish it
           </button>
           <button type="button" onClick={() => setConfirming(true)} aria-label="Surrender match"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-muted)" }}>
             <X className="h-4 w-4" />
           </button>

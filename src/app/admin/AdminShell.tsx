@@ -71,11 +71,14 @@ export function AdminShell({
     const apply = () => applyAdminTheme(readAdminTheme());
     apply();
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    mq.addEventListener("change", apply);
+    // Safari <14 and old Android WebViews only have addListener/removeListener.
+    if (mq.addEventListener) mq.addEventListener("change", apply);
+    else mq.addListener(apply);
     window.addEventListener("storage", apply);
     window.addEventListener("waqt:admin-theme", apply);
     return () => {
-      mq.removeEventListener("change", apply);
+      if (mq.removeEventListener) mq.removeEventListener("change", apply);
+      else mq.removeListener(apply);
       window.removeEventListener("storage", apply);
       window.removeEventListener("waqt:admin-theme", apply);
       restoreAppTheme();

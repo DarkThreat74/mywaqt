@@ -73,12 +73,18 @@ function subscribe(fn: () => void) {
 export function useInbox(): Inbox {
   const inbox = useSyncExternalStore(subscribe, () => snapshot, () => EMPTY);
 
+  const tick = () => { if (!document.hidden) void fetchInbox(); };
   useEffect(() => {
     pollers += 1;
     if (pollers === 1) {
       void fetchInbox();
-      timer = setInterval(() => void fetchInbox(), POLL_MS);
+      timer = setInterval(tick, POLL_MS);
+      // iOS suspends intervals in background and restores via bfcache
+      // (pageshow, no visibilitychange/focus) — refetch on every resume
+      // path so toasts/pill can never show a stale, already-dead invite.
       window.addEventListener("focus", fetchInbox);
+      window.addEventListener("pageshow", fetchInbox);
+      document.addEventListener("visibilitychange", tick);
     }
     return () => {
       pollers -= 1;
@@ -86,6 +92,8 @@ export function useInbox(): Inbox {
         clearInterval(timer);
         timer = null;
         window.removeEventListener("focus", fetchInbox);
+        window.removeEventListener("pageshow", fetchInbox);
+        document.removeEventListener("visibilitychange", tick);
       }
     };
   }, []);

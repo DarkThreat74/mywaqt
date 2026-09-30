@@ -83,7 +83,18 @@ export default function MutashabihMatchView({
     }
     void first();
     const t = setInterval(() => { if (!document.hidden) void poll(); }, POLL_MS);
-    return () => { live = false; clearInterval(t); };
+    // iOS suspends timers in background and restores pages via bfcache
+    // (pageshow fires without visibilitychange/focus) — force a catch-up
+    // poll on every resume path so a frozen screen can't linger.
+    const onVisible = () => { if (!document.hidden) void poll(); };
+    window.addEventListener("pageshow", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      live = false;
+      clearInterval(t);
+      window.removeEventListener("pageshow", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [matchId, poll]);
 
   /* ── Ready / round transitions driven by polled state ── */
