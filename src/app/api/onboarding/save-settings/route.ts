@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
 
   // Validate madhab
   const validMadhabs = ["standard", "hanafi"];
-  const madhabVal = madhab && validMadhabs.includes(madhab) ? madhab : "standard";
+  const madhabVal = madhab && validMadhabs.includes(madhab) ? madhab : "hanafi";
 
   // Gender is optional (legacy flows) but restricted to two values when present
   const genderVal = gender === "male" || gender === "female" ? gender : null;

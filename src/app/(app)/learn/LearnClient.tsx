@@ -62,7 +62,7 @@ function clientSideKeywordMatch(query: string): string[] {
     .map((s) => s.id);
 }
 
-export default function LearnClient({ madhab = "standard" }: { madhab?: Madhab }) {
+export default function LearnClient({ madhab = "hanafi" }: { madhab?: Madhab }) {
   const [tab, setTab] = useState<Tab>("search");
 
   return (

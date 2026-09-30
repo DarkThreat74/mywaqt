@@ -24,12 +24,12 @@ export default async function LearnPage() {
       .where(eq(schema.prayerSettings.userId, session.userId))
       .limit(1);
   } catch {
-    // DB error — default to standard madhab
+    // DB error — default to hanafi madhab
   }
 
-  const madhab = (settings?.madhab === "hanafi" ? "hanafi" : "standard") as
-    | "hanafi"
-    | "standard";
+  const madhab = (settings?.madhab === "standard" ? "standard" : "hanafi") as
+    | "standard"
+    | "hanafi";
 
   return <LearnClient madhab={madhab} />;
 }

@@ -83,7 +83,7 @@ export default function OnboardingWizard() {
   const [locationStatus, setLocationStatus] = useState<"idle" | "getting" | "done">("idle");
 
   // Madhab state
-  const [madhab, setMadhab] = useState<string>("standard");
+  const [madhab, setMadhab] = useState<string>("hanafi");
 
   // Notification state
   const [earlyMid, setEarlyMid] = useState("push");

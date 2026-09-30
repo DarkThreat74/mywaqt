@@ -363,7 +363,7 @@ export const prayerSettings = pgTable('prayer_settings', {
   // AlAdhan method ID, 2 = ISNA
   calculationMethod: integer('calculation_method').default(2).notNull(),
   // 'standard' or 'hanafi' — affects Asr calculation
-  madhab: text('madhab').default('standard'),
+  madhab: text('madhab').default('hanafi'),
   // ── Friends visibility controls (privacy-preserving defaults) ──
   // Streak is visible by default; today's detailed per-prayer status and
   // sunnah logs are hidden by default. Users opt in to share more.

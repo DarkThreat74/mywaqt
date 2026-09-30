@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ...cached,
-    madhab: settings?.madhab || "standard",
+    madhab: settings?.madhab || "hanafi",
     timezone: settings?.timezone || null,
     locationSet: true,
     masjidName: settings?.masjidName || null,

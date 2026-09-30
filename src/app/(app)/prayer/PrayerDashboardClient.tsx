@@ -262,7 +262,7 @@ export default function PrayerDashboard() {
   const [todayLogs, setTodayLogs] = useState<TodayLog[]>([]);
   const [todaySunnahs, setTodaySunnahs] = useState<string[]>([]);
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
-  const [madhab, setMadhab] = useState<string>("standard");
+  const [madhab, setMadhab] = useState<string>("hanafi");
   const [sunnahError, setSunnahError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [isOnline, setIsOnline] = useState(true);

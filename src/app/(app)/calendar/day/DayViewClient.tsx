@@ -247,7 +247,7 @@ export default function DayViewClient({ date }: { date: string }) {
     (p) => date >= p.startDate && (!p.endDate || date <= p.endDate),
   );
   const [userTimezone, setUserTimezone] = useState("America/Chicago");
-  const [userMadhab, setUserMadhab] = useState<string>("standard");
+  const [userMadhab, setUserMadhab] = useState<string>("hanafi");
   const [locationSet, setLocationSet] = useState(true);
   const [dayHomeworkCount, setDayHomeworkCount] = useState<number>(0);
 
@@ -259,7 +259,7 @@ export default function DayViewClient({ date }: { date: string }) {
       // Defer setState to avoid cascading renders
       Promise.resolve().then(() => {
         setUserTimezone(cached.timezone);
-        setUserMadhab(cached.madhab || "standard");
+        setUserMadhab(cached.madhab || "hanafi");
       });
     }
   }, []);

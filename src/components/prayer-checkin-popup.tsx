@@ -26,7 +26,7 @@ export default function PrayerCheckinPopup({
   prayerLabel,
   date,
   timezone,
-  madhab = "standard",
+  madhab = "hanafi",
   timings,
   onClose,
   onCheckedIn,

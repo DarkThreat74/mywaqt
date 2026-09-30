@@ -444,7 +444,7 @@ export async function GET(request: NextRequest) {
       masjidPct: totalPrayed > 0 ? Math.round((totalMasjid / totalPrayed) * 100) : 0,
       perPrayer,
       timezone,
-      madhab: settings?.madhab || "standard",
+      madhab: settings?.madhab || "hanafi",
       thisWeekPrayed,
       thisMonthPrayed,
       lastPrayedDate,
