@@ -64,7 +64,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Hayd tracking is not enabled for this account." }, { status: 403 });
   }
 
-  const today = new Date().toLocaleDateString("en-CA");
+  // Default date must be the USER's local today — without the timezone the
+  // server runs in UTC and an evening "start"/"end" writes tomorrow's date.
+  const [tzRow] = await db
+    .select({ timezone: schema.prayerSettings.timezone })
+    .from(schema.prayerSettings)
+    .where(eq(schema.prayerSettings.userId, session.userId))
+    .limit(1);
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: tzRow?.timezone || "America/Chicago",
+  });
   const date = body.date && DATE_RE.test(body.date) ? body.date : today;
 
   try {

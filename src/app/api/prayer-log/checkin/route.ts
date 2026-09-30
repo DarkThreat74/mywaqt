@@ -39,9 +39,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Date and prayer name are required." }, { status: 400 });
   }
 
-  // Validate date format (YYYY-MM-DD)
-  const dateCheck = new Date(date + "T00:00:00");
-  if (isNaN(dateCheck.getTime())) {
+  // Validate strict YYYY-MM-DD — `new Date()` accepts "2024-1-1" too, which
+  // would store a row whose date never matches the zero-padded format every
+  // query uses (a permanently orphaned prayer log).
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(date + "T00:00:00").getTime())) {
     return NextResponse.json({ error: "Invalid date format." }, { status: 400 });
   }
 

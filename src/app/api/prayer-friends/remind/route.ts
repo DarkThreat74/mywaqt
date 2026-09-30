@@ -129,17 +129,24 @@ export async function POST(request: NextRequest) {
 
     // Only the prayer whose window is OPEN right now — computed from the
     // friend's cached times on THEIR local clock, same rule the UI uses.
-    const [times] = await db
+    // Yesterday's row is fetched too: between midnight and Fajr the open
+    // salah is *yesterday's* Isha — its log/reminder rows carry yesterday's
+    // date, so validating against today's row would dead-end the nudge.
+    const yesterdayStr = (() => {
+      const [y, m, d] = todayStr.split("-").map(Number);
+      return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+    })();
+    const timesRows = await db
       .select()
       .from(schema.prayerTimesCache)
       .where(
         and(
           eq(schema.prayerTimesCache.userId, friendId),
-          eq(schema.prayerTimesCache.date, todayStr),
+          inArray(schema.prayerTimesCache.date, [todayStr, yesterdayStr]),
         ),
-      )
-      .limit(1);
-    if (!times) {
+      );
+    const timesToday = timesRows.find((r) => r.date === todayStr);
+    if (!timesToday) {
       return NextResponse.json(
         { error: "Their prayer times aren't synced — try again later." },
         { status: 409 },
@@ -155,6 +162,19 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: "Couldn't read their timezone." }, { status: 409 });
     }
+    // Before Fajr the open window is yesterday's Isha — switch the effective
+    // date/times so the log check, the reminder row, and the dua reply all
+    // land on the date that salah actually belongs to.
+    const beforeFajr = (toMinutes(timesToday.fajr) ?? 0) > localMins;
+    const timesYesterday = timesRows.find((r) => r.date === yesterdayStr);
+    if (beforeFajr && !timesYesterday) {
+      return NextResponse.json(
+        { error: "Their prayer times aren't synced — try again later." },
+        { status: 409 },
+      );
+    }
+    const times = beforeFajr ? timesYesterday! : timesToday;
+    const dateStr = beforeFajr ? yesterdayStr : todayStr;
     const live = currentPrayer(times, localMins);
     if (prayerName !== live) {
       return NextResponse.json(
@@ -170,7 +190,7 @@ export async function POST(request: NextRequest) {
       .where(
         and(
           eq(schema.prayerLog.userId, friendId),
-          eq(schema.prayerLog.date, todayStr),
+          eq(schema.prayerLog.date, dateStr),
           eq(schema.prayerLog.prayerName, prayerName as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"),
         ),
       )
@@ -203,7 +223,7 @@ export async function POST(request: NextRequest) {
     const keys = and(
       eq(schema.prayerReminders.senderId, session.userId),
       eq(schema.prayerReminders.recipientId, friendId),
-      eq(schema.prayerReminders.date, todayStr),
+      eq(schema.prayerReminders.date, dateStr),
       eq(schema.prayerReminders.prayerName, prayerName as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"),
     );
     // 3 nudges max per salah per day, ≥2min apart — the unique row's
@@ -231,7 +251,7 @@ export async function POST(request: NextRequest) {
         .values({
           senderId: session.userId,
           recipientId: friendId,
-          date: todayStr,
+          date: dateStr,
           prayerName: prayerName as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha",
         })
         .onConflictDoNothing()

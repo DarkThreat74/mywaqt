@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v53";
+const CACHE_VERSION = "waqt-v54";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -461,7 +461,15 @@ self.addEventListener("fetch", (event) => {
           const response = await fetch(request);
           // Await before responding — the client refetches right after this,
           // so the stale entry must be gone first.
-          if (response.ok) await bustApiCache(url.pathname);
+          if (response.ok) {
+            await bustApiCache(url.pathname);
+            // A prayer-log write also changes derived state cached under other
+            // prefixes — the qadaa counter and weekly analytics would otherwise
+            // show the pre-check-in numbers for up to their TTL.
+            if (url.pathname.startsWith("/api/prayer-log")) {
+              await bustApiCache("/api/qadaa");
+            }
+          }
           return response;
         } catch {
           // Offline — store in outbox for later sync

@@ -25,7 +25,9 @@ function getRangeStart(range: Range, timezone: string): string {
     const dayOfWeek = localMidnight.getDay(); // 0 = Sunday
     const sunday = new Date(localMidnight);
     sunday.setDate(sunday.getDate() - dayOfWeek);
-    return sunday.toISOString().split("T")[0];
+    // Format manually — toISOString() would shift the date by the server's
+    // own UTC offset (harmless on Vercel/UTC, wrong anywhere else).
+    return `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, "0")}-${String(sunday.getDate()).padStart(2, "0")}`;
   }
 
   if (range === "monthly") {
