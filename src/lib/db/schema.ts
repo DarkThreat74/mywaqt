@@ -154,6 +154,29 @@ export const prayerReminders = pgTable(
   ],
 );
 
+// ─── Friend Messages (1:1 chat between accepted prayer friends) ───
+// No separate conversations table — a thread is just the filtered pair.
+// Authorization is enforced in the API (accepted prayer_friends row required).
+
+export const friendMessages = pgTable(
+  'friend_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    senderId: uuid('sender_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    recipientId: uuid('recipient_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    replyToId: uuid('reply_to_id'),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('friend_messages_pair_idx').on(table.recipientId, table.senderId, table.createdAt),
+    index('friend_messages_recipient_unread_idx').on(table.recipientId, table.readAt),
+  ],
+);
+
 // ─── Prayer Cheers (one-tap "mashaAllah" to a friend, deduped per day) ───
 
 export const prayerCheers = pgTable(

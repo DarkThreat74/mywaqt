@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown } from "lucide-react";
+import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -2571,6 +2571,15 @@ export default function PrayerDashboard() {
                             </div>
                           )}
                         </div>
+                        <Link
+                          href={`/messages/${friend.id}`}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
+                          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                          aria-label={`Message ${friend.firstName || friend.displayName || "friend"}`}
+                          title="Message"
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" />
+                        </Link>
                         <Link
                           href={`/profile/${friend.id}`}
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
