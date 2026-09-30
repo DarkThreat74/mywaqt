@@ -63,9 +63,13 @@ export function NotificationBell() {
         )}
       </button>
 
-      {open && (
+      {open && (() => {
+        // Today's history — acked rows dimmed below the live ones.
+        const liveIds = new Set(inbox.notifications.map((n) => n.id));
+        const seenToday = (inbox.recent ?? []).filter((n) => n.acked && !liveIds.has(n.id));
+        return (
         <div
-          className="absolute right-0 top-11 z-[90] w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border shadow-xl"
+          className="absolute right-0 top-11 z-[90] w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border shadow-xl max-lg:fixed max-lg:left-1/2 max-lg:right-auto max-lg:top-[calc(env(safe-area-inset-top)+3.25rem)] max-lg:w-[calc(100vw-1.5rem)] max-lg:max-w-sm max-lg:-translate-x-1/2"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
           role="dialog"
           aria-label="Notifications"
@@ -73,8 +77,8 @@ export function NotificationBell() {
           <p className="border-b px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
             Notifications
           </p>
-          <div className="max-h-80 overflow-y-auto">
-            {count === 0 && (
+          <div className="max-h-[60vh] overflow-y-auto overscroll-contain">
+            {count === 0 && seenToday.length === 0 && (
               <p className="px-4 py-6 text-center text-sm" style={{ color: "var(--color-ink-muted)" }}>You&apos;re all caught up.</p>
             )}
             {inbox.notifications.map((n) => (
@@ -96,9 +100,22 @@ export function NotificationBell() {
               <PanelRow key={g.id} icon={<Swords className="h-4 w-4" style={{ color: "var(--color-accent)" }} />}
                 title={`${g.from} challenged you`} sub={`${g.game === "mutashabih" ? "Mutashabih" : "AyaTrace"} — answer in the toast`} time={g.expiresAt} />
             ))}
+            {seenToday.length > 0 && (
+              <>
+                <p className="border-t px-4 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wide" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                  Earlier today
+                </p>
+                {seenToday.map((n) => (
+                  <div key={n.id} className="opacity-60">
+                    <PanelRow icon={typeIcon(n.type)} title={n.title} sub={n.body ?? undefined} time={n.createdAt} />
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -180,8 +197,9 @@ export function NotificationTray() {
 
   return (
     <>
-      {/* Toast stack — top of screen, persists until acted on */}
-      {toastCount > 0 && (
+      {/* Toast stack — portaled to body so no ancestor transform/blur can
+          skew the fixed centering; persists until acted on */}
+      {toastCount > 0 && createPortal(
         <div
           className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[85] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 lg:top-4"
           style={{ paddingLeft: "calc(0.75rem + env(safe-area-inset-left))", paddingRight: "calc(0.75rem + env(safe-area-inset-right))" }}
@@ -232,7 +250,8 @@ export function NotificationTray() {
               </ToastCard>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Return-to-match pill */}

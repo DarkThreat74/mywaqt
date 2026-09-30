@@ -26,12 +26,14 @@ export type InboxGameInvite = {
 };
 export type Inbox = {
   notifications: InboxNotification[];
+  /** Last 24h of notifications, acked or not — the bell's history list. */
+  recent: (InboxNotification & { acked: boolean })[];
   friendRequests: InboxFriendRequest[];
   gameInvites: InboxGameInvite[];
   activeMatch: { id: string; game: string; opponentName: string } | null;
 };
 
-const EMPTY: Inbox = { notifications: [], friendRequests: [], gameInvites: [], activeMatch: null };
+const EMPTY: Inbox = { notifications: [], recent: [], friendRequests: [], gameInvites: [], activeMatch: null };
 const POLL_MS = 12_000;
 
 let snapshot: Inbox = EMPTY;

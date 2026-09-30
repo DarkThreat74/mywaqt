@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   // Abandon matches idle >10min so they can't pin the return pill forever.
   await expireStaleMatches();
 
-  const [notifs, friendReqs, invites, actives] = await Promise.all([
+  const [notifs, recent, friendReqs, invites, actives] = await Promise.all([
     db
       .select()
       .from(schema.appNotifications)
@@ -38,6 +38,20 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(desc(schema.appNotifications.createdAt))
       .limit(20),
+
+    // Everything from the last 24h — powers the bell's "Today" history,
+    // including rows the user already acknowledged.
+    db
+      .select()
+      .from(schema.appNotifications)
+      .where(
+        and(
+          eq(schema.appNotifications.userId, session.userId),
+          gt(schema.appNotifications.createdAt, new Date(now - 24 * 60 * 60 * 1000)),
+        ),
+      )
+      .orderBy(desc(schema.appNotifications.createdAt))
+      .limit(50),
 
     // Pending friend requests addressed to me — snoozed ones stay hidden
     // until dismissedUntil passes; last 2h of life the snooze option is
@@ -122,6 +136,14 @@ export async function GET(request: NextRequest) {
   const active = actives[0] ?? null;
 
   return NextResponse.json({
+    recent: recent.map((n) => ({
+      id: n.id,
+      type: n.type,
+      title: n.title,
+      body: n.body,
+      createdAt: n.createdAt.toISOString(),
+      acked: n.acknowledgedAt !== null,
+    })),
     notifications: notifs.map((n) => ({
       id: n.id,
       type: n.type,
