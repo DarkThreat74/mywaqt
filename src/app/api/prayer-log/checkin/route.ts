@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
+import { eq, and, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -98,6 +99,50 @@ export async function POST(request: NextRequest) {
     })
     .returning();
 
+  // Nudged prayers: marking a salah that friends reminded about flips those
+  // reminders to answered and tells the client who to dua for. answered_at
+  // is the one-shot guard — re-marks don't re-prompt.
+  let thanksDue: { senderId: string; name: string }[] = [];
+  if (finalStatus === "prayed") {
+    const owed = await db
+      .update(schema.prayerReminders)
+      .set({ answeredAt: new Date() })
+      .where(
+        and(
+          eq(schema.prayerReminders.recipientId, session.userId),
+          eq(schema.prayerReminders.date, date),
+          eq(schema.prayerReminders.prayerName, prayerName),
+          isNull(schema.prayerReminders.answeredAt),
+        ),
+      )
+      .returning({ senderId: schema.prayerReminders.senderId });
+
+    if (owed.length > 0) {
+      const senders = await db
+        .select({ id: schema.users.id, firstName: schema.users.firstName, displayName: schema.users.displayName })
+        .from(schema.users)
+        .where(inArray(schema.users.id, owed.map((r) => r.senderId)));
+      thanksDue = senders.map((s) => ({
+        senderId: s.id,
+        name: s.firstName || s.displayName || "your friend",
+      }));
+
+      // The nudge was answered — clear its lingering toast on their tray.
+      after(async () => {
+        await db
+          .update(schema.appNotifications)
+          .set({ acknowledgedAt: new Date() })
+          .where(
+            and(
+              eq(schema.appNotifications.userId, session.userId),
+              eq(schema.appNotifications.type, "nudge"),
+              isNull(schema.appNotifications.acknowledgedAt),
+            ),
+          );
+      });
+    }
+  }
+
   // If this check-in might have completed the user's day, record it once —
   // first completion drives shared streaks and opt-in friend notifications.
   // 'missed'/'pending' can never newly complete a day, so skip the query.
@@ -113,5 +158,5 @@ export async function POST(request: NextRequest) {
     after(() => acknowledgeQadaaWaterline(session.userId));
   }
 
-  return NextResponse.json(entry, { status: 201 });
+  return NextResponse.json({ ...entry, thanksDue }, { status: 201 });
 }

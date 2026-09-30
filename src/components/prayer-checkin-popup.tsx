@@ -144,6 +144,14 @@ export default function PrayerCheckinPopup({
         const result = data.offline
           ? { status: "prayed", wentToMasjid }
           : { status: data.status, wentToMasjid: data.wentToMasjid };
+        // The friend who nudged you gets thanked — surface the dua prompt.
+        // Offline checkins skip this: the SW replays the POST and the reminder
+        // is stamped answered_at server-side, but there's no live toast then.
+        if (!data.offline && Array.isArray(data.thanksDue) && data.thanksDue.length > 0) {
+          window.dispatchEvent(new CustomEvent("waqt:dua-due", {
+            detail: { senders: data.thanksDue, prayerName: prayer },
+          }));
+        }
         play("check");
         void hapticNotification("success");
         // Only show sunnah step if:

@@ -480,12 +480,29 @@ export default function SettingsClient({
   const [manualIqamah, setManualIqamah] = useState<Record<string, string>>({});
   const [masjidMsg, setMasjidMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Friend "made dua for you" thanks — in-app toast + push, both default on
+  const [duaThanks, setDuaThanks] = useState({ inApp: true, push: true });
+
   useEffect(() => {
     fetch("/api/notifications/prefs")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.perPrayer) setPerPrayer(d.perPrayer); })
+      .then((d) => {
+        if (d?.perPrayer) setPerPrayer(d.perPrayer);
+        if (typeof d?.duaThanksInApp === "boolean" || typeof d?.duaThanksPush === "boolean") {
+          setDuaThanks({ inApp: d.duaThanksInApp !== false, push: d.duaThanksPush !== false });
+        }
+      })
       .catch(() => {});
   }, []);
+
+  function saveDuaThanks(next: { inApp: boolean; push: boolean }) {
+    setDuaThanks(next);
+    fetch("/api/notifications/prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ duaThanksInApp: next.inApp, duaThanksPush: next.push }),
+    }).catch(() => {});
+  }
 
   async function patchPrayerSettings(patch: Record<string, unknown>, okText: string) {
     setPersonalMsg(null);
@@ -2153,6 +2170,30 @@ export default function SettingsClient({
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Friend dua thanks — when someone you nudged prays and sends
+              a dua back, how it reaches you */}
+          <div className="mb-4">
+            <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>When a friend you nudged sends you a dua</p>
+            <div className="space-y-1.5">
+              {(
+                [
+                  ["inApp", "Show in the app (toast + bell)"],
+                  ["push", "Push notification"],
+                ] as const
+              ).map(([k, label]) => (
+                <label key={k} className="flex items-center gap-2 rounded-lg border p-2 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
+                  <input
+                    type="checkbox"
+                    checked={duaThanks[k]}
+                    onChange={(e) => saveDuaThanks({ ...duaThanks, [k]: e.target.checked })}
+                    className="h-4 w-4 accent-[var(--color-accent)]"
+                  />
+                  {label}
+                </label>
+              ))}
             </div>
           </div>
 

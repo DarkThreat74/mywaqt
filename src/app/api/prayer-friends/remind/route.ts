@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, or, inArray, lt } from "drizzle-orm";
+import { eq, and, or, inArray, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -29,6 +29,7 @@ const PRAYER_LABEL: Record<string, string> = {
 //     row's createdAt is the cooldown clock)
 
 const REMIND_COOLDOWN_MS = 2 * 60 * 1000;
+const MAX_NUDGES_PER_SALAH = 3;
 const PRAYER_ORDER = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
 type PrayerName = (typeof PRAYER_ORDER)[number];
 
@@ -205,12 +206,25 @@ export async function POST(request: NextRequest) {
       eq(schema.prayerReminders.date, todayStr),
       eq(schema.prayerReminders.prayerName, prayerName as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"),
     );
+    // 3 nudges max per salah per day, ≥2min apart — the unique row's
+    // createdAt is the cooldown clock and sendCount the cap. The guarded
+    // UPDATE makes racing taps safe: only one request renews the row.
     const [renewed] = await db
       .update(schema.prayerReminders)
-      .set({ createdAt: new Date() })
-      .where(and(keys, lt(schema.prayerReminders.createdAt, new Date(Date.now() - REMIND_COOLDOWN_MS))))
-      .returning({ id: schema.prayerReminders.id });
+      .set({
+        createdAt: new Date(),
+        sendCount: sql`${schema.prayerReminders.sendCount} + 1`,
+      })
+      .where(
+        and(
+          keys,
+          lt(schema.prayerReminders.createdAt, new Date(Date.now() - REMIND_COOLDOWN_MS)),
+          lt(schema.prayerReminders.sendCount, MAX_NUDGES_PER_SALAH),
+        ),
+      )
+      .returning({ id: schema.prayerReminders.id, sendCount: schema.prayerReminders.sendCount });
 
+    let sendCount = 1;
     if (!renewed) {
       const inserted = await db
         .insert(schema.prayerReminders)
@@ -223,11 +237,20 @@ export async function POST(request: NextRequest) {
         .onConflictDoNothing()
         .returning({ id: schema.prayerReminders.id });
       if (inserted.length === 0) {
+        const [existing] = await db
+          .select({ sendCount: schema.prayerReminders.sendCount })
+          .from(schema.prayerReminders)
+          .where(keys)
+          .limit(1);
         return NextResponse.json(
-          { error: "Already nudged — try again in a couple of minutes.", retryAfterSec: REMIND_COOLDOWN_MS / 1000 },
+          existing && existing.sendCount >= MAX_NUDGES_PER_SALAH
+            ? { error: `That's ${MAX_NUDGES_PER_SALAH} nudges for ${PRAYER_LABEL[prayerName]} — they'll see it.` }
+            : { error: "Already nudged — try again in a couple of minutes.", retryAfterSec: REMIND_COOLDOWN_MS / 1000 },
           { status: 429 },
         );
       }
+    } else {
+      sendCount = renewed.sendCount;
     }
     const remindedAt = new Date().toISOString();
 
@@ -239,6 +262,17 @@ export async function POST(request: NextRequest) {
         .where(eq(schema.users.id, session.userId))
         .limit(1);
       const myName = me?.firstName || me?.displayName || "A friend";
+
+      // In-app record of the nudge — this is what lets the platform know the
+      // reminder was actually seen: when they mark the salah, the reminder +
+      // this row turn into the "your friend reminded you — make dua" prompt.
+      await db.insert(schema.appNotifications).values({
+        userId: friendId,
+        type: "nudge",
+        title: `${myName} is reminding you`,
+        body: `${PRAYER_LABEL[prayerName]} is open — time to pray.`,
+      });
+
       const expiredIds: string[] = [];
       for (const sub of subs) {
         const result = await sendPrayerPush(sub, JSON.stringify({
@@ -262,7 +296,7 @@ export async function POST(request: NextRequest) {
       // Push is best-effort — the reminder row is still recorded
     }
 
-    return NextResponse.json({ ok: true, remindedAt });
+    return NextResponse.json({ ok: true, remindedAt, sendCount, nudgesLeft: MAX_NUDGES_PER_SALAH - sendCount });
   } catch (err) {
     logError(err, { route: "prayer-friends/remind" });
     return NextResponse.json({ error: "Could not send reminder." }, { status: 500 });

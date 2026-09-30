@@ -8,7 +8,7 @@ import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName 
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
-import { playNudge } from "@/lib/chime";
+import { useUISFX } from "@/components/uisfx-provider";
 import { getOfflineDB } from "@/lib/offline/db";
 import { upsertSunnahLogToCache, cacheBlob } from "@/lib/offline/cache-writers";
 import MasjidFinder from "@/components/masjid-finder";
@@ -761,6 +761,7 @@ export default function PrayerDashboard() {
 
   const [reminding, setReminding] = useState<Set<string>>(new Set());
   const [nudgeToast, setNudgeToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const { play: playSfx } = useUISFX();
 
   function showNudgeToast(msg: string, ok: boolean) {
     setNudgeToast({ msg, ok });
@@ -771,7 +772,7 @@ export default function PrayerDashboard() {
     const key = `${friendId}:${prayerName}`;
     if (reminding.has(key)) return;
     setReminding((prev) => new Set(prev).add(key));
-    playNudge(); // inside the gesture so iOS unlocks the AudioContext
+    playSfx("send"); // same cue family as the fidget/learn sounds
     const label = prayerName.charAt(0).toUpperCase() + prayerName.slice(1);
     const friendName = friends.find((f) => f.id === friendId)?.displayName || friends.find((f) => f.id === friendId)?.firstName || "your friend";
     try {

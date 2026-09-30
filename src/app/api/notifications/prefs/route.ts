@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     .limit(1);
 
   return NextResponse.json(
-    prefs ?? { prayerEarlyMid: "push", prayerFinal: "push", otherReminders: "push", perPrayer: null },
+    prefs ?? { prayerEarlyMid: "push", prayerFinal: "push", otherReminders: "push", perPrayer: null, duaThanksInApp: true, duaThanksPush: true },
   );
 }
 
@@ -61,7 +61,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  let body: { prayerEarlyMid?: string; prayerFinal?: string; otherReminders?: string; perPrayer?: unknown };
+  let body: { prayerEarlyMid?: string; prayerFinal?: string; otherReminders?: string; perPrayer?: unknown; duaThanksInApp?: unknown; duaThanksPush?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -73,6 +73,8 @@ export async function PATCH(request: NextRequest) {
   if (body.prayerEarlyMid && validGlobal.includes(body.prayerEarlyMid)) updates.prayerEarlyMid = body.prayerEarlyMid;
   if (body.prayerFinal && validGlobal.includes(body.prayerFinal)) updates.prayerFinal = body.prayerFinal;
   if (body.otherReminders && ["push", "none"].includes(body.otherReminders)) updates.otherReminders = body.otherReminders;
+  if (typeof body.duaThanksInApp === "boolean") updates.duaThanksInApp = body.duaThanksInApp;
+  if (typeof body.duaThanksPush === "boolean") updates.duaThanksPush = body.duaThanksPush;
   if (body.perPrayer !== undefined) {
     const clean = sanitizePerPrayer(body.perPrayer);
     if (clean === undefined) {

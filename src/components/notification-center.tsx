@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Bell, Swords, Megaphone, X, Clock, UserPlus, UserMinus, Swords as SwordsIcon } from "lucide-react";
+import { Bell, Swords, Megaphone, X, Clock, UserPlus, UserMinus, HandHeart, BellRing, Swords as SwordsIcon } from "lucide-react";
 import { useInbox, refreshInbox, type Inbox } from "@/lib/inbox";
 
 const DIFF_LABEL: Record<string, string> = { easy: "Easy", medium: "Medium", advanced: "Advanced", elite: "Elite" };
@@ -16,6 +16,8 @@ function typeIcon(type: string) {
     case "friend_accepted": return <UserPlus className={cls} style={style} />;
     case "friend_removed": return <UserMinus className={cls} style={style} />;
     case "match_ended": return <Swords className={cls} style={style} />;
+    case "nudge": return <BellRing className={cls} style={style} />;
+    case "dua_received": return <HandHeart className={cls} style={style} />;
     default: return <Megaphone className={cls} style={style} />;
   }
 }

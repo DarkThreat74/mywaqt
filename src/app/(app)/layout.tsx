@@ -12,6 +12,7 @@ import DeepLinkHandler from "@/components/deep-link-handler";
 import PendingInvite from "@/components/pending-invite";
 import ToolsMenu from "@/components/tools-menu";
 import { NotificationBell, NotificationTray } from "@/components/notification-center";
+import DuaToast from "@/components/dua-toast";
 import FunFactPopup from "@/components/fun-fact-popup";
 import FeedbackWidget from "@/components/feedback-widget";
 import { isFeedbackEnabled } from "@/lib/app-settings";
@@ -170,6 +171,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <DeepLinkHandler />
       <PendingInvite />
       <NotificationTray />
+      <DuaToast />
       <FunFactPopup />
       {(await isFeedbackEnabled()) ? <FeedbackWidget /> : null}
 

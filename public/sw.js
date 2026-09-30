@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v50";
+const CACHE_VERSION = "waqt-v51";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -438,6 +438,9 @@ self.addEventListener("fetch", (event) => {
     // Snoozing a request toast while offline would be silently ignored
     // server-side anyway — let it fail visibly instead.
     !url.pathname.startsWith("/api/prayer-friends/snooze") &&
+    // A dua reply belongs to a live 2-minute toast — queueing it would send
+    // a thank-you the friend never typed in context.
+    !url.pathname.startsWith("/api/prayer-friends/dua") &&
     // Quran 1v1 match writes are time-sensitive — rounds resolve in ~90s and
     // invites expire in 5min, so a queued answer/ready/respond replayed later
     // would be meaningless (or corrupt the round). Let them fail offline.

@@ -134,9 +134,16 @@ export const prayerReminders = pgTable(
     date: date('date').notNull(),
     prayerName: prayerName('prayer_name').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // How many times this salah was nudged today — capped at 3, 2min apart.
+    sendCount: integer('send_count').default(1).notNull(),
+    // Set when the recipient marks the prayer — powers the "make dua" prompt.
+    answeredAt: timestamp('answered_at', { withTimezone: true }),
+    // The dua the reminded friend sent back, if any.
+    duaText: text('dua_text'),
+    duaAt: timestamp('dua_at', { withTimezone: true }),
   },
   (table) => [
-    // One reminder per sender per prayer per day — the dedupe backstop
+    // One row per sender per prayer per day — sendCount tracks repeats
     uniqueIndex('prayer_reminders_sender_recipient_date_prayer_idx').on(
       table.senderId,
       table.recipientId,
@@ -468,6 +475,9 @@ export const notificationPrefs = pgTable('notification_prefs', {
   otherReminders: text('other_reminders').default('push').notNull(),
   // Per-prayer overrides: { fajr: {mode:'push'|'silent'|'off', beforeMin:number}, ... }
   perPrayer: jsonb('per_prayer').$type<Partial<Record<'fajr' | 'dhuhr' | 'asr' | 'maghrib' | 'isha', { mode: 'push' | 'silent' | 'off'; beforeMin: number }>>>(),
+  // When a friend you nudged marks the salah and sends you a dua back
+  duaThanksInApp: boolean('dua_thanks_in_app').default(true).notNull(),
+  duaThanksPush: boolean('dua_thanks_push').default(true).notNull(),
 });
 
 // ─── Push Subscriptions (web + native) ───
