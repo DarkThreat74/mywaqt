@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -75,23 +75,37 @@ export async function POST(request: NextRequest) {
   // Mercy rule — 4+ consecutive wrong answers cap the loss at −2 until one
   // lands right. Keeps a rough patch from erasing a climb.
   if (!body.correct && lossStreak >= MERCY_TRIGGER) delta = Math.max(delta, MERCY_FLOOR);
-  const rating = Math.max(0, (row?.rating ?? 0) + delta);
-  const streak = body.correct ? (row?.streak ?? 0) + 1 : 0;
-  const next = {
-    rating,
-    played: (row?.played ?? 0) + 1,
-    correct: (row?.correct ?? 0) + (body.correct ? 1 : 0),
-    streak,
-    bestStreak: Math.max(row?.bestStreak ?? 0, streak),
-    lossStreak,
-    updatedAt: new Date(),
-  };
+  // Atomic upsert — a plain select+update loses deltas when two answers
+  // land concurrently (double-tap, PWA + browser tab both open). All
+  // counters fold in SQL; RETURNING gives the true post-write values so
+  // the event log's ratingAfter matches the row.
+  const [next] = await db
+    .insert(schema.quranRatings)
+    .values({
+      userId: session.userId,
+      rating: Math.max(0, delta),
+      played: 1,
+      correct: body.correct ? 1 : 0,
+      streak: body.correct ? 1 : 0,
+      bestStreak: body.correct ? 1 : 0,
+      lossStreak,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: schema.quranRatings.userId,
+      set: {
+        rating: sql`greatest(0, ${schema.quranRatings.rating} + ${delta})`,
+        played: sql`${schema.quranRatings.played} + 1`,
+        correct: sql`${schema.quranRatings.correct} + ${body.correct ? 1 : 0}`,
+        streak: sql`case when ${body.correct} then ${schema.quranRatings.streak} + 1 else 0 end`,
+        bestStreak: sql`greatest(${schema.quranRatings.bestStreak}, case when ${body.correct} then ${schema.quranRatings.streak} + 1 else 0 end)`,
+        lossStreak: sql`case when ${body.correct} then 0 else ${schema.quranRatings.lossStreak} + 1 end`,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  const rating = next.rating;
 
-  if (row) {
-    await db.update(schema.quranRatings).set(next).where(eq(schema.quranRatings.userId, session.userId));
-  } else {
-    await db.insert(schema.quranRatings).values({ userId: session.userId, ...next });
-  }
   await recordRatingEvent({
     userId: session.userId,
     game: "trace",

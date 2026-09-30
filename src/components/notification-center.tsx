@@ -170,14 +170,18 @@ export function NotificationTray() {
 
   const visibleInvites = inbox.gameInvites.filter((g) => g.id !== openMatch && new Date(g.expiresAt).getTime() > now);
   const onGamePage = pathname === "/quran" || pathname === "/mutashabihat";
-  const toastCount = inbox.notifications.length + inbox.friendRequests.length + visibleInvites.length;
+  // Cap visible notif toasts — a user with many unacked rows would otherwise
+  // get a wall of cards covering the whole screen. The bell lists them all.
+  const shownNotifs = inbox.notifications.slice(0, 3);
+  const hiddenNotifs = inbox.notifications.length - shownNotifs.length;
+  const toastCount = shownNotifs.length + inbox.friendRequests.length + visibleInvites.length;
 
   return (
     <>
       {/* Toast stack — top of screen, persists until acted on */}
       {toastCount > 0 && (
         <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[85] mx-auto flex max-w-sm flex-col gap-2 lg:top-4">
-          {inbox.notifications.map((n) => (
+          {shownNotifs.map((n) => (
             <ToastCard key={n.id} icon={typeIcon(n.type)} title={n.title} sub={n.body ?? undefined}>
               <button type="button" disabled={busy === `ack-${n.id}`} onClick={() => void ack(n.id)}
                 className="w-full rounded-xl px-3 py-2 text-sm font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
@@ -186,6 +190,12 @@ export function NotificationTray() {
               </button>
             </ToastCard>
           ))}
+
+          {hiddenNotifs > 0 && (
+            <p className="text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              +{hiddenNotifs} more — tap the bell to see all
+            </p>
+          )}
 
           {inbox.friendRequests.map((r) => {
             const lifeLeft = new Date(r.expiresAt).getTime() - now;
@@ -210,8 +220,10 @@ export function NotificationTray() {
           })}
 
           {visibleInvites.map((g) => {
-            const secs = Math.max(0, Math.ceil((new Date(g.expiresAt).getTime() - now) / 1000));
-            const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+            // now starts at 0 until the clock effect seeds it — without the
+            // guard the countdown would flash a huge garbage number first.
+            const secs = now ? Math.max(0, Math.ceil((new Date(g.expiresAt).getTime() - now) / 1000)) : 0;
+            const clock = now ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}` : "…";
             return (
               <ToastCard key={g.id} icon={<Swords className="h-4 w-4" style={{ color: "var(--color-accent)" }} />}
                 title={`${g.from} challenges you`}
