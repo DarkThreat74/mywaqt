@@ -114,50 +114,45 @@ export default function DuaToast() {
       <div
         role="dialog"
         aria-label="Make a dua"
-        className="waqt-dua-in pointer-events-auto w-full max-w-sm rounded-2xl border p-3.5 shadow-2xl"
+        className="pointer-events-auto w-full rounded-xl border p-3 shadow-lg backdrop-blur-md"
         style={{
           borderColor: "var(--color-accent)",
           backgroundColor: "var(--color-paper)",
           animation: "waqtToastIn 0.28s ease-out",
         }}
       >
-        <div className="flex items-start gap-2.5">
-          <span className="mt-0.5 text-lg leading-none" aria-hidden>🤲</span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold leading-snug" style={{ color: "var(--color-ink)" }}>
-              {sender.name} reminded you — you prayed {prayer}.
-            </p>
-            <p className="mt-0.5 text-[11.5px] leading-snug" style={{ color: "var(--color-ink-soft)" }}>
-              Make a dua for them.
-            </p>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="text-base leading-none" aria-hidden>🤲</span>
+          <p className="min-w-0 flex-1 truncate text-[12.5px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
+            {sender.name} nudged you — you prayed {prayer}. Make dua for them.
+          </p>
           <button
             onClick={() => setDue(null)}
             aria-label="Close"
-            className="rounded-full p-1.5"
-            style={{ color: "var(--color-ink-muted)", minWidth: 32, minHeight: 32 }}
+            className="shrink-0 rounded-full p-1"
+            style={{ color: "var(--color-ink-muted)", minWidth: 28, minHeight: 28 }}
           >
-            <X size={14} />
+            <X size={13} />
           </button>
         </div>
 
         {custom === null ? (
-          <div className="mt-2.5 space-y-1.5">
+          <div className="mt-2 space-y-1">
             {DUA_PRESETS.map((d, i) => (
               <button
                 key={i}
                 disabled={sending}
                 onClick={() => void sendDua({ preset: i })}
-                className="w-full rounded-xl border px-3 py-2 text-left text-[12.5px] font-medium leading-snug disabled:opacity-50"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "color-mix(in oklab, var(--color-accent) 5%, transparent)", minHeight: 40 }}
+                className="w-full rounded-lg border px-2.5 py-1.5 text-left text-[12px] font-medium leading-snug disabled:opacity-50"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "color-mix(in oklab, var(--color-accent) 5%, transparent)", minHeight: 34 }}
               >
                 {d}
               </button>
             ))}
             <button
               onClick={() => setCustom("")}
-              className="w-full rounded-xl border border-dashed px-3 py-2 text-center text-[12px] font-medium"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 36 }}
+              className="w-full rounded-lg border border-dashed px-2.5 py-1.5 text-center text-[11.5px] font-medium"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 32 }}
             >
               Write your own…
             </button>

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronDown, Swords, Camera, Flame, Check, MapPin, Link2 } from "lucide-react";
 import { RANKS, MATCH_WIN_PTS, MATCH_LOSS_PTS } from "@/lib/quran-rank";
 import { invalidateApiCache } from "@/lib/sw-helpers";
+import { readAvatarFile } from "@/lib/avatar";
 
 /** Rank medallion — tone deepens as you climb; Shaykh carries warmth + glow. */
 const BADGE_TONE: Record<string, { bg: string; ring: string; glow: boolean }> = {
@@ -40,23 +41,8 @@ function RankBadge({ rank, size }: { rank: { id: string; ar: string }; size: num
   );
 }
 
-/** Client-side downscale: center-crop to a 128px webp data URL (~6KB). */
-function readAvatar(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement("canvas");
-      c.width = c.height = 128;
-      const s = Math.min(img.width, img.height);
-      c.getContext("2d")!.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 128, 128);
-      URL.revokeObjectURL(url);
-      resolve(c.toDataURL("image/webp", 0.82));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image")); };
-    img.src = url;
-  });
-}
+/** Client-side downscale — shared with onboarding. */
+const readAvatar = readAvatarFile;
 
 /** What the friends API shares about a friend — gated by their privacy toggles. */
 interface FriendSalah {

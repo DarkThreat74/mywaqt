@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 
-import { MapPin, Bell, ArrowRight, Check, Loader2, User, Shield } from "lucide-react";
+import { MapPin, Bell, ArrowRight, Check, Loader2, User, Shield, Camera } from "lucide-react";
+import { readAvatarFile, presetAvatarDataUrl, AVATAR_PRESETS } from "@/lib/avatar";
 
-type Step = "terms" | "name" | "gender" | "hayd" | "location" | "madhab" | "hifidh" | "notifications" | "done";
+type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "location" | "madhab" | "hifidh" | "notifications" | "done";
 
 export default function OnboardingWizard() {
   const [step, setStep] = useState<Step>("terms");
@@ -18,6 +19,11 @@ export default function OnboardingWizard() {
 
   // Name state
   const [displayName, setDisplayName] = useState("");
+
+  // Avatar state — a data URL staged locally, saved on Continue
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
 
   // Gender state — 'male' | 'female'; gates the hayd step
   const [gender, setGender] = useState<"male" | "female" | null>(null);
@@ -175,6 +181,44 @@ export default function OnboardingWizard() {
     }
   }
 
+  async function onPickAvatarFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || avatarBusy) return;
+    setAvatarBusy(true);
+    try {
+      setAvatar(await readAvatarFile(file));
+    } catch {
+      setError("Couldn't read that image — try another.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  async function saveAvatarAndNext() {
+    if (!avatar) { setStep("gender"); return; }
+    setPending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatar }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Couldn't save the photo.");
+        setPending(false);
+        return;
+      }
+      setStep("gender");
+    } catch {
+      setError("Network error.");
+    } finally {
+      setPending(false);
+    }
+  }
+
   async function saveNotifications() {
     setPending(true);
     setError(null);
@@ -218,8 +262,8 @@ export default function OnboardingWizard() {
 
   // Progress dots: hayd step only exists for girls — count it conditionally
   const steps: Step[] = gender === "female"
-    ? ["terms", "name", "gender", "hayd", "location", "madhab", "hifidh", "notifications", "done"]
-    : ["terms", "name", "gender", "location", "madhab", "hifidh", "notifications", "done"];
+    ? ["terms", "name", "avatar", "gender", "hayd", "location", "madhab", "hifidh", "notifications", "done"]
+    : ["terms", "name", "avatar", "gender", "location", "madhab", "hifidh", "notifications", "done"];
   const currentIdx = steps.indexOf(step);
 
   return (
@@ -356,7 +400,7 @@ export default function OnboardingWizard() {
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 48 }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && displayName.trim()) {
-                  setStep("gender");
+                  setStep("avatar");
                 }
               }}
             />
@@ -367,7 +411,7 @@ export default function OnboardingWizard() {
                   return;
                 }
                 setError(null);
-                setStep("gender");
+                setStep("avatar");
               }}
               disabled={pending}
               className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
@@ -375,6 +419,90 @@ export default function OnboardingWizard() {
             >
               Continue
               <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 1b: Avatar ── */}
+      {step === "avatar" && (
+        <div className="flex flex-col items-center text-center">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+            Add a photo
+          </h1>
+          <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+            This is how friends spot you in their list and on the leaderboard. Optional — you can change it anytime.
+          </p>
+
+          <div className="mt-8 w-full max-w-sm">
+            {/* Preview */}
+            <div className="mx-auto flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+              {avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element -- data-URL preview
+                <img src={avatar} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <User className="h-8 w-8" style={{ color: "var(--color-ink-muted)" }} />
+              )}
+            </div>
+
+            <input
+              ref={avatarFileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={onPickAvatarFile}
+            />
+            <button
+              onClick={() => avatarFileRef.current?.click()}
+              disabled={avatarBusy || pending}
+              className="mt-4 inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-50"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+            >
+              <Camera className="h-4 w-4" />
+              {avatarBusy ? "Loading…" : avatar ? "Change photo" : "Upload a photo"}
+            </button>
+
+            {/* Preset avatars */}
+            <p className="mt-6 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+              Or pick one
+            </p>
+            <div className="mt-3 flex flex-wrap justify-center gap-2.5">
+              {AVATAR_PRESETS.map((p) => {
+                const url = presetAvatarDataUrl(p.emoji, p.bg);
+                const selected = avatar === url;
+                return (
+                  <button
+                    key={p.emoji + p.bg}
+                    onClick={() => setAvatar(url)}
+                    aria-label={`Avatar ${p.emoji}`}
+                    className="flex h-12 w-12 items-center justify-center rounded-full border-2 text-xl transition-transform"
+                    style={{
+                      backgroundColor: p.bg,
+                      borderColor: selected ? "var(--color-accent)" : "transparent",
+                      transform: selected ? "scale(1.08)" : undefined,
+                    }}
+                  >
+                    {p.emoji}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => void saveAvatarAndNext()}
+              disabled={pending || avatarBusy}
+              className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+            >
+              {pending ? "Saving…" : "Continue"}
+              <ArrowRight className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setStep("gender")}
+              className="mt-3 text-sm font-medium transition-opacity hover:opacity-60"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Skip for now
             </button>
           </div>
         </div>

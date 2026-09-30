@@ -188,11 +188,7 @@ export function NotificationTray() {
         >
           {shownNotifs.map((n) => (
             <ToastCard key={n.id} icon={typeIcon(n.type)} title={n.title} sub={n.body ?? undefined}>
-              <button type="button" disabled={busy === `ack-${n.id}`} onClick={() => void ack(n.id)}
-                className="w-full rounded-xl px-3 py-2 text-sm font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
-                style={{ backgroundColor: "var(--color-accent)" }}>
-                Acknowledge
-              </button>
+              <ToastBtn solid disabled={busy === `ack-${n.id}`} onClick={() => void ack(n.id)}>Got it</ToastBtn>
             </ToastCard>
           ))}
 
@@ -207,19 +203,17 @@ export function NotificationTray() {
             const canSnooze = lifeLeft > SNOOZE_CUTOFF_MS;
             return (
               <ToastCard key={r.id} avatar={<Avatar name={r.name} url={r.avatarUrl} />}
-                title={`${r.name} sent you a friend request`} sub="See each other's salah, streaks, and games.">
-                <div className="flex gap-2">
-                  <ToastBtn solid onClick={() => void friend(r, "accept")} disabled={busy === `fr-${r.id}`}>Accept</ToastBtn>
-                  <ToastBtn onClick={() => void friend(r, "reject")} disabled={busy === `fr-${r.id}`}>Decline</ToastBtn>
-                  {canSnooze && (
-                    <button type="button" onClick={() => void friend(r, "later")} disabled={busy === `fr-${r.id}`}
-                      aria-label="Answer later"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors enabled:hover:bg-[var(--color-paper-2)] disabled:opacity-50"
-                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
-                      <Clock className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
+                title={`${r.name} sent you a friend request`} sub="Tap to answer">
+                <ToastBtn solid onClick={() => void friend(r, "accept")} disabled={busy === `fr-${r.id}`}>Accept</ToastBtn>
+                <ToastBtn onClick={() => void friend(r, "reject")} disabled={busy === `fr-${r.id}`}>Decline</ToastBtn>
+                {canSnooze && (
+                  <button type="button" onClick={() => void friend(r, "later")} disabled={busy === `fr-${r.id}`}
+                    aria-label="Answer later"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors enabled:hover:bg-[var(--color-paper-2)] disabled:opacity-50"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                    <Clock className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </ToastCard>
             );
           })}
@@ -232,11 +226,9 @@ export function NotificationTray() {
             return (
               <ToastCard key={g.id} icon={<Swords className="h-4 w-4" style={{ color: "var(--color-accent)" }} />}
                 title={`${g.from} challenges you`}
-                sub={`${g.game === "mutashabih" ? "Mutashabih" : "AyaTrace"} · ${DIFF_LABEL[g.difficulty] ?? g.difficulty} · ${g.rounds} questions · ${clock}`}>
-                <div className="flex gap-2">
-                  <ToastBtn solid onClick={() => void game(g, true)} disabled={busy === `gi-${g.id}`}>Accept</ToastBtn>
-                  <ToastBtn onClick={() => void game(g, false)} disabled={busy === `gi-${g.id}`}>Decline</ToastBtn>
-                </div>
+                sub={`${DIFF_LABEL[g.difficulty] ?? g.difficulty} · ${clock}`}>
+                <ToastBtn solid onClick={() => void game(g, true)} disabled={busy === `gi-${g.id}`}>Accept</ToastBtn>
+                <ToastBtn onClick={() => void game(g, false)} disabled={busy === `gi-${g.id}`}>Decline</ToastBtn>
               </ToastCard>
             );
           })}
@@ -254,21 +246,19 @@ function ToastCard({ icon, avatar, title, sub, children }: {
 }) {
   return (
     <div role="alert"
-      className="rounded-2xl border p-4 shadow-xl backdrop-blur-md"
-      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 96%, transparent)" }}>
-      <div className="flex items-start gap-3">
-        {avatar ?? (
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-            style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, var(--color-paper))" }}>
-            {icon}
-          </span>
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{title}</p>
-          {sub && <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>{sub}</p>}
-          <div className="mt-3">{children}</div>
-        </div>
+      className="flex items-center gap-2.5 rounded-xl border py-2 pl-2.5 pr-2 shadow-lg backdrop-blur-md"
+      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 97%, transparent)" }}>
+      {avatar ?? (
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, var(--color-paper))" }}>
+          {icon}
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>{title}</p>
+        {sub && <p className="truncate text-[11px] leading-tight" style={{ color: "var(--color-ink-muted)" }}>{sub}</p>}
       </div>
+      <div className="flex shrink-0 items-center gap-1.5">{children}</div>
     </div>
   );
 }
@@ -276,12 +266,12 @@ function ToastCard({ icon, avatar, title, sub, children }: {
 function ToastBtn({ solid, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { solid?: boolean }) {
   return solid ? (
     <button type="button" {...props}
-      className="flex-1 rounded-xl px-3 py-2 text-sm font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
-      style={{ backgroundColor: "var(--color-accent)" }} />
+      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
+      style={{ backgroundColor: "var(--color-accent)", minHeight: 32 }} />
   ) : (
     <button type="button" {...props}
-      className="flex-1 rounded-xl border px-3 py-2 text-sm font-medium transition-colors enabled:hover:bg-[var(--color-paper-2)] disabled:opacity-50"
-      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }} />
+      className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors enabled:hover:bg-[var(--color-paper-2)] disabled:opacity-50"
+      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 32 }} />
   );
 }
 

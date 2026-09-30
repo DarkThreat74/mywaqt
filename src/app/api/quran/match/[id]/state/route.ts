@@ -90,7 +90,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // Resolve when both answered — covers the race where two answers
     // landed between each other's SELECT, leaving nobody to resolve —
     // or when the 90s window elapsed. Both-wrong / both-ghost = draw.
-    if ((cDone && oDone) || timedOut) {
+    if ((cDone && oDone) || r.creatorCorrect === true || r.opponentCorrect === true || timedOut) {
       const winner = resolveWinner({
         creatorCorrect: r.creatorCorrect ?? false, creatorMs: r.creatorMs,
         opponentCorrect: r.opponentCorrect ?? false, opponentMs: r.opponentMs,

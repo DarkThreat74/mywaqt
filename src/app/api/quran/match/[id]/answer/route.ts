@@ -78,9 +78,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Already answered." }, { status: 409 });
   }
 
-  // Both in? Resolve now — correct beats wrong, then lower ms.
+  // Resolve as soon as the outcome is known: both answered, OR anyone
+  // answered correctly — first correct takes the round, so the loser
+  // still thinking shouldn't stall the match (90s felt like a hang).
   const theirsDone = meIsCreator ? r.opponentCorrect !== null : r.creatorCorrect !== null;
-  if (theirsDone) {
+  if (theirsDone || correct) {
     const cOk = meIsCreator ? correct : r.creatorCorrect === true;
     const oOk = meIsCreator ? r.opponentCorrect === true : correct;
     const cMs = meIsCreator ? ms : r.creatorMs;
