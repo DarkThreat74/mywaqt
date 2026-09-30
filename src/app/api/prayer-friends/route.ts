@@ -234,6 +234,16 @@ export async function GET(request: NextRequest) {
     if (!sunnahByUserDate.get(s.userId)!.has(dateStr)) sunnahByUserDate.get(s.userId)!.set(dateStr, []);
     sunnahByUserDate.get(s.userId)!.get(dateStr)!.push(s.sunnahKey);
   }
+  // League tiebreaker: rawatib muakkadah + witr this week — the confirmed
+  // sunnahs count the same under both madhabs (ghayr-muakkadah and nafl are
+  // excluded deliberately so the league rewards the emphasized prayers).
+  const MUAKKADAH_WAJIB = new Set(["fajr_before", "dhuhr_before", "dhuhr_after", "maghrib_after", "isha_after", "witr"]);
+  const weekSunnahByUser = new Map<string, number>();
+  for (const s of todaySunnahAll) {
+    if (MUAKKADAH_WAJIB.has(s.sunnahKey)) {
+      weekSunnahByUser.set(s.userId, (weekSunnahByUser.get(s.userId) ?? 0) + 1);
+    }
+  }
   // Shared streaks keyed by the friend on the other side of the pair.
   // A chain is only alive if the last matched date is within the last 2 days
   // (covers ±1 day of timezone skew between the pair) — otherwise it shows 0
@@ -284,6 +294,7 @@ export async function GET(request: NextRequest) {
     cheeredToday: boolean;
     sharedStreak: { streak: number; bestStreak: number; lastDate: string | null } | null;
     timezone: string;
+    weekSunnah: number;
     times: { fajr: string; sunrise: string; dhuhr: string; asr: string; maghrib: string; isha: string } | null;
   }> = [];
 
@@ -359,6 +370,8 @@ export async function GET(request: NextRequest) {
       cheeredToday: cheeredByUserDate.has(`${friendUser.id}|${todayStr}`),
       sharedStreak: settings.friendsSeeStreak ? (streakByFriend.get(friendUser.id) ?? null) : null,
       timezone,
+      // League tiebreaker — only counted when they share sunnah data.
+      weekSunnah: settings.friendsSeeSunnah ? (weekSunnahByUser.get(friendUser.id) ?? 0) : 0,
       // Times only ride along when today's status is shared — that's the only
       // UI that needs them (open-salah highlight + nudge).
       times: settings.friendsSeeTodayStatus

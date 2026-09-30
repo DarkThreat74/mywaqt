@@ -27,6 +27,21 @@ function QiblaArt() {
   );
 }
 
+function MasjidArt() {
+  // Dome on a base with two minarets
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M14 34v-6a10 10 0 0 1 20 0v6" />
+      <path d="M24 16v-4" />
+      <circle cx="24" cy="10.5" r="1.6" />
+      <path d="M10 34h28M12 38h24" />
+      <path d="M8 34V22M40 34V22" />
+      <circle cx="8" cy="20" r="1.6" />
+      <circle cx="40" cy="20" r="1.6" />
+    </svg>
+  );
+}
+
 function DhikrArt() {
   // Tasbih strand: beads arcing around a tassel
   return (
@@ -128,6 +143,7 @@ const SECTIONS: { title: string; tools: Tool[] }[] = [
       { href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter", art: DhikrArt },
       { href: "/mutashabihat", label: "Mutashabih", arabic: "متشابه", description: "The verses that look alike", art: MutashabihArt, ranked: true },
       { href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah", art: QuranArt, ranked: true },
+      { href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah", art: MasjidArt },
     ],
   },
   {

@@ -179,6 +179,19 @@ export async function GET(request: NextRequest) {
     // Start of month in user's timezone
     const monthStartStr = `${tzYear}-${String(tzMonth).padStart(2, "0")}-01`;
 
+    // Confirmed sunnah this week — league tiebreaker; same muakkadah/wajib
+    // key set as /api/prayer-friends.
+    const MUAKKADAH_WAJIB = new Set(["fajr_before", "dhuhr_before", "dhuhr_after", "maghrib_after", "isha_after", "witr"]);
+    const weekSunnahRows = await db
+      .select({ sunnahKey: schema.sunnahLog.sunnahKey })
+      .from(schema.sunnahLog)
+      .where(and(
+        eq(schema.sunnahLog.userId, session.userId),
+        gte(schema.sunnahLog.date, weekStartStr),
+        eq(schema.sunnahLog.prayed, true),
+      ));
+    const weekSunnah = weekSunnahRows.filter((r) => MUAKKADAH_WAJIB.has(r.sunnahKey)).length;
+
     for (const log of allLogs) {
       if (log.status === "prayed" || log.status === "assumed_prayed") {
         const dateStr = typeof log.date === "string" ? log.date : String(log.date);
@@ -448,6 +461,7 @@ export async function GET(request: NextRequest) {
       timezone,
       madhab: settings?.madhab || "hanafi",
       thisWeekPrayed,
+      weekSunnah,
       thisMonthPrayed,
       lastPrayedDate,
       totalPrayedAllTime,

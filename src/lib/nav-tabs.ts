@@ -4,6 +4,7 @@
 export const HIDEABLE_TABS = [
   { key: "tools-fab", label: "Center tools button" },
   { key: "messages", label: "Messages" },
+  { key: "/masjids", label: "Masjids" },
   { key: "/talks", label: "Talks" },
   { key: "/qibla", label: "Qibla" },
   { key: "/dhikr", label: "Dhikr" },

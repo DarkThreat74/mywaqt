@@ -11,7 +11,8 @@ import { shareNative, hapticNotification } from "@/lib/native-bridge";
 import { useUISFX } from "@/components/uisfx-provider";
 import { getOfflineDB } from "@/lib/offline/db";
 import { upsertSunnahLogToCache, cacheBlob } from "@/lib/offline/cache-writers";
-import MasjidFinder from "@/components/masjid-finder";
+import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
+import type { PrayerKey } from "@/lib/prayer/checkin";
 
 interface PerPrayerStats {
   prayer: string;
@@ -55,6 +56,7 @@ interface Analytics {
   timezone: string;
   madhab?: string;
   thisWeekPrayed: number;
+  weekSunnah?: number;
   thisMonthPrayed: number;
   lastPrayedDate: string | null;
   totalPrayedAllTime: number;
@@ -84,6 +86,7 @@ interface Friend {
   cheeredToday?: boolean;
   sharedStreak?: { streak: number; bestStreak: number; lastDate: string | null } | null;
   timezone: string;
+  weekSunnah?: number;
   times?: PrayerTimes | null;
 }
 
@@ -198,13 +201,20 @@ function computeEquivTime(
   return formatMinutesToTime(equivMinutes);
 }
 
-type Tab = "comparison" | "stats" | "qadaa" | "friends" | "masjids";
+type Tab = "league" | "stats";
 
 type StatsRange = "weekly" | "monthly" | "yearly" | "all-time";
 
 export default function PrayerDashboard() {
-  const [activeTab, setActiveTab] = useState<Tab>("comparison");
+  // Deep links: ?tab=friends/comparison → league, ?tab=qadaa → stats.
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "league";
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t === "stats" || t === "qadaa" ? "stats" : "league";
+  });
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  // Check-in popup — the league's primary action; which salah is being logged.
+  const [checkinPrayer, setCheckinPrayer] = useState<PrayerKey | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [prayerCode, setPrayerCode] = useState<string | null>(null);
   const [qadaa, setQadaa] = useState<QadaaInfo | null>(null);
@@ -374,7 +384,7 @@ export default function PrayerDashboard() {
   }, [fetchTodayData, refreshFriends]);
 
   useEffect(() => {
-    if (activeTab !== "friends" && activeTab !== "comparison") return;
+    if (activeTab !== "league") return;
     const t = setInterval(() => void refreshFriends(), 15_000);
     return () => clearInterval(t);
   }, [activeTab, refreshFriends]);
@@ -1162,13 +1172,10 @@ export default function PrayerDashboard() {
       )}
 
       {/* ── Tab navigation ── */}
-      <div className="mb-6 grid grid-cols-5 gap-1 rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+      <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
         {([
-          { key: "comparison" as Tab, label: "Today" },
+          { key: "league" as Tab, label: "League" },
           { key: "stats" as Tab, label: "Stats" },
-          { key: "qadaa" as Tab, label: "Qadaa" },
-          { key: "friends" as Tab, label: "Friends" },
-          { key: "masjids" as Tab, label: "Masjids" },
         ]).map((tab) => (
           <button
             key={tab.key}
@@ -1187,7 +1194,7 @@ export default function PrayerDashboard() {
       {/* ════════════════════════════════════════════════════════════════
           TAB: COMPARISON (Today's progress + friends comparison)
           ════════════════════════════════════════════════════════════════ */}
-      {activeTab === "comparison" && (
+      {activeTab === "league" && (
         <div className="space-y-6">
           {/* ── Today's Progress — Vertical Timeline ── */}
           <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
@@ -1668,58 +1675,86 @@ export default function PrayerDashboard() {
             )}
           </div>
 
-          {/* ── Friends comparison ── */}
+          {/* ── League — this week's standing. Fard count ranks; confirmed
+              sunnah (muakkadah + witr) breaks the tie. ── */}
           <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
             <div className="border-b px-4 py-3 sm:px-5" style={{ borderColor: "var(--color-paper-3)" }}>
               <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                <Users className="h-4 w-4" /> Competition
+                <Trophy className="h-4 w-4" /> League
               </h2>
               <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                See who&apos;s prayed today. Hold each other accountable.
+                Ranked on this week&apos;s fard — sunnah &amp; witr break the tie. 🔥 is your shared streak.
               </p>
             </div>
             <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
-              {/* You */}
-              <ComparisonRow
-                name="You"
-                isMe
-                streak={myStreak}
-                todayLogs={todayLogs}
-                todaySunnahs={todaySunnahs}
-                prayerTimes={prayerTimes}
-                currentTime={currentTime}
-                madhab={madhab}
-                timezone={analytics?.timezone || null}
-              />
-              {/* Friends */}
-              {friends.length === 0 ? (
+              {(() => {
+                const myScore = { week: myWeekPrayed, sunnah: analytics?.weekSunnah ?? 0 };
+                const entries: Array<{ key: string; friend?: Friend }> = [
+                  { key: "me" },
+                  ...friends.map((f) => ({ key: f.id, friend: f })),
+                ];
+                entries.sort((a, b) => {
+                  const aw = a.friend ? (a.friend.thisWeekPrayed ?? -1) : myScore.week;
+                  const bw = b.friend ? (b.friend.thisWeekPrayed ?? -1) : myScore.week;
+                  if (bw !== aw) return bw - aw;
+                  const as = a.friend?.weekSunnah ?? (a.friend ? 0 : myScore.sunnah);
+                  const bs = b.friend?.weekSunnah ?? (b.friend ? 0 : myScore.sunnah);
+                  return bs - as;
+                });
+                return entries.map((entry, idx) => {
+                  const rank = idx + 1;
+                  if (!entry.friend) {
+                    return (
+                      <ComparisonRow
+                        key="me"
+                        rank={rank}
+                        name="You"
+                        isMe
+                        streak={myStreak}
+                        weekSunnah={myScore.sunnah}
+                        todayLogs={todayLogs}
+                        todaySunnahs={todaySunnahs}
+                        prayerTimes={prayerTimes}
+                        currentTime={currentTime}
+                        madhab={madhab}
+                        timezone={userTimezone}
+                        onCheckIn={setCheckinPrayer}
+                      />
+                    );
+                  }
+                  const friend = entry.friend;
+                  return (
+                    <ComparisonRow
+                      key={friend.id}
+                      rank={rank}
+                      name={friend.firstName || friend.displayName || "Friend"}
+                      isMe={false}
+                      streak={friend.streak ?? 0}
+                      sharedStreak={friend.sharedStreak?.streak ?? 0}
+                      weekSunnah={friend.weekSunnah ?? 0}
+                      todayLogs={friend.todayLogs}
+                      todaySunnahs={friend.todaySunnahs}
+                      // Their own cached times decide the open salah — same
+                      // inputs the remind route validates against.
+                      prayerTimes={friend.times ?? prayerTimes}
+                      currentTime={currentTime}
+                      madhab={madhab}
+                      timezone={friend.timezone}
+                      todayVisible={friend.todayVisible}
+                      remindedAt={friend.remindedAt}
+                      reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
+                      onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
+                    />
+                  );
+                });
+              })()}
+              {friends.length === 0 && (
                 <div className="px-4 py-6 text-center">
                   <Users className="mx-auto mb-2 h-6 w-6" style={{ color: "var(--color-ink-muted)" }} />
                   <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                    No friends yet. Add friends in the Friends tab to start competing.
+                    Add friends below to start competing.
                   </p>
                 </div>
-              ) : (
-                friends.map((friend) => (
-                  <ComparisonRow
-                    key={friend.id}
-                    name={friend.firstName || friend.displayName || "Friend"}
-                    isMe={false}
-                    streak={friend.streak ?? 0}
-                    todayLogs={friend.todayLogs}
-                    todaySunnahs={friend.todaySunnahs}
-                    // Their own cached times decide the open salah — same
-                    // inputs the remind route validates against.
-                    prayerTimes={friend.times ?? prayerTimes}
-                    currentTime={currentTime}
-                    madhab={madhab}
-                    timezone={friend.timezone}
-                    todayVisible={friend.todayVisible}
-                    remindedAt={friend.remindedAt}
-                    reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
-                    onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
-                  />
-                ))
               )}
             </div>
           </div>
@@ -1966,7 +2001,7 @@ export default function PrayerDashboard() {
       {/* ════════════════════════════════════════════════════════════════
           TAB: QADAA
           ════════════════════════════════════════════════════════════════ */}
-      {activeTab === "qadaa" && (
+      {activeTab === "stats" && (
         <div className="space-y-6">
           {qadaa && !qadaa.setupCompleted && (
             <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
@@ -2157,7 +2192,7 @@ export default function PrayerDashboard() {
       {/* ════════════════════════════════════════════════════════════════
           TAB: FRIENDS
           ════════════════════════════════════════════════════════════════ */}
-      {activeTab === "friends" && (
+      {activeTab === "league" && (
         <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
           <div className="border-b px-4 py-3 sm:px-5" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="flex items-center justify-between gap-2">
@@ -2664,11 +2699,25 @@ export default function PrayerDashboard() {
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════
-          TAB: MASJIDS (nearby masjids, iqamah times, map)
-          ════════════════════════════════════════════════════════════════ */}
-      {activeTab === "masjids" && (
-        <MasjidFinder prayerTimes={prayerTimes} />
+      {/* Check-in popup — the league's "Log" button is the primary action. */}
+      {checkinPrayer && prayerTimes && todayStr && userTimezone && (
+        <PrayerCheckinPopup
+          prayer={checkinPrayer}
+          prayerLabel={prayerLabel(checkinPrayer)}
+          date={todayStr}
+          timezone={userTimezone}
+          madhab={madhab}
+          timings={prayerTimes}
+          existingStatus={todayLogs.find((l) => l.prayerName === checkinPrayer)?.status}
+          onClose={() => setCheckinPrayer(null)}
+          onCheckedIn={(result) => {
+            setTodayLogs((prev) => [
+              ...prev.filter((l) => l.prayerName !== checkinPrayer),
+              { prayerName: checkinPrayer, status: result.status },
+            ]);
+            setCheckinPrayer(null);
+          }}
+        />
       )}
     </div>
   );
@@ -2692,6 +2741,9 @@ function ComparisonRow({
   name,
   isMe,
   streak,
+  sharedStreak = 0,
+  weekSunnah = 0,
+  rank,
   todayLogs,
   todaySunnahs,
   prayerTimes,
@@ -2702,10 +2754,14 @@ function ComparisonRow({
   remindedAt = {},
   reminding,
   onRemind,
+  onCheckIn,
 }: {
   name: string;
   isMe: boolean;
   streak: number;
+  sharedStreak?: number;
+  weekSunnah?: number;
+  rank?: number;
   todayLogs: Array<{ prayerName: string; status: string }>;
   todaySunnahs: string[];
   prayerTimes: PrayerTimes | null;
@@ -2716,6 +2772,7 @@ function ComparisonRow({
   remindedAt?: Record<string, string>;
   reminding?: Set<string>;
   onRemind?: (prayerName: string) => void;
+  onCheckIn?: (prayer: PrayerKey) => void;
 }) {
   const sunnahDefs = getSunnahsForMadhab(madhab);
   const prayedCount = PRAYER_ORDER.filter((p) => {
@@ -2728,7 +2785,12 @@ function ComparisonRow({
       className="flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-5"
       style={isMe ? { backgroundColor: "color-mix(in oklab, var(--color-accent) 4%, transparent)" } : undefined}
     >
-      {/* Name + streak */}
+      {/* Rank + name + streaks */}
+      {rank !== undefined && (
+        <div className="w-5 shrink-0 text-center text-xs font-bold tabular-nums" style={{ color: rank === 1 ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+          {rank}
+        </div>
+      )}
       <div className="min-w-20 shrink-0 sm:min-w-32">
         <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
           {isMe ? "You" : name}
@@ -2736,6 +2798,16 @@ function ComparisonRow({
         <div className="flex items-center gap-1 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
           <Flame className="h-3 w-3" style={{ color: "var(--color-warmth)" }} />
           <span className="tabular-nums">{streak}d</span>
+          {sharedStreak > 0 && (
+            <span className="tabular-nums" title={`${sharedStreak}-day shared streak`}>
+              🔥{sharedStreak}
+            </span>
+          )}
+          {weekSunnah > 0 && (
+            <span className="tabular-nums" style={{ color: "var(--color-accent)" }} title={`${weekSunnah} confirmed sunnah & witr this week`}>
+              +{weekSunnah}
+            </span>
+          )}
           {!isMe && timezone && (
             <span className="ml-1 tabular-nums" title={timezone}>
               {(() => {
@@ -2773,13 +2845,28 @@ function ComparisonRow({
         />
       </div>
 
-      {/* Progress count */}
-      <div className="w-12 shrink-0 text-right sm:w-16">
+      {/* Progress count / own check-in */}
+      <div className="flex w-12 shrink-0 flex-col items-end gap-1 text-right sm:w-16">
         {(isMe || todayVisible) && (
           <span className="text-sm font-bold tabular-nums" style={{ color: prayedCount === 5 ? "var(--color-success)" : "var(--color-ink)" }}>
             {prayedCount}/5
           </span>
         )}
+        {isMe && onCheckIn && (() => {
+          const nextPending = PRAYER_ORDER.find((p) => {
+            const log = todayLogs.find((l) => l.prayerName === p);
+            return !log || log.status === "pending" || log.status === "missed";
+          });
+          return nextPending ? (
+            <button
+              onClick={() => onCheckIn(nextPending)}
+              className="rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-colors"
+              style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+            >
+              Log
+            </button>
+          ) : null;
+        })()}
       </div>
     </div>
   );
