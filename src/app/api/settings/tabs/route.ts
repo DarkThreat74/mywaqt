@@ -18,11 +18,8 @@ export async function GET(request: NextRequest) {
     .where(eq(schema.users.id, session.userId))
     .limit(1);
 
-  // null = never touched → default is "secondary tabs hidden" (main 4 only).
-  // Once the user toggles anything, the column holds the explicit set.
-  const hiddenTabs = row?.hiddenTabs == null
-    ? [...HIDEABLE_SET]
-    : row.hiddenTabs.filter((k) => HIDEABLE_SET.has(k));
+  // null = never touched → nothing hidden; every tab shows by default.
+  const hiddenTabs = (row?.hiddenTabs ?? []).filter((k) => HIDEABLE_SET.has(k));
   return NextResponse.json({ hiddenTabs });
 }
 

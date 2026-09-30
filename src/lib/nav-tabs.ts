@@ -2,6 +2,7 @@
 // Prayer, Today, Settings) are fixed — hiding them would strand navigation.
 // Keys: 'messages' for the nav item; tool tabs keyed by their href.
 export const HIDEABLE_TABS = [
+  { key: "tools-fab", label: "Center tools button" },
   { key: "messages", label: "Messages" },
   { key: "/talks", label: "Talks" },
   { key: "/qibla", label: "Qibla" },
