@@ -37,9 +37,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Name must be 50 characters or less." }, { status: 400 });
   }
 
+  // first_name is the legacy column every display surface reads FIRST
+  // (firstName || displayName) — leaving it stale would shadow the new
+  // name everywhere: friends list, matches, notifications, admin.
   await db
     .update(schema.users)
-    .set({ displayName: trimmed })
+    .set({ displayName: trimmed, firstName: trimmed })
     .where(eq(schema.users.id, session.userId));
 
   const nameSlug = slugifyName(trimmed);

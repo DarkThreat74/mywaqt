@@ -37,7 +37,9 @@ export async function POST(request: NextRequest) {
     .update(schema.users)
     .set({
       onboardingCompleted: true,
-      ...(trimmedName ? { displayName: trimmedName } : {}),
+      // Keep the legacy first_name column in sync — every display path
+      // reads firstName || displayName, so a stale first name shadows this.
+      ...(trimmedName ? { displayName: trimmedName, firstName: trimmedName } : {}),
     })
     .where(eq(schema.users.id, session.userId));
 
