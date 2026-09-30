@@ -182,7 +182,10 @@ export function NotificationTray() {
     <>
       {/* Toast stack — top of screen, persists until acted on */}
       {toastCount > 0 && (
-        <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[85] mx-auto flex max-w-sm flex-col gap-2 lg:top-4">
+        <div
+          className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[85] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 lg:top-4"
+          style={{ paddingLeft: "calc(0.75rem + env(safe-area-inset-left))", paddingRight: "calc(0.75rem + env(safe-area-inset-right))" }}
+        >
           {shownNotifs.map((n) => (
             <ToastCard key={n.id} icon={typeIcon(n.type)} title={n.title} sub={n.body ?? undefined}>
               <button type="button" disabled={busy === `ack-${n.id}`} onClick={() => void ack(n.id)}

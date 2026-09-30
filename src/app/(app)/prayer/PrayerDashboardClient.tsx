@@ -1057,10 +1057,11 @@ export default function PrayerDashboard() {
       {nudgeToast && (
         <div
           role="status"
-          className="waqt-fade-up fixed inset-x-3 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[86] mx-auto flex max-w-sm items-center gap-2.5 rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-md lg:top-4"
+          className="waqt-fade-up fixed left-1/2 top-[calc(env(safe-area-inset-top)+3.75rem)] z-[86] flex w-full max-w-sm -translate-x-1/2 items-center gap-2.5 rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-md lg:top-4"
           style={{
             borderColor: "var(--color-paper-3)",
             backgroundColor: "color-mix(in oklab, var(--color-paper) 96%, transparent)",
+            width: "calc(100% - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right))",
           }}
         >
           <span

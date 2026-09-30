@@ -103,7 +103,14 @@ export default function DuaToast() {
   const customValid = custom !== null && custom.trim().length >= 2 && !validateDua(custom);
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-[110] flex justify-center px-3 pt-3" style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}>
+    <div
+      className="pointer-events-none fixed left-1/2 top-0 z-[110] w-full max-w-sm -translate-x-1/2"
+      style={{
+        paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+        paddingLeft: "calc(0.75rem + env(safe-area-inset-left))",
+        paddingRight: "calc(0.75rem + env(safe-area-inset-right))",
+      }}
+    >
       <div
         role="dialog"
         aria-label="Make a dua"
