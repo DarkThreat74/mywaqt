@@ -806,7 +806,7 @@ export const goals = pgTable('goals', {
   description: text('description'),
   status: text('status').default('active').notNull(), // active | done | archived | backlog
   // Type: long-term (yearly/life goals) vs short-term (weekly/monthly milestones)
-  goalType: text('goal_type').default('short_term').notNull(), // long_term | short_term
+  goalType: text('goal_type').default('month').notNull(), // week | month | year | all_time | rules
   // Optional target date — when the goal should be achieved by
   targetDate: date('target_date'),
   // Optional progress tracking — when progressTarget is set, the goal is a

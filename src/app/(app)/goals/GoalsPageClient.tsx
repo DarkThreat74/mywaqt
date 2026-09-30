@@ -4,14 +4,11 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Calendar,
   Target,
-  Zap,
   BookOpen,
   Repeat,
-  StickyNote,
-  Inbox,
   CheckCircle2,
 } from "lucide-react";
-import type { Goal, Homework, Class, Habit, HabitLog, Note } from "@/lib/db/schema";
+import type { Goal, Homework, Class, Habit, HabitLog } from "@/lib/db/schema";
 import { getOfflineDB } from "@/lib/offline/db";
 import {
   syncGoalsToCache,
@@ -19,17 +16,14 @@ import {
   syncClassesToCache,
   syncHabitsToCache,
   syncHabitLogsToCache,
-  syncNotesToCache,
 } from "@/lib/offline/cache-writers";
-import GoalsTab from "./tabs/GoalsTab";
+import GoalsTab, { type GoalHorizon } from "./tabs/GoalsTab";
 import HomeworkTab from "./tabs/HomeworkTab";
 import HabitsTab from "./tabs/HabitsTab";
-import NotesTab from "./tabs/NotesTab";
 import TodayTab from "./tabs/TodayTab";
-import BacklogTab from "./tabs/BacklogTab";
 import DoneTab from "./tabs/DoneTab";
 
-export type TabId = "today" | "long-term" | "short-term" | "homework" | "habits" | "notes" | "backlog" | "done";
+export type TabId = "today" | "goals" | "homework" | "habits" | "done";
 
 interface TabDef {
   id: TabId;
@@ -39,14 +33,32 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { id: "today", label: "Today", icon: Calendar },
-  { id: "long-term", label: "Long-term", icon: Target },
-  { id: "short-term", label: "Short-term", icon: Zap },
+  { id: "goals", label: "Goals", icon: Target },
   { id: "homework", label: "Homework", icon: BookOpen },
   { id: "habits", label: "Habits", icon: Repeat },
-  { id: "notes", label: "Notes", icon: StickyNote },
-  { id: "backlog", label: "Backlog", icon: Inbox },
   { id: "done", label: "Done", icon: CheckCircle2 },
 ];
+
+const GOAL_HORIZONS: { key: GoalHorizon; label: string }[] = [
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
+  { key: "year", label: "Year" },
+  { key: "all_time", label: "All-time" },
+  { key: "rules", label: "Rules" },
+];
+
+// Old hash/bookmark values → current tabs.
+const LEGACY_TAB: Record<string, TabId> = {
+  "long-term": "goals",
+  "short-term": "goals",
+  notes: "today",
+  backlog: "today",
+};
+
+function resolveHash(hash: string): TabId {
+  if (TABS.some((t) => t.id === hash)) return hash as TabId;
+  return LEGACY_TAB[hash] ?? "today";
+}
 
 export default function GoalsPageClient({
   initialGoals,
@@ -54,28 +66,26 @@ export default function GoalsPageClient({
   initialClasses,
   initialHabits,
   initialHabitLogs,
-  initialNotes,
 }: {
   initialGoals: Goal[];
   initialHomework: Homework[];
   initialClasses: Class[];
   initialHabits: Habit[];
   initialHabitLogs: HabitLog[];
-  initialNotes: Note[];
 }) {
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     if (typeof window !== "undefined") {
-      const hash = window.location.hash.slice(1) as TabId;
-      if (hash && TABS.some((t) => t.id === hash)) return hash;
+      const hash = window.location.hash.slice(1);
+      if (hash) return resolveHash(hash);
     }
     return "today";
   });
+  const [goalHorizon, setGoalHorizon] = useState<GoalHorizon>("week");
   const [goals, setGoals] = useState<Goal[]>(initialGoals);
   const [homework, setHomework] = useState<Homework[]>(initialHomework);
   const [classes, setClasses] = useState<Class[]>(initialClasses);
   const [habits, setHabits] = useState<Habit[]>(initialHabits);
   const [habitLogs, setHabitLogs] = useState<HabitLog[]>(initialHabitLogs);
-  const [notes, setNotes] = useState<Note[]>(initialNotes);
 
   // ── Update URL hash when tab changes ──
   useEffect(() => {
@@ -89,10 +99,10 @@ export default function GoalsPageClient({
   // ── Sync tab from URL on back/forward navigation ──
   useEffect(() => {
     const onHashChange = () => {
-      const hash = window.location.hash.slice(1) as TabId;
-      if (hash && TABS.some((t) => t.id === hash)) {
-        setActiveTab(hash);
-      } else if (!hash) {
+      const hash = window.location.hash.slice(1);
+      if (hash) {
+        setActiveTab(resolveHash(hash));
+      } else {
         setActiveTab("today");
       }
     };
@@ -151,32 +161,22 @@ export default function GoalsPageClient({
           })))
         ).catch(() => {});
       }
-      if (initialNotes.length > 0) {
-        db.notes.clear().then(() =>
-          db.notes.bulkPut(initialNotes.map((n) => ({
-            id: n.id, title: n.title, content: n.content, pinned: n.pinned,
-            createdAt: n.createdAt.toISOString(), updatedAt: n.updatedAt.toISOString(),
-            _cachedAt: Date.now(),
-          })))
-        ).catch(() => {});
-      }
     } catch {
       // non-critical
     }
-  }, [initialGoals, initialHomework, initialClasses, initialHabits, initialHabitLogs, initialNotes]);
+  }, [initialGoals, initialHomework, initialClasses, initialHabits, initialHabitLogs]);
 
   const refreshAll = useCallback(async () => {
     try {
-      const [goalsRes, hwRes, clsRes, habitsRes, logsRes, notesRes] = await Promise.all([
+      const [goalsRes, hwRes, clsRes, habitsRes, logsRes] = await Promise.all([
         fetch("/api/goals"), fetch("/api/homework"), fetch("/api/classes"),
-        fetch("/api/habits"), fetch("/api/habit-logs"), fetch("/api/notes"),
+        fetch("/api/habits"), fetch("/api/habit-logs"),
       ]);
       if (goalsRes.ok) { const d = await goalsRes.json(); if (d.goals) { setGoals(d.goals); syncGoalsToCache(d.goals); } }
       if (hwRes.ok) { const d = await hwRes.json(); if (Array.isArray(d)) { setHomework(d); syncHomeworkToCache(d); } }
       if (clsRes.ok) { const d = await clsRes.json(); if (Array.isArray(d)) { setClasses(d); syncClassesToCache(d); } }
       if (habitsRes.ok) { const d = await habitsRes.json(); if (Array.isArray(d)) { setHabits(d); syncHabitsToCache(d); } }
       if (logsRes.ok) { const d = await logsRes.json(); if (Array.isArray(d)) { setHabitLogs(d); syncHabitLogsToCache(d); } }
-      if (notesRes.ok) { const d = await notesRes.json(); if (Array.isArray(d)) { setNotes(d); syncNotesToCache(d); } }
     } catch {
       // offline — cached data still showing
     }
@@ -268,23 +268,32 @@ export default function GoalsPageClient({
         {activeTab === "today" && (
           <TodayTab goals={goals} setGoals={setGoals} homework={homework} classes={classes} habits={habits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} onNavigate={(t) => setActiveTab(t as TabId)} />
         )}
-        {activeTab === "long-term" && (
-          <GoalsTab goals={goals} setGoals={setGoals} goalType="long_term" />
-        )}
-        {activeTab === "short-term" && (
-          <GoalsTab goals={goals} setGoals={setGoals} goalType="short_term" />
+        {activeTab === "goals" && (
+          <div className="flex flex-col gap-4">
+            {/* Horizon chips — week / month / year / all-time / rules */}
+            <div className="flex gap-1 overflow-x-auto rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+              {GOAL_HORIZONS.map((h) => (
+                <button
+                  key={h.key}
+                  onClick={() => setGoalHorizon(h.key)}
+                  className="min-h-10 flex-1 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+                  style={{
+                    backgroundColor: goalHorizon === h.key ? "var(--color-paper)" : "transparent",
+                    color: goalHorizon === h.key ? "var(--color-ink)" : "var(--color-ink-muted)",
+                  }}
+                >
+                  {h.label}
+                </button>
+              ))}
+            </div>
+            <GoalsTab goals={goals} setGoals={setGoals} goalType={goalHorizon} />
+          </div>
         )}
         {activeTab === "homework" && (
           <HomeworkTab homework={homework} classes={classes} onHomeworkChange={setHomework} />
         )}
         {activeTab === "habits" && (
           <HabitsTab habits={habits} setHabits={setHabits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} />
-        )}
-        {activeTab === "notes" && (
-          <NotesTab notes={notes} setNotes={setNotes} />
-        )}
-        {activeTab === "backlog" && (
-          <BacklogTab goals={goals} setGoals={setGoals} />
         )}
         {activeTab === "done" && (
           <DoneTab goals={goals} homework={homework} setGoals={setGoals} setHomework={setHomework} />

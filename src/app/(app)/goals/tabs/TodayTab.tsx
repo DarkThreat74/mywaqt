@@ -165,7 +165,7 @@ export default function TodayTab({
   const shortTermGoals = useMemo(
     () => goals
       .filter((g) =>
-        (g.goalType || "short_term") === "short_term" &&
+        ((g.goalType || "month") === "week" || (g.goalType || "month") === "month") &&
         (g.status === "active" || animatingOut.has(g.id)),
       )
       .sort(compareGoals),
@@ -176,7 +176,7 @@ export default function TodayTab({
   const longTermGoals = useMemo(
     () => goals
       .filter((g) =>
-        g.goalType === "long_term" &&
+        (g.goalType === "year" || g.goalType === "all_time") &&
         (g.status === "active" || animatingOut.has(g.id)),
       )
       .sort(compareGoals),
@@ -434,7 +434,7 @@ export default function TodayTab({
         icon={<Target className="h-4 w-4" />}
         title="Goals for this week"
         count={shortTermGoals.length}
-        onMore={() => onNavigate("short-term")}
+        onMore={() => onNavigate("goals")}
         initialLimit={3}
         items={shortTermGoals}
         renderItem={(g) => {
@@ -621,7 +621,7 @@ export default function TodayTab({
         icon={<Telescope className="h-4 w-4" />}
         title="Goals long-term"
         count={longTermGoals.length}
-        onMore={() => onNavigate("long-term")}
+        onMore={() => onNavigate("goals")}
         initialLimit={3}
         items={longTermGoals}
         renderItem={(g) => {

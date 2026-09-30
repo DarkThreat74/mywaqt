@@ -124,7 +124,7 @@ export default function HomeworkClient({
   const [filterPriority, setFilterPriority] = useState<"all" | "high" | "medium" | "low">("all");
   const [sortBy, setSortBy] = useState<"soonest" | "latest" | "type">("soonest");
   const [sortTypeKind, setSortTypeKind] = useState<HomeworkItem["kind"]>("homework");
-  const [showCompleted, setShowCompleted] = useState(false);
+
   const [deleteClassConfirm, setDeleteClassConfirm] = useState<ClassItem | null>(null);
   const [editClass, setEditClass] = useState<ClassItem | null>(null);
   const [editClassName, setEditClassName] = useState("");
@@ -1739,34 +1739,6 @@ export default function HomeworkClient({
             </>
           )}
 
-          {/* Completed section — collapsed by default */}
-          {completed.length > 0 && (
-            <div className="mb-5">
-              <button
-                onClick={() => setShowCompleted(!showCompleted)}
-                className="mb-2 flex items-center gap-2"
-              >
-                <ChevronDown
-                  className={`h-3 w-3 transition-transform ${showCompleted ? "rotate-180" : ""}`}
-                  style={{ color: "var(--color-ink-muted)" }}
-                />
-                <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                  Completed
-                </h2>
-                <span
-                  className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-                  style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
-                >
-                  {completed.length}
-                </span>
-              </button>
-              {showCompleted && (
-                <div className="space-y-2">
-                  {completed.map(renderHomeworkCard)}
-                </div>
-              )}
-            </div>
-          )}
         </>
       )}
 

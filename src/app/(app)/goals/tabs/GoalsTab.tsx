@@ -9,6 +9,16 @@ import { syncGoalsToCache } from "@/lib/offline/cache-writers";
 
 type View = "list" | "tree";
 
+export type GoalHorizon = "week" | "month" | "year" | "all_time" | "rules";
+
+const HORIZON_LABELS: Record<GoalHorizon, { title: string; sub: string; singular: string }> = {
+  week:     { title: "This Week",        sub: "What you're pushing on right now",   singular: "weekly goal" },
+  month:    { title: "This Month",       sub: "Milestones for the month ahead",     singular: "monthly goal" },
+  year:     { title: "This Year",        sub: "The big things you're working toward", singular: "yearly goal" },
+  all_time: { title: "All-time",         sub: "Life goals, no deadline attached",    singular: "life goal" },
+  rules:    { title: "Rules to Live By", sub: "Principles you hold yourself to",     singular: "rule" },
+};
+
 // Day-granularity "now" for pace-line math — recomputed on each page load,
 // which is precise enough for a progress-vs-expected indicator.
 const NOW_MS = Date.now();
@@ -20,7 +30,7 @@ export default function GoalsTab({
 }: {
   goals: Goal[];
   setGoals: React.Dispatch<React.SetStateAction<Goal[]>>;
-  goalType: "long_term" | "short_term";
+  goalType: GoalHorizon;
 }) {
   const [view, setView] = useState<View>("list");
   const [loading, setLoading] = useState(false);
@@ -39,7 +49,7 @@ export default function GoalsTab({
 
   // Filter goals by type
   const filteredGoals = useMemo(
-    () => goals.filter((g) => (g.goalType || "short_term") === goalType),
+    () => goals.filter((g) => (g.goalType || "month") === goalType),
     [goals, goalType],
   );
   const tree = useMemo(() => buildGoalTree(filteredGoals), [filteredGoals]);
@@ -67,7 +77,7 @@ export default function GoalsTab({
       // Assign sortOrder = index, update state + API for changed items
       setGoals((prev) => {
         const updated = prev.map((g) => {
-          if ((g.goalType || "short_term") !== goalType) return g;
+          if ((g.goalType || "month") !== goalType) return g;
           const newIdx = newOrder.indexOf(g.id);
           if (newIdx === -1) return g;
           const newSort = newIdx;
@@ -197,7 +207,7 @@ export default function GoalsTab({
     }
   }, [setGoals]);
 
-  const isLongTerm = goalType === "long_term";
+  const horizon = HORIZON_LABELS[goalType] ?? HORIZON_LABELS.month;
 
   return (
     <div className="flex flex-col gap-4">
@@ -205,10 +215,10 @@ export default function GoalsTab({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
-            {isLongTerm ? "Long-term Goals" : "Short-term Goals"}
+            {horizon.title}
           </h1>
           <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-            {isLongTerm ? "Yearly and life aspirations" : "Weekly and monthly milestones"}
+            {horizon.sub}
             {total > 0 && ` · ${done}/${total} done`}
           </p>
         </div>
@@ -292,7 +302,7 @@ export default function GoalsTab({
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
         >
           <Plus className="h-4 w-4" />
-          Add {isLongTerm ? "long-term" : "short-term"} goal
+          Add {horizon.singular}
         </button>
       )}
 
@@ -301,7 +311,7 @@ export default function GoalsTab({
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Target className="h-8 w-8 mb-3" style={{ color: "var(--color-ink-muted)", opacity: 0.4 }} />
           <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-            No {isLongTerm ? "long-term" : "short-term"} goals yet.
+            No {horizon.singular}s yet.
           </p>
         </div>
       ) : view === "list" ? (

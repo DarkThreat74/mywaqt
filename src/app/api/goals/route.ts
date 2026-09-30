@@ -8,6 +8,17 @@ import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
 
+// Goal horizons: week | month | year | all_time | rules.
+// Legacy long_term/short_term values from older clients (incl. the offline
+// write queue) map forward so queued writes don't die after the rebrand.
+const GOAL_TYPES = new Set(["week", "month", "year", "all_time", "rules"]);
+const LEGACY_GOAL_TYPE: Record<string, string> = { long_term: "year", short_term: "month" };
+function normalizeGoalType(v: string | undefined): string {
+  if (!v) return "month";
+  if (GOAL_TYPES.has(v)) return v;
+  return LEGACY_GOAL_TYPE[v] ?? "month";
+}
+
 /**
  * GET /api/goals — list all goals for the authenticated user (flat array)
  * POST /api/goals — create a new goal
@@ -89,9 +100,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate goalType if provided
-    const goalType = body.goalType && ["long_term", "short_term"].includes(body.goalType)
-      ? body.goalType
-      : "short_term";
+    const goalType = normalizeGoalType(body.goalType);
 
     // Validate targetDate if provided (YYYY-MM-DD)
     let targetDate: string | null = null;
@@ -246,10 +255,10 @@ export async function PATCH(request: NextRequest) {
       updates.completedAt = body.status === "done" ? new Date() : null;
     }
     if (body.goalType !== undefined) {
-      if (!["long_term", "short_term"].includes(body.goalType)) {
+      if (!GOAL_TYPES.has(body.goalType) && !LEGACY_GOAL_TYPE[body.goalType]) {
         return NextResponse.json({ error: "Invalid goal type" }, { status: 400 });
       }
-      updates.goalType = body.goalType;
+      updates.goalType = normalizeGoalType(body.goalType);
     }
     if (body.targetDate !== undefined) {
       if (body.targetDate === null || body.targetDate === "") {
