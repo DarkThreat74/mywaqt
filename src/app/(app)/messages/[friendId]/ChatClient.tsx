@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, CheckCheck, Reply, Send, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, CornerUpLeft, SendHorizonal, X } from "lucide-react";
 import { useUISFX } from "@/components/uisfx-provider";
 
 type Msg = {
@@ -149,8 +149,12 @@ export default function ChatClient({ friendId }: { friendId: string }) {
   if (notFound) {
     return (
       <div className="mx-auto max-w-md px-4 py-20 text-center">
-        <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>You can only message accepted prayer friends.</p>
-        <button onClick={() => router.back()} className="mt-4 text-sm font-medium" style={{ color: "var(--color-accent)" }}>Go back</button>
+        <p className="text-base italic" style={{ color: "var(--color-ink-muted)" }}>
+          Messages live between prayer friends.
+        </p>
+        <button onClick={() => router.back()} className="mt-4 text-sm font-medium" style={{ color: "var(--color-accent)" }}>
+          Go back
+        </button>
       </div>
     );
   }
@@ -159,123 +163,154 @@ export default function ChatClient({ friendId }: { friendId: string }) {
 
   return (
     <div className="fixed inset-0 z-[70] flex flex-col" style={{ backgroundColor: "var(--color-paper)" }}>
-      {/* Header */}
-      <div className="mx-auto flex w-full max-w-3xl items-center gap-3 border-b px-3 py-3 sm:px-4"
-        style={{ borderColor: "var(--color-paper-3)", paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
-        <button onClick={() => router.back()} aria-label="Back"
-          className="flex h-9 w-9 items-center justify-center rounded-lg border transition-colors enabled:hover:bg-[var(--color-paper-2)]"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        {friend?.avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={friend.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" />
-        ) : (
-          <span className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold"
-            style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 14%, var(--color-paper))", color: "var(--color-accent)" }}>
-            {friend?.name?.[0]?.toUpperCase() ?? "·"}
-          </span>
-        )}
-        <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{friend?.name ?? "…"}</p>
-      </div>
-
-      {/* Thread */}
-      <div ref={listRef} onScroll={onScroll} className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4">
-        {messages.length === 0 && (
-          <p className="py-16 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            No messages yet — say salaam.
-          </p>
-        )}
-        {messages.map((m, i) => {
-          const day = dayOf(m.createdAt);
-          const showSep = i === 0 || day !== dayOf(messages[i - 1].createdAt);
-          const own = m.optimistic || m.senderId === me;
-          return (
-            <div key={m.id}>
-              {showSep && (
-                <p className="my-3 text-center text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                  {day}
-                </p>
-              )}
-              <div className={`group mb-1.5 flex ${own ? "justify-end" : "justify-start"}`}>
-                {!own && (
-                  <button onClick={() => setReplyTo(m)} aria-label="Reply"
-                    className="mr-1 self-center opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-40"
-                    style={{ color: "var(--color-ink-muted)" }}>
-                    <Reply className="h-3.5 w-3.5" />
-                  </button>
-                )}
-                <div
-                  className="max-w-[78%] rounded-2xl px-3.5 py-2"
-                  style={{
-                    backgroundColor: own ? "var(--color-accent)" : "var(--color-paper-2)",
-                    color: own ? "var(--color-paper)" : "var(--color-ink)",
-                    borderBottomRightRadius: own ? 6 : undefined,
-                    borderBottomLeftRadius: own ? undefined : 6,
-                  }}
-                >
-                  {m.replyToId && (
-                    <p className="mb-1 truncate rounded-md border-l-2 px-2 py-1 text-[11px] opacity-80"
-                      style={{ borderColor: "currentColor", backgroundColor: "color-mix(in oklab, currentColor 8%, transparent)" }}>
-                      {m.replyToContent ?? "Message"}
-                    </p>
-                  )}
-                  <p className="whitespace-pre-wrap break-words text-[14px] leading-snug">
-                    {m.deleted ? <em className="opacity-60">Message deleted</em> : m.content}
-                  </p>
-                  <span className="mt-0.5 flex items-center justify-end gap-1 text-[10px] opacity-70">
-                    {new Date(m.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                    {own && (m.optimistic
-                      ? <span className="opacity-60">…</span>
-                      : m.readAt
-                        ? <CheckCheck className="h-3 w-3" style={{ color: "var(--color-info, #6db3f2)" }} />
-                        : m.deliveredAt
-                          ? <CheckCheck className="h-3 w-3" />
-                          : <Check className="h-3 w-3" />)}
-                  </span>
-                </div>
-                {own && !m.optimistic && (
-                  <button onClick={() => setReplyTo(m)} aria-label="Reply"
-                    className="ml-1 self-center opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-40"
-                    style={{ color: "var(--color-ink-muted)" }}>
-                    <Reply className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Reply preview */}
-      {replyTo && (
-        <div className="mx-auto mb-2 flex w-full max-w-3xl items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)" }}>
-          <Reply className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />
-          <p className="min-w-0 flex-1 truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>{replyTo.content}</p>
-          <button onClick={() => setReplyTo(null)} aria-label="Cancel reply" style={{ color: "var(--color-ink-muted)" }}>
-            <X className="h-3.5 w-3.5" />
+      {/* Masthead — names set like a correspondence card */}
+      <header
+        className="border-b"
+        style={{ borderColor: "var(--color-paper-3)", paddingTop: "env(safe-area-inset-top)" }}
+      >
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-3.5 sm:px-6">
+          <button onClick={() => router.push("/messages")} aria-label="Back to messages"
+            className="flex h-9 w-9 items-center justify-center rounded-full transition-colors enabled:hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-ink-soft)" }}>
+            <ArrowLeft className="h-4 w-4" />
           </button>
+          {friend?.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={friend.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover" style={{ outline: "1px solid var(--color-paper-3)" }} />
+          ) : (
+            <span className="flex h-10 w-10 items-center justify-center rounded-full text-sm italic"
+              style={{ backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)", outline: "1px solid var(--color-paper-3)" }}>
+              {friend?.name?.[0]?.toUpperCase() ?? "·"}
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className="truncate text-[17px] leading-tight" style={{ color: "var(--color-ink)" }}>
+              {friend?.name ?? "…"}
+            </p>
+            <p className="text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+              Prayer friend · private
+            </p>
+          </div>
         </div>
-      )}
+      </header>
 
-      {/* Composer */}
-      <div className="mx-auto flex w-full max-w-3xl items-end gap-2 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-1 sm:px-4">
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
-          placeholder="Message…"
-          rows={1}
-          maxLength={2000}
-          className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border px-4 py-3 text-[14px] outline-none"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", fieldSizing: "content" } as React.CSSProperties}
-        />
-        <button onClick={() => void send()} disabled={!draft.trim() || sending} aria-label="Send"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-40"
-          style={{ backgroundColor: "var(--color-accent)" }}>
-          <Send className="h-4 w-4" />
-        </button>
+      {/* Thread — a correspondence ledger, not a bubble wall */}
+      <div ref={listRef} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto w-full max-w-3xl px-4 py-4 sm:px-6">
+          {messages.length === 0 && (
+            <div className="py-20 text-center">
+              <p className="text-xl italic leading-snug" style={{ color: "var(--color-ink)" }}>
+                Say salaam.
+              </p>
+              <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                Every friendship here begins with a greeting.
+              </p>
+            </div>
+          )}
+          {messages.map((m, i) => {
+            const day = dayOf(m.createdAt);
+            const showSep = i === 0 || day !== dayOf(messages[i - 1].createdAt);
+            const own = m.optimistic || m.senderId === me;
+            return (
+              <div key={m.id}>
+                {showSep && (
+                  <div className="my-4 flex items-center gap-3" role="separator" aria-label={day}>
+                    <span className="h-px flex-1" style={{ backgroundColor: "var(--color-paper-3)" }} />
+                    <span className="text-[10px] font-medium uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
+                      {day}
+                    </span>
+                    <span className="h-px flex-1" style={{ backgroundColor: "var(--color-paper-3)" }} />
+                  </div>
+                )}
+                <div className={`group mb-2 flex ${own ? "justify-end" : "justify-start"}`}>
+                  {!own && (
+                    <button onClick={() => setReplyTo(m)} aria-label="Reply"
+                      className="mr-1.5 self-center opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-40"
+                      style={{ color: "var(--color-ink-muted)" }}>
+                      <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <div
+                    className="max-w-[80%] px-3.5 py-2.5 sm:max-w-[70%]"
+                    style={own ? {
+                      backgroundColor: "var(--color-accent-faint)",
+                      borderRadius: "14px 14px 4px 14px",
+                      border: "1px solid color-mix(in oklab, var(--color-accent) 22%, var(--color-paper-3))",
+                    } : {
+                      backgroundColor: "var(--color-paper-2)",
+                      borderRadius: "14px 14px 14px 4px",
+                      border: "1px solid var(--color-paper-3)",
+                    }}
+                  >
+                    {m.replyToId && (
+                      <p className="mb-1.5 truncate border-l-2 pl-2 text-[11px] italic leading-snug"
+                        style={{ borderColor: own ? "var(--color-accent)" : "var(--color-warmth)", color: "var(--color-ink-muted)" }}>
+                        {m.replyToContent ?? "Message"}
+                      </p>
+                    )}
+                    <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed" style={{ color: "var(--color-ink)" }}>
+                      {m.deleted ? <em className="opacity-60">This message was removed.</em> : m.content}
+                    </p>
+                    <span className="mt-1 flex items-center gap-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)", justifyContent: own ? "flex-end" : "flex-start" }}>
+                      {new Date(m.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      {own && (m.optimistic
+                        ? <span className="opacity-60">…</span>
+                        : m.readAt
+                          ? <CheckCheck className="h-3 w-3" style={{ color: "var(--color-accent)" }} />
+                          : m.deliveredAt
+                            ? <CheckCheck className="h-3 w-3" />
+                            : <Check className="h-3 w-3" />)}
+                    </span>
+                  </div>
+                  {own && !m.optimistic && (
+                    <button onClick={() => setReplyTo(m)} aria-label="Reply"
+                      className="ml-1.5 self-center opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-40"
+                      style={{ color: "var(--color-ink-muted)" }}>
+                      <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <div ref={bottomRef} />
+        </div>
+      </div>
+
+      {/* Composer — a writing desk, not a chat pill */}
+      <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="mx-auto w-full max-w-3xl px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2.5 sm:px-6">
+          {replyTo && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg px-3 py-1.5"
+              style={{ backgroundColor: "var(--color-warmth-faint)" }}>
+              <CornerUpLeft className="h-3 w-3 shrink-0" style={{ color: "var(--color-warmth)" }} />
+              <p className="min-w-0 flex-1 truncate text-[11px] italic" style={{ color: "var(--color-ink-soft)" }}>
+                {replyTo.content}
+              </p>
+              <button onClick={() => setReplyTo(null)} aria-label="Cancel reply" style={{ color: "var(--color-ink-muted)" }}>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-3">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
+              placeholder="Write to them…"
+              rows={1}
+              maxLength={2000}
+              aria-label={`Message ${friend?.name ?? "friend"}`}
+              className="max-h-36 min-h-[44px] flex-1 resize-none border-b bg-transparent px-1 py-2.5 text-[16px] italic leading-snug outline-none transition-colors focus:border-[var(--color-accent)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", fieldSizing: "content" } as React.CSSProperties}
+            />
+            <button onClick={() => void send()} disabled={!draft.trim() || sending} aria-label="Send"
+              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all enabled:hover:-translate-y-0.5 disabled:opacity-30"
+              style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
+              <SendHorizonal className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
