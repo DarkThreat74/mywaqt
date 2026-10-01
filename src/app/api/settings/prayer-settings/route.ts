@@ -107,9 +107,10 @@ export async function PATCH(request: NextRequest) {
       effectiveGender = cur?.gender ?? null;
     }
     updates.haydTracking = body.haydTracking && effectiveGender === "female";
-    // Switching to male disables hayd tracking implicitly
-    if (body.gender === "male") updates.haydTracking = false;
   }
+  // Switching to male disables hayd tracking even when the toggle itself
+  // isn't in this PATCH.
+  if (body.gender === "male") updates.haydTracking = false;
   if (body.masjidExternalId === null || typeof body.masjidExternalId === "string") {
     updates.masjidExternalId = body.masjidExternalId === null ? null : body.masjidExternalId.slice(0, 200);
   }

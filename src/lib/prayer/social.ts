@@ -76,16 +76,18 @@ async function fanOutDayCompletion(userId: string, date: string): Promise<void> 
           set: {
             // Continue only if the last matched date was yesterday; a gap
             // restarts at 1. Matching the same date twice never double-counts.
-            streak: sql`CASE WHEN ${schema.prayerFriendStreaks.lastDate} = ${yesterday}
-              THEN ${schema.prayerFriendStreaks.streak} + 1
-              WHEN ${schema.prayerFriendStreaks.lastDate} = ${date}
+            // A completion for a date at/before lastDate is a late backfill —
+            // leave the running streak untouched rather than resetting it.
+            streak: sql`CASE WHEN ${schema.prayerFriendStreaks.lastDate} >= ${date}
               THEN ${schema.prayerFriendStreaks.streak}
+              WHEN ${schema.prayerFriendStreaks.lastDate} = ${yesterday}
+              THEN ${schema.prayerFriendStreaks.streak} + 1
               ELSE 1 END`,
             bestStreak: sql`GREATEST(${schema.prayerFriendStreaks.bestStreak},
-              CASE WHEN ${schema.prayerFriendStreaks.lastDate} = ${yesterday}
-                THEN ${schema.prayerFriendStreaks.streak} + 1
-                WHEN ${schema.prayerFriendStreaks.lastDate} = ${date}
+              CASE WHEN ${schema.prayerFriendStreaks.lastDate} >= ${date}
                 THEN ${schema.prayerFriendStreaks.streak}
+                WHEN ${schema.prayerFriendStreaks.lastDate} = ${yesterday}
+                THEN ${schema.prayerFriendStreaks.streak} + 1
                 ELSE 1 END)`,
             lastDate: sql`GREATEST(${schema.prayerFriendStreaks.lastDate}, ${date})`,
             updatedAt: new Date(),

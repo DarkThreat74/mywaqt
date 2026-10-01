@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -129,6 +129,20 @@ export async function POST(request: NextRequest) {
           fetchedAt: new Date(),
         },
       });
+
+    // If location/method/madhab changed, previously cached months beyond this
+    // sync's range still hold times computed under the old settings — drop
+    // them so they can't serve stale windows. Past months are kept (their
+    // windows already resolved) and are re-fetched on demand.
+    const maxFetched = values.reduce((m, v) => (v.date > m ? v.date : m), "");
+    if (maxFetched) {
+      await db
+        .delete(schema.prayerTimesCache)
+        .where(and(
+          eq(schema.prayerTimesCache.userId, session.userId),
+          gt(schema.prayerTimesCache.date, maxFetched),
+        ));
+    }
 
     return NextResponse.json({ ok: true, daysCached: days.length });
   } catch (err) {
