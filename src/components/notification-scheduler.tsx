@@ -289,8 +289,10 @@ export default function NotificationScheduler() {
             const p = parseTimeParts(fixed);
             iqamah = { h: p.hours, mi: p.minutes };
           } else if (typeof offset === "number") {
-            const total = hours * 60 + minutes + offset;
-            iqamah = { h: Math.floor(total / 60) % 24, mi: total % 60 };
+            // Normalize negative offsets — a large negative offset on an
+            // early-morning adhan can wrap below 0:00.
+            const total = ((hours * 60 + minutes + offset) % 1440 + 1440) % 1440;
+            iqamah = { h: Math.floor(total / 60), mi: total % 60 };
           }
         }
         if (iqamah) {
@@ -510,15 +512,18 @@ export default function NotificationScheduler() {
         const eventStart = new Date(event.startAt);
         const notifyTime = new Date(eventStart.getTime() - 15 * 60 * 1000);
         const diffMs = notifyTime.getTime() - now.getTime();
+        const eventDiffMs = eventStart.getTime() - now.getTime();
 
-        if (diffMs <= 1000 || diffMs > 48 * 60 * 60 * 1000) continue;
+        // Event already started, or the notify point is too far out — skip.
+        // (Events inside the 15-min window have a negative diffMs but MUST
+        // still notify — the immediate branch below handles them.)
+        if (eventDiffMs <= 0 || diffMs > 48 * 60 * 60 * 1000) continue;
 
         const notifTag = `event-${event.id}-${date}`;
         if (firedNotifications.has(notifTag)) continue;
 
         // If the event is less than 15 min away, notify immediately
-        const eventDiffMs = eventStart.getTime() - now.getTime();
-        if (eventDiffMs > 0 && eventDiffMs < 15 * 60 * 1000) {
+        if (eventDiffMs < 15 * 60 * 1000) {
           const typeLabel = event.type === "reminder" ? "Reminder" : event.type === "task" ? "Task" : "Event";
           firedNotifications.add(notifTag);
           showNotification(
