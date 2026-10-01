@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
     .where(eq(schema.users.id, session.userId))
     .limit(1);
 
-  // null = never touched → nothing hidden; every tab shows by default.
-  const hiddenTabs = (row?.hiddenTabs ?? []).filter((k) => HIDEABLE_SET.has(k));
+  // null = never touched → Messages hidden by default; everything else shows.
+  const hiddenTabs = (row?.hiddenTabs ?? ["messages"]).filter((k) => HIDEABLE_SET.has(k));
   return NextResponse.json({ hiddenTabs });
 }
 

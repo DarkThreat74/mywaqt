@@ -201,16 +201,18 @@ function computeEquivTime(
   return formatMinutesToTime(equivMinutes);
 }
 
-type Tab = "league" | "stats";
+type Tab = "overview" | "friends" | "stats";
 
 type StatsRange = "weekly" | "monthly" | "yearly" | "all-time";
 
 export default function PrayerDashboard() {
-  // Deep links: ?tab=friends/comparison → league, ?tab=qadaa → stats.
+  // Deep links: ?tab=friends → friends mgmt, ?tab=stats|qadaa → stats.
   const [activeTab, setActiveTab] = useState<Tab>(() => {
-    if (typeof window === "undefined") return "league";
+    if (typeof window === "undefined") return "overview";
     const t = new URLSearchParams(window.location.search).get("tab");
-    return t === "stats" || t === "qadaa" ? "stats" : "league";
+    if (t === "friends") return "friends";
+    if (t === "stats" || t === "qadaa") return "stats";
+    return "overview";
   });
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   // Check-in popup — the league's primary action; which salah is being logged.
@@ -384,7 +386,7 @@ export default function PrayerDashboard() {
   }, [fetchTodayData, refreshFriends]);
 
   useEffect(() => {
-    if (activeTab !== "league") return;
+    if (activeTab === "stats") return;
     const t = setInterval(() => void refreshFriends(), 15_000);
     return () => clearInterval(t);
   }, [activeTab, refreshFriends]);
@@ -1172,9 +1174,10 @@ export default function PrayerDashboard() {
       )}
 
       {/* ── Tab navigation ── */}
-      <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+      <div className="mb-6 grid grid-cols-3 gap-1 rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
         {([
-          { key: "league" as Tab, label: "League" },
+          { key: "overview" as Tab, label: "Overview" },
+          { key: "friends" as Tab, label: "Friends" },
           { key: "stats" as Tab, label: "Stats" },
         ]).map((tab) => (
           <button
@@ -1194,7 +1197,7 @@ export default function PrayerDashboard() {
       {/* ════════════════════════════════════════════════════════════════
           TAB: COMPARISON (Today's progress + friends comparison)
           ════════════════════════════════════════════════════════════════ */}
-      {activeTab === "league" && (
+      {activeTab === "overview" && (
         <div className="space-y-6">
           {/* ── Today's Progress — Vertical Timeline ── */}
           <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
@@ -1394,9 +1397,11 @@ export default function PrayerDashboard() {
                     <div key={prayer} className="relative flex gap-3 pb-4 sm:gap-4">
                       {/* Timeline line + node */}
                       <div className="flex flex-col items-center">
-                        {/* Node */}
-                        <div
-                          className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-colors sm:h-10 sm:w-10"
+                        {/* Node — tap to log this prayer */}
+                        <button
+                          onClick={() => setCheckinPrayer(prayer)}
+                          aria-label={`Log ${prayerLabel(prayer)}`}
+                          className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] active:scale-90 sm:h-10 sm:w-10"
                           style={{
                             borderColor: prayed ? color : excused ? "var(--color-accent)" : isCurrent ? color : "var(--color-paper-3)",
                             backgroundColor: prayed ? color : excused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : isCurrent ? "color-mix(in oklab, " + color + " 10%, transparent)" : "transparent",
@@ -1422,7 +1427,7 @@ export default function PrayerDashboard() {
                               }}
                             />
                           )}
-                        </div>
+                        </button>
                         {/* Connecting line */}
                         {!isLast && (
                           <div
@@ -1999,10 +2004,10 @@ export default function PrayerDashboard() {
       )}
 
       {/* ════════════════════════════════════════════════════════════════
-          TAB: QADAA
+          TAB: QADAA (inside Stats)
           ════════════════════════════════════════════════════════════════ */}
       {activeTab === "stats" && (
-        <div className="space-y-6">
+        <div className="mt-6 space-y-6">
           {qadaa && !qadaa.setupCompleted && (
             <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
               <div className="border-b px-4 py-3 sm:px-5" style={{ borderColor: "var(--color-paper-3)" }}>
@@ -2192,7 +2197,7 @@ export default function PrayerDashboard() {
       {/* ════════════════════════════════════════════════════════════════
           TAB: FRIENDS
           ════════════════════════════════════════════════════════════════ */}
-      {activeTab === "league" && (
+      {activeTab === "friends" && (
         <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
           <div className="border-b px-4 py-3 sm:px-5" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="flex items-center justify-between gap-2">
@@ -2782,7 +2787,7 @@ function ComparisonRow({
 
   return (
     <div
-      className="flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-5"
+      className="flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-5"
       style={isMe ? { backgroundColor: "color-mix(in oklab, var(--color-accent) 4%, transparent)" } : undefined}
     >
       {/* Rank + name + streaks */}
@@ -2791,7 +2796,7 @@ function ComparisonRow({
           {rank}
         </div>
       )}
-      <div className="min-w-20 shrink-0 sm:min-w-32">
+      <div className="min-w-16 shrink-0 sm:min-w-28">
         <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
           {isMe ? "You" : name}
         </div>
@@ -2809,7 +2814,7 @@ function ComparisonRow({
             </span>
           )}
           {!isMe && timezone && (
-            <span className="ml-1 tabular-nums" title={timezone}>
+            <span className="ml-1 hidden tabular-nums sm:inline" title={timezone}>
               {(() => {
                 try {
                   return new Date().toLocaleTimeString("en-US", {
@@ -2841,6 +2846,7 @@ function ComparisonRow({
           remindedAt={remindedAt}
           reminding={reminding}
           onRemind={onRemind}
+          onCheckIn={onCheckIn}
           timezone={timezone}
         />
       </div>
@@ -2967,6 +2973,7 @@ function PrayerDots({
   remindedAt = {},
   reminding,
   onRemind,
+  onCheckIn,
   timezone,
   compact = false,
 }: {
@@ -2981,6 +2988,7 @@ function PrayerDots({
   remindedAt?: Record<string, string>;
   reminding?: Set<string>;
   onRemind?: (prayerName: string) => void;
+  onCheckIn?: (prayer: PrayerKey) => void;
   timezone: string | null;
   compact?: boolean;
 }) {
@@ -3084,6 +3092,16 @@ function PrayerDots({
                 style={dotStyle}
                 aria-label={cooling ? `Nudge again in ${cdLabel}` : `Nudge ${name} to pray ${dotLabel(prayer, timezone)}`}
                 title={cooling ? `Nudge again in ${cdLabel}` : wasReminded ? `Nudge ${name} again` : `Nudge ${name} to pray ${dotLabel(prayer, timezone)}`}
+              >
+                {dotInner}
+              </button>
+            ) : isMe && onCheckIn ? (
+              <button
+                onClick={() => onCheckIn(prayer)}
+                className={`flex ${dotSize} items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] active:scale-90`}
+                style={dotStyle}
+                aria-label={`Log ${dotLabel(prayer, timezone)}`}
+                title={`Log ${dotLabel(prayer, timezone)}`}
               >
                 {dotInner}
               </button>
