@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, schema } from "@/lib/db/client";
-import { eq } from "drizzle-orm";
+import { eq, ne, and } from "drizzle-orm";
 import { logError } from "@/lib/logError";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
@@ -56,7 +56,12 @@ export async function GET(request: Request) {
         completedAt: schema.goals.completedAt,
       })
       .from(schema.goals)
-      .where(eq(schema.goals.userId, shareToken.userId))
+      .where(and(
+        eq(schema.goals.userId, shareToken.userId),
+        // Archived goals are deliberately hidden — a public link must not
+        // resurrect them.
+        ne(schema.goals.status, "archived"),
+      ))
       .orderBy(schema.goals.sortOrder, schema.goals.createdAt)
       .limit(500);
 

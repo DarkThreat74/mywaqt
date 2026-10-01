@@ -39,9 +39,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Date and sunnah key are required." }, { status: 400 });
   }
 
-  // Validate date format
-  const dateCheck = new Date(date + "T00:00:00");
-  if (isNaN(dateCheck.getTime())) {
+  // Strict date validation — loose parsing would accept "2024-1-1" and store
+  // a row no YYYY-MM-DD query ever matches (same bug class as checkin).
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(date + "T00:00:00Z").getTime())) {
     return NextResponse.json({ error: "Invalid date format." }, { status: 400 });
   }
 
@@ -54,6 +54,18 @@ export async function POST(request: NextRequest) {
 
   if (!settings) {
     return NextResponse.json({ error: "Prayer settings not configured." }, { status: 400 });
+  }
+
+  // Future dates are never loggable — you can't have prayed tomorrow's sunnah,
+  // and future rows would inflate the league's weekSunnah tiebreak.
+  let todayInTz: string;
+  try {
+    todayInTz = new Date().toLocaleDateString("en-CA", { timeZone: settings.timezone });
+  } catch {
+    todayInTz = new Date().toLocaleDateString("en-CA");
+  }
+  if (date > todayInTz) {
+    return NextResponse.json({ error: "Can't log a sunnah for a future date." }, { status: 400 });
   }
 
   // Find the sunnah definition
@@ -95,7 +107,9 @@ export async function POST(request: NextRequest) {
       )
       .limit(1);
 
-    if (!fardLog || fardLog.status !== "prayed") {
+    // assumed_prayed counts — the user may be backfilling sunnahs on a day
+    // whose fard auto-resolved at window close.
+    if (!fardLog || (fardLog.status !== "prayed" && fardLog.status !== "assumed_prayed")) {
       const fardLabel = sunnah.associatedFard.charAt(0).toUpperCase() + sunnah.associatedFard.slice(1);
       return NextResponse.json(
         { error: `You must log ${fardLabel} as prayed before logging this sunnah.` },
@@ -137,13 +151,6 @@ export async function POST(request: NextRequest) {
     // Time-of-day checks only make sense for "today". A past date is being
     // backfilled (the fard check above already ran) — allow it. A future
     // date's window hasn't happened — block it outright.
-    const todayInTz = new Date().toLocaleDateString("en-CA", { timeZone: settings.timezone });
-    if (date > todayInTz) {
-      return NextResponse.json(
-        { error: "You can't log a sunnah for a future date." },
-        { status: 403 },
-      );
-    }
     const isToday = date === todayInTz;
 
     // Use offline timestamp if present (outbox sync), otherwise current time

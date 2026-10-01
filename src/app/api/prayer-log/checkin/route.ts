@@ -51,6 +51,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid prayer name." }, { status: 400 });
   }
 
+  // No future dates — logging tomorrow's prayers inflates streaks, heatmap,
+  // and qadaa before the day exists. Bounded in the user's own timezone.
+  const [tzRow] = await db
+    .select({ timezone: schema.prayerSettings.timezone })
+    .from(schema.prayerSettings)
+    .where(eq(schema.prayerSettings.userId, session.userId))
+    .limit(1);
+  let todayStr: string;
+  try {
+    todayStr = new Date().toLocaleDateString("en-CA", { timeZone: tzRow?.timezone || "UTC" });
+  } catch {
+    todayStr = new Date().toLocaleDateString("en-CA");
+  }
+  if (date > todayStr) {
+    return NextResponse.json({ error: "Can't log a prayer for a future date." }, { status: 400 });
+  }
+
   const validStatuses = ["prayed", "missed", "pending", "assumed_prayed", "excused"];
   // Reject invalid statuses — defaulting to "prayed" would record a prayer
   // the user never confirmed. Missing status defaults to prayed (the client
