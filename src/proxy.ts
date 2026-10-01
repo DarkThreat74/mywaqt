@@ -34,7 +34,16 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/calendar/day', request.url));
   }
 
-  return NextResponse.next();
+  // Stamp HTML responses with the account they were rendered for, so the
+  // service worker's page cache can refuse to serve one user's pages to a
+  // different account (offline cold-start after an account switch). The uid
+  // cookie is set alongside the session cookie at login and cleared at
+  // logout; a forged value only causes the SW to serve that same user's own
+  // cached pages, never another's.
+  const uid = request.cookies.get('waqt-uid')?.value;
+  const res = NextResponse.next();
+  if (uid) res.headers.set('x-waqt-uid', uid);
+  return res;
 }
 
 export const config = {

@@ -14,6 +14,9 @@ export default function UserStamp({ userId }: { userId: string }) {
       const prev = localStorage.getItem("waqt:uid");
       if (prev && prev !== userId) {
         navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_OUTBOX" });
+        // Also drop cached pages + API responses — they were rendered for the
+        // previous account and must never hydrate under this session.
+        navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_USER_CACHE" });
         // Fallback if no SW controls the page yet — clear the store directly.
         const req = indexedDB.open("waqt-offline");
         req.onsuccess = () => {

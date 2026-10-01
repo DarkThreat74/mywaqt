@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v54";
+const CACHE_VERSION = "waqt-v55";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -365,6 +365,28 @@ async function bustApiCache(pathname) {
   } catch {
     // non-critical — next TTL expiry heals it
   }
+}
+
+// The account a navigation request belongs to — from the waqt-uid cookie set
+// at login (cleared at logout). Used to stamp-match cached pages.
+function requestUid(request) {
+  const cookie = request.headers.get("cookie") || "";
+  const m = /(?:^|;\s*)waqt-uid=([^;]+)/.exec(cookie);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+// Serve a cached page only if it was rendered for THIS account. Cached HTML
+// is server-rendered with user data — serving account A's page to account B
+// (or to a logged-out session) is both a privacy leak and the "frozen zombie
+// app" bug: the page hydrates with one account's data while API calls run
+// under another session. Entries missing the stamp (pre-stamp caches) are
+// treated as mismatched.
+async function matchStampedPage(cache, key, uid) {
+  const cached = await cache.match(key);
+  if (!cached) return null;
+  const stamped = cached.headers.get("x-waqt-uid");
+  if (!uid || stamped !== uid) return null;
+  return cached;
 }
 
 // fetch() with a hard timeout — on a flaky network a bare fetch can hang for
@@ -736,18 +758,20 @@ self.addEventListener("fetch", (event) => {
           // Non-ok response (e.g. redirect to /login) — return as-is
           return response || new Response("Offline", { status: 503 });
         } catch {
-          // Network failed — fall back to cache (keyed by full URL)
-          const cached = await pageCache.match(cacheKey);
+          // Network failed — fall back to cache (keyed by full URL), but only
+          // if the cached page was rendered for the account in this request.
+          const uid = requestUid(request);
+          const cached = await matchStampedPage(pageCache, cacheKey, uid);
           if (cached) return cached;
 
           // No exact cache match — try pathname-only match (for pages without
           // query strings that were cached by older SW versions)
-          const pathnameCached = await pageCache.match(pathname);
+          const pathnameCached = await matchStampedPage(pageCache, pathname, uid);
           if (pathnameCached) return pathnameCached;
 
           // No cache at all — serve any cached app page as fallback
           for (const fallbackPage of APP_PAGES) {
-            const fallback = await pageCache.match(fallbackPage);
+            const fallback = await matchStampedPage(pageCache, fallbackPage, uid);
             if (fallback) return fallback;
           }
           // Last resort — serve the offline page from precache

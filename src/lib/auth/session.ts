@@ -9,6 +9,10 @@ import { db, schema } from '@/lib/db/client';
 import type { User } from '@/lib/db/schema';
 
 const SESSION_COOKIE = 'waqt-session';
+// Plain (unsigned) uid cookie — lets the service worker stamp-match cached
+// HTML pages to the current account so a logged-out/switched account can
+// never be served another user's rendered pages offline.
+const UID_COOKIE = 'waqt-uid';
 const SESSION_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
 
 const encodedKey = new TextEncoder().encode(env.sessionSecret);
@@ -57,6 +61,13 @@ export async function setSessionCookie(user: Pick<User, 'id' | 'email'>): Promis
     maxAge: SESSION_DURATION,
     path: '/',
   });
+  cookieStore.set(UID_COOKIE, user.id, {
+    httpOnly: true,
+    secure: env.isProduction,
+    sameSite: 'lax',
+    maxAge: SESSION_DURATION,
+    path: '/',
+  });
 }
 
 /**
@@ -65,6 +76,7 @@ export async function setSessionCookie(user: Pick<User, 'id' | 'email'>): Promis
 export async function clearSessionCookie(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE);
+  cookieStore.delete(UID_COOKIE);
 }
 
 /**
