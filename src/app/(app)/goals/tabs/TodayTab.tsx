@@ -159,7 +159,7 @@ export default function TodayTab({
     [setGoals],
   );
 
-  // ── Short-term active goals (optionally with target dates) ──
+  // ── Near-term goals: week + month horizons ──
   // Include goals that are currently animating out (just completed) so the
   // strike-through + fade animation can play before they disappear.
   const shortTermGoals = useMemo(
@@ -172,7 +172,7 @@ export default function TodayTab({
     [goals, animatingOut],
   );
 
-  // ── Long-term goals (separate "On the horizon" section) ──
+  // ── Far-horizon goals: year + all-time ──
   const longTermGoals = useMemo(
     () => goals
       .filter((g) =>
@@ -429,10 +429,10 @@ export default function TodayTab({
         )}
       </Section>
 
-      {/* ── Goals for this week (short-term, max 3) ── */}
+      {/* ── Near-term goals (week + month, max 3 shown) ── */}
       <CollapsibleSection
         icon={<Target className="h-4 w-4" />}
-        title="Goals for this week"
+        title="Goals — this week & month"
         count={shortTermGoals.length}
         onMore={() => onNavigate("goals")}
         initialLimit={3}
@@ -495,7 +495,7 @@ export default function TodayTab({
           );
         }}
         emptyIcon={<Target className="h-4 w-4" />}
-        emptyText="No goals for this week"
+        emptyText="No week or month goals"
       />
 
       {/* ── Habits by time of day ── */}
@@ -616,10 +616,10 @@ export default function TodayTab({
         )}
       </Section>
 
-      {/* ── On the horizon (long-term goals) ── */}
+      {/* ── Far-horizon goals (year + all-time) ── */}
       <CollapsibleSection
         icon={<Telescope className="h-4 w-4" />}
-        title="Goals long-term"
+        title="Goals — year & all-time"
         count={longTermGoals.length}
         onMore={() => onNavigate("goals")}
         initialLimit={3}
@@ -679,7 +679,7 @@ export default function TodayTab({
           );
         }}
         emptyIcon={<Telescope className="h-4 w-4" />}
-        emptyText="No long-term goals yet"
+        emptyText="No year or all-time goals yet"
       />
 
       {/* ── Summary cards ── */}
