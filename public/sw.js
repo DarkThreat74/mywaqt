@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v55";
+const CACHE_VERSION = "waqt-v56";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -703,10 +703,22 @@ self.addEventListener("fetch", (event) => {
       return;
     }
 
+    // Auth pages: pass through online, but offline serve the precached
+    // offline page instead of the browser's connection-error screen — a
+    // logged-out user reopening the installed PWA without network still gets
+    // a Waqt page.
+    if (pathname === "/login" || pathname === "/signup") {
+      event.respondWith(
+        timedFetch(request, 8000).catch(async () => {
+          const offlinePage = await caches.match("/offline.html");
+          return offlinePage || new Response("Offline", { status: 503 });
+        })
+      );
+      return;
+    }
+
     // Public pages — don't intercept, let the browser handle normally
     if (
-      pathname === "/login" ||
-      pathname === "/signup" ||
       pathname === "/privacy" ||
       pathname === "/terms" ||
       pathname === "/support" ||

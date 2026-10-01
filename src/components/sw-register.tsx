@@ -104,6 +104,12 @@ export default function ServiceWorkerRegister() {
       });
     }, 6 * 60 * 60_000);
 
+    // ── Ask the browser not to evict our offline data ──
+    // Without persistence, iOS/Safari may wipe IndexedDB + Cache API under
+    // storage pressure — destroying cached prayer logs and the write outbox.
+    // Installed PWAs are usually granted this; harmless if denied.
+    navigator.storage?.persist?.().catch(() => {});
+
     // ── On 'online' event, tell SW to sync outbox (don't warm cache — SW does it on activate) ──
     const handleOnline = () => {
       navigator.serviceWorker.controller?.postMessage({ type: "SYNC_OUTBOX" });
@@ -125,12 +131,30 @@ export default function ServiceWorkerRegister() {
       navigator.serviceWorker.controller?.postMessage({ type: "SYNC_OUTBOX" });
     }
 
+    // ── Auto-recover from stale-chunk failures after a deploy ──
+    // A tab open across a deployment can request JS chunks that no longer
+    // exist — without a reload the app sits on an error screen forever.
+    // sessionStorage guard prevents a reload loop if the error persists.
+    const isChunkError = (msg: unknown) =>
+      typeof msg === "string" && /Loading chunk|ChunkLoadError|dynamically imported module/i.test(msg);
+    const handleFatal = (event: ErrorEvent | PromiseRejectionEvent) => {
+      const msg = "reason" in event ? event.reason?.message ?? String(event.reason) : event.message;
+      if (isChunkError(msg) && !sessionStorage.getItem("waqt:chunk-reload")) {
+        sessionStorage.setItem("waqt:chunk-reload", "1");
+        window.location.reload();
+      }
+    };
+    window.addEventListener("error", handleFatal);
+    window.addEventListener("unhandledrejection", handleFatal);
+
     return () => {
       clearInterval(interval);
       navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
       navigator.serviceWorker.removeEventListener("message", handleMessage);
       window.removeEventListener("online", handleOnline);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("error", handleFatal);
+      window.removeEventListener("unhandledrejection", handleFatal);
     };
   }, []);
 
