@@ -67,6 +67,29 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
+          // CSP: script-src keeps 'unsafe-inline' for the theme boot script +
+          // RSC inline payloads, but locks every other vector — no foreign
+          // script hosts, no iframes except Turnstile, no objects, no
+          // form/base-uri tampering. External hosts limited to the ones the
+          // client actually calls (geocoding, routing, map tiles, R2 audio).
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
+              "style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://fonts.openfreemap.org",
+              "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tiles.openfreemap.org",
+              "font-src 'self' data: https://fonts.openfreemap.org https://tiles.openfreemap.org",
+              "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com",
+              "worker-src 'self' blob:",
+              "media-src 'self' blob: https:",
+              "frame-src https://challenges.cloudflare.com",
+              "frame-ancestors 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "object-src 'none'",
+            ].join("; "),
+          },
         ],
       },
     ];
