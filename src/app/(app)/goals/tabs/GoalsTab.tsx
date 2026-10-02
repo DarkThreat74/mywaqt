@@ -11,6 +11,11 @@ type View = "list" | "tree";
 
 export type GoalHorizon = "week" | "month" | "year" | "all_time" | "rules";
 
+// Rules are principles — never completable, never dated. All-time goals are
+// aspirations — progress can be tracked but they aren't "checked off" or dated.
+const COMPLETABLE: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year"]);
+const DATED: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year"]);
+
 const HORIZON_LABELS: Record<GoalHorizon, { title: string; sub: string; singular: string }> = {
   week:     { title: "This Week",        sub: "What you're pushing on right now",   singular: "weekly goal" },
   month:    { title: "This Month",       sub: "Milestones for the month ahead",     singular: "monthly goal" },
@@ -219,7 +224,7 @@ export default function GoalsTab({
           </h1>
           <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
             {horizon.sub}
-            {total > 0 && ` · ${done}/${total} done`}
+            {COMPLETABLE.has(goalType) && total > 0 && ` · ${done}/${total} done`}
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -265,6 +270,7 @@ export default function GoalsTab({
             className="rounded-lg border px-3 py-2 text-sm outline-none"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
           />
+          {DATED.has(goalType) && (
           <input
             type="date"
             value={newTargetDate}
@@ -277,6 +283,7 @@ export default function GoalsTab({
             className="rounded-lg border px-3 py-2 text-sm outline-none"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
           />
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => { void createGoal(newTitle, null, newDescription, newTargetDate); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); setAddingRoot(false); }}
@@ -320,6 +327,7 @@ export default function GoalsTab({
             <GoalRow
               key={goal.id}
               goal={goal}
+              horizon={goalType}
               editingId={editingId}
               setEditingId={setEditingId}
               editTitle={editTitle}
@@ -346,6 +354,7 @@ export default function GoalsTab({
               key={node.id}
               node={node}
               goals={filteredGoals}
+              horizon={goalType}
               editingId={editingId}
               setEditingId={setEditingId}
               editTitle={editTitle}
@@ -366,10 +375,11 @@ export default function GoalsTab({
 
 // ─── Goal Row (list view) ───
 function GoalRow({
-  goal, editingId, setEditingId, editTitle, setEditTitle, editDescription, setEditDescription, editTargetDate, setEditTargetDate, onUpdate, onDelete,
+  goal, horizon, editingId, setEditingId, editTitle, setEditTitle, editDescription, setEditDescription, editTargetDate, setEditTargetDate, onUpdate, onDelete,
   isDragged, isDragOver, onDragStart, onDragEnd, onDragOver, onDrop,
 }: {
   goal: Goal;
+  horizon: GoalHorizon;
   editingId: string | null;
   setEditingId: (id: string | null) => void;
   editTitle: string;
@@ -389,8 +399,22 @@ function GoalRow({
 }) {
   const isDone = goal.status === "done";
   const isEditing = editingId === goal.id;
+  // Rules and all-time goals aren't "finished" — no checkbox, no strike-through.
+  const completable = COMPLETABLE.has(horizon);
+  const dated = DATED.has(horizon);
+  const trackable = horizon !== "rules";
+  const showDone = completable && isDone;
   const [editProgressTarget, setEditProgressTarget] = useState("");
   const [seededEditId, setSeededEditId] = useState<string | null>(null);
+  const saveEdit = () => {
+    onUpdate(goal.id, {
+      title: editTitle,
+      description: editDescription,
+      targetDate: dated ? editTargetDate || null : goal.targetDate,
+      progressTarget: trackable ? (editProgressTarget ? Number(editProgressTarget) : null) : goal.progressTarget,
+    });
+    setEditingId(null);
+  };
   // Seed the progress-target input when editing starts — render-time
   // adjustment pattern (avoids setState-in-effect cascading renders)
   if (isEditing && seededEditId !== goal.id) {
@@ -422,21 +446,27 @@ function GoalRow({
       >
         <GripVertical className="h-4 w-4" />
       </div>
-      <button
-        onClick={() => onUpdate(goal.id, { status: isDone ? "active" : "done", completedAt: isDone ? null : new Date() })}
-        className="mt-0.5 shrink-0"
-        title={isDone ? "Mark as not done" : "Mark as done"}
-      >
-        <div
-          className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
-          style={{
-            borderColor: isDone ? "var(--color-accent)" : "var(--color-paper-3)",
-            backgroundColor: isDone ? "var(--color-accent)" : "transparent",
-          }}
+      {completable ? (
+        <button
+          onClick={() => onUpdate(goal.id, { status: isDone ? "active" : "done", completedAt: isDone ? null : new Date() })}
+          className="mt-0.5 shrink-0"
+          title={isDone ? "Mark as not done" : "Mark as done"}
         >
-          {isDone && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
+          <div
+            className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
+            style={{
+              borderColor: isDone ? "var(--color-accent)" : "var(--color-paper-3)",
+              backgroundColor: isDone ? "var(--color-accent)" : "transparent",
+            }}
+          >
+            {isDone && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
+          </div>
+        </button>
+      ) : (
+        <div className="mt-1.5 flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
+          <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-ink-muted)", opacity: 0.5 }} />
         </div>
-      </button>
+      )}
 
       <div className="min-w-0 flex-1">
         {isEditing ? (
@@ -446,7 +476,7 @@ function GoalRow({
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null, progressTarget: editProgressTarget ? Number(editProgressTarget) : null }); setEditingId(null); }
+                if (e.key === "Enter") saveEdit();
                 if (e.key === "Escape") setEditingId(null);
               }}
               className="rounded border px-2 py-1 text-sm outline-none"
@@ -456,46 +486,66 @@ function GoalRow({
               value={editDescription}
               onChange={(e) => setEditDescription(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null, progressTarget: editProgressTarget ? Number(editProgressTarget) : null }); setEditingId(null); }
+                if (e.key === "Enter") saveEdit();
                 if (e.key === "Escape") setEditingId(null);
               }}
               placeholder="Description..."
               className="rounded border px-2 py-1 text-xs outline-none"
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
             />
-            <input
-              type="date"
-              value={editTargetDate}
-              onChange={(e) => setEditTargetDate(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null, progressTarget: editProgressTarget ? Number(editProgressTarget) : null }); setEditingId(null); }
-                if (e.key === "Escape") setEditingId(null);
-              }}
-              placeholder="Target date"
-              className="rounded border px-2 py-1 text-xs outline-none"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-            />
-            <input
-              type="number"
-              min={1}
-              value={editProgressTarget}
-              onChange={(e) => setEditProgressTarget(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") { onUpdate(goal.id, { title: editTitle, description: editDescription, targetDate: editTargetDate || null, progressTarget: editProgressTarget ? Number(editProgressTarget) : null }); setEditingId(null); }
-                if (e.key === "Escape") setEditingId(null);
-              }}
-              placeholder="Track progress — total units (e.g. 300 pages)"
-              className="rounded border px-2 py-1 text-xs outline-none"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-            />
+            {dated && (
+              <input
+                type="date"
+                value={editTargetDate}
+                onChange={(e) => setEditTargetDate(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveEdit();
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+                placeholder="Target date"
+                className="rounded border px-2 py-1 text-xs outline-none"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              />
+            )}
+            {trackable && (
+              <input
+                type="number"
+                min={1}
+                value={editProgressTarget}
+                onChange={(e) => setEditProgressTarget(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveEdit();
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+                placeholder="Track progress — total units (e.g. 300 pages)"
+                className="rounded border px-2 py-1 text-xs outline-none"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              />
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={saveEdit}
+                className="rounded-lg px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setEditingId(null)}
+                className="rounded-lg px-3 py-1.5 text-xs font-medium"
+                style={{ color: "var(--color-ink-muted)" }}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : (
           <>
             <p
               className="text-sm font-medium"
               style={{
-                color: isDone ? "var(--color-ink-muted)" : "var(--color-ink)",
-                textDecoration: isDone ? "line-through" : "none",
+                color: showDone ? "var(--color-ink-muted)" : "var(--color-ink)",
+                textDecoration: showDone ? "line-through" : "none",
               }}
             >
               {goal.title}
@@ -509,7 +559,7 @@ function GoalRow({
               </p>
             )}
             {/* Progress tracker with pace line — actual vs expected progress */}
-            {goal.progressTarget != null && goal.progressTarget > 0 && !isDone && (() => {
+            {goal.progressTarget != null && goal.progressTarget > 0 && !showDone && (() => {
               const pct = Math.min(100, (goal.progressCurrent / goal.progressTarget) * 100);
               let pacePct: number | null = null;
               let behind = false;
@@ -589,10 +639,11 @@ function GoalRow({
 
 // ─── Goal Tree Node (tree view) ───
 function GoalTreeNode({
-  node, goals, editingId, setEditingId, editTitle, setEditTitle, editDescription, setEditDescription, onUpdate, onDelete, onAddChild, level,
+  node, goals, horizon, editingId, setEditingId, editTitle, setEditTitle, editDescription, setEditDescription, onUpdate, onDelete, onAddChild, level,
 }: {
   node: GoalNode;
   goals: Goal[];
+  horizon: GoalHorizon;
   editingId: string | null;
   setEditingId: (id: string | null) => void;
   editTitle: string;
@@ -609,6 +660,8 @@ function GoalTreeNode({
   const [childTitle, setChildTitle] = useState("");
   const goal = node;
   const isDone = goal.status === "done";
+  const completable = COMPLETABLE.has(horizon);
+  const showDone = completable && isDone;
 
   return (
     <div style={{ paddingLeft: level * 20 }}>
@@ -620,20 +673,26 @@ function GoalTreeNode({
         ) : (
           <div className="w-4 shrink-0" />
         )}
-        <button
-          onClick={() => onUpdate(goal.id, { status: isDone ? "active" : "done", completedAt: isDone ? null : new Date() })}
-          className="shrink-0"
-        >
-          <div
-            className="flex h-5 w-5 items-center justify-center rounded-full border-2"
-            style={{ borderColor: isDone ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: isDone ? "var(--color-accent)" : "transparent" }}
+        {completable ? (
+          <button
+            onClick={() => onUpdate(goal.id, { status: isDone ? "active" : "done", completedAt: isDone ? null : new Date() })}
+            className="shrink-0"
           >
-            {isDone && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
+            <div
+              className="flex h-5 w-5 items-center justify-center rounded-full border-2"
+              style={{ borderColor: isDone ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: isDone ? "var(--color-accent)" : "transparent" }}
+            >
+              {isDone && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
+            </div>
+          </button>
+        ) : (
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
+            <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-ink-muted)", opacity: 0.5 }} />
           </div>
-        </button>
+        )}
         <span
           className="min-w-0 flex-1 truncate text-sm font-medium"
-          style={{ color: isDone ? "var(--color-ink-muted)" : "var(--color-ink)", textDecoration: isDone ? "line-through" : "none" }}
+          style={{ color: showDone ? "var(--color-ink-muted)" : "var(--color-ink)", textDecoration: showDone ? "line-through" : "none" }}
         >
           {goal.title}
         </span>
@@ -669,6 +728,7 @@ function GoalTreeNode({
               key={child.id}
               node={child}
               goals={goals}
+              horizon={horizon}
               editingId={editingId}
               setEditingId={setEditingId}
               editTitle={editTitle}
