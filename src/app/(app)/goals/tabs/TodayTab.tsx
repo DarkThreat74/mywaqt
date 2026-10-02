@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
-import { Target, BookOpen, CheckCircle2, Repeat, ChevronRight, Sunrise, Sun, Sunset, Moon, Telescope, AlertTriangle, Check, Clock, Flame } from "lucide-react";
+import { Target, BookOpen, CheckCircle2, Repeat, ChevronRight, Sunrise, Sun, Sunset, Moon, Telescope, AlertTriangle, Check, Clock, Flame, Flag } from "lucide-react";
 import type { Goal, Homework, Habit, HabitLog, Class } from "@/lib/db/schema";
 import { syncGoalsToCache } from "@/lib/offline/cache-writers";
 import { compareGoals } from "@/lib/goals/tree";
+import { relativeTarget } from "@/lib/goals/relative";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { toggleHabitLogInCache } from "@/lib/offline/cache-writers";
 import { formatDueBadge, urgencyColors, urgencyCardTint } from "@/lib/homework/due-format";
@@ -172,15 +173,29 @@ export default function TodayTab({
     [goals, animatingOut],
   );
 
-  // ── Far-horizon goals: year + all-time ──
+  // ── Far-horizon goals: this year ──
   const longTermGoals = useMemo(
     () => goals
       .filter((g) =>
-        (g.goalType === "year" || g.goalType === "all_time") &&
+        g.goalType === "year" &&
         (g.status === "active" || animatingOut.has(g.id)),
       )
       .sort(compareGoals),
     [goals, animatingOut],
+  );
+
+  // ── Life milestones: all-time goals, nearest target day first ──
+  // Dated milestones surface as countdowns; undated aspirations list below them.
+  const milestones = useMemo(
+    () => goals
+      .filter((g) => g.goalType === "all_time" && g.status === "active")
+      .sort((a, b) => {
+        if (a.targetDate && b.targetDate) return a.targetDate.localeCompare(b.targetDate);
+        if (a.targetDate) return -1;
+        if (b.targetDate) return 1;
+        return compareGoals(a, b);
+      }),
+    [goals],
   );
 
   // ── Habits grouped by time of day ──
@@ -616,10 +631,51 @@ export default function TodayTab({
         )}
       </Section>
 
-      {/* ── Far-horizon goals (year + all-time) ── */}
+      {/* ── Life milestones — all-time goals as countdowns ── */}
+      {milestones.length > 0 && (
+        <Section
+          icon={<Flag className="h-4 w-4" />}
+          title="Life milestones"
+          count={milestones.length}
+          onMore={() => onNavigate("goals")}
+        >
+          <div className="flex flex-col gap-1">
+            {milestones.map((g) => {
+              const rel = g.targetDate ? relativeTarget(g.targetDate) : null;
+              return (
+                <div
+                  key={g.id}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-[var(--color-paper-2)]"
+                >
+                  <div
+                    className="flex h-5 w-5 shrink-0 items-center justify-center"
+                    aria-hidden
+                  >
+                    <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-warmth)" }} />
+                  </div>
+                  <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink-soft)" }}>
+                    {g.title}
+                  </span>
+                  {g.targetDate && (
+                    <span
+                      className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+                      style={{ backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }}
+                      title={new Date(g.targetDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                    >
+                      {rel}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* ── Far-horizon goals (year) ── */}
       <CollapsibleSection
         icon={<Telescope className="h-4 w-4" />}
-        title="Goals — year & all-time"
+        title="Goals — this year"
         count={longTermGoals.length}
         onMore={() => onNavigate("goals")}
         initialLimit={3}
@@ -679,7 +735,7 @@ export default function TodayTab({
           );
         }}
         emptyIcon={<Telescope className="h-4 w-4" />}
-        emptyText="No year or all-time goals yet"
+        emptyText="No goals for this year yet"
       />
 
       {/* ── Summary cards ── */}

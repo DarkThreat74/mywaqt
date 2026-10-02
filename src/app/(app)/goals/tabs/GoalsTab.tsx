@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useRef } from "react";
 import { Target, Plus, Check, ChevronRight, ChevronDown, Trash2, Loader2, List, GitBranch, GripVertical } from "lucide-react";
 import type { Goal } from "@/lib/db/schema";
 import { buildGoalTree, countCompleted, compareGoals, type GoalNode } from "@/lib/goals/tree";
+import { relativeTarget } from "@/lib/goals/relative";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { syncGoalsToCache } from "@/lib/offline/cache-writers";
 
@@ -16,21 +17,6 @@ export type GoalHorizon = "week" | "month" | "year" | "all_time" | "rules";
 // matriculation) — shown as a countdown, not a deadline.
 const COMPLETABLE: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year"]);
 const DATED: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year", "all_time"]);
-
-/** Human relative time for a future date — "in 3y 9m", "in 6 months", "in 12 days". */
-function relativeTarget(dateStr: string): string | null {
-  const target = new Date(dateStr + "T00:00:00").getTime();
-  if (!Number.isFinite(target)) return null;
-  const days = Math.round((target - Date.now()) / 86400000);
-  if (days < 0) return "date passed";
-  if (days < 14) return days === 0 ? "today" : `in ${days}d`;
-  if (days < 60) return `in ${Math.round(days / 7)}w`;
-  const months = Math.round(days / 30.44);
-  if (months < 24) return `in ${months}mo`;
-  const years = Math.floor(months / 12);
-  const rem = months % 12;
-  return rem === 0 ? `in ${years}y` : `in ${years}y ${rem}m`;
-}
 
 const HORIZON_LABELS: Record<GoalHorizon, { title: string; sub: string; singular: string }> = {
   week:     { title: "This Week",        sub: "What you're pushing on right now",   singular: "weekly goal" },
