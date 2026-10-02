@@ -91,10 +91,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (cOk && !oOk) winner = m.creatorId;
     else if (oOk && !cOk) winner = m.opponentId;
     else if (cOk && oOk) winner = (cMs ?? 1e9) <= (oMs ?? 1e9) ? m.creatorId : m.opponentId;
+    // resolvedAt IS NULL guard: two near-simultaneous answers can both reach
+    // here — only the first resolution may write the winner, never overwrite.
     await db
       .update(schema.quranMatchRounds)
       .set({ winnerId: winner, resolvedAt: new Date() })
-      .where(and(eq(schema.quranMatchRounds.matchId, id), eq(schema.quranMatchRounds.round, round!)));
+      .where(and(
+        eq(schema.quranMatchRounds.matchId, id),
+        eq(schema.quranMatchRounds.round, round!),
+        isNull(schema.quranMatchRounds.resolvedAt),
+      ));
   }
 
   return NextResponse.json({ ok: true });
