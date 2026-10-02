@@ -11,16 +11,32 @@ type View = "list" | "tree";
 
 export type GoalHorizon = "week" | "month" | "year" | "all_time" | "rules";
 
-// Rules are principles — never completable, never dated. All-time goals are
-// aspirations — progress can be tracked but they aren't "checked off" or dated.
+// Rules are principles — never completable, never dated, never quantified.
+// All-time goals aren't "checked off" but CAN carry a target date (MCAT day,
+// matriculation) — shown as a countdown, not a deadline.
 const COMPLETABLE: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year"]);
-const DATED: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year"]);
+const DATED: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year", "all_time"]);
+
+/** Human relative time for a future date — "in 3y 9m", "in 6 months", "in 12 days". */
+function relativeTarget(dateStr: string): string | null {
+  const target = new Date(dateStr + "T00:00:00").getTime();
+  if (!Number.isFinite(target)) return null;
+  const days = Math.round((target - Date.now()) / 86400000);
+  if (days < 0) return "date passed";
+  if (days < 14) return days === 0 ? "today" : `in ${days}d`;
+  if (days < 60) return `in ${Math.round(days / 7)}w`;
+  const months = Math.round(days / 30.44);
+  if (months < 24) return `in ${months}mo`;
+  const years = Math.floor(months / 12);
+  const rem = months % 12;
+  return rem === 0 ? `in ${years}y` : `in ${years}y ${rem}m`;
+}
 
 const HORIZON_LABELS: Record<GoalHorizon, { title: string; sub: string; singular: string }> = {
   week:     { title: "This Week",        sub: "What you're pushing on right now",   singular: "weekly goal" },
   month:    { title: "This Month",       sub: "Milestones for the month ahead",     singular: "monthly goal" },
   year:     { title: "This Year",        sub: "The big things you're working toward", singular: "yearly goal" },
-  all_time: { title: "All-time",         sub: "Life goals, no deadline attached",    singular: "life goal" },
+  all_time: { title: "All-time",         sub: "Life goals & fixed dates — MCAT, matriculation, milestones", singular: "life goal" },
   rules:    { title: "Rules to Live By", sub: "Principles you hold yourself to",     singular: "rule" },
 };
 
@@ -255,7 +271,7 @@ export default function GoalsTab({
               if (e.key === "Enter") { void createGoal(newTitle, null, newDescription, newTargetDate); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); setAddingRoot(false); }
               if (e.key === "Escape") { setAddingRoot(false); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); }
             }}
-            placeholder="Goal title..."
+            placeholder={goalType === "rules" ? "A principle you hold yourself to..." : `What do you want to achieve?`}
             className="rounded-lg border px-3 py-2 text-sm outline-none"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
           />
@@ -266,23 +282,27 @@ export default function GoalsTab({
               if (e.key === "Enter") { void createGoal(newTitle, null, newDescription, newTargetDate); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); setAddingRoot(false); }
               if (e.key === "Escape") { setAddingRoot(false); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); }
             }}
-            placeholder="Description (optional)..."
+            placeholder={goalType === "rules" ? "Why this rule matters (optional)..." : "Why it matters (optional)..."}
             className="rounded-lg border px-3 py-2 text-sm outline-none"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
           />
           {DATED.has(goalType) && (
-          <input
-            type="date"
-            value={newTargetDate}
-            onChange={(e) => setNewTargetDate(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { void createGoal(newTitle, null, newDescription, newTargetDate); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); setAddingRoot(false); }
-              if (e.key === "Escape") { setAddingRoot(false); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); }
-            }}
-            placeholder="Target date (optional)"
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-          />
+            <div>
+              <label className="mb-1 block text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                {goalType === "all_time" ? "A fixed day years out? (MCAT, matriculation — optional)" : "Target date (optional)"}
+              </label>
+              <input
+                type="date"
+                value={newTargetDate}
+                onChange={(e) => setNewTargetDate(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { void createGoal(newTitle, null, newDescription, newTargetDate); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); setAddingRoot(false); }
+                  if (e.key === "Escape") { setAddingRoot(false); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); }
+                }}
+                className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              />
+            </div>
           )}
           <div className="flex gap-2">
             <button
@@ -470,57 +490,76 @@ function GoalRow({
 
       <div className="min-w-0 flex-1">
         {isEditing ? (
-          <div className="flex flex-col gap-2">
-            <input
-              autoFocus
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") saveEdit();
-                if (e.key === "Escape") setEditingId(null);
-              }}
-              className="rounded border px-2 py-1 text-sm outline-none"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-            />
-            <input
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") saveEdit();
-                if (e.key === "Escape") setEditingId(null);
-              }}
-              placeholder="Description..."
-              className="rounded border px-2 py-1 text-xs outline-none"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-            />
-            {dated && (
+          <div className="flex flex-col gap-3 rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                {horizon === "rules" ? "Rule" : "Goal"}
+              </span>
               <input
-                type="date"
-                value={editTargetDate}
-                onChange={(e) => setEditTargetDate(e.target.value)}
+                autoFocus
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") saveEdit();
                   if (e.key === "Escape") setEditingId(null);
                 }}
-                placeholder="Target date"
-                className="rounded border px-2 py-1 text-xs outline-none"
+                className="w-full rounded border px-2 py-1.5 text-sm outline-none"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
               />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                Why it matters
+              </span>
+              <input
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveEdit();
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+                placeholder="Optional"
+                className="w-full rounded border px-2 py-1.5 text-xs outline-none"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              />
+            </label>
+            {dated && (
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  {horizon === "all_time" ? "Target day — e.g. MCAT, matriculation" : "Target date"}
+                </span>
+                <input
+                  type="date"
+                  value={editTargetDate}
+                  onChange={(e) => setEditTargetDate(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveEdit();
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  className="w-full rounded border px-2 py-1.5 text-xs outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                />
+              </label>
             )}
             {trackable && (
-              <input
-                type="number"
-                min={1}
-                value={editProgressTarget}
-                onChange={(e) => setEditProgressTarget(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveEdit();
-                  if (e.key === "Escape") setEditingId(null);
-                }}
-                placeholder="Track progress — total units (e.g. 300 pages)"
-                className="rounded border px-2 py-1 text-xs outline-none"
-                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-              />
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  Track progress — total units
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={editProgressTarget}
+                  onChange={(e) => setEditProgressTarget(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveEdit();
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  placeholder="e.g. 300 pages"
+                  className="w-full rounded border px-2 py-1.5 text-xs outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                />
+              </label>
             )}
             <div className="flex gap-2">
               <button
@@ -554,8 +593,18 @@ function GoalRow({
               <p className="text-xs mt-0.5" style={{ color: "var(--color-ink-muted)" }}>{goal.description}</p>
             )}
             {goal.targetDate && (
-              <p className="text-xs mt-0.5" style={{ color: "var(--color-warmth)" }}>
-                Target: {new Date(goal.targetDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              <p className="mt-0.5 flex items-center gap-1.5 text-xs" style={{ color: "var(--color-warmth)" }}>
+                <span>
+                  {horizon === "all_time" ? "Target day" : "Target"}: {new Date(goal.targetDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                </span>
+                {relativeTarget(goal.targetDate) && (
+                  <span
+                    className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                    style={{ backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }}
+                  >
+                    {relativeTarget(goal.targetDate)}
+                  </span>
+                )}
               </p>
             )}
             {/* Progress tracker with pace line — actual vs expected progress */}
