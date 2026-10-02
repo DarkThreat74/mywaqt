@@ -27,6 +27,18 @@ function QiblaArt() {
   );
 }
 
+function GuideArt() {
+  // Open guidebook with a compass needle
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M24 14c-4-2.5-9-3-14-2v26c5-1 10-.5 14 2 4-2.5 9-3 14-2V12c-5-1-10-.5-14 2z" />
+      <path d="M24 14v26" />
+      <circle cx="24" cy="26" r="5.5" />
+      <path d="M26.2 23.8l-4 1.6 1.6 4 4-1.6z" />
+    </svg>
+  );
+}
+
 function MasjidArt() {
   // Dome on a base with two minarets
   return (
@@ -153,6 +165,12 @@ const SECTIONS: { title: string; tools: Tool[] }[] = [
       { href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & sounds", art: StudyArt },
       { href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge", art: LearnArt },
       { href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs", art: TalksArt },
+    ],
+  },
+  {
+    title: "Help",
+    tools: [
+      { href: "/guide", label: "Guide", arabic: "دليل", description: "How Waqt works", art: GuideArt },
     ],
   },
 ];

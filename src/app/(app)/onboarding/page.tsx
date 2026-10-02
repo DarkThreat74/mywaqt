@@ -1,59 +1,253 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 
-import { MapPin, Bell, ArrowRight, Check, Loader2, User, Shield, Camera } from "lucide-react";
+import { MapPin, Bell, ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, User, Shield, Camera, Users, NotebookPen, BookOpen, Compass, CloudOff, type LucideIcon } from "lucide-react";
 import { readAvatarFile, presetAvatarDataUrl, AVATAR_PRESETS } from "@/lib/avatar";
 
 type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "location" | "madhab" | "hifidh" | "notifications" | "tour" | "done";
 
+type TourVisualKind = "dots" | "league" | "planner" | "quran" | "tools" | "offline";
+
 interface TourSlide {
-  icon: string;
+  icon: LucideIcon;
+  kicker: string;
   title: string;
   points: string[];
+  visual: TourVisualKind;
 }
 
 const TOUR_SLIDES: TourSlide[] = [
   {
-    icon: "🕌",
+    icon: CheckCircle2,
+    kicker: "The core",
     title: "Prayer comes first",
+    visual: "dots",
     points: [
-      "Tap a prayer dot to check in — streaks, masjid %, and weekly stats build automatically",
+      "On Prayer → Overview, tap a prayer circle to check in — masjid and sunnah included",
       "Unmarked prayers resolve as assumed prayed at day's end — no silent penalties",
-      "Qadaa tracking for missed prayers, iqamah times from your masjid, and hayd-paused tracking",
+      "Missed prayers go to your Qadaa tracker; make-ups bring the count down",
     ],
   },
   {
-    icon: "🤝",
-    title: "Pray with friends",
+    icon: Users,
+    kicker: "Together",
+    title: "Friends & the League",
+    visual: "league",
     points: [
-      "Add friends to see today's salah dots on their card — you control exactly what's shared",
-      "Nudge a friend during the live salah window (3 per prayer, 2min apart)",
-      "When they pray after your nudge, they send you a dua back 🤲",
-      "Shared streaks and complete-day badges keep each other honest",
+      "The League ranks you and friends weekly — sunnah muakkadah + witr break the tie",
+      "Nudge a friend while their salah window is open; they can send a dua back",
+      "Shared streaks (🔥) build on days you both complete all five — privacy toggles in Settings",
     ],
   },
   {
-    icon: "⚔️",
+    icon: NotebookPen,
+    kicker: "Organize",
+    title: "Planner",
+    visual: "planner",
+    points: [
+      "Today: a vertical agenda anchored to the prayers — events, homework, goals",
+      "Goals by horizon — week, month, year, all-time, and rules to live by",
+      "Habits with their own streaks; finished work lands in Done",
+    ],
+  },
+  {
+    icon: BookOpen,
+    kicker: "Play & learn",
     title: "Quran games",
+    visual: "quran",
     points: [
       "AyaTrace: name the surah an ayah belongs to — solo or ranked Elite",
       "Mutashabihat: tell apart the look-alike verses every hifidh mixes up",
-      "Challenge friends to 1v1 best-of matches — first correct takes the round",
-      "One shared leaderboard, full match history with question-by-question replay",
+      "Challenge friends to 1v1 matches — first correct takes the round",
     ],
   },
   {
-    icon: "🧰",
+    icon: Compass,
+    kicker: "The toolkit",
     title: "Tools & more",
+    visual: "tools",
     points: [
-      "Dhikr counter, Qibla compass, 99 Names, Hijri converter, and a talks library",
-      "Goals, habits, notes, and homework live around your prayer times",
-      "Installs as an app — works offline and syncs when you're back",
+      "Center button opens the toolkit: Qibla, dhikr, masjids, 99 Names, talks",
+      "Study timer and Learn lessons for prayer knowledge",
+      "Hide what you don't use in Settings → Navigation",
+    ],
+  },
+  {
+    icon: CloudOff,
+    kicker: "Anywhere",
+    title: "Install & offline",
+    visual: "offline",
+    points: [
+      "Installs like a native app — iPhone: Share → Add to Home Screen",
+      "Check-ins made offline queue and sync when you're back",
+      "The full guide lives at Tools → Guide whenever you need a refresher",
     ],
   },
 ];
+
+/** Miniature UI mock rendered inside each tour slide. */
+function TourVisual({ kind }: { kind: TourVisualKind }) {
+  const paper = "var(--color-paper)";
+  const line = "var(--color-paper-3)";
+  const accent = "var(--color-accent)";
+  const accentFaint = "var(--color-accent-faint)";
+  const warmth = "var(--color-warmth)";
+  const muted = "var(--color-ink-muted)";
+
+  if (kind === "dots") {
+    const labels = ["F", "D", "A", "M", "I"];
+    return (
+      <div className="flex items-end justify-center gap-3 sm:gap-4" aria-hidden>
+        {labels.map((l, i) => {
+          const done = i < 3;
+          return (
+            <div key={l} className="flex flex-col items-center gap-1.5">
+              <div
+                className="flex h-9 w-9 items-center justify-center rounded-full border-2 sm:h-10 sm:w-10"
+                style={{
+                  borderColor: done ? accent : line,
+                  backgroundColor: done ? accent : paper,
+                }}
+              >
+                {done && <Check className="h-4 w-4" style={{ color: paper }} />}
+              </div>
+              <span className="text-[10px] font-medium" style={{ color: muted }}>{l}</span>
+            </div>
+          );
+        })}
+        <div className="mb-5 ml-1 rounded-full px-2.5 py-1 text-[10px] font-semibold" style={{ backgroundColor: warmth, color: paper }}>
+          tap →
+        </div>
+      </div>
+    );
+  }
+
+  if (kind === "league") {
+    const rows = [
+      { rank: "1", name: "You", dots: 5, accentRow: true, badge: "🔥12" },
+      { rank: "2", name: "Omar", dots: 4, accentRow: false, badge: "🔥12" },
+      { rank: "3", name: "Aisha", dots: 3, accentRow: false, badge: "" },
+    ];
+    return (
+      <div className="mx-auto w-full max-w-xs space-y-1.5" aria-hidden>
+        {rows.map((r) => (
+          <div
+            key={r.rank}
+            className="flex items-center gap-2.5 rounded-lg border px-3 py-2"
+            style={{
+              borderColor: r.accentRow ? accent : line,
+              backgroundColor: r.accentRow ? accentFaint : paper,
+            }}
+          >
+            <span className="w-4 text-xs font-semibold" style={{ color: r.accentRow ? accent : muted }}>{r.rank}</span>
+            <span className="min-w-0 flex-1 truncate text-left text-xs font-medium" style={{ color: "var(--color-ink)" }}>{r.name}</span>
+            {r.badge && <span className="text-[10px]">{r.badge}</span>}
+            <div className="flex gap-1">
+              {[...Array(5)].map((_, i) => (
+                <div
+                  key={i}
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: i < r.dots ? accent : line }}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (kind === "planner") {
+    const items = [
+      { time: "Fajr", band: true, label: "" },
+      { time: "9:00", band: false, label: "Homework due" },
+      { time: "Dhuhr", band: true, label: "" },
+      { time: "16:30", band: false, label: "Study block" },
+    ];
+    return (
+      <div className="mx-auto w-full max-w-xs space-y-1.5" aria-hidden>
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center gap-2.5">
+            <span className="w-12 text-right text-[10px] font-medium" style={{ color: muted }}>{it.time}</span>
+            <div
+              className="h-6 flex-1 rounded-md"
+              style={
+                it.band
+                  ? { backgroundColor: accentFaint, borderLeft: `3px solid ${accent}` }
+                  : { backgroundColor: paper, border: `1px solid ${line}` }
+              }
+            >
+              {it.label && (
+                <span className="px-2 text-[10px] leading-6" style={{ color: "var(--color-ink-soft)" }}>{it.label}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (kind === "quran") {
+    return (
+      <div className="mx-auto w-full max-w-xs" aria-hidden>
+        <div className="rounded-lg border px-4 py-3" style={{ borderColor: line, backgroundColor: paper }}>
+          <p dir="rtl" className="text-center text-lg leading-relaxed" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink)" }}>
+            ﴾ ۝ ﴿
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-1.5">
+            {["Al-Fatiha", "Ya-Sin", "Al-Mulk", "Al-Kahf"].map((s, i) => (
+              <div
+                key={s}
+                className="rounded-md border px-2 py-1.5 text-center text-[10px] font-medium"
+                style={{
+                  borderColor: i === 2 ? accent : line,
+                  backgroundColor: i === 2 ? accentFaint : paper,
+                  color: i === 2 ? accent : "var(--color-ink-soft)",
+                }}
+              >
+                {s}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (kind === "tools") {
+    return (
+      <div className="mx-auto grid w-full max-w-[220px] grid-cols-3 gap-2" aria-hidden>
+        {[...Array(9)].map((_, i) => (
+          <div
+            key={i}
+            className="flex aspect-square items-center justify-center rounded-xl border"
+            style={{ borderColor: line, backgroundColor: i === 4 ? accentFaint : paper }}
+          >
+            <div
+              className="h-3.5 w-3.5 rounded-full"
+              style={{ backgroundColor: i === 4 ? accent : line }}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // offline
+  return (
+    <div className="flex items-center justify-center gap-4" aria-hidden>
+      <div className="h-20 w-11 rounded-xl border-2 p-1" style={{ borderColor: "var(--color-ink)", backgroundColor: paper }}>
+        <div className="h-full w-full rounded-lg" style={{ backgroundColor: accentFaint }} />
+      </div>
+      <CloudOff className="h-6 w-6" style={{ color: muted }} />
+      <div className="rounded-full border px-3 py-1.5 text-[10px] font-medium" style={{ borderColor: line, backgroundColor: paper, color: "var(--color-ink-soft)" }}>
+        Syncs when back
+      </div>
+    </div>
+  );
+}
 
 export default function OnboardingWizard() {
   const [step, setStep] = useState<Step>("terms");
@@ -92,6 +286,19 @@ export default function OnboardingWizard() {
 
   // Feature tour slide index
   const [tourIdx, setTourIdx] = useState(0);
+  const tourTouchX = useRef<number | null>(null);
+
+  // Arrow-key navigation while the tour step is shown
+  useEffect(() => {
+    if (step !== "tour") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight") setTourIdx((i) => Math.min(i + 1, TOUR_SLIDES.length - 1));
+      if (e.key === "ArrowLeft") setTourIdx((i) => Math.max(i - 1, 0));
+      if (e.key === "Escape") setStep("done");
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [step]);
 
   function handleGetLocation() {
     setLocationStatus("getting");
@@ -880,12 +1087,48 @@ export default function OnboardingWizard() {
       {step === "tour" && (() => {
         const slide = TOUR_SLIDES[tourIdx];
         const last = tourIdx === TOUR_SLIDES.length - 1;
+        const Icon = slide.icon;
         return (
-          <div className="flex flex-col items-center text-center">
-            <p className="text-5xl leading-none" aria-hidden>{slide.icon}</p>
-            <h1 className="mt-5 text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+          <div
+            className="flex flex-col items-center text-center"
+            onTouchStart={(e) => {
+              tourTouchX.current = e.touches[0].clientX;
+            }}
+            onTouchEnd={(e) => {
+              const start = tourTouchX.current;
+              tourTouchX.current = null;
+              if (start === null) return;
+              const dx = e.changedTouches[0].clientX - start;
+              if (Math.abs(dx) < 48) return;
+              if (dx < 0 && !last) setTourIdx((i) => i + 1);
+              if (dx > 0 && tourIdx > 0) setTourIdx((i) => i - 1);
+            }}
+          >
+            {/* Icon medallion */}
+            <div
+              className="flex h-16 w-16 items-center justify-center rounded-2xl sm:h-[72px] sm:w-[72px]"
+              style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+            >
+              <Icon className="h-7 w-7 sm:h-8 sm:w-8" aria-hidden />
+            </div>
+            <p
+              className="mt-4 text-[11px] font-medium uppercase tracking-[0.2em]"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              {slide.kicker}
+            </p>
+            <h1 className="mt-1.5 text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
               {slide.title}
             </h1>
+
+            {/* Mini visual */}
+            <div
+              key={tourIdx}
+              className="mt-6 w-full max-w-md rounded-2xl border px-4 py-5"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+            >
+              <TourVisual kind={slide.visual} />
+            </div>
 
             <ul className="mt-6 w-full max-w-md space-y-2.5 text-left">
               {slide.points.map((pt) => (
@@ -916,9 +1159,10 @@ export default function OnboardingWizard() {
               {tourIdx > 0 ? (
                 <button
                   onClick={() => setTourIdx((i) => i - 1)}
-                  className="text-sm font-medium transition-opacity hover:opacity-60"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium transition-opacity hover:opacity-60"
                   style={{ color: "var(--color-ink-muted)" }}
                 >
+                  <ArrowLeft className="h-4 w-4" />
                   Back
                 </button>
               ) : (
