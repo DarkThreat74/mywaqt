@@ -1090,6 +1090,10 @@ export const subscriptions = pgTable('subscriptions', {
   remindDaysBefore: integer('remind_days_before').default(3).notNull(),
   // Palette color for dots/badges
   color: text('color').default('#c2410c').notNull(),
+  // Set when the user cancels — history (total spent) is preserved, no future renewals
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  // Last date a renewal-day push was sent — dedupes cron reruns
+  lastRenewalNotifiedOn: date('last_renewal_notified_on'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({

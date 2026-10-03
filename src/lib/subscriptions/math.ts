@@ -15,9 +15,15 @@ function toDay(d: Date): string {
 }
 
 function addCycle(d: Date, cycle: Cycle): Date {
+  // Preserve day-of-month, clamped to the target month's length —
+  // Jan 31 monthly must land Feb 28/29, not Mar 3.
+  const day = d.getDate();
   const next = new Date(d);
+  next.setDate(1);
   if (cycle === "monthly") next.setMonth(next.getMonth() + 1);
   else next.setFullYear(next.getFullYear() + 1);
+  const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(day, lastDay));
   return next;
 }
 

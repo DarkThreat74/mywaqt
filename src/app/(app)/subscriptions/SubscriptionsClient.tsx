@@ -79,10 +79,14 @@ export default function SubscriptionsClient() {
       .finally(() => setLoaded(true));
   }, []);
 
-  // Enrich each subscription with derived renewal data
+  // Enrich each ACTIVE subscription with derived renewal data;
+  // cancelled ones only keep their lifetime spend.
+  const active = useMemo(() => subs.filter((s) => !s.cancelledAt), [subs]);
+  const cancelled = useMemo(() => subs.filter((s) => !!s.cancelledAt), [subs]);
+
   const enriched: Enriched[] = useMemo(
     () =>
-      subs
+      active
         .map((s) => {
           const next = nextRenewal(s.startDate, s.cycle);
           return {
@@ -93,15 +97,15 @@ export default function SubscriptionsClient() {
           };
         })
         .sort((a, b) => a.inDays - b.inDays),
-    [subs],
+    [active],
   );
 
   const totals = useMemo(() => {
-    const monthly = subs.reduce((sum, s) => sum + monthlyCents(s.amountCents, s.cycle), 0);
+    const monthly = active.reduce((sum, s) => sum + monthlyCents(s.amountCents, s.cycle), 0);
     const spent = subs.reduce((sum, s) => sum + paymentsElapsed(s.startDate, s.cycle) * s.amountCents, 0);
     const cur = subs[0]?.currency ?? "USD";
     return { monthly, yearly: monthly * 12, spent, cur };
-  }, [subs]);
+  }, [active, subs]);
 
   // Renewals landing in the viewed calendar month
   const calDays = useMemo(() => {
@@ -186,6 +190,23 @@ export default function SubscriptionsClient() {
       setError("Network error — try again");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function setCancelled(id: string, cancelled: boolean) {
+    try {
+      const res = await fetch("/api/subscriptions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, cancelled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.subscription) {
+        setSubs((prev) => prev.map((s) => (s.id === id ? data.subscription : s)));
+        if (cancelled) setEditingId(null);
+      }
+    } catch {
+      // keep state
     }
   }
 
@@ -431,6 +452,22 @@ export default function SubscriptionsClient() {
               Cancel
             </button>
           </div>
+
+          {editingId && (
+            <div className="mt-4 flex items-center justify-between border-t pt-4" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                Not subscribed anymore? Cancelling keeps everything you already paid.
+              </p>
+              <button
+                type="button"
+                onClick={() => void setCancelled(editingId, true)}
+                className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper)]"
+                style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}
+              >
+                Cancel subscription
+              </button>
+            </div>
+          )}
         </form>
       )}
 
@@ -461,6 +498,22 @@ export default function SubscriptionsClient() {
       ) : view === "list" ? (
         /* ── List view — sorted by next renewal ── */
         <div className="mt-5 flex flex-col">
+          {/* Next renewal hero strip */}
+          {enriched[0] && (
+            <div
+              className="mb-2 flex items-center gap-3 rounded-xl px-4 py-3"
+              style={{ backgroundColor: "var(--color-accent-faint)" }}
+            >
+              <div className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: enriched[0].color }} aria-hidden />
+              <p className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>
+                <span className="font-semibold">Next up:</span>{" "}
+                {enriched[0].company}{enriched[0].plan ? ` ${enriched[0].plan}` : ""} — {formatMoney(enriched[0].amountCents, enriched[0].currency)}
+              </p>
+              <span className="shrink-0 text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                {enriched[0].inDays === 0 ? "today" : `in ${enriched[0].inDays}d`}
+              </span>
+            </div>
+          )}
           {enriched.map((s) => (
             <div
               key={s.id}
@@ -629,6 +682,59 @@ export default function SubscriptionsClient() {
                   )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Cancelled — history preserved, no future renewals ── */}
+      {cancelled.length > 0 && (
+        <div className="mt-10 border-t pt-5" style={{ borderColor: "var(--color-paper-3)" }}>
+          <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+            Cancelled · {cancelled.length}
+          </p>
+          <div className="mt-2 flex flex-col">
+            {cancelled.map((s) => {
+              const spent = paymentsElapsed(s.startDate, s.cycle, s.cancelledAt ? new Date(s.cancelledAt) : new Date()) * s.amountCents;
+              return (
+                <div key={s.id} className="flex items-center gap-3 py-2.5" style={{ opacity: 0.75 }}>
+                  <div className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: s.color }} aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm" style={{ color: "var(--color-ink-soft)", textDecoration: "line-through" }}>
+                      {s.company}{s.plan ? ` · ${s.plan}` : ""}
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                      {formatMoney(spent, s.currency)} paid in total
+                      {s.cancelledAt && ` · ended ${new Date(s.cancelledAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => void setCancelled(s.id, false)}
+                    className="shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+                  >
+                    Resubscribe
+                  </button>
+                  {confirmDeleteId === s.id ? (
+                    <button
+                      onClick={() => void remove(s.id)}
+                      className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold"
+                      style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
+                    >
+                      Delete?
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteId(s.id)}
+                      className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                      style={{ color: "var(--color-ink-muted)" }}
+                      aria-label={`Delete ${s.company}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

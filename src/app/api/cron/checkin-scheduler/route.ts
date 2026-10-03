@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, inArray, lt, gte, lte, isNotNull } from "drizzle-orm";
+import { eq, and, inArray, lt, gte, lte, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { verifyCronAuth } from "@/lib/cronAuth";
 import { isWindowClosed, getPrayerWindow } from "@/lib/prayer/stateMachine";
 import { sendPrayerPush } from "@/lib/notifications/push";
 import { recordDayCompletion } from "@/lib/prayer/social";
+import { nextRenewal } from "@/lib/subscriptions/math";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -269,6 +270,23 @@ async function processUserBatch(
     homeworkMap.get(h.userId)!.push(h);
   }
 
+  // Batch 6: active subscriptions — renewal-day pushes are matched against
+  // each user's local "today" inside the loop below.
+  const batchSubs = await db
+    .select()
+    .from(schema.subscriptions)
+    .where(
+      and(
+        inArray(schema.subscriptions.userId, userIds),
+        isNull(schema.subscriptions.cancelledAt),
+      ),
+    );
+  const subscriptionMap = new Map<string, typeof batchSubs>();
+  for (const sub of batchSubs) {
+    if (!subscriptionMap.has(sub.userId)) subscriptionMap.set(sub.userId, []);
+    subscriptionMap.get(sub.userId)!.push(sub);
+  }
+
   // Process each user using the batched data
   for (const s of settings) {
     try {
@@ -453,7 +471,65 @@ async function processUserBatch(
         }
       }
 
-      // 4. Send daily prayer schedule push
+      // 4. Subscription renewals — payment-day push + inbox row. Deduped via
+      //    lastRenewalNotifiedOn so cron reruns can't double-fire.
+      {
+        const userSubs = subscriptionMap.get(s.userId) ?? [];
+        const dueToday = userSubs.filter(
+          (sub) =>
+            sub.lastRenewalNotifiedOn !== today &&
+            fmtLocal(nextRenewal(sub.startDate, sub.cycle, new Date(`${today}T00:00:00`))) === today,
+        );
+        if (dueToday.length > 0) {
+          const fmtAmt = (sub: typeof dueToday[number]) =>
+            `${sub.currency} ${(sub.amountCents / 100).toFixed(2)}`;
+          const subs = subsMap.get(s.userId) ?? [];
+          if (subs.length > 0 && otherPref !== "none") {
+            const payload = JSON.stringify({
+              title: dueToday.length === 1
+                ? `${dueToday[0].company} renews today`
+                : `${dueToday.length} subscriptions renew today`,
+              body: dueToday
+                .slice(0, 3)
+                .map((sub) => `${sub.company}${sub.plan ? ` ${sub.plan}` : ""} — ${fmtAmt(sub)}`)
+                .join(" · "),
+              tag: `sub-renewal-${today}`,
+              data: { url: "/subscriptions" },
+            });
+            await Promise.allSettled(
+              subs.map(async (sub) => {
+                try {
+                  const result = await sendPrayerPush(sub, payload, { topic: `sub-renewal-${today}` });
+                  if (result.delivered) notificationsSent++;
+                  else if (result.expired) {
+                    await db.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.id, sub.id)).catch(() => {});
+                  }
+                } catch (err) {
+                  logError(err, { route: "cron/checkin-scheduler", phase: "sub-renewal-push", subId: sub.id });
+                }
+              }),
+            );
+          }
+          // In-app inbox rows + dedupe stamp — even without push subs, the
+          // renewal is recorded and won't re-notify on a rerun.
+          await Promise.allSettled(
+            dueToday.map((sub) =>
+              db.insert(schema.appNotifications).values({
+                userId: s.userId,
+                type: "subscription_renewal",
+                title: `${sub.company} renews today`,
+                body: `${sub.plan ? `${sub.plan} — ` : ""}${fmtAmt(sub)}${sub.cycle === "yearly" ? "/year" : "/month"}`,
+              }),
+            ),
+          );
+          await db
+            .update(schema.subscriptions)
+            .set({ lastRenewalNotifiedOn: today })
+            .where(inArray(schema.subscriptions.id, dueToday.map((sub) => sub.id)));
+        }
+      }
+
+      // 5. Send daily prayer schedule push
       const cached = cachedTimesMap.get(s.userId)?.get(today);
       if (!cached) continue;
 

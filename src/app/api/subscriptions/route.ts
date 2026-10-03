@@ -23,6 +23,7 @@ interface SubBody {
   startDate?: string;
   remindDaysBefore?: number;
   color?: string;
+  cancelled?: boolean;
 }
 
 function validateFields(body: SubBody, partial: boolean) {
@@ -76,6 +77,10 @@ function validateFields(body: SubBody, partial: boolean) {
   if (body.color !== undefined) {
     if (!body.color || !COLOR_RE.test(body.color)) errors.push("Invalid color");
     else out.color = body.color;
+  }
+  if (body.cancelled !== undefined) {
+    if (typeof body.cancelled !== "boolean") errors.push("cancelled must be a boolean");
+    else out.cancelledAt = body.cancelled ? new Date() : null;
   }
 
   return { out, errors };
