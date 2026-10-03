@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v56";
+const CACHE_VERSION = "waqt-v57";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -47,6 +47,7 @@ const APP_PAGES = [
   "/quran",
   "/mutashabihat",
   "/settings",
+  "/subscriptions",
 ];
 
 // ─── IndexedDB helpers for offline event outbox ───
@@ -507,7 +508,8 @@ self.addEventListener("fetch", (event) => {
             (url.pathname === "/api/events" ||
               url.pathname === "/api/goals" ||
               url.pathname === "/api/homework" ||
-              url.pathname === "/api/classes");
+              url.pathname === "/api/classes" ||
+              url.pathname === "/api/subscriptions");
           const tempId = isEntityPost && body
             ? (() => {
                 const uuid = crypto.randomUUID();
@@ -600,6 +602,22 @@ self.addEventListener("fetch", (event) => {
               responseData.color = body.color || "#c2410c";
               responseData.archived = false;
               responseData.sortOrder = 0;
+              responseData._pending = true;
+            } else if (url.pathname.startsWith("/api/subscriptions")) {
+              responseData.subscription = {
+                id: tempId,
+                company: body.company || "Subscription",
+                plan: body.plan || null,
+                amountCents: body.amountCents ?? Math.round((body.amount || 0) * 100),
+                currency: body.currency || "USD",
+                cycle: body.cycle || "monthly",
+                startDate: body.startDate,
+                remindDaysBefore: body.remindDaysBefore ?? 3,
+                color: body.color || "#c2410c",
+                cancelledAt: null,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              };
               responseData._pending = true;
             } else {
               // For other API POSTs (prayer log, qadaa, etc.), echo back the body

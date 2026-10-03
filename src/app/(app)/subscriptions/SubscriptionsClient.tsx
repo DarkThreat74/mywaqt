@@ -174,11 +174,30 @@ export default function SubscriptionsClient() {
             body: JSON.stringify(payload),
           });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.subscription) {
+      const sub: Subscription | undefined = data.subscription;
+      if (res.ok && (sub || data.offline)) {
+        // Offline 202s echo a synthetic subscription — apply it optimistically;
+        // the queued write resolves to the same id via clientId on sync.
+        const applied: Subscription = sub ?? {
+          id: data.tempId as string,
+          userId: "",
+          company: payload.company,
+          plan: payload.plan,
+          amountCents: Math.round(payload.amount * 100),
+          currency: payload.currency,
+          cycle: payload.cycle,
+          startDate: payload.startDate,
+          remindDaysBefore: payload.remindDaysBefore,
+          color: payload.color,
+          cancelledAt: null,
+          lastRenewalNotifiedOn: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
         setSubs((prev) =>
           editingId
-            ? prev.map((s) => (s.id === editingId ? data.subscription : s))
-            : [...prev, data.subscription],
+            ? prev.map((s) => (s.id === editingId ? { ...s, ...applied, id: editingId } : s))
+            : [...prev, applied],
         );
         setForm(EMPTY_FORM);
         setAdding(false);
@@ -201,8 +220,14 @@ export default function SubscriptionsClient() {
         body: JSON.stringify({ id, cancelled }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.subscription) {
-        setSubs((prev) => prev.map((s) => (s.id === id ? data.subscription : s)));
+      if (res.ok && (data.subscription || data.offline)) {
+        setSubs((prev) =>
+          prev.map((s) =>
+            s.id === id
+              ? { ...s, cancelledAt: cancelled ? new Date() : null }
+              : s,
+          ),
+        );
         if (cancelled) setEditingId(null);
       }
     } catch {
@@ -213,7 +238,8 @@ export default function SubscriptionsClient() {
   async function remove(id: string) {
     try {
       const res = await fetch(`/api/subscriptions?id=${id}`, { method: "DELETE" });
-      if (res.ok) setSubs((prev) => prev.filter((s) => s.id !== id));
+      // Offline deletes come back 202 — still apply optimistically
+      if (res.ok || res.status === 202) setSubs((prev) => prev.filter((s) => s.id !== id));
     } catch {
       // keep state
     } finally {
@@ -226,7 +252,7 @@ export default function SubscriptionsClient() {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-accent)" }}>
             Money

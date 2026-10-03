@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ interface SubBody {
   remindDaysBefore?: number;
   color?: string;
   cancelled?: boolean;
+  clientId?: string;
 }
 
 function validateFields(body: SubBody, partial: boolean) {
@@ -131,9 +133,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: errors[0] }, { status: 400 });
     }
 
+    // Offline-created subs carry a client-generated uuid — using it as the
+    // row's real id lets queued PATCH/DELETE writes resolve correctly.
+    const validClientId = body.clientId && isValidUUID(body.clientId) ? body.clientId : undefined;
+
     const [sub] = await db
       .insert(schema.subscriptions)
       .values({
+        id: validClientId,
         userId: session.userId,
         company: out.company as string,
         plan: (out.plan as string | null) ?? null,
