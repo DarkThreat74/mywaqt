@@ -13,6 +13,7 @@ export const HIDEABLE_TABS = [
   { key: "/names", label: "99 Names" },
   { key: "/study", label: "Study" },
   { key: "/learn", label: "Learn" },
+  { key: "/subscriptions", label: "Subscriptions" },
 ] as const;
 
 export type HideableTabKey = (typeof HIDEABLE_TABS)[number]["key"];

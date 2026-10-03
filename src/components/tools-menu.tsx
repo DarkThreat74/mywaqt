@@ -27,6 +27,18 @@ function QiblaArt() {
   );
 }
 
+function SubsArt() {
+  // Card with a circular renewal arrow
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <rect x="8" y="14" width="32" height="22" rx="3" />
+      <path d="M8 21h32" />
+      <path d="M34 29a7 7 0 1 0 1.4 4.2" />
+      <path d="M35.5 28.5v4.7h-4.7" />
+    </svg>
+  );
+}
+
 function GuideArt() {
   // Open guidebook with a compass needle
   return (
@@ -165,6 +177,12 @@ const SECTIONS: { title: string; tools: Tool[] }[] = [
       { href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & sounds", art: StudyArt },
       { href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge", art: LearnArt },
       { href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs", art: TalksArt },
+    ],
+  },
+  {
+    title: "Life",
+    tools: [
+      { href: "/subscriptions", label: "Subscriptions", arabic: "اشتراكات", description: "Track recurring costs", art: SubsArt },
     ],
   },
   {

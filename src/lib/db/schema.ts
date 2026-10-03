@@ -1069,3 +1069,32 @@ export const appSettings = pgTable('app_settings', {
   value: text('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+// ─── Subscriptions (recurring-cost tracker) ──────────────────────────
+
+export const billingCycle = pgEnum('billing_cycle', ['monthly', 'yearly']);
+
+export const subscriptions = pgTable('subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // Provider + plan, e.g. "Amazon" / "Prime"
+  company: text('company').notNull(),
+  plan: text('plan'),
+  amountCents: integer('amount_cents').notNull(),
+  // ISO currency code, e.g. USD — display only
+  currency: text('currency').default('USD').notNull(),
+  cycle: billingCycle('cycle').notNull(),
+  // First billing date — renewals derived by rolling forward by cycle
+  startDate: date('start_date').notNull(), // YYYY-MM-DD
+  // Days before renewal to surface "due soon" (0 = off)
+  remindDaysBefore: integer('remind_days_before').default(3).notNull(),
+  // Palette color for dots/badges
+  color: text('color').default('#c2410c').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('subscriptions_user_id_idx').on(table.userId),
+}));
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type NewSubscription = typeof subscriptions.$inferInsert;
