@@ -106,14 +106,16 @@ export async function GET(request: NextRequest) {
 
     let blocks;
     if (unworked === "1" && date && DATE_RE.test(date)) {
-      // Carry-forward: planned blocks left unworked on days before `date`
+      // Carry-forward: planned blocks left unworked on days strictly before
+      // `date`. String comparison — date columns compare lexicographically,
+      // no Date/UTC conversion needed.
       blocks = await db
         .select()
         .from(schema.studyBlocks)
         .where(and(
           eq(schema.studyBlocks.userId, session.userId),
           eq(schema.studyBlocks.status, "planned"),
-          lte(schema.studyBlocks.blockDate, new Date(new Date(`${date}T00:00:00`).getTime() - 86400000).toISOString().slice(0, 10)),
+          lte(schema.studyBlocks.blockDate, sql`${date}::date - 1`),
         ))
         .orderBy(asc(schema.studyBlocks.blockDate), asc(schema.studyBlocks.startMin))
         .limit(50);

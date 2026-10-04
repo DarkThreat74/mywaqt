@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, Loader2, Sparkles, X } from "lucide-react";
 import type { Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
@@ -25,6 +25,8 @@ interface Props {
   blocks: BlockWithAssignments[];
   onChanged: () => void;     // parent refetches blocks
   onClose: () => void;
+  initialGap?: Interval | null;  // open directly in compose mode for this gap
+  initialBlock?: BlockWithAssignments | null;  // or directly editing this block
 }
 
 const RELEASE_REASONS: { key: string; label: string }[] = [
@@ -44,7 +46,7 @@ function timeInputToMin(s: string): number | null {
   return v >= 0 && v <= 1440 ? v : null;
 }
 
-export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose }: Props) {
+export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose, initialGap, initialBlock }: Props) {
   const [hw, setHw] = useState<Homework[]>([]);
   const [unworked, setUnworked] = useState<BlockWithAssignments[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,11 +83,10 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     (async () => {
       setLoading(true);
       try {
-        const end = new Date(`${date}T12:00:00`);
-        end.setDate(end.getDate() + 14);
-        const to = end.toISOString().slice(0, 10);
         const [hwRes, unRes] = await Promise.all([
-          fetch(`/api/homework?from=${date}&to=${to}`).catch(() => null),
+          // Unfiltered list (200 most recent by dueDate, ascending) — includes
+          // overdue pending work, which is exactly what needs planning.
+          fetch(`/api/homework`).catch(() => null),
           isToday ? fetch(`/api/blocks?unworked=1&date=${date}`).catch(() => null) : Promise.resolve(null),
         ]);
         if (cancelled) return;
@@ -103,6 +104,34 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     })();
     return () => { cancelled = true; };
   }, [date, isToday]);
+
+  // Date changed while open (day nav) — drop any in-progress compose/edit so
+  // it can't land on the wrong day. Runs before the initialGap effect.
+  const lastDate = useRef(date);
+  useEffect(() => {
+    if (lastDate.current !== date) {
+      lastDate.current = date;
+      setGapSel(null);
+      setEditingBlock(null);
+      setPicked(new Set());
+      setError(null);
+    }
+  }, [date]);
+
+  // Opened from a specific gap chip or block band — jump straight into
+  // composing / editing it.
+  useEffect(() => {
+    if (initialGap) selectGap(initialGap);
+    else if (initialBlock) selectBlock(initialBlock);
+  }, [initialGap, initialBlock]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   function selectGap(g: Interval) {
     const d = defaultBlockIn(g);
@@ -281,7 +310,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           {error && <p className="mb-3 text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
 
           {loading ? (
@@ -487,7 +516,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
 
               <section>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
-                  Deadlines · next 14 days
+                  Deadlines — nearest first
                 </p>
                 {hw.length === 0 ? (
                   <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>Nothing pending.</p>

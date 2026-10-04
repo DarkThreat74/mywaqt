@@ -244,6 +244,8 @@ export default function DayViewClient({ date }: { date: string }) {
   const [checkinPopup, setCheckinPopup] = useState<{ prayer: PrayerKey; label: string } | null>(null);
   const [studyBlocks, setStudyBlocks] = useState<BlockWithAssignments[]>([]);
   const [planOpen, setPlanOpen] = useState(false);
+  const [planGap, setPlanGap] = useState<Interval | null>(null);
+  const [planBlock, setPlanBlock] = useState<BlockWithAssignments | null>(null);
   const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>(() => getCachedHaydPeriods());
   // True when the viewed date falls inside a hayd period — chips render
   // excused and check-ins are disabled (the API rejects them too).
@@ -710,6 +712,12 @@ export default function DayViewClient({ date }: { date: string }) {
   const todayLocal = useMemo(() => localDateStrInTz(new Date(), userTimezone), [userTimezone]);
   const isPastDay = date < todayLocal;
   const isToday = date === todayLocal;
+  // Guard against stale blocks lingering after a date change or failed refetch —
+  // state isn't cleared between days, so only rows for THIS date ever render.
+  const dayBlocks = useMemo(
+    () => studyBlocks.filter((b) => b.blockDate === date),
+    [studyBlocks, date],
+  );
 
   const refreshBlocks = async () => {
     try {
@@ -749,11 +757,11 @@ export default function DayViewClient({ date }: { date: string }) {
   const busyIntervals = useMemo<Interval[]>(
     () => [
       ...busyBase,
-      ...studyBlocks
+      ...dayBlocks
         .filter((b) => b.status !== "released")
         .map((b) => ({ start: b.startMin, end: b.endMin })),
     ],
-    [busyBase, studyBlocks],
+    [busyBase, dayBlocks],
   );
 
   const gaps = useMemo(() => freeGaps(busyIntervals), [busyIntervals]);
@@ -1423,8 +1431,8 @@ export default function DayViewClient({ date }: { date: string }) {
         >
           <BookOpen className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
           <span className="flex-1 text-left">
-            {studyBlocks.filter((b) => b.status !== "released").length > 0
-              ? `${studyBlocks.filter((b) => b.status !== "released").length} study block${studyBlocks.filter((b) => b.status !== "released").length > 1 ? "s" : ""} planned`
+            {dayBlocks.filter((b) => b.status !== "released").length > 0
+              ? `${dayBlocks.filter((b) => b.status !== "released").length} study block${dayBlocks.filter((b) => b.status !== "released").length > 1 ? "s" : ""} planned`
               : "Plan study blocks"}
           </span>
           <span className="text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
@@ -1783,15 +1791,15 @@ export default function DayViewClient({ date }: { date: string }) {
           })}
 
           {/* Study blocks — hatched bands, distinct from solid events */}
-          {studyBlocks.filter((b) => b.status !== "released").map((b) => {
+          {dayBlocks.filter((b) => b.status !== "released").map((b) => {
             const top = minutesToTop(b.startMin);
-            const height = Math.max(((b.endMin - b.startMin) / 60) * HOUR_HEIGHT, 22);
+            const height = Math.max(((b.endMin - b.startMin) / 60) * HOUR_HEIGHT, 28);
             const worked = b.status === "worked";
             const label = b.assignments.map((a) => a.title).join(", ") || "Study block";
             return (
               <button
                 key={b.id}
-                onClick={(e) => { e.stopPropagation(); setPlanOpen(true); }}
+                onClick={(e) => { e.stopPropagation(); setPlanBlock(b); setPlanOpen(true); }}
                 className="absolute z-10 overflow-hidden rounded-lg text-left"
                 style={{
                   top,
@@ -1820,11 +1828,11 @@ export default function DayViewClient({ date }: { date: string }) {
             return (
               <button
                 key={`gap-${g.start}`}
-                onClick={(e) => { e.stopPropagation(); setPlanOpen(true); }}
+                onClick={(e) => { e.stopPropagation(); setPlanGap(g); setPlanOpen(true); }}
                 className="absolute z-10 flex items-center justify-center rounded-lg text-[10px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{
                   top: minutesToTop(g.start) + 2,
-                  height: 20,
+                  height: 32,
                   left: TIME_COL + 4,
                   right: 4,
                   color: "var(--color-ink-muted)",
@@ -2468,9 +2476,11 @@ export default function DayViewClient({ date }: { date: string }) {
           isToday={isToday}
           isPast={isPastDay}
           busy={busyBase}
-          blocks={studyBlocks}
+          blocks={dayBlocks}
           onChanged={() => void refreshBlocks()}
-          onClose={() => setPlanOpen(false)}
+          onClose={() => { setPlanOpen(false); setPlanGap(null); setPlanBlock(null); }}
+          initialGap={planGap}
+          initialBlock={planBlock}
         />
       )}
     </div>
