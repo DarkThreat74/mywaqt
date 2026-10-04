@@ -33,6 +33,7 @@ function loadSeen(): Record<string, string> {
  * and each configured offset still gets its own alert.
  */
 export default function BirthdayAlerter() {
+  const [all, setAll] = useState<Birthday[]>([]);
   const [queue, setQueue] = useState<Match[]>([]);
   const [seen, setSeen] = useState<Record<string, string>>(loadSeen);
 
@@ -41,18 +42,33 @@ export default function BirthdayAlerter() {
     fetch("/api/birthdays")
       .then((r) => (r.ok ? r.json() : { birthdays: [] }))
       .then((d) => {
-        if (cancelled) return;
-        const matches: Match[] = (d.birthdays ?? [])
-          .map((b: Birthday) => ({ bday: b, inDays: daysUntilBirthday(b) }))
-          .filter((m: Match) => m.bday.remindDays.includes(m.inDays))
-          .sort((a: Match, b: Match) => a.inDays - b.inDays);
-        if (matches.length > 0) setQueue(matches);
+        if (!cancelled) setAll(d.birthdays ?? []);
       })
       .catch(() => null);
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Recompute the due queue whenever the birthday list lands OR the tab
+  // becomes visible again — a PWA left open past midnight must still fire
+  // today's reminder without a reload.
+  useEffect(() => {
+    function recompute() {
+      const matches: Match[] = all
+        .map((b: Birthday) => ({ bday: b, inDays: daysUntilBirthday(b) }))
+        .filter((m: Match) => m.bday.remindDays.includes(m.inDays))
+        .sort((a: Match, b: Match) => a.inDays - b.inDays);
+      setQueue(matches);
+    }
+    recompute();
+    document.addEventListener("visibilitychange", recompute);
+    window.addEventListener("focus", recompute);
+    return () => {
+      document.removeEventListener("visibilitychange", recompute);
+      window.removeEventListener("focus", recompute);
+    };
+  }, [all]);
 
   // Escape dismisses the frontmost alert
   useEffect(() => {

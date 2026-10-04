@@ -152,14 +152,22 @@ export async function PATCH(request: NextRequest) {
     // existing row — patching birthDay alone must respect the stored month.
     if (out.birthMonth !== undefined || out.birthDay !== undefined) {
       const [existing] = await db
-        .select({ birthMonth: schema.birthdays.birthMonth, birthDay: schema.birthdays.birthDay })
+        .select({
+          birthMonth: schema.birthdays.birthMonth,
+          birthDay: schema.birthdays.birthDay,
+          birthYear: schema.birthdays.birthYear,
+        })
         .from(schema.birthdays)
         .where(and(eq(schema.birthdays.id, body.id), eq(schema.birthdays.userId, session.userId)))
         .limit(1);
       if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
       const m = (out.birthMonth as number | undefined) ?? existing.birthMonth;
       const d = (out.birthDay as number | undefined) ?? existing.birthDay;
-      if (d > DAYS_IN_MONTH[m - 1]) {
+      const y = out.birthYear !== undefined ? (out.birthYear as number | null) : existing.birthYear;
+      const maxD = m === 2 && typeof y === "number"
+        ? (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0) ? 29 : 28)
+        : DAYS_IN_MONTH[m - 1];
+      if (d > maxD) {
         return NextResponse.json({ error: "Day must be valid for the month" }, { status: 400 });
       }
     }

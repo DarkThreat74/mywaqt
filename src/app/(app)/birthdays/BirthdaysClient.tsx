@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Cake, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Cake, CalendarDays, List, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { Birthday } from "@/lib/db/schema";
 import { birthdayLabel, daysUntilBirthday, turningAge, zodiac } from "@/lib/birthdays/math";
 
@@ -41,6 +41,7 @@ export default function BirthdaysClient() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"list" | "year">("list");
 
   useEffect(() => {
     fetch("/api/birthdays")
@@ -84,8 +85,15 @@ export default function BirthdaysClient() {
     const day = parseInt(form.day, 10);
     const year = form.year.trim() ? parseInt(form.year, 10) : null;
     if (!form.name.trim()) { setError("A name is required."); return; }
-    if (!Number.isInteger(day) || day < 1 || day > DAYS_IN_MONTH[form.month - 1]) {
-      setError(`Day must be 1–${DAYS_IN_MONTH[form.month - 1]} for ${MONTHS[form.month - 1]}.`);
+    const maxDay = form.month === 2 && year !== null
+      ? (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28)
+      : DAYS_IN_MONTH[form.month - 1];
+    if (!Number.isInteger(day) || day < 1 || day > maxDay) {
+      setError(`Day must be 1–${maxDay} for ${MONTHS[form.month - 1]}${year ? ` ${year}` : ""}.`);
+      return;
+    }
+    if (year !== null && (year < 1900 || year > new Date().getFullYear())) {
+      setError("Year must be between 1900 and this year.");
       return;
     }
     if (form.remindDays.length === 0) { setError("Pick at least one reminder."); return; }
@@ -155,11 +163,24 @@ export default function BirthdaysClient() {
   }
 
   const next = sorted[0];
+  const now = new Date();
+  const thisMonthCount = birthdays.filter((b) => b.birthMonth === now.getMonth() + 1).length;
+  const groups: { label: string; items: Birthday[] }[] = [
+    { label: "Today", items: sorted.filter((b) => daysUntilBirthday(b) === 0) },
+    { label: "This week", items: sorted.filter((b) => { const d = daysUntilBirthday(b); return d >= 1 && d <= 7; }) },
+    { label: "This month", items: sorted.filter((b) => { const d = daysUntilBirthday(b); return d >= 8 && d <= 31; }) },
+    { label: "Later", items: sorted.filter((b) => daysUntilBirthday(b) > 31) },
+  ].filter((g) => g.items.length > 0);
+  const byMonth = MONTHS.map((_, i) =>
+    birthdays
+      .filter((b) => b.birthMonth === i + 1)
+      .sort((a, b) => a.birthDay - b.birthDay),
+  );
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-accent)" }}>
             People
@@ -168,22 +189,65 @@ export default function BirthdaysClient() {
             Birthdays
           </h1>
         </div>
+        {birthdays.length > 0 && (
+          <div
+            className="flex rounded-lg border p-0.5"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+            role="tablist"
+            aria-label="View"
+          >
+            {(["list", "year"] as const).map((v) => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                style={{
+                  backgroundColor: view === v ? "var(--color-paper)" : "transparent",
+                  color: view === v ? "var(--color-ink)" : "var(--color-ink-muted)",
+                }}
+              >
+                {v === "list" ? <List className="h-3.5 w-3.5" /> : <CalendarDays className="h-3.5 w-3.5" />}
+                {v === "list" ? "List" : "Year"}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Next-up strip */}
-      {next && (() => {
+      {/* Stats band — editorial figures, matching the subscriptions page */}
+      {birthdays.length > 0 && next && (() => {
         const d = daysUntilBirthday(next);
         const age = turningAge(next);
         return (
-          <div className="mt-5 flex items-center gap-3 rounded-xl px-4 py-3" style={{ backgroundColor: "var(--color-accent-faint)" }}>
-            <Cake className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} aria-hidden />
-            <p className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>
-              <span className="font-semibold">Next up:</span> {next.name}
-              {age !== null && ` turns ${age}`} — {birthdayLabel(next)}
-            </p>
-            <span className="shrink-0 text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
-              {d === 0 ? "today!" : `in ${d}d`}
-            </span>
+          <div className="mt-6 flex flex-wrap items-baseline gap-x-8 gap-y-3 border-b pb-5" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div>
+              <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: d === 0 ? "var(--color-accent)" : "var(--color-ink)" }}>
+                {d === 0 ? "Today" : `${d}d`}
+              </p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                {next.name}{age !== null ? ` turns ${age}` : ""} · {birthdayLabel(next)}
+              </p>
+            </div>
+            <div>
+              <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--color-ink)" }}>
+                {birthdays.length}
+              </p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                {birthdays.length === 1 ? "person" : "people"}
+              </p>
+            </div>
+            {thisMonthCount > 0 && (
+              <div>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--color-ink)" }}>
+                  {thisMonthCount}
+                </p>
+                <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                  in {MONTHS[now.getMonth()]}
+                </p>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -326,7 +390,7 @@ export default function BirthdaysClient() {
         </button>
       )}
 
-      {/* List — sorted by next occurrence */}
+      {/* List — grouped by urgency */}
       {!loaded ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--color-ink-muted)" }} />
@@ -338,76 +402,142 @@ export default function BirthdaysClient() {
             No birthdays yet — add the first one above.
           </p>
         </div>
-      ) : (
-        <div className="mt-5 flex flex-col">
-          {sorted.map((b) => {
-            const d = daysUntilBirthday(b);
-            const age = turningAge(b);
+      ) : view === "year" ? (
+        /* Year at a glance — 12 cells, birthdays pinned to their month */
+        <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+          {MONTHS.map((m, i) => {
+            const cell = byMonth[i];
+            const isNow = i === now.getMonth();
             return (
               <div
-                key={b.id}
-                className="flex items-center gap-3 border-b py-3 last:border-0"
-                style={{ borderColor: "var(--color-paper-3)" }}
+                key={m}
+                className="min-h-24 rounded-xl border p-3"
+                style={{
+                  borderColor: isNow ? "var(--color-accent)" : "var(--color-paper-3)",
+                  backgroundColor: isNow ? "var(--color-accent-faint)" : "var(--color-paper)",
+                }}
               >
-                <div
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-                  style={{ backgroundColor: d === 0 ? "var(--color-accent-faint)" : "var(--color-paper-2)" }}
-                  aria-hidden
+                <p
+                  className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                  style={{ color: isNow ? "var(--color-accent)" : "var(--color-ink-muted)" }}
                 >
-                  <Cake className="h-4 w-4" style={{ color: d === 0 ? "var(--color-accent)" : "var(--color-ink-muted)" }} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>
-                    {b.name}
-                    {age !== null && (
-                      <span style={{ color: "var(--color-ink-muted)" }}> · turns {age}</span>
-                    )}
-                  </p>
-                  <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                    {birthdayLabel(b)}{b.birthYear ? `, ${b.birthYear}` : ""} · {zodiac(b.birthMonth, b.birthDay)}
-                  </p>
-                </div>
-                <span
-                  className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums"
-                  style={
-                    d === 0
-                      ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
-                      : d <= 7
-                        ? { backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }
-                        : { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }
-                  }
-                >
-                  {d === 0 ? "today!" : `in ${d}d`}
-                </span>
-                <button
-                  onClick={() => startEdit(b)}
-                  className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
-                  style={{ color: "var(--color-ink-muted)" }}
-                  aria-label={`Edit ${b.name}`}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                {confirmDeleteId === b.id ? (
-                  <button
-                    onClick={() => void remove(b.id)}
-                    className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold"
-                    style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
-                  >
-                    Delete?
-                  </button>
+                  {m.slice(0, 3)}
+                </p>
+                {cell.length === 0 ? (
+                  <p className="mt-1.5 text-xs" style={{ color: "var(--color-paper-3)" }}>—</p>
                 ) : (
-                  <button
-                    onClick={() => setConfirmDeleteId(b.id)}
-                    className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
-                    style={{ color: "var(--color-ink-muted)" }}
-                    aria-label={`Delete ${b.name}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="mt-1.5 flex flex-col gap-1">
+                    {cell.map((b) => (
+                      <button
+                        key={b.id}
+                        onClick={() => { setView("list"); startEdit(b); }}
+                        className="flex min-w-0 items-baseline gap-1.5 text-left"
+                        title={`${b.name} — ${MONTHS[i]} ${b.birthDay}`}
+                      >
+                        <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                          {b.birthDay}
+                        </span>
+                        <span className="truncate text-xs" style={{ color: "var(--color-ink)" }}>
+                          {b.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             );
           })}
+        </div>
+      ) : (
+        <div className="mt-6 flex flex-col gap-6">
+          {groups.map((g) => (
+            <section key={g.label}>
+              <p
+                className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em]"
+                style={{ color: g.label === "Today" ? "var(--color-accent)" : "var(--color-ink-muted)" }}
+              >
+                {g.label}
+                <span className="h-px flex-1" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden />
+              </p>
+              <div className="mt-1 flex flex-col">
+                {g.items.map((b) => {
+                  const d = daysUntilBirthday(b);
+                  const age = turningAge(b);
+                  const reminds = b.remindDays
+                    .map((r) => (r === 0 ? "day-of" : r >= 7 ? `${r / 7}w` : `${r}d`))
+                    .join(" · ");
+                  return (
+                    <div
+                      key={b.id}
+                      className="flex items-center gap-3 border-b py-3 last:border-0"
+                      style={{ borderColor: "var(--color-paper-3)" }}
+                    >
+                      <div
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                        style={{
+                          backgroundColor: d === 0 ? "var(--color-accent)" : "var(--color-paper-2)",
+                          color: d === 0 ? "var(--color-paper)" : "var(--color-ink-soft)",
+                        }}
+                        aria-hidden
+                      >
+                        {d === 0 ? <Cake className="h-4 w-4" /> : b.name.trim().charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+                          {b.name}
+                          {age !== null && (
+                            <span style={{ color: "var(--color-ink-muted)" }}> · turns {age}</span>
+                          )}
+                        </p>
+                        <p className="truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                          {birthdayLabel(b)}{b.birthYear ? `, ${b.birthYear}` : ""} · {zodiac(b.birthMonth, b.birthDay)}
+                          <span className="hidden sm:inline"> · reminds {reminds}</span>
+                        </p>
+                      </div>
+                      <span
+                        className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums"
+                        style={
+                          d === 0
+                            ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
+                            : d <= 7
+                              ? { backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }
+                              : { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }
+                        }
+                      >
+                        {d === 0 ? "today!" : `in ${d}d`}
+                      </span>
+                      <button
+                        onClick={() => startEdit(b)}
+                        className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                        style={{ color: "var(--color-ink-muted)" }}
+                        aria-label={`Edit ${b.name}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      {confirmDeleteId === b.id ? (
+                        <button
+                          onClick={() => void remove(b.id)}
+                          className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold"
+                          style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
+                        >
+                          Delete?
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(b.id)}
+                          className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                          style={{ color: "var(--color-ink-muted)" }}
+                          aria-label={`Delete ${b.name}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </div>
