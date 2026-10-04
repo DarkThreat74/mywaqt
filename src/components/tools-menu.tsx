@@ -27,6 +27,19 @@ function QiblaArt() {
   );
 }
 
+function BirthdayArt() {
+  // Cake with a single candle
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <circle cx="24" cy="8" r="1.6" />
+      <path d="M24 11v5" />
+      <path d="M12 40V27c0-2 1-3 3-3h18c2 0 3 1 3 3v13" />
+      <path d="M12 31c2 2 4 2 6 0s4-2 6 0 4 2 6 0 4-2 6 0" />
+      <path d="M8 40h32" />
+    </svg>
+  );
+}
+
 function SubsArt() {
   // Card with a circular renewal arrow
   return (
@@ -183,6 +196,7 @@ const SECTIONS: { title: string; tools: Tool[] }[] = [
     title: "Life",
     tools: [
       { href: "/subscriptions", label: "Subscriptions", arabic: "اشتراكات", description: "Track recurring costs", art: SubsArt },
+      { href: "/birthdays", label: "Birthdays", arabic: "أعياد", description: "Never miss one", art: BirthdayArt },
     ],
   },
   {

@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v57";
+const CACHE_VERSION = "waqt-v58";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -48,6 +48,7 @@ const APP_PAGES = [
   "/mutashabihat",
   "/settings",
   "/subscriptions",
+  "/birthdays",
 ];
 
 // ─── IndexedDB helpers for offline event outbox ───
@@ -509,7 +510,8 @@ self.addEventListener("fetch", (event) => {
               url.pathname === "/api/goals" ||
               url.pathname === "/api/homework" ||
               url.pathname === "/api/classes" ||
-              url.pathname === "/api/subscriptions");
+              url.pathname === "/api/subscriptions" ||
+              url.pathname === "/api/birthdays");
           const tempId = isEntityPost && body
             ? (() => {
                 const uuid = crypto.randomUUID();
@@ -615,6 +617,19 @@ self.addEventListener("fetch", (event) => {
                 remindDaysBefore: body.remindDaysBefore ?? 3,
                 color: body.color || "#c2410c",
                 cancelledAt: null,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              };
+              responseData._pending = true;
+            } else if (url.pathname.startsWith("/api/birthdays")) {
+              responseData.birthday = {
+                id: tempId,
+                name: body.name || "Birthday",
+                birthMonth: body.birthMonth || 1,
+                birthDay: body.birthDay || 1,
+                birthYear: body.birthYear ?? null,
+                remindDays: body.remindDays || [0, 1],
+                lastNotifiedOn: null,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               };

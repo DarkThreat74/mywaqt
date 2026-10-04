@@ -6,6 +6,7 @@ import { isWindowClosed, getPrayerWindow } from "@/lib/prayer/stateMachine";
 import { sendPrayerPush } from "@/lib/notifications/push";
 import { recordDayCompletion } from "@/lib/prayer/social";
 import { nextRenewal } from "@/lib/subscriptions/math";
+import { daysUntilBirthday, turningAge } from "@/lib/birthdays/math";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -287,6 +288,17 @@ async function processUserBatch(
     subscriptionMap.get(sub.userId)!.push(sub);
   }
 
+  // Batch 7: birthdays — reminder offsets matched against each user's local today.
+  const batchBirthdays = await db
+    .select()
+    .from(schema.birthdays)
+    .where(inArray(schema.birthdays.userId, userIds));
+  const birthdayMap = new Map<string, typeof batchBirthdays>();
+  for (const b of batchBirthdays) {
+    if (!birthdayMap.has(b.userId)) birthdayMap.set(b.userId, []);
+    birthdayMap.get(b.userId)!.push(b);
+  }
+
   // Process each user using the batched data
   for (const s of settings) {
     try {
@@ -526,6 +538,65 @@ async function processUserBatch(
             .update(schema.subscriptions)
             .set({ lastRenewalNotifiedOn: today })
             .where(inArray(schema.subscriptions.id, dueToday.map((sub) => sub.id)));
+        }
+      }
+
+      // 4b. Birthday reminders — one push + inbox row per configured offset,
+      //      deduped via lastNotifiedOn so cron reruns can't double-fire.
+      {
+        const userBirthdays = birthdayMap.get(s.userId) ?? [];
+        const from = new Date(`${today}T00:00:00`);
+        const dueBirthdays = userBirthdays.filter(
+          (b) =>
+            b.lastNotifiedOn !== today &&
+            b.remindDays.includes(daysUntilBirthday(b, from)),
+        );
+        if (dueBirthdays.length > 0) {
+          const subs = subsMap.get(s.userId) ?? [];
+          if (subs.length > 0 && otherPref !== "none") {
+            const label = (b: typeof dueBirthdays[number]) => {
+              const d = daysUntilBirthday(b, from);
+              const age = turningAge(b, from);
+              const name = age !== null ? `${b.name} (turns ${age})` : b.name;
+              return d === 0 ? `${name} — today!` : `${name} — in ${d}d`;
+            };
+            const payload = JSON.stringify({
+              title: dueBirthdays.length === 1
+                ? `Birthday reminder — ${dueBirthdays[0].name}`
+                : `${dueBirthdays.length} birthdays coming up`,
+              body: dueBirthdays.slice(0, 3).map(label).join(" · "),
+              tag: `bday-${today}`,
+              data: { url: "/birthdays" },
+            });
+            await Promise.allSettled(
+              subs.map(async (sub) => {
+                try {
+                  const result = await sendPrayerPush(sub, payload, { topic: `bday-${today}` });
+                  if (result.delivered) notificationsSent++;
+                  else if (result.expired) {
+                    await db.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.id, sub.id)).catch(() => {});
+                  }
+                } catch (err) {
+                  logError(err, { route: "cron/checkin-scheduler", phase: "bday-push", subId: sub.id });
+                }
+              }),
+            );
+          }
+          await Promise.allSettled(
+            dueBirthdays.map((b) => {
+              const d = daysUntilBirthday(b, from);
+              return db.insert(schema.appNotifications).values({
+                userId: s.userId,
+                type: "birthday",
+                title: d === 0 ? `${b.name}'s birthday is today` : `${b.name}'s birthday in ${d} day${d === 1 ? "" : "s"}`,
+                body: `Remind days set: ${b.remindDays.join(", ")}`,
+              });
+            }),
+          );
+          await db
+            .update(schema.birthdays)
+            .set({ lastNotifiedOn: today })
+            .where(inArray(schema.birthdays.id, dueBirthdays.map((b) => b.id)));
         }
       }
 

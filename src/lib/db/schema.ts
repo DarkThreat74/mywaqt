@@ -1102,3 +1102,25 @@ export const subscriptions = pgTable('subscriptions', {
 
 export type Subscription = typeof subscriptions.$inferSelect;
 export type NewSubscription = typeof subscriptions.$inferInsert;
+
+// ─── Birthdays (people's birthdays + reminder windows) ───────────────
+
+export const birthdays = pgTable('birthdays', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  birthMonth: integer('birth_month').notNull(), // 1-12
+  birthDay: integer('birth_day').notNull(),     // 1-31
+  birthYear: integer('birth_year'),             // optional — age shown when present
+  // Days before the birthday to remind — 0 = on the day
+  remindDays: integer('remind_days').array().notNull().default([0, 1]),
+  // Last local date a reminder fired — dedupes cron reruns
+  lastNotifiedOn: date('last_notified_on'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('birthdays_user_id_idx').on(table.userId),
+}));
+
+export type Birthday = typeof birthdays.$inferSelect;
+export type NewBirthday = typeof birthdays.$inferInsert;

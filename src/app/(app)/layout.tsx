@@ -16,6 +16,7 @@ import MessagesNavItem from "@/components/messages-nav-item";
 import ToolsFab from "@/components/tools-fab";
 import DuaToast from "@/components/dua-toast";
 import FunFactPopup from "@/components/fun-fact-popup";
+import BirthdayAlerter from "@/components/birthday-alerter";
 import FeedbackWidget from "@/components/feedback-widget";
 import { isFeedbackEnabled } from "@/lib/app-settings";
 import OfflineBanner from "@/components/offline-banner";
@@ -181,6 +182,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <NotificationTray />
       <DuaToast />
       <FunFactPopup />
+      <BirthdayAlerter />
       {(await isFeedbackEnabled()) ? <FeedbackWidget /> : null}
 
       {/* Global audio player — survives route changes for background playback */}
