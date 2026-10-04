@@ -44,6 +44,8 @@ export default function PrayerCheckinPopup({
   // (backdrop, X, Done) must report it to the parent — otherwise the prayer
   // stays unmarked in the UI even though the server recorded it.
   const [checkinResult, setCheckinResult] = useState<{ status: string; wentToMasjid: boolean | null } | null>(null);
+  // Next upcoming study block today — shown as a quiet line, not a notification
+  const [nextBlock, setNextBlock] = useState<{ label: string; at: string } | null>(null);
 
   function close() {
     if (checkinResult) onCheckedIn(checkinResult);
@@ -119,6 +121,38 @@ export default function PrayerCheckinPopup({
       }
     })();
   }, [date, sunnahDefs.length]);
+
+  // Fetch today's study blocks once — only when viewing today
+  useEffect(() => {
+    if (date !== todayInTz) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/blocks?date=${date}`);
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({}));
+        const blocks: Array<{ startMin: number; endMin: number; status: string; assignments?: { title: string }[] }> = data.blocks ?? [];
+        // Surface the next planned block that hasn't ended yet (or the live one)
+        const hit = blocks
+          .filter((b) => b.status === "planned" && b.endMin > currentMinutes)
+          .sort((a, b) => a.startMin - b.startMin)[0];
+        if (!cancelled && hit) {
+          const h = Math.floor(hit.startMin / 60) % 24;
+          const m = hit.startMin % 60;
+          const label = hit.assignments?.map((a) => a.title).join(", ") || "Study block";
+          const live = hit.startMin <= currentMinutes;
+          setNextBlock({
+            label,
+            at: live ? "now" : `at ${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`,
+          });
+        }
+      } catch {
+        // ignore — nudge is best-effort
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
 
   async function checkIn(wentToMasjid: boolean | null) {
     setLoading(true);
@@ -695,6 +729,13 @@ export default function PrayerCheckinPopup({
               Done
             </button>
           </>
+        )}
+
+        {/* Next study block — ambient nudge riding the check-in, not a push */}
+        {nextBlock && step === "main" && (
+          <p className="mt-4 border-t pt-3 text-center text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+            <span style={{ color: "var(--color-accent)" }}>Study block</span> — {nextBlock.label} · {nextBlock.at}
+          </p>
         )}
       </div>
     </div>

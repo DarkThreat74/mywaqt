@@ -170,6 +170,16 @@ export default function HomeworkClient({
   const [importMsg, setImportMsg] = useState<string | null>(null);
   // Cushion warnings (per homework id → shortfall minutes)
   const [cushions, setCushions] = useState<Record<string, number>>({});
+  // Per-homework planned block counts (study-block coverage)
+  const [blockSummary, setBlockSummary] = useState<Record<string, { planned: number; worked: number }>>({});
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/blocks?summary=1")
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((d: { summary?: Record<string, { planned: number; worked: number }> }) => { if (!cancelled && d.summary) setBlockSummary(d.summary); })
+      .catch(() => null);
+    return () => { cancelled = true; };
+  }, []);
 
   // Class form state
   const [className, setClassName] = useState("");
@@ -952,6 +962,33 @@ export default function HomeworkClient({
               <Clock className="h-2.5 w-2.5" />
               {badge.label}
             </span>
+            {hw.status === "pending" && (() => {
+              const cov = blockSummary[hw.id];
+              const soon = daysUntilDate(hw.dueDate) <= 7;
+              if (cov && cov.planned > 0) {
+                return (
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                    title={`${cov.planned} study block${cov.planned === 1 ? "" : "s"} planned${cov.worked ? ` · ${cov.worked} worked` : ""}`}
+                  >
+                    {cov.planned} block{cov.planned === 1 ? "" : "s"}
+                  </span>
+                );
+              }
+              if (soon) {
+                return (
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}
+                    title="No study time claimed for this yet"
+                  >
+                    unplanned
+                  </span>
+                );
+              }
+              return null;
+            })()}
             {hw.kind !== "homework" && (
               <span
                 className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"

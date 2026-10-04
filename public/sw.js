@@ -511,7 +511,8 @@ self.addEventListener("fetch", (event) => {
               url.pathname === "/api/homework" ||
               url.pathname === "/api/classes" ||
               url.pathname === "/api/subscriptions" ||
-              url.pathname === "/api/birthdays");
+              url.pathname === "/api/birthdays" ||
+              url.pathname === "/api/blocks");
           const tempId = isEntityPost && body
             ? (() => {
                 const uuid = crypto.randomUUID();
@@ -632,6 +633,16 @@ self.addEventListener("fetch", (event) => {
                 lastNotifiedOn: null,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
+              };
+              responseData._pending = true;
+            } else if (url.pathname.startsWith("/api/blocks")) {
+              responseData.block = {
+                id: tempId,
+                blockDate: body.date,
+                startMin: body.startMin,
+                endMin: body.endMin,
+                status: "planned",
+                assignments: [],
               };
               responseData._pending = true;
             } else {

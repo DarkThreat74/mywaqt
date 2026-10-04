@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
+import Link from "next/link";
 import { Target, BookOpen, CheckCircle2, Repeat, ChevronRight, Sunrise, Sun, Sunset, Moon, Telescope, AlertTriangle, Check, Clock, Flame, Flag } from "lucide-react";
 import type { Goal, Homework, Habit, HabitLog, Class } from "@/lib/db/schema";
 import { syncGoalsToCache } from "@/lib/offline/cache-writers";
@@ -9,6 +10,7 @@ import { relativeTarget } from "@/lib/goals/relative";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { toggleHabitLogInCache } from "@/lib/offline/cache-writers";
 import { formatDueBadge, urgencyColors, urgencyCardTint } from "@/lib/homework/due-format";
+import { fmtMin } from "@/lib/blocks/gaps";
 
 function todayStr(): string {
   const d = new Date();
@@ -74,6 +76,32 @@ export default function TodayTab({
   const upcomingRemaining = upcomingHomework.length - upcomingShown.length;
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [showAllHabits, setShowAllHabits] = useState(false);
+  // Today's study blocks — planned work sessions claimed on the day view
+  const [todayBlocks, setTodayBlocks] = useState<import("@/components/plan-blocks-sheet").BlockWithAssignments[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/blocks?date=${todayDateStr}`)
+      .then((r) => (r.ok ? r.json() : { blocks: [] }))
+      .then((d) => { if (!cancelled) setTodayBlocks(d.blocks ?? []); })
+      .catch(() => null);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function markBlockWorked(id: string, worked: boolean) {
+    const prev = todayBlocks;
+    setTodayBlocks((p) => p.map((b) => (b.id === id ? { ...b, status: worked ? "worked" : "planned" } : b)));
+    try {
+      const res = await fetch("/api/blocks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status: worked ? "worked" : "planned" }),
+      });
+      if (!res.ok && res.status !== 202) setTodayBlocks(prev);
+    } catch {
+      setTodayBlocks(prev);
+    }
+  }
   // Goals currently animating out (just completed)
   const [animatingOut, setAnimatingOut] = useState<Set<string>>(new Set());
 
@@ -369,6 +397,50 @@ export default function TodayTab({
               +{carriedOver.length - 4} more
             </button>
           )}
+        </Section>
+      )}
+
+      {/* ── Today's study blocks — planned work sessions ── */}
+      {todayBlocks.filter((b) => b.status !== "released").length > 0 && (
+        <Section
+          icon={<Clock className="h-4 w-4" />}
+          title="Study blocks"
+          count={todayBlocks.filter((b) => b.status !== "released").length}
+          onMore={() => onNavigate("homework")}
+        >
+          {todayBlocks
+            .filter((b) => b.status !== "released")
+            .map((b) => {
+              const worked = b.status === "worked";
+              return (
+                <div key={b.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ backgroundColor: worked ? "color-mix(in oklab, var(--color-success) 6%, var(--color-paper))" : "var(--color-paper-2)" }}>
+                  <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                    {fmtMin(b.startMin)}–{fmtMin(b.endMin)}
+                  </span>
+                  <span
+                    className="min-w-0 flex-1 truncate text-sm"
+                    style={{ color: "var(--color-ink)", textDecoration: worked ? "line-through" : undefined, opacity: worked ? 0.7 : 1 }}
+                  >
+                    {b.assignments.map((a) => a.title).join(", ") || "Study block"}
+                  </span>
+                  <button
+                    onClick={() => void markBlockWorked(b.id, !worked)}
+                    aria-pressed={worked}
+                    className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors"
+                    style={
+                      worked
+                        ? { borderColor: "var(--color-success)", backgroundColor: "color-mix(in oklab, var(--color-success) 14%, var(--color-paper))", color: "var(--color-success)" }
+                        : { borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }
+                    }
+                  >
+                    {worked ? "Worked ✓" : "Mark worked"}
+                  </button>
+                </div>
+              );
+            })}
+          <Link href="/calendar/day" className="self-start pl-3 pt-1 text-xs font-medium transition-colors hover:opacity-70" style={{ color: "var(--color-ink-muted)" }}>
+            Plan blocks →
+          </Link>
         </Section>
       )}
 

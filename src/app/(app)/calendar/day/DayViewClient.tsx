@@ -11,6 +11,8 @@ import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings, setCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods } from "@/lib/offline/settings-cache";
 import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFromCache, upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
 import { instantToWall, wallClockToUtc } from "@/lib/timezone";
+import PlanBlocksSheet, { type BlockWithAssignments } from "@/components/plan-blocks-sheet";
+import { freeGaps, fmtDur, fmtMin, type Interval } from "@/lib/blocks/gaps";
 
 interface CalendarEvent {
   id: string;
@@ -240,6 +242,8 @@ export default function DayViewClient({ date }: { date: string }) {
   const [isOnline, setIsOnline] = useState(true);
   const [prayerLogs, setPrayerLogs] = useState<Array<{ prayerName: string; status: string; wentToMasjid: boolean | null }>>([]);
   const [checkinPopup, setCheckinPopup] = useState<{ prayer: PrayerKey; label: string } | null>(null);
+  const [studyBlocks, setStudyBlocks] = useState<BlockWithAssignments[]>([]);
+  const [planOpen, setPlanOpen] = useState(false);
   const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>(() => getCachedHaydPeriods());
   // True when the viewed date falls inside a hayd period — chips render
   // excused and check-ins are disabled (the API rejects them too).
@@ -338,12 +342,13 @@ export default function DayViewClient({ date }: { date: string }) {
 
       // ── Step 2: Fetch from API in background ──
       try {
-        const [eventsRes, prayerRes, logRes, hwRes, haydRes] = await Promise.all([
+        const [eventsRes, prayerRes, logRes, hwRes, haydRes, blocksRes] = await Promise.all([
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
           fetch(`/api/homework?date=${date}`).catch(() => null),
           fetch(`/api/hayd`).catch(() => null),
+          fetch(`/api/blocks?date=${date}`).catch(() => null),
         ]);
 
         if (cancelled) return;
@@ -398,6 +403,15 @@ export default function DayViewClient({ date }: { date: string }) {
               );
               if (!cancelled) setDayHomeworkCount(dueToday.length);
             }
+          } catch {
+            // non-critical
+          }
+        }
+
+        if (blocksRes?.ok && !cancelled) {
+          try {
+            const data = await blocksRes.json();
+            if (Array.isArray(data.blocks)) setStudyBlocks(data.blocks);
           } catch {
             // non-critical
           }
@@ -691,6 +705,58 @@ export default function DayViewClient({ date }: { date: string }) {
   // toggling the add-event form). The filter only needs to re-run when events change.
   const blockEvents = useMemo(() => events.filter((e) => e.type !== "reminder"), [events]);
   const reminderEvents = useMemo(() => events.filter((e) => e.type === "reminder"), [events]);
+
+  // ── Study blocks: busy intervals + claimable free gaps ──
+  const todayLocal = useMemo(() => localDateStrInTz(new Date(), userTimezone), [userTimezone]);
+  const isPastDay = date < todayLocal;
+  const isToday = date === todayLocal;
+
+  const refreshBlocks = async () => {
+    try {
+      const res = await fetch(`/api/blocks?date=${date}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.blocks)) setStudyBlocks(data.blocks);
+      }
+    } catch {
+      // offline — keep current state
+    }
+  };
+
+  // Busy intervals in minutes-from-midnight: events + active blocks +
+  // a 15-min hold around each prayer time (the prayer itself, not the window).
+  const busyBase = useMemo<Interval[]>(() => {
+    const ints: Interval[] = [];
+    for (const e of blockEvents) {
+      const s = timeToMinutes(isoToLocalTime(e.startAt));
+      let en = timeToMinutes(isoToLocalTime(e.endAt));
+      if (en <= s) en += 24 * 60;
+      ints.push({ start: s, end: en });
+    }
+    if (prayerTimes) {
+      for (const p of PRAYER_NAMES) {
+        if (!p.isPrayer) continue;
+        const raw = prayerTimes[p.key];
+        if (!raw) continue;
+        const t = timeToMinutes(adjTimeStr(p.key === "asr" ? getDisplayAsrTime(raw) : raw));
+        ints.push({ start: t, end: t + 15 });
+      }
+    }
+    return ints;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- userTimezone captures the tz-dependent helpers' inputs
+  }, [blockEvents, prayerTimes, userTimezone]);
+
+  const busyIntervals = useMemo<Interval[]>(
+    () => [
+      ...busyBase,
+      ...studyBlocks
+        .filter((b) => b.status !== "released")
+        .map((b) => ({ start: b.startMin, end: b.endMin })),
+    ],
+    [busyBase, studyBlocks],
+  );
+
+  const gaps = useMemo(() => freeGaps(busyIntervals), [busyIntervals]);
 
   // ── Greedy lane clustering for overlap layout ──
   // Computes a global column index + column count for each event based on
@@ -1348,6 +1414,25 @@ export default function DayViewClient({ date }: { date: string }) {
         </Link>
       )}
 
+      {/* Plan strip — free time inventory + study blocks entry point */}
+      {!isPastDay && (
+        <button
+          onClick={() => { setPlanOpen(true); play("open"); }}
+          className="mb-3 flex w-full items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm transition-colors hover:bg-[var(--color-paper-2)] sm:mb-4"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+        >
+          <BookOpen className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+          <span className="flex-1 text-left">
+            {studyBlocks.filter((b) => b.status !== "released").length > 0
+              ? `${studyBlocks.filter((b) => b.status !== "released").length} study block${studyBlocks.filter((b) => b.status !== "released").length > 1 ? "s" : ""} planned`
+              : "Plan study blocks"}
+          </span>
+          <span className="text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+            {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free
+          </span>
+        </button>
+      )}
+
       {/* No location message — only when location is actually not set */}
       {!prayerTimes && !loading && !locationSet && (
         <div
@@ -1694,6 +1779,60 @@ export default function DayViewClient({ date }: { date: string }) {
                   </button>
                 </div>
               </div>
+            );
+          })}
+
+          {/* Study blocks — hatched bands, distinct from solid events */}
+          {studyBlocks.filter((b) => b.status !== "released").map((b) => {
+            const top = minutesToTop(b.startMin);
+            const height = Math.max(((b.endMin - b.startMin) / 60) * HOUR_HEIGHT, 22);
+            const worked = b.status === "worked";
+            const label = b.assignments.map((a) => a.title).join(", ") || "Study block";
+            return (
+              <button
+                key={b.id}
+                onClick={(e) => { e.stopPropagation(); setPlanOpen(true); }}
+                className="absolute z-10 overflow-hidden rounded-lg text-left"
+                style={{
+                  top,
+                  height,
+                  left: TIME_COL + 2,
+                  right: 2,
+                  backgroundImage: "repeating-linear-gradient(45deg, transparent 0 6px, color-mix(in oklab, var(--color-accent) 10%, transparent) 6px 8px)",
+                  backgroundColor: "var(--color-paper-2)",
+                  border: "1.5px dashed var(--color-accent)",
+                  opacity: worked ? 0.7 : 1,
+                }}
+                aria-label={`Study block ${fmtMin(b.startMin)} to ${fmtMin(b.endMin)}: ${label}`}
+              >
+                {height >= 32 && (
+                  <p className="truncate px-2 pt-1 text-[10px] font-medium" style={{ color: "var(--color-accent)" }}>
+                    {worked ? "✓ " : ""}{label}
+                  </p>
+                )}
+              </button>
+            );
+          })}
+
+          {/* Ghost gap chips — free-time slots you can claim */}
+          {!isPastDay && gaps.map((g) => {
+            if (g.end - g.start < 45) return null;
+            return (
+              <button
+                key={`gap-${g.start}`}
+                onClick={(e) => { e.stopPropagation(); setPlanOpen(true); }}
+                className="absolute z-10 flex items-center justify-center rounded-lg text-[10px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{
+                  top: minutesToTop(g.start) + 2,
+                  height: 20,
+                  left: TIME_COL + 4,
+                  right: 4,
+                  color: "var(--color-ink-muted)",
+                  border: "1px dashed var(--color-paper-3)",
+                }}
+              >
+                + plan · {fmtDur(g.end - g.start)} free
+              </button>
             );
           })}
           </div>
@@ -2319,6 +2458,19 @@ export default function DayViewClient({ date }: { date: string }) {
             upsertPrayerLogToCache(date, checkinPopup.prayer, result.status, result.wentToMasjid);
             setCheckinPopup(null);
           }}
+        />
+      )}
+
+      {/* Study-block planner sheet */}
+      {planOpen && (
+        <PlanBlocksSheet
+          date={date}
+          isToday={isToday}
+          isPast={isPastDay}
+          busy={busyBase}
+          blocks={studyBlocks}
+          onChanged={() => void refreshBlocks()}
+          onClose={() => setPlanOpen(false)}
         />
       )}
     </div>

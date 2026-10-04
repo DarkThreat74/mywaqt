@@ -1124,3 +1124,31 @@ export const birthdays = pgTable('birthdays', {
 
 export type Birthday = typeof birthdays.$inferSelect;
 export type NewBirthday = typeof birthdays.$inferInsert;
+
+// ─── Study Blocks (planned work sessions in free-time gaps) ──────────
+
+export const studyBlocks = pgTable('study_blocks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  blockDate: date('block_date').notNull(),        // user-local date
+  startMin: integer('start_min').notNull(),       // minutes from local midnight
+  endMin: integer('end_min').notNull(),
+  status: text('status').notNull().default('planned'), // planned | worked | released
+  releaseReason: text('release_reason'),
+  workedAt: timestamp('worked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userDateIdx: index('study_blocks_user_date_idx').on(table.userId, table.blockDate),
+}));
+
+export const blockAssignments = pgTable('block_assignments', {
+  blockId: uuid('block_id').notNull().references(() => studyBlocks.id, { onDelete: 'cascade' }),
+  homeworkId: uuid('homework_id').notNull().references(() => homeworks.id, { onDelete: 'cascade' }),
+  done: boolean('done').notNull().default(false),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.blockId, table.homeworkId] }),
+  hwIdx: index('block_assignments_hw_idx').on(table.homeworkId),
+}));
+
+export type StudyBlock = typeof studyBlocks.$inferSelect;
+export type BlockAssignment = typeof blockAssignments.$inferSelect;
