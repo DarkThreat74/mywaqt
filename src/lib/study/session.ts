@@ -95,6 +95,13 @@ export async function planSession(input: SessionPlanInput, blockId?: string) {
 
 export function confirmSession() {
   if (state.status !== "planned") return;
+  // Ask for notification permission at the natural moment — segment transitions
+  // push an OS notification while the app is minimized/in a background tab.
+  try {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
+  } catch { /* non-critical */ }
   state = {
     status: "running",
     segments: state.segments,

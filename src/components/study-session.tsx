@@ -69,6 +69,15 @@ export default function StudySession() {
       // Two-tone chime on every transition; higher pitch back into study.
       beep(progress.segment.kind === "study" ? 1040 : 660, 0.15);
       setTimeout(() => beep(progress.segment.kind === "study" ? 1320 : 880, 0.15), 160);
+      // OS notification when the app is in the background / another window —
+      // the web can't tick while fully closed, so this covers minimize/tab-away.
+      if (typeof document !== "undefined" && document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
+        const title = progress.segment.kind === "break" ? "Break — books down" : "Back to studying";
+        const body = `${progress.segment.minutes}m · ${progress.segment.label}`;
+        navigator.serviceWorker?.ready
+          .then((r) => r.showNotification(title, { body, tag: "waqt-study", data: { url: "/calendar/day" } }))
+          .catch(() => { try { new Notification(title, { body, tag: "waqt-study" }); } catch { /* ignore */ } });
+      }
       return;
     }
     // Last 5 seconds of a break — tick each second so returning is timed.

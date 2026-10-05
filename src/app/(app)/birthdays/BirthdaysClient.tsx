@@ -134,8 +134,27 @@ export default function BirthdaysClient() {
   const [newCatName, setNewCatName] = useState("");
   const [newCatColor, setNewCatColor] = useState<string>(CATEGORY_COLORS[0]);
   const [armDeleteCatId, setArmDeleteCatId] = useState<string | null>(null);
-  // Filter: "earliest" (soonest first, default) | "latest" | "all" | "cat:<id>"
-  const [filter, setFilter] = useState("earliest");
+  // Two independent, persisted filters — sort order and category. Whatever the
+  // user picks last becomes the remembered default across visits.
+  const [sort, setSort] = useState<"earliest" | "latest">(() => {
+    try {
+      const raw = localStorage.getItem("waqt-birthday-filters");
+      const v = raw ? (JSON.parse(raw) as { sort?: string }).sort : undefined;
+      return v === "latest" ? "latest" : "earliest";
+    } catch { return "earliest"; }
+  });
+  const [catFilter, setCatFilter] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem("waqt-birthday-filters");
+      return (raw ? (JSON.parse(raw) as { cat?: string }).cat : undefined) ?? "all";
+    } catch { return "all"; }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("waqt-birthday-filters", JSON.stringify({ sort, cat: catFilter }));
+    } catch { /* private mode */ }
+  }, [sort, catFilter]);
 
   const catMap = useMemo(() => {
     const m = new Map<string, BirthdayCategory>();
@@ -154,6 +173,9 @@ export default function BirthdaysClient() {
       .finally(() => setLoaded(true));
   }, []);
 
+  // A persisted category filter can outlive its category — fall back to All.
+  const effectiveCat = catFilter !== "all" && !categories.some((c) => c.id === catFilter) ? "all" : catFilter;
+
   const sorted = useMemo(
     () =>
       [...birthdays].sort(
@@ -162,23 +184,25 @@ export default function BirthdaysClient() {
     [birthdays],
   );
 
-  // What the filter dropdown is showing: a category subset, and/or reversed.
+  // Category first, then sort order — the two filters compose.
   const visible = useMemo(() => {
-    let items = sorted;
-    if (filter.startsWith("cat:")) {
-      const id = filter.slice(4);
-      items = items.filter((b) => b.categoryId === id);
-    }
-    return filter === "latest" ? [...items].reverse() : items;
-  }, [sorted, filter]);
+    const items = effectiveCat === "all" ? sorted : sorted.filter((b) => b.categoryId === effectiveCat);
+    return sort === "latest" ? [...items].reverse() : items;
+  }, [sorted, sort, effectiveCat]);
 
-  const filterOptions = useMemo(() => {
-    const opts: { value: string; label: React.ReactNode; dividerAbove?: boolean }[] = [
+  const sortOptions = useMemo(
+    () => [
       { value: "earliest", label: "Earliest" },
       { value: "latest", label: "Latest" },
-      { value: "all", label: "All", dividerAbove: categories.length > 0 },
+    ],
+    [],
+  );
+
+  const catOptions = useMemo(
+    () => [
+      { value: "all", label: "All" },
       ...categories.map((c) => ({
-        value: `cat:${c.id}`,
+        value: c.id,
         label: (
           <span className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
@@ -186,9 +210,9 @@ export default function BirthdaysClient() {
           </span>
         ),
       })),
-    ];
-    return opts;
-  }, [categories]);
+    ],
+    [categories],
+  );
 
   function startEdit(b: Birthday) {
     setEditingId(b.id);
@@ -368,19 +392,32 @@ export default function BirthdaysClient() {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
             Birthdays
           </h1>
+          <p className="mt-0.5 text-lg leading-none" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }} aria-hidden="true">
+            أعياد
+          </p>
         </div>
         {birthdays.length > 0 && (
           <div className="flex items-center gap-2">
-            <div className="w-36 sm:w-44">
+            <div className="w-28 sm:w-32">
               <CustomSelect
-                value={filter}
-                onChange={setFilter}
-                options={filterOptions}
-                ariaLabel="Filter birthdays"
-                align="right"
+                value={sort}
+                onChange={(v) => setSort(v as "earliest" | "latest")}
+                options={sortOptions}
+                ariaLabel="Sort birthdays"
                 compact
               />
             </div>
+            {categories.length > 0 && (
+              <div className="w-28 sm:w-36">
+                <CustomSelect
+                  value={effectiveCat}
+                  onChange={setCatFilter}
+                  options={catOptions}
+                  ariaLabel="Filter by category"
+                  compact
+                />
+              </div>
+            )}
             <div
             className="flex rounded-lg border p-0.5"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
@@ -796,14 +833,12 @@ export default function BirthdaysClient() {
                         {d === 0 ? <Cake className="h-4 w-4" /> : b.name.trim().charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+                        <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
                           {b.name}
-                          {age !== null && (
-                            <span style={{ color: "var(--color-ink-muted)" }}> · turns {age}</span>
-                          )}
                         </p>
-                        <p className="truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                        <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
                           {cat && <span className="font-medium" style={{ color: cat.color }}>{cat.name} · </span>}
+                          {age !== null && <>turns {age} · </>}
                           {birthdayLabel(b)}{b.birthYear ? `, ${b.birthYear}` : ""} · {zodiac(b.birthMonth, b.birthDay)}
                           <span className="hidden sm:inline"> · reminds {reminds}</span>
                         </p>
