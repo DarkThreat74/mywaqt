@@ -610,7 +610,13 @@ export default function BirthdaysClient() {
               {!makingCat ? (
                 <button
                   type="button"
-                  onClick={() => { setMakingCat(true); setArmDeleteCatId(null); }}
+                  onClick={() => {
+                    setMakingCat(true);
+                    setArmDeleteCatId(null);
+                    // Default to the first color no category is using yet.
+                    const free = CATEGORY_COLORS.find((hex) => !categories.some((c) => c.color === hex));
+                    if (free) setNewCatColor(free);
+                  }}
                   className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper)]"
                   style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
                 >
@@ -628,22 +634,28 @@ export default function BirthdaysClient() {
                     className="w-32 rounded-md border px-2 py-1 text-xs outline-none"
                     style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
                   />
-                  <span className="flex items-center gap-1">
-                    {CATEGORY_COLORS.map((hex) => (
-                      <button
-                        key={hex}
-                        type="button"
-                        onClick={() => setNewCatColor(hex)}
-                        aria-label={`Color ${hex}`}
-                        aria-pressed={newCatColor === hex}
-                        className="h-5 w-5 rounded-full transition-transform"
-                        style={{
-                          backgroundColor: hex,
-                          outline: newCatColor === hex ? `2px solid var(--color-ink)` : "none",
-                          outlineOffset: 2,
-                        }}
-                      />
-                    ))}
+                  <span className="flex flex-wrap items-center gap-1">
+                    {CATEGORY_COLORS.map((hex) => {
+                      const taken = categories.some((c) => c.color === hex);
+                      return (
+                        <button
+                          key={hex}
+                          type="button"
+                          onClick={() => { if (!taken) setNewCatColor(hex); }}
+                          disabled={taken}
+                          aria-label={taken ? `Color ${hex} — already used` : `Color ${hex}`}
+                          aria-pressed={newCatColor === hex}
+                          title={taken ? "Already used by another category" : undefined}
+                          className="h-5 w-5 rounded-full transition-transform disabled:cursor-not-allowed"
+                          style={{
+                            backgroundColor: hex,
+                            outline: newCatColor === hex ? `2px solid var(--color-ink)` : "none",
+                            outlineOffset: 2,
+                            opacity: taken ? 0.25 : 1,
+                          }}
+                        />
+                      );
+                    })}
                   </span>
                   <button
                     type="button"

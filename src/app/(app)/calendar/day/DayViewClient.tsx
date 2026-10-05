@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play } from "lucide-react";
+import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { useUISFX } from "@/components/uisfx-provider";
@@ -1359,6 +1359,26 @@ export default function DayViewClient({ date }: { date: string }) {
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
               const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
               const isClickable = prayer.isPrayer && !haydDay;
+              if (!prayer.isPrayer) {
+                // Non-prayer markers (sunrise) get their own look — a bare label
+                // with a sun glyph, never the bordered "unmarked" chip.
+                return (
+                  <div
+                    key={prayer.key}
+                    className="flex shrink-0 flex-col items-center justify-center px-1.5 py-1.5"
+                    style={{ minWidth: 44, minHeight: 44 }}
+                    title={`${prayer.label} — end of the Fajr window`}
+                  >
+                    <span className="flex items-center gap-0.5 text-[10px] font-medium leading-none" style={{ color: "var(--color-ink-muted)" }}>
+                      <Sunrise className="h-2.5 w-2.5" style={{ color: "var(--color-warmth)" }} />
+                      {prayerLabel(prayer.key, prayer.label)}
+                    </span>
+                    <span className="mt-0.5 text-[10px] tabular-nums leading-none" style={{ color: "var(--color-ink-muted)" }}>
+                      {formatTimeCompact(time)}
+                    </span>
+                  </div>
+                );
+              }
               return (
                 <button
                   key={prayer.key}
@@ -1396,6 +1416,24 @@ export default function DayViewClient({ date }: { date: string }) {
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
               const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
               const isClickable = prayer.isPrayer && !haydDay;
+              if (!prayer.isPrayer) {
+                return (
+                  <div
+                    key={prayer.key}
+                    className="flex flex-col items-center gap-0 px-3 py-1.5"
+                    style={{ minHeight: 44 }}
+                    title={`${prayer.label} — end of the Fajr window`}
+                  >
+                    <span className="flex items-center gap-1 text-xs font-medium leading-tight" style={{ color: "var(--color-ink-muted)" }}>
+                      <Sunrise className="h-3 w-3" style={{ color: "var(--color-warmth)" }} />
+                      {prayerLabel(prayer.key, prayer.label)}
+                    </span>
+                    <span className="text-xs tabular-nums leading-tight" style={{ color: "var(--color-ink-muted)" }}>
+                      {formatTime(time)}
+                    </span>
+                  </div>
+                );
+              }
               return (
                 <button
                   key={prayer.key}
@@ -1421,46 +1459,6 @@ export default function DayViewClient({ date }: { date: string }) {
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* Work row — homework due + study planner, side by side pills */}
-      {(dayHomeworkCount > 0 || !isPastDay) && (
-        <div className="mb-2.5 flex gap-1.5 sm:mb-3">
-          {dayHomeworkCount > 0 && (
-            <Link
-              href="/goals#homework"
-              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors hover:opacity-80"
-              style={{
-                borderColor: "var(--color-warmth)",
-                backgroundColor: "color-mix(in oklab, var(--color-warmth) 8%, var(--color-paper))",
-                color: "var(--color-ink)",
-                minHeight: 36,
-              }}
-            >
-              <BookOpen className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warmth)" }} />
-              <span className="whitespace-nowrap">{dayHomeworkCount} due today</span>
-              <span className="shrink-0" style={{ color: "var(--color-ink-muted)" }}>→</span>
-            </Link>
-          )}
-          {!isPastDay && (
-            <button
-              onClick={() => { setPlanOpen(true); play("open"); }}
-              className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 36 }}
-              aria-label={`Plan study blocks — ${fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free today`}
-            >
-              <BookOpen className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />
-              <span className="min-w-0 flex-1 whitespace-nowrap text-left">
-                {dayBlocks.filter((b) => b.status !== "released").length > 0
-                  ? `${dayBlocks.filter((b) => b.status !== "released").length} block${dayBlocks.filter((b) => b.status !== "released").length > 1 ? "s" : ""} planned`
-                  : "Plan study"}
-                <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                  {" "}· {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free
-                </span>
-              </span>
-            </button>
-          )}
         </div>
       )}
 
@@ -1496,6 +1494,47 @@ export default function DayViewClient({ date }: { date: string }) {
         className="relative overflow-hidden rounded-2xl border"
         style={{ borderColor: "var(--color-paper-3)" }}
       >
+        {/* Floating summary chip — due count + planner, reads as info not buttons */}
+        {(dayHomeworkCount > 0 || !isPastDay) && (
+          <div
+            className="absolute right-2 top-10 z-20 flex items-stretch overflow-hidden rounded-full border text-[11px] font-medium shadow-sm backdrop-blur-md"
+            style={{
+              borderColor: "var(--color-paper-3)",
+              backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
+              color: "var(--color-ink)",
+            }}
+          >
+            {dayHomeworkCount > 0 && (
+              <Link
+                href="/goals#homework"
+                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-warmth)", minHeight: 32 }}
+              >
+                <BookOpen className="h-3 w-3 shrink-0" />
+                {dayHomeworkCount} due
+              </Link>
+            )}
+            {dayHomeworkCount > 0 && !isPastDay && (
+              <span className="w-px self-stretch" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden />
+            )}
+            {!isPastDay && (
+              <button
+                onClick={() => { setPlanOpen(true); play("open"); }}
+                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-ink)", minHeight: 32 }}
+                aria-label={`Plan study blocks — ${fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free today`}
+              >
+                <BookOpen className="h-3 w-3 shrink-0" style={{ color: "var(--color-accent)" }} />
+                {dayBlocks.filter((b) => b.status !== "released").length > 0
+                  ? `${dayBlocks.filter((b) => b.status !== "released").length} planned`
+                  : "Plan"}
+                <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                  · {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))}
+                </span>
+              </button>
+            )}
+          </div>
+        )}
         {/* View More / Hide button for early hours */}
         <button
           onClick={() => setShowEarlyHours(!showEarlyHours)}

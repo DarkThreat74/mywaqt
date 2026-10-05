@@ -25,7 +25,12 @@ import {
 } from "@/lib/subscriptions/math";
 
 // Palette offered in the picker — ink/adjacent tones on-theme with the app.
-const SUB_COLORS = ["#c2410c", "#0f766e", "#1d4ed8", "#a21caf", "#b45309", "#475569", "#be123c", "#15803d"];
+const SUB_COLORS = [
+  "#c2410c", "#0f766e", "#1d4ed8", "#a21caf",
+  "#b45309", "#475569", "#be123c", "#15803d",
+  "#7c3aed", "#0891b2", "#db2777", "#65a30d",
+  "#ea580c", "#334155", "#9333ea", "#ca8a04",
+];
 const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "SAR", "AED", "PKR", "INR"];
 
 type View = "list" | "calendar";
@@ -442,21 +447,33 @@ export default function SubscriptionsClient() {
           <div className="mt-4">
             <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Color</span>
             <div className="flex flex-wrap gap-2">
-              {SUB_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setForm({ ...form, color: c })}
-                  className="h-7 w-7 rounded-full transition-transform"
-                  style={{
-                    backgroundColor: c,
-                    outline: form.color === c ? `2px solid ${c}` : "none",
-                    outlineOffset: 2,
-                    opacity: form.color === c ? 1 : 0.65,
-                  }}
-                  aria-label={`Color ${c}`}
-                />
-              ))}
+              {SUB_COLORS.map((c) => {
+                const taken = subs.some((s) => s.color === c && s.id !== editingId);
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setForm({ ...form, color: c })}
+                    className="relative h-7 w-7 rounded-full transition-transform"
+                    style={{
+                      backgroundColor: c,
+                      outline: form.color === c ? `2px solid ${c}` : "none",
+                      outlineOffset: 2,
+                      opacity: form.color === c ? 1 : taken ? 0.45 : 0.65,
+                    }}
+                    aria-label={taken ? `Color ${c} — already in use` : `Color ${c}`}
+                    title={taken ? "Already in use" : undefined}
+                  >
+                    {taken && (
+                      <span
+                        className="absolute inset-0 m-auto h-1.5 w-1.5 rounded-full"
+                        style={{ backgroundColor: "var(--color-paper)" }}
+                        aria-hidden
+                      />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

@@ -9,4 +9,12 @@ export const CATEGORY_COLORS = [
   "#4A8B8B", // teal
   "#7A6A54", // taupe
   "#9E4B4B", // muted red
+  "#6B5B95", // iris
+  "#3D8361", // pine
+  "#C76C33", // rust
+  "#8C7B1E", // olive gold
+  "#52688F", // denim
+  "#B06A8F", // orchid
+  "#5E8C61", // sage
+  "#9C6644", // walnut
 ] as const;
