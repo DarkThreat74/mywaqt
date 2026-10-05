@@ -142,7 +142,10 @@ function VoxStats() {
               {e.finished
                 ? <Check className="h-3 w-3 shrink-0" style={{ color: "var(--color-success)" }} />
                 : <X className="h-3 w-3 shrink-0" style={{ color: "var(--color-warmth)" }} />}
-              <span className="min-w-0 flex-1 truncate">{e.label}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {e.label}
+                {e.reason && <span style={{ color: "var(--color-warmth)" }}> · {e.reason}</span>}
+              </span>
               <span className="shrink-0 tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                 {e.minutes}m · {new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </span>

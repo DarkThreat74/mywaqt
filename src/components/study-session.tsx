@@ -70,6 +70,15 @@ export default function StudySession() {
   // Auto-prompt the finish check once per session when the plan runs out —
   // keyed by startedAt so each new session asks again.
   const [donePromptedAt, setDonePromptedAt] = useState(0);
+  // Drift detection — tab hiding mid-study-segment is the strongest signal a
+  // web app can see. On return after 20s+, Vox calls it out.
+  const hiddenAtRef = useRef<number | null>(null);
+  const [driftNudge, setDriftNudge] = useState(false);
+  const driftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Halfway attention check on long study segments — shown once per segment.
+  const [checkinDismissed, setCheckinDismissed] = useState(-1);
+  // "What pulled you away" — captured into history on unfinished ends.
+  const [endReason, setEndReason] = useState<string | null>(null);
 
   useEffect(() => { hydrateSession(); }, []);
 
@@ -143,6 +152,31 @@ export default function StudySession() {
     }
   }, [progress, state.status]);
 
+  // Drift watcher — armed only while a study segment is live and unpaused.
+  // Hiding the tab mid-segment is the strongest drift signal the web can see.
+  useEffect(() => {
+    if (state.status !== "running") return;
+    const onVis = () => {
+      if (document.hidden) {
+        const p = segmentAt(state.segments, sessionElapsed(Date.now()));
+        if (!p.done && p.segment.kind === "study" && !state.pausedAt) {
+          hiddenAtRef.current = Date.now();
+        }
+      } else if (hiddenAtRef.current) {
+        const awayMs = Date.now() - hiddenAtRef.current;
+        hiddenAtRef.current = null;
+        if (awayMs > 20_000) {
+          setDriftNudge(true);
+          beep(520, 0.12);
+          if (driftTimerRef.current) clearTimeout(driftTimerRef.current);
+          driftTimerRef.current = setTimeout(() => setDriftNudge(false), 10_000);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [state]);
+
   // Timer's up → the checkoff is mandatory (adjust-during-render reset pattern).
   if (state.status === "running" && progress?.done && donePromptedAt !== state.startedAt) {
     setDonePromptedAt(state.startedAt);
@@ -151,8 +185,9 @@ export default function StudySession() {
 
   /** Close the session and record the outcome — finishing grows the focus
    *  streak and auto-marks the source block worked; quitting breaks it. */
-  const finish = (finished: boolean) => {
+  const finish = (finished: boolean, reason?: string | null) => {
     setAskFinish(false);
+    setEndReason(null);
     const label = state.status === "running"
       ? state.segments.find((s) => s.kind === "study")?.label ?? "Focus session"
       : "Focus session";
@@ -160,6 +195,7 @@ export default function StudySession() {
       date: new Date().toISOString().slice(0, 10),
       minutes: Math.max(1, Math.round(sessionElapsed(Date.now()) / 60)),
       label,
+      reason: reason ?? undefined,
     });
     const bid = runningBlockId();
     if (finished && bid) {
@@ -305,8 +341,26 @@ export default function StudySession() {
               >
                 Pause for later — keep my streak
               </button>
+              <div className="flex justify-center gap-1.5" role="group" aria-label="What pulled you away?">
+                {["Phone", "Tired", "Bored", "Life"].map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setEndReason(endReason === r ? null : r)}
+                    className="rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors"
+                    style={{
+                      borderColor: endReason === r ? "var(--color-warmth)" : "var(--color-paper-3)",
+                      color: endReason === r ? "var(--color-warmth)" : "var(--color-ink-muted)",
+                      backgroundColor: endReason === r ? "color-mix(in oklab, var(--color-warmth) 10%, transparent)" : "transparent",
+                      minHeight: 28,
+                    }}
+                    aria-pressed={endReason === r}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
               <button
-                onClick={() => finish(false)}
+                onClick={() => finish(false, endReason)}
                 className="text-center text-[11px] font-medium transition-opacity hover:opacity-70"
                 style={{ color: "var(--color-ink-muted)" }}
               >
@@ -336,7 +390,9 @@ export default function StudySession() {
               ? <Pause className="h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
               : <BookOpen className="h-4 w-4 shrink-0" style={{ color: segAccent }} />}
             <span className="text-xs font-semibold tabular-nums">{fmtClock(progress.remainingSec)}</span>
-            <span className="max-w-[7rem] truncate text-[11px] opacity-80">{paused ? "Paused" : seg.label}</span>
+            <span className="max-w-[7rem] truncate text-[11px] opacity-80">
+              {paused ? "Paused" : driftNudge ? "Drifted — back to it" : seg.label}
+            </span>
           </button>
           <button
             onClick={() => setAskFinish(true)}
@@ -356,6 +412,12 @@ export default function StudySession() {
   const elapsedInSeg = seg.minutes * 60 - progress.remainingSec;
   const pct = seg.minutes > 0 ? Math.min(100, (elapsedInSeg / (seg.minutes * 60)) * 100) : 100;
   const next = state.segments[progress.index + 1];
+  // Attention check — vigilance drops around the 60% mark of a long block.
+  // Brief+rare resets beat long breaks, so the offer is a 90-second reset.
+  const showCheckin =
+    !isBreak && !paused && !progress.done &&
+    seg.minutes >= 20 && elapsedInSeg >= seg.minutes * 60 * 0.6 &&
+    checkinDismissed !== progress.index;
 
   return (
     <div className="fixed inset-0 z-[90] flex flex-col" style={{ backgroundColor: "var(--color-paper)" }} role="dialog" aria-modal="true" aria-label="Study session">
@@ -397,6 +459,13 @@ export default function StudySession() {
               Back to it in {progress.remainingSec}…
             </p>
           )}
+          {/* Drift call-out — fired when you left the tab mid-segment */}
+          {driftNudge && !progress.done && (
+            <p className="mt-2 text-xs font-semibold" style={{ color: "var(--color-warmth)" }} role="status">
+              You drifted. Eyes back on the page.
+            </p>
+          )}
+
           {/* Vox's coaching line — strict trainer voice, rotates per segment */}
           {!progress.done && !paused && (
             <p className="mt-3 text-[11px] font-medium italic" style={{ color: "var(--color-ink-muted)" }}>
@@ -418,6 +487,29 @@ export default function StudySession() {
           <p className="mb-3 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
             Next: {Math.round(next.minutes)}m {next.kind === "break" ? "break" : next.label}
           </p>
+        )}
+
+        {/* Attention check-in — one tap resets or confirms focus */}
+        {showCheckin && (
+          <div className="mb-3 flex items-center justify-center gap-2">
+            <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
+              Still locked in?
+            </span>
+            <button
+              onClick={() => { takeBreakNow(1.5); setCheckinDismissed(progress.index); }}
+              className="rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", minHeight: 32 }}
+            >
+              Reset · 90s
+            </button>
+            <button
+              onClick={() => setCheckinDismissed(progress.index)}
+              className="rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 32 }}
+            >
+              Locked in
+            </button>
+          </div>
         )}
 
         {/* In-session rescue actions — break or switch without ending */}

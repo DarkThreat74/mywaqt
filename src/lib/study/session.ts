@@ -188,7 +188,7 @@ export function startSprint(minutes: number, label = "Focus sprint", blockId?: s
 // ─── Focus discipline record — the consequence layer ───
 // A completed session grows the streak; ending early (not finished) or
 // abandoning resets it. Persisted locally, surfaced in the intake sheet.
-export interface SessionEntry { date: string; minutes: number; finished: boolean; label: string }
+export interface SessionEntry { date: string; minutes: number; finished: boolean; label: string; reason?: string }
 export interface Discipline { streak: number; completed: number; abandoned: number; history: SessionEntry[] }
 
 const DISC_KEY = "waqt-vox-discipline";
