@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Eye, Calendar, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 
 interface CalendarEvent {
   id: string;
@@ -76,27 +76,54 @@ const TYPE_BG: Record<string, string> = {
 
 type View = "day" | "month";
 
-export default function PublicCalendarClient({ token, displayName }: { token: string; displayName?: string }) {
+function dateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function fmtSpan(days: number): string {
+  if (days % 30 === 0) return `${days / 30}mo`;
+  if (days % 7 === 0) return `${days / 7}w`;
+  return `${days}d`;
+}
+
+// Human label for the owner's visibility window, e.g. "Past 1w · next 1mo"
+function windowLabel(pastDays: number, futureDays: number): string {
+  const past = pastDays > 0 ? `Past ${fmtSpan(pastDays)}` : "Today";
+  const future = futureDays > 0 ? `next ${fmtSpan(futureDays)}` : "only";
+  if (pastDays === 0 && futureDays === 0) return "Today only";
+  return `${past} · ${future}`;
+}
+
+export default function PublicCalendarClient({ token, displayName, futureDays, pastDays }: {
+  token: string;
+  displayName?: string;
+  futureDays: number;
+  pastDays: number;
+}) {
   const [view, setView] = useState<View>("day");
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  });
+  const [selectedDate, setSelectedDate] = useState(() => dateStr(new Date()));
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
 
-  function navigateToDay(dateStr: string) {
-    setSelectedDate(dateStr);
+  function navigateToDay(target: string) {
+    // Clamp to the owner's window — month cells outside it show as empty
+    if (target < minDate || target > maxDate) return;
+    setSelectedDate(target);
     setView("day");
   }
 
-  // Restrict navigation: can't go to past months, can't go more than 3 months ahead
+  // The owner's real share window — same bounds the API enforces
   const now = new Date();
-  const currentMonthNum = now.getFullYear() * 12 + now.getMonth();
-  const maxMonthNum = currentMonthNum + 3;
+  const minDate = dateStr(new Date(now.getFullYear(), now.getMonth(), now.getDate() - pastDays));
+  const maxDate = dateStr(new Date(now.getFullYear(), now.getMonth(), now.getDate() + futureDays));
+
+  const minMonth = new Date(now.getFullYear(), now.getMonth(), now.getDate() - pastDays);
+  const maxMonth = new Date(now.getFullYear(), now.getMonth(), now.getDate() + futureDays);
+  const minMonthNum = minMonth.getFullYear() * 12 + minMonth.getMonth();
+  const maxMonthNum = maxMonth.getFullYear() * 12 + maxMonth.getMonth();
   const viewMonthNum = year * 12 + (month - 1);
 
-  const canGoPrev = viewMonthNum > currentMonthNum;
+  const canGoPrev = viewMonthNum > minMonthNum;
   const canGoNext = viewMonthNum < maxMonthNum;
 
   function handlePrevMonth() {
@@ -122,63 +149,60 @@ export default function PublicCalendarClient({ token, displayName }: { token: st
         className="border-b"
         style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
       >
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-2.5">
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-md"
-              style={{ backgroundColor: "var(--color-ink)" }}
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <p className="truncate text-sm font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+              {displayName ? `${displayName}'s calendar` : "Shared calendar"}
+            </p>
+            <span
+              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
+              style={{
+                color: "var(--color-ink-muted)",
+                border: "1px solid var(--color-paper-3)",
+                backgroundColor: "var(--color-paper-2)",
+              }}
             >
-              <Eye className="h-4 w-4" style={{ color: "var(--color-paper)" }} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
-                {displayName ? `${displayName}'s calendar` : "Shared calendar"}
-              </p>
-              <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                Read-only · Current + 3 months
-              </p>
-            </div>
+              Read-only
+            </span>
+            <span className="hidden shrink-0 text-xs sm:inline" style={{ color: "var(--color-ink-muted)" }}>
+              {windowLabel(pastDays, futureDays)}
+            </span>
           </div>
 
-          {/* View toggle */}
-          <div
-            className="flex rounded-md border"
-            style={{ borderColor: "var(--color-paper-3)" }}
-          >
-            <button
-              onClick={() => setView("day")}
-              className="flex items-center gap-1.5 rounded-l-md px-3 py-2 text-xs font-medium transition-colors"
-              style={{
-                minHeight: 40,
-                backgroundColor: view === "day" ? "var(--color-ink)" : "transparent",
-                color: view === "day" ? "var(--color-paper)" : "var(--color-ink-muted)",
-              }}
-            >
-              <Calendar className="h-4 w-4" />
-              Day
-            </button>
-            <button
-              onClick={() => setView("month")}
-              className="flex items-center gap-1.5 rounded-r-md px-3 py-2 text-xs font-medium transition-colors"
-              style={{
-                minHeight: 40,
-                backgroundColor: view === "month" ? "var(--color-ink)" : "transparent",
-                color: view === "month" ? "var(--color-paper)" : "var(--color-ink-muted)",
-              }}
-            >
-              <Calendar className="h-4 w-4" />
-              Month
-            </button>
+          {/* View tabs — quiet text switch, active gets accent underline */}
+          <div className="flex shrink-0 gap-1" role="tablist">
+            {(["day", "month"] as const).map((v) => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className="border-b-2 px-2.5 py-1.5 text-xs font-medium capitalize transition-colors"
+                style={{
+                  minHeight: 36,
+                  borderColor: view === v ? "var(--color-accent)" : "transparent",
+                  color: view === v ? "var(--color-ink)" : "var(--color-ink-muted)",
+                }}
+              >
+                {v}
+              </button>
+            ))}
           </div>
         </div>
+        {/* Window note on mobile — under the title row */}
+        <p className="mx-auto w-full max-w-4xl px-4 pb-2 text-[11px] sm:hidden" style={{ color: "var(--color-ink-muted)" }}>
+          {windowLabel(pastDays, futureDays)}
+        </p>
       </header>
 
       {/* ── Content ── */}
-      <main className="py-6">
+      <main className="py-4 sm:py-6">
         {view === "day" ? (
           <PublicDayView
             token={token}
             date={selectedDate}
+            minDate={minDate}
+            maxDate={maxDate}
             onNavigateToMonth={() => setView("month")}
             onDateChange={setSelectedDate}
           />
@@ -187,6 +211,8 @@ export default function PublicCalendarClient({ token, displayName }: { token: st
             token={token}
             year={year}
             month={month}
+            minDate={minDate}
+            maxDate={maxDate}
             onNavigateToDay={navigateToDay}
             onPrevMonth={handlePrevMonth}
             onNextMonth={handleNextMonth}
@@ -218,9 +244,11 @@ export default function PublicCalendarClient({ token, displayName }: { token: st
 
 // ─── Public Day View (read-only) ───
 
-function PublicDayView({ token, date, onNavigateToMonth, onDateChange }: {
+function PublicDayView({ token, date, minDate, maxDate, onNavigateToMonth, onDateChange }: {
   token: string;
   date: string;
+  minDate: string;
+  maxDate: string;
   onNavigateToMonth: () => void;
   onDateChange: (date: string) => void;
 }) {
@@ -349,7 +377,8 @@ function PublicDayView({ token, date, onNavigateToMonth, onDateChange }: {
       <div className="mb-4 flex items-center justify-between sm:mb-6">
         <button
           onClick={() => onDateChange(prevDateStr)}
-          className="flex h-11 w-11 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper)]"
+          disabled={prevDateStr < minDate}
+          className="flex h-11 w-11 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper)] disabled:opacity-30 disabled:hover:bg-transparent"
           style={{ color: "var(--color-ink-soft)" }}
           aria-label="Previous day"
         >
@@ -369,7 +398,8 @@ function PublicDayView({ token, date, onNavigateToMonth, onDateChange }: {
         </div>
         <button
           onClick={() => onDateChange(nextDateStr)}
-          className="flex h-11 w-11 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper)]"
+          disabled={nextDateStr > maxDate}
+          className="flex h-11 w-11 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper)] disabled:opacity-30 disabled:hover:bg-transparent"
           style={{ color: "var(--color-ink-soft)" }}
           aria-label="Next day"
         >
@@ -377,32 +407,25 @@ function PublicDayView({ token, date, onNavigateToMonth, onDateChange }: {
         </button>
       </div>
 
-      {/* Prayer times bar */}
+      {/* Prayer times — one quiet line, not six boxes */}
       {prayerTimes && (
-        <div className="mb-3 flex flex-wrap gap-1.5 sm:mb-4">
-          {PRAYER_NAMES.map((prayer) => {
+        <p
+          className="mb-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[11px] sm:mb-4 sm:text-xs"
+          style={{ color: "var(--color-ink-muted)" }}
+        >
+          {PRAYER_NAMES.map((prayer, i) => {
             const rawTime = prayerTimes[prayer.key];
             if (!rawTime) return null;
             const time = prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime;
             return (
-              <div
-                key={prayer.key}
-                className="flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-lg border px-2 py-1.5 sm:flex-none sm:px-3"
-                style={{
-                  borderColor: "var(--color-paper-3)",
-                  backgroundColor: "var(--color-paper)",
-                }}
-              >
-                <span className="text-[11px] font-medium sm:text-xs" style={{ color: prayer.color }}>
-                  {prayer.label}
-                </span>
-                <span className="text-[10px] tabular-nums sm:text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                  {formatTime(time)}
-                </span>
-              </div>
+              <span key={prayer.key} className="inline-flex items-center gap-1">
+                {i > 0 && <span aria-hidden="true" style={{ color: "var(--color-paper-3)" }}>·</span>}
+                <span className="font-medium" style={{ color: prayer.color }}>{prayer.label}</span>
+                <span className="tabular-nums">{formatTime(time)}</span>
+              </span>
             );
           })}
-        </div>
+        </p>
       )}
 
       {/* Day grid */}
@@ -591,10 +614,18 @@ function PublicDayView({ token, date, onNavigateToMonth, onDateChange }: {
       )}
 
       {loading && (
-        <p className="mt-4 text-sm" style={{ color: "var(--color-ink-muted)" }}>Loading...</p>
+        <div className="mt-6 flex items-center justify-center gap-1.5" aria-label="Loading">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="h-1.5 w-1.5 animate-bounce rounded-full"
+              style={{ backgroundColor: "var(--color-accent)", animationDelay: `${i * 120}ms` }}
+            />
+          ))}
+        </div>
       )}
       {error && (
-        <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }}>{error}</p>
+        <p className="mt-4 text-center text-sm" style={{ color: "var(--color-error)" }}>{error}</p>
       )}
     </div>
   );
@@ -602,10 +633,12 @@ function PublicDayView({ token, date, onNavigateToMonth, onDateChange }: {
 
 // ─── Public Month View (read-only) ───
 
-function PublicMonthView({ token, year, month, onNavigateToDay, onPrevMonth, onNextMonth, canGoPrev, canGoNext }: {
+function PublicMonthView({ token, year, month, minDate, maxDate, onNavigateToDay, onPrevMonth, onNextMonth, canGoPrev, canGoNext }: {
   token: string;
   year: number;
   month: number;
+  minDate: string;
+  maxDate: string;
   onNavigateToDay: (dateStr: string) => void;
   onPrevMonth: () => void;
   onNextMonth: () => void;
@@ -743,6 +776,7 @@ function PublicMonthView({ token, year, month, onNavigateToDay, onPrevMonth, onN
           }
 
           const isToday = cell.dateStr === today;
+          const outOfWindow = !!cell.dateStr && (cell.dateStr < minDate || cell.dateStr > maxDate);
           const done = cell.dateStr ? isDayDone(cell.dateStr) : false;
           const dayEvents = cell.dateStr ? eventsByDate[cell.dateStr] || [] : [];
           const blockEvents = dayEvents.filter((e) => e.type !== "reminder");
@@ -751,12 +785,13 @@ function PublicMonthView({ token, year, month, onNavigateToDay, onPrevMonth, onN
           return (
             <button
               key={i}
-              onClick={() => cell.dateStr && onNavigateToDay(cell.dateStr)}
-              className="relative flex min-h-[70px] flex-col rounded-lg border p-1 text-xs transition-colors hover:bg-[var(--color-paper-2)] sm:min-h-[100px] sm:p-1.5 lg:min-h-[120px]"
+              onClick={() => cell.dateStr && !outOfWindow && onNavigateToDay(cell.dateStr)}
+              disabled={outOfWindow}
+              className="relative flex min-h-[70px] flex-col rounded-lg border p-1 text-xs transition-colors hover:bg-[var(--color-paper-2)] disabled:cursor-default disabled:hover:bg-[var(--color-paper)] sm:min-h-[100px] sm:p-1.5 lg:min-h-[120px]"
               style={{
                 borderColor: isToday ? "var(--color-accent)" : "var(--color-paper-3)",
                 backgroundColor: isToday ? "var(--color-accent-faint)" : done ? "var(--color-paper-2)" : "var(--color-paper)",
-                opacity: done ? 0.6 : 1,
+                opacity: outOfWindow ? 0.3 : done ? 0.6 : 1,
               }}
             >
               {/* Day number */}

@@ -82,10 +82,17 @@ export default async function PublicCalendarPage({
   }
 
   // Verify the code exists and get the display name
-  let user: { id: string; displayName: string | null } | undefined;
+  let user:
+    | { id: string; displayName: string | null; shareFutureDays: number; sharePastDays: number }
+    | undefined;
   try {
     [user] = await db
-      .select({ id: schema.users.id, displayName: schema.users.displayName })
+      .select({
+        id: schema.users.id,
+        displayName: schema.users.displayName,
+        shareFutureDays: schema.users.shareFutureDays,
+        sharePastDays: schema.users.sharePastDays,
+      })
       .from(schema.users)
       .where(eq(schema.users.publicShareToken, code))
       .limit(1);
@@ -103,5 +110,12 @@ export default async function PublicCalendarPage({
   if (name !== expectedSlug) {
     redirect(`/${expectedSlug}/${code}/public`);
   }
-  return <PublicCalendarClient token={code} displayName={user.displayName || "Shared"} />;
+  return (
+    <PublicCalendarClient
+      token={code}
+      displayName={user.displayName || "Shared"}
+      futureDays={user.shareFutureDays}
+      pastDays={user.sharePastDays}
+    />
+  );
 }
