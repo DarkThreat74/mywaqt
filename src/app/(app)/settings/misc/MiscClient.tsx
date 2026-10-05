@@ -2,15 +2,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CalendarClock, LayoutGrid } from "lucide-react";
+import { ArrowLeft, CalendarClock, LayoutGrid, Lightbulb } from "lucide-react";
 import { setCachedPrayerSettings } from "@/lib/offline/settings-cache";
-import { NavTabsEditor } from "../SettingsClient";
+import { NavTabsEditor, FunFactToggle, FunFactCountdown } from "../SettingsClient";
 
-type Tab = "planner" | "navigation";
+type Tab = "planner" | "navigation" | "cards";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "planner", label: "Planner" },
   { id: "navigation", label: "Navigation" },
+  { id: "cards", label: "Cards" },
 ];
 
 interface MiscSettings {
@@ -219,6 +220,21 @@ export default function MiscClient() {
             <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Navigation tabs</p>
           </div>
           <NavTabsEditor />
+        </div>
+      )}
+
+      {tab === "cards" && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <Lightbulb className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Knowledge cards</p>
+          </div>
+          <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            A new knowledge card appears every 3 hours. Closing with the X lets the card reappear later.
+            Tapping &ldquo;Got it&rdquo; marks it as read so it won&rsquo;t appear again.
+          </p>
+          <FunFactToggle />
+          <FunFactCountdown />
         </div>
       )}
     </div>

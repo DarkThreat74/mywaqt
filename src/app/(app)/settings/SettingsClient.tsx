@@ -100,7 +100,7 @@ function RedDot() {
 }
 
 // Fun fact countdown component
-function FunFactCountdown() {
+export function FunFactCountdown() {
   const [countdown, setCountdown] = useState<string>("");
   const [pending, setPending] = useState(false);
 
@@ -153,7 +153,7 @@ function FunFactCountdown() {
 }
 
 // Knowledge cards on/off — stored in localStorage, the popup checks it.
-function FunFactToggle() {
+export function FunFactToggle() {
   const [disabled, setDisabled] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -2557,20 +2557,6 @@ export default function SettingsClient({
               })}
             </div>
           )}
-        </CollapsibleSection>
-
-        {/* ── Learn / Knowledge cards — collapsible ── */}
-        <CollapsibleSection
-          icon={<Lightbulb className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
-          title="Knowledge cards"
-          defaultOpen={false}
-        >
-          <p className="mb-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            A new knowledge card appears every 3 hours. Closing with the X lets the card reappear later.
-            Tapping &ldquo;Got it&rdquo; marks it as read so it won&rsquo;t appear again.
-          </p>
-          <FunFactToggle />
-          <FunFactCountdown />
         </CollapsibleSection>
 
         <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }} />
