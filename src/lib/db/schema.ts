@@ -633,6 +633,9 @@ export const events = pgTable('events', {
   // Whether to send a push notification 15 min before this event.
   // Defaults to true. User can disable per-event in the create/edit form.
   notify: boolean('notify').default(true).notNull(),
+  // Whether this event appears on the user's public share view.
+  // Defaults to true — the user can hide sensitive events per-item.
+  sharePublic: boolean('share_public').default(true).notNull(),
   // iCal RRULE string, null = one-off
   recurrenceRule: text('recurrence_rule'),
   // Unique identifier for a recurring series. All events in the same series

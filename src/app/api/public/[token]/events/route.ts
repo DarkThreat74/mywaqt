@@ -99,6 +99,7 @@ export async function GET(
       .where(
         and(
           eq(schema.events.userId, user.id),
+          eq(schema.events.sharePublic, true),
           gte(schema.events.startAt, qFrom),
           lte(schema.events.startAt, qTo),
         ),
@@ -151,6 +152,7 @@ export async function GET(
     .where(
       and(
         eq(schema.events.userId, user.id),
+        eq(schema.events.sharePublic, true),
         gte(schema.events.startAt, startOfDayUtc),
         lte(schema.events.startAt, endWithBuffer),
       ),

@@ -19,6 +19,7 @@ const EVENT_COLUMNS = {
   type: schema.events.type,
   color: schema.events.color,
   notify: schema.events.notify,
+  sharePublic: schema.events.sharePublic,
   recurrenceRule: schema.events.recurrenceRule,
   seriesId: schema.events.seriesId,
 };
@@ -147,7 +148,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, recurrenceEndDate, recurrenceDays, clientId } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId } = body as {
     title?: string;
     details?: string;
     startAt?: string;
@@ -155,6 +156,7 @@ export async function POST(request: NextRequest) {
     type?: string;
     color?: string;
     notify?: boolean;
+    sharePublic?: boolean;
     recurrenceEndDate?: string;
     recurrenceDays?: number[];
     clientId?: string;
@@ -197,6 +199,9 @@ export async function POST(request: NextRequest) {
 
   // Notify toggle — defaults to true if not specified
   const validNotify = notify !== undefined ? Boolean(notify) : true;
+
+  // Public-share visibility — defaults to true (shown on shared calendar)
+  const validSharePublic = sharePublic !== undefined ? Boolean(sharePublic) : true;
 
   if (eventType !== "reminder" && endDate <= startDate) {
     return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
@@ -313,6 +318,7 @@ export async function POST(request: NextRequest) {
           type: eventType,
           color: validColor,
           notify: validNotify,
+          sharePublic: validSharePublic,
           recurrenceRule: `WEEKLY_${daysToRepeat.join(",")}_UNTIL_${recurrenceEndDate}`,
           seriesId,
           createdVia: "manual",
@@ -336,6 +342,7 @@ export async function POST(request: NextRequest) {
       type: eventType,
       color: validColor,
       notify: validNotify,
+      sharePublic: validSharePublic,
       recurrenceRule: null,
       seriesId: null,
       createdVia: "manual",

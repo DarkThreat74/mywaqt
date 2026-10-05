@@ -35,7 +35,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, recurrenceRule } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceRule } = body as {
     title?: string;
     details?: string | null;
     startAt?: string;
@@ -43,6 +43,7 @@ export async function PATCH(
     type?: string;
     color?: string | null;
     notify?: boolean;
+    sharePublic?: boolean;
     recurrenceRule?: string | null;
   };
 
@@ -93,6 +94,10 @@ export async function PATCH(
 
   if (notify !== undefined) {
     updates.notify = Boolean(notify);
+  }
+
+  if (sharePublic !== undefined) {
+    updates.sharePublic = Boolean(sharePublic);
   }
 
   // Validate that end > start

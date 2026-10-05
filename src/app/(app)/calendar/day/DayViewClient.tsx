@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise } from "lucide-react";
+import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { useUISFX } from "@/components/uisfx-provider";
@@ -24,6 +24,7 @@ interface CalendarEvent {
   type: "block" | "task" | "reminder";
   color?: string | null;
   notify?: boolean;
+  sharePublic?: boolean;
   recurrenceRule?: string | null;
   seriesId?: string | null;
   _pending?: boolean;
@@ -231,6 +232,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [showEarlyHours, setShowEarlyHours] = useState(false);
   const [newColor, setNewColor] = useState<string | null>(null);
   const [newNotify, setNewNotify] = useState(true);
+  const [newSharePublic, setNewSharePublic] = useState(true);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [editAllInSeries, setEditAllInSeries] = useState(false);
   const [extendEndDate, setExtendEndDate] = useState("");
@@ -330,6 +332,7 @@ export default function DayViewClient({ date }: { date: string }) {
             recurrenceRule: e.recurrenceRule,
             seriesId: e.seriesId,
             notify: e.notify,
+            sharePublic: e.sharePublic,
           })));
         }
 
@@ -407,6 +410,7 @@ export default function DayViewClient({ date }: { date: string }) {
               recurrenceRule: e.recurrenceRule || null,
               seriesId: e.seriesId || null,
               notify: e.notify,
+            sharePublic: e.sharePublic,
               _dateKey: date,
               _cachedAt: Date.now(),
             })));
@@ -916,6 +920,7 @@ export default function DayViewClient({ date }: { date: string }) {
       type: newType,
       color: newColor,
       notify: newNotify,
+      sharePublic: newSharePublic,
     };
     if (enableRecurrence && recurrenceEndDate) {
       body.recurrenceEndDate = recurrenceEndDate;
@@ -962,6 +967,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewDetails("");
           setNewColor(null);
           setNewNotify(true);
+          setNewSharePublic(true);
           setEnableRecurrence(false);
           setRecurrenceEndDate("");
           setRecurrenceDays([]);
@@ -1002,6 +1008,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewDetails("");
         setNewColor(null);
         setNewNotify(true);
+        setNewSharePublic(true);
         setEnableRecurrence(false);
         setRecurrenceEndDate("");
         setRecurrenceDays([]);
@@ -1081,6 +1088,7 @@ export default function DayViewClient({ date }: { date: string }) {
             type: newType,
             color: newColor,
             notify: newNotify,
+      sharePublic: newSharePublic,
             // Send startAt/endAt so the server can shift all events in the series
             startAt: startISO,
             endAt: endISO,
@@ -1116,6 +1124,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewDetails("");
           setNewColor(null);
           setNewNotify(true);
+          setNewSharePublic(true);
           setEditAllInSeries(false);
           setExtendEndDate("");
           setError(null);
@@ -1143,6 +1152,7 @@ export default function DayViewClient({ date }: { date: string }) {
           type: newType,
           color: newColor,
           notify: newNotify,
+      sharePublic: newSharePublic,
         }),
       });
 
@@ -1161,6 +1171,7 @@ export default function DayViewClient({ date }: { date: string }) {
             type: newType,
             color: newColor,
             notify: newNotify,
+      sharePublic: newSharePublic,
             _pending: true,
           };
           setEvents((prev) => prev.map((e) => (e.id === editingEvent.id ? localUpdated : e)));
@@ -1172,6 +1183,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewDetails("");
           setNewColor(null);
           setNewNotify(true);
+          setNewSharePublic(true);
           setEditAllInSeries(false);
           setError(null);
           setTimeout(() => setSuccessMsg(null), 3000);
@@ -1189,6 +1201,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewDetails("");
         setNewColor(null);
         setNewNotify(true);
+        setNewSharePublic(true);
         setEditAllInSeries(false);
         setError(null);
       } else {
@@ -1211,6 +1224,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setNewType(event.type);
     setNewColor(event.color || null);
     setNewNotify(event.notify !== false); // default to true if undefined
+    setNewSharePublic(event.sharePublic !== false); // default to true if undefined
     setEnableRecurrence(false);
     setRecurrenceEndDate("");
     setRecurrenceDays([]);
@@ -1240,6 +1254,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewDetails("");
     setNewColor(null);
     setNewNotify(true);
+    setNewSharePublic(true);
     setError(null);
     setEnableRecurrence(false);
     setRecurrenceEndDate("");
@@ -1787,6 +1802,7 @@ export default function DayViewClient({ date }: { date: string }) {
                     cursor: "pointer",
                   }}
                 >
+                  {event.sharePublic === false && <EyeOff className="mr-0.5 inline h-2.5 w-2.5 align-[-1px]" aria-label="Hidden from public view" />}
                   {event.title} · {formatTime(startStr)}
                 </button>
                 <div className="h-0.5 w-3 sm:w-4" style={{ backgroundColor: color, opacity: 0.7 }} />
@@ -1850,6 +1866,9 @@ export default function DayViewClient({ date }: { date: string }) {
                       <span className="ml-1 inline-block text-[11px] align-middle" style={{ color: "var(--color-warmth)" }} title="Pending sync">
                         ●
                       </span>
+                    )}
+                    {event.sharePublic === false && (
+                      <EyeOff className="ml-1 inline h-2.5 w-2.5 align-[-1px]" style={{ color: "var(--color-ink-muted)" }} aria-label="Hidden from public view" />
                     )}
                   </p>
                   {endStr && (
@@ -2018,6 +2037,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewType("block");
           setNewColor(null);
           setNewNotify(true);
+          setNewSharePublic(true);
           setEnableRecurrence(false);
           setRecurrenceEndDate("");
           setRecurrenceDays([]);
@@ -2242,6 +2262,31 @@ export default function DayViewClient({ date }: { date: string }) {
                   <span
                     className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform"
                     style={{ transform: newNotify ? "translateX(18px)" : "translateX(2px)" }}
+                  />
+                </span>
+              </button>
+
+              {/* Public-view toggle — compact; hidden events get an eye-off marker */}
+              <button
+                type="button"
+                onClick={() => setNewSharePublic(!newSharePublic)}
+                aria-pressed={newSharePublic}
+                className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-[var(--color-paper-2)]"
+                title="Show this on your shared public calendar"
+              >
+                <span className="flex items-center gap-1.5" style={{ color: "var(--color-ink-muted)" }}>
+                  {newSharePublic
+                    ? <Eye className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
+                    : <EyeOff className="h-3.5 w-3.5" style={{ color: "var(--color-warmth)" }} />}
+                  Public view
+                </span>
+                <span
+                  className="relative h-4 w-7 rounded-full transition-colors"
+                  style={{ backgroundColor: newSharePublic ? "var(--color-accent)" : "var(--color-paper-3)" }}
+                >
+                  <span
+                    className="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform"
+                    style={{ transform: newSharePublic ? "translateX(14px)" : "translateX(2px)" }}
                   />
                 </span>
               </button>
