@@ -130,7 +130,13 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
       if (e.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Lock the page behind the sheet — otherwise iOS scrolls the timeline.
+    const original = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = original;
+    };
   }, [onClose]);
 
   function selectGap(g: Interval) {
@@ -344,7 +350,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                 Work on — tap to add
               </p>
               {hw.length === 0 ? (
-                <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>No pending homework in the next two weeks.</p>
+                <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>No pending homework.</p>
               ) : (
                 <div className="flex flex-col gap-1.5">
                   {hw.map((h) => {
@@ -416,13 +422,14 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                           {b.assignments.map((a) => a.title).join(", ") || "Study block"}
                         </p>
                         <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                          was {b.blockDate} · {fmtMin(b.startMin)}–{fmtMin(b.endMin)}
+                          was {new Date(`${b.blockDate}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · {fmtMin(b.startMin)}–{fmtMin(b.endMin)}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          {gaps.slice(0, 3).map((g) => (
+                          {/* Only offer gaps that can hold ≥15 min of the block */}
+                          {gaps.filter((g) => g.end - g.start >= 15).slice(0, 3).map((g) => (
                             <button
                               key={g.start}
-                              onClick={() => void patchBlock(b.id, { date, startMin: g.start, endMin: Math.min(g.start + (b.endMin - b.startMin), g.end) })}
+                              onClick={() => void patchBlock(b.id, { date, startMin: g.start, endMin: Math.max(g.start + 15, Math.min(g.start + (b.endMin - b.startMin), g.end)) })}
                               className="rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
                               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
                             >
@@ -453,33 +460,35 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                   </p>
                   <div className="flex flex-col gap-2">
                     {blocks.filter((b) => b.status !== "released").map((b) => (
-                      <button
+                      <div
                         key={b.id}
-                        onClick={() => selectBlock(b)}
-                        className="flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+                        className="flex items-center gap-2 rounded-xl border transition-colors hover:bg-[var(--color-paper-2)]"
                         style={{ borderColor: "var(--color-paper-3)" }}
                       >
-                        <span className="shrink-0 text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
-                          {fmtMin(b.startMin)}–{fmtMin(b.endMin)}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>
-                          {b.assignments.map((a) => a.title).join(", ") || "Study block"}
-                        </span>
+                        <button
+                          onClick={() => selectBlock(b)}
+                          className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left"
+                          aria-label={`Edit block ${fmtMin(b.startMin)} to ${fmtMin(b.endMin)}`}
+                        >
+                          <span className="shrink-0 text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                            {fmtMin(b.startMin)}–{fmtMin(b.endMin)}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>
+                            {b.assignments.map((a) => a.title).join(", ") || "Study block"}
+                          </span>
+                        </button>
                         {b.status === "worked" ? (
-                          <span className="shrink-0 text-[11px] font-semibold" style={{ color: "var(--color-success)" }}>worked ✓</span>
+                          <span className="mr-3 shrink-0 text-[11px] font-semibold" style={{ color: "var(--color-success)" }}>worked ✓</span>
                         ) : isToday ? (
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => { e.stopPropagation(); void patchBlock(b.id, { status: "worked" }); }}
-                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); void patchBlock(b.id, { status: "worked" }); } }}
-                            className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-3)]"
+                          <button
+                            onClick={() => void patchBlock(b.id, { status: "worked" })}
+                            className="mr-2 shrink-0 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-3)]"
                             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
                           >
                             Mark worked
-                          </span>
+                          </button>
                         ) : null}
-                      </button>
+                      </div>
                     ))}
                   </div>
                 </section>
