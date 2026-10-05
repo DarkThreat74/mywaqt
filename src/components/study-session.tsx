@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { BookOpen, Check, Loader2, Minus, Play, Plus, Sparkles, Square, X } from "lucide-react";
+import { BookOpen, Check, Minus, Play, Plus, Sparkles, Square, X } from "lucide-react";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
@@ -99,14 +99,11 @@ export default function StudySession() {
     return <IntakeSheet />;
   }
 
-  // ── Planning spinner ──
+  // ── Vox thinking ──
   if (state.status === "planning") {
     return (
       <div className="fixed inset-0 z-[90] flex items-center justify-center" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }}>
-        <div className="flex items-center gap-2.5 rounded-2xl border px-5 py-4" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
-          <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--color-accent)" }} />
-          <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>Vox is planning your session…</p>
-        </div>
+        <ThinkingCard />
       </div>
     );
   }
@@ -119,10 +116,15 @@ export default function StudySession() {
         <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }} onClick={discardPlan} aria-label="Discard plan" />
         <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-2xl border-t sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
           <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
-            <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-              <Sparkles className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
-              Vox&apos;s plan · {total} min
-            </p>
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                <Sparkles className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+                Vox&apos;s plan · {total} min
+              </p>
+              <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                Hardest work first while you&apos;re fresh — I&apos;ve paced the rest.
+              </p>
+            </div>
             <button onClick={discardPlan} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Discard plan">
               <X className="h-4 w-4" />
             </button>
@@ -264,7 +266,7 @@ export default function StudySession() {
             style={{ color: segAccent }}
             aria-live="polite"
           >
-            {progress.done ? "Session complete" : isBreak ? "Break — books down" : "Studying"}
+            {progress.done ? "Session complete" : isBreak ? "Break — stretch, breathe" : "Stay with it"}
           </p>
           <p
             className="mt-2 text-6xl font-bold tabular-nums tracking-tight sm:text-7xl"
@@ -273,7 +275,7 @@ export default function StudySession() {
             {fmtClock(progress.remainingSec)}
           </p>
           <p className="mt-3 max-w-[16rem] text-base font-medium" style={{ color: "var(--color-ink-soft)" }}>
-            {progress.done ? "Nice work." : seg.label}
+            {progress.done ? "Nice work — go rest." : seg.label}
           </p>
           {isBreak && progress.remainingSec <= 5 && progress.remainingSec > 0 && (
             <p className="mt-1 text-sm font-semibold" style={{ color: "var(--color-success)" }} aria-live="assertive">
@@ -357,17 +359,22 @@ function IntakeSheet() {
       <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }} onClick={endSession} aria-label="Cancel" />
       <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-2xl border-t sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
         <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
-          <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-            <Sparkles className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
-            Vox · {state.minutes} min available
-          </p>
+          <div>
+            <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+              <Sparkles className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+              Vox
+            </p>
+            <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              I&apos;ll fit your work into {state.minutes} min — help me get it right.
+            </p>
+          </div>
           <button onClick={endSession} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Cancel">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>How long each takes</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>How long does each need?</p>
           <ul className="mt-2 flex flex-col gap-1.5">
             {state.assignments.map((a, i) => (
               <li key={i} className="flex items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
@@ -421,6 +428,46 @@ function IntakeSheet() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Vox "thinking" card — cycling first-person phrases + pulsing dots while
+ *  the plan is being generated. */
+function ThinkingCard() {
+  const PHRASES = [
+    "Reading your assignments…",
+    "Putting the hardest work first…",
+    "Placing your breaks…",
+    "Balancing the clock…",
+  ];
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI((v) => (v + 1) % PHRASES.length), 1600);
+    return () => clearInterval(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="flex w-64 flex-col items-center gap-3 rounded-2xl border px-5 py-6 text-center" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
+      <div className="flex h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)" }}>
+        <Sparkles className="h-5 w-5 animate-pulse" style={{ color: "var(--color-accent)" }} />
+      </div>
+      <p key={i} className="min-h-[1.25rem] text-sm font-medium" style={{ color: "var(--color-ink)", animation: "voxFade .4s ease" }}>
+        {PHRASES[i]}
+      </p>
+      <div className="flex gap-1" aria-hidden="true">
+        {[0, 1, 2].map((d) => (
+          <span
+            key={d}
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: "var(--color-accent)", animation: `voxDot 1.2s ease-in-out ${d * 0.18}s infinite` }}
+          />
+        ))}
+      </div>
+      <style>{`
+        @keyframes voxDot { 0%,100% { opacity:.25; transform:translateY(0) } 50% { opacity:1; transform:translateY(-3px) } }
+        @keyframes voxFade { from { opacity:0; transform:translateY(3px) } to { opacity:1; transform:translateY(0) } }
+      `}</style>
     </div>
   );
 }
