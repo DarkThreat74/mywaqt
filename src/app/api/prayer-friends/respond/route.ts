@@ -92,22 +92,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update the request to accepted
-    await db
-      .update(schema.prayerFriends)
-      .set({ status: "accepted", respondedAt: new Date() })
-      .where(eq(schema.prayerFriends.id, requestId));
+    // Update the request to accepted + insert the reverse row (friend → me)
+    // atomically — a mid-failure or a stale rejected reverse row must not
+    // leave a one-way friendship.
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.prayerFriends)
+        .set({ status: "accepted", respondedAt: new Date() })
+        .where(eq(schema.prayerFriends.id, requestId));
 
-    // Insert the reverse row (friend → me) so both sides can see each other
-    await db
-      .insert(schema.prayerFriends)
-      .values({
-        userId: session.userId,
-        friendId: friendReq.userId,
-        status: "accepted",
-        respondedAt: new Date(),
-      })
-      .onConflictDoNothing();
+      await tx
+        .insert(schema.prayerFriends)
+        .values({
+          userId: session.userId,
+          friendId: friendReq.userId,
+          status: "accepted",
+          respondedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [schema.prayerFriends.userId, schema.prayerFriends.friendId],
+          set: { status: "accepted", respondedAt: new Date() },
+        });
+    });
 
     // Notify the original requester that their request was accepted
     try {

@@ -88,10 +88,10 @@ export async function POST(request: NextRequest) {
 
   // Log the entry if it's a "prayed" adjustment (negative)
   if (cappedAmount < 0) {
-    // Log what was actually deducted, not what was requested — the ledger
-    // clamps at 0 via GREATEST, so a -20 on a balance of 3 only prays 3.
-    const currentOwed = existing[prop] as number;
-    const applied = Math.min(Math.abs(cappedAmount), Math.max(0, currentOwed));
+    // Log what was actually deducted — diff the row before vs. after the
+    // atomic update. Computing from `existing` alone races with a concurrent
+    // adjust and can overstate the deduction.
+    const applied = Math.max(0, (existing[prop] as number) - (updated[prop] as number));
     if (applied > 0) {
       await db.insert(schema.qadaaLogEntries).values({
         userId: session.userId,

@@ -78,10 +78,12 @@ export async function POST(request: NextRequest) {
 
   try {
     if (body.action === "start") {
-      // Close any open period first (idempotent — a double-tap ends then restarts cleanly)
+      // Close any open period first (idempotent — a double-tap ends then
+      // restarts cleanly). GREATEST clamps to the start date so a same-day
+      // or backdated restart can't write endDate < startDate.
       await db
         .update(schema.haydPeriods)
-        .set({ endDate: sql`${date}::date - 1` })
+        .set({ endDate: sql`GREATEST(${date}::date - 1, ${schema.haydPeriods.startDate})` })
         .where(and(eq(schema.haydPeriods.userId, session.userId), isNull(schema.haydPeriods.endDate)));
       const [row] = await db
         .insert(schema.haydPeriods)
