@@ -512,8 +512,6 @@ export default function SettingsClient({
   const [haydTracking, setHaydTracking] = useState(initialSettings?.haydTracking ?? false);
   const [showNafl, setShowNafl] = useState(initialSettings?.showNaflTimes ?? false);
   const [timeOffset, setTimeOffset] = useState(initialSettings?.timeOffsetMinutes ?? 0);
-  const [studyStart, setStudyStart] = useState(initialSettings?.studyStartMin ?? 420);
-  const [studyEnd, setStudyEnd] = useState(initialSettings?.studyEndMin ?? 1320);
   const [useIqamah, setUseIqamah] = useState(initialSettings?.useIqamahReminders ?? false);
   const [personalMsg, setPersonalMsg] = useState<{ ok: boolean; text: string } | null>(null);
   // Per-prayer notification prefs
@@ -2184,47 +2182,6 @@ export default function SettingsClient({
             />
           </label>
 
-          {/* Study-block planning window */}
-          <div className="mt-4 flex items-center gap-2">
-            <p className="flex-1 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
-              Study-block window
-              <span className="block text-[11px] font-normal" style={{ color: "var(--color-ink-muted)" }}>
-                Free gaps for study blocks are only offered inside these hours.
-              </span>
-            </p>
-            <select
-              value={studyStart}
-              onChange={async (e) => {
-                const v = parseInt(e.target.value);
-                setStudyStart(v);
-                await patchPrayerSettings({ studyStartMin: v }, "Saved.");
-              }}
-              className="rounded-md border px-2 py-1.5 text-xs"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-              aria-label="Study window start"
-            >
-              {Array.from({ length: 17 }, (_, i) => (i + 5) * 60).map((m) => (
-                <option key={m} value={m}>{`${Math.floor(m / 60) % 12 || 12}:00 ${m < 720 ? "AM" : "PM"}`}</option>
-              ))}
-            </select>
-            <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>–</span>
-            <select
-              value={studyEnd}
-              onChange={async (e) => {
-                const v = parseInt(e.target.value);
-                setStudyEnd(v);
-                await patchPrayerSettings({ studyEndMin: v }, "Saved.");
-              }}
-              className="rounded-md border px-2 py-1.5 text-xs"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-              aria-label="Study window end"
-            >
-              {Array.from({ length: 13 }, (_, i) => (i + 12) * 60).map((m) => (
-                <option key={m} value={m}>{m === 1440 ? "12:00 AM" : `${Math.floor(m / 60) % 12 || 12}:00 ${m < 720 ? "AM" : "PM"}`}</option>
-              ))}
-            </select>
-          </div>
-
           {personalMsg && (
             <p className="mt-3 text-[11px]" style={{ color: personalMsg.ok ? "var(--color-success)" : "var(--color-warmth)" }}>{personalMsg.text}</p>
           )}
@@ -2627,6 +2584,27 @@ export default function SettingsClient({
         <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }} />
 
         {/* ── Advanced settings (delete account) — collapsible ── */}
+        {/* ── Miscellaneous — separate tabbed page for optional tweaks ── */}
+        <Link
+          href="/settings/misc"
+          className="mb-3 flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+        >
+          <span
+            className="flex h-9 w-9 items-center justify-center rounded-lg border"
+            style={{ backgroundColor: "var(--color-paper-2)", borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+          >
+            <Settings2 className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Miscellaneous</span>
+            <span className="block text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              Optional tweaks — planner display, free-time chips, study window
+            </span>
+          </span>
+          <ChevronDown className="h-4 w-4 -rotate-90" style={{ color: "var(--color-ink-muted)" }} />
+        </Link>
+
         <CollapsibleSection
           icon={<Settings2 className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />}
           title="Advanced"

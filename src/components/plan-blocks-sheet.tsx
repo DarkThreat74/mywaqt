@@ -14,6 +14,7 @@ export interface BlockWithAssignments extends StudyBlock {
     title: string;
     dueDate: string;
     hwStatus: string;
+    estimatedMinutes?: number | null;
   }[];
 }
 
@@ -61,6 +62,8 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   const [endStr, setEndStr] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [editingBlock, setEditingBlock] = useState<BlockWithAssignments | null>(null);
+  // "Draft for me" proposals — nothing is saved until the user confirms.
+  const [draft, setDraft] = useState<{ startMin: number; endMin: number; hwIds: string[] }[] | null>(null);
 
   const gaps = useMemo(() => {
     const blockInts = blocks
@@ -116,6 +119,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
       setGapSel(null);
       setEditingBlock(null);
       setPicked(new Set());
+      setDraft(null);
       setError(null);
     }
   }, [date]);
@@ -145,6 +149,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     const d = defaultBlockIn(g);
     setGapSel(g);
     setEditingBlock(null);
+    setDraft(null);
     setStartStr(minToTimeInput(d.start));
     setEndStr(minToTimeInput(d.end));
     setPicked(new Set());
@@ -154,6 +159,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   function selectBlock(b: BlockWithAssignments) {
     setEditingBlock(b);
     setGapSel(null);
+    setDraft(null);
     setStartStr(minToTimeInput(b.startMin));
     setEndStr(minToTimeInput(b.endMin));
     setPicked(new Set(b.assignments.map((a) => a.homeworkId)));
@@ -230,26 +236,43 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     }
   }
 
-  /** One-tap draft: earliest-deadline assignments into the day's gaps, longest gap first. */
-  async function autoDraft() {
+  /**
+   * "Draft for me" — proposes blocks (earliest-deadline work into the longest
+   * gaps) into a preview. Nothing is written until the user confirms; the
+   * proposals render like real blocks so they can judge the plan first.
+   */
+  function buildDraft() {
     const unplanned = hw
       .filter((h) => !(plannedCounts.get(h.id) ?? 0))
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     if (unplanned.length === 0 || gaps.length === 0) return;
+    const sortedGaps = [...gaps].sort((a, b) => b.end - b.start - (a.end - a.start));
+    const hwQueue = [...unplanned];
+    const proposals: { startMin: number; endMin: number; hwIds: string[] }[] = [];
+    for (const g of sortedGaps) {
+      if (hwQueue.length === 0) break;
+      const d = defaultBlockIn(g);
+      proposals.push({
+        startMin: d.start,
+        endMin: d.end,
+        hwIds: hwQueue.splice(0, Math.min(2, hwQueue.length)).map((h) => h.id),
+      });
+    }
+    setDraft(proposals.length > 0 ? proposals : null);
+  }
+
+  async function confirmDraft() {
+    if (!draft) return;
     setBusyAction(true);
     try {
-      const sortedGaps = [...gaps].sort((a, b) => b.end - b.start - (a.end - a.start));
-      const hwQueue = [...unplanned];
-      for (const g of sortedGaps) {
-        if (hwQueue.length === 0) break;
-        const d = defaultBlockIn(g);
-        const assigned = hwQueue.splice(0, Math.min(2, hwQueue.length)).map((h) => h.id);
+      for (const p of draft) {
         await fetch("/api/blocks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ date, startMin: d.start, endMin: d.end, homeworkIds: assigned }),
+          body: JSON.stringify({ date, startMin: p.startMin, endMin: p.endMin, homeworkIds: p.hwIds }),
         }).catch(() => null);
       }
+      setDraft(null);
       onChanged();
     } finally {
       setBusyAction(false);
@@ -296,9 +319,9 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
             </p>
           </div>
           <div className="flex items-center gap-1">
-            {!composing && !isPast && gaps.length > 0 && hw.length > 0 && (
+            {!composing && !draft && !isPast && gaps.length > 0 && hw.length > 0 && (
               <button
-                onClick={autoDraft}
+                onClick={buildDraft}
                 disabled={busyAction}
                 className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-85 disabled:opacity-50"
                 style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
@@ -410,8 +433,65 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
               </div>
             </div>
           ) : (
-            /* ── Overview: unworked tray, today's blocks, gaps, deadlines ── */
+            /* ── Overview: draft preview, unworked tray, blocks, gaps, deadlines ── */
             <div className="flex flex-col gap-5">
+              {/* Day summary line — the honesty meter at a glance */}
+              {!loading && (
+                <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                  <span className="font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                    {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free
+                  </span>
+                  {" · "}
+                  {hw.filter((h) => !(plannedCounts.get(h.id) ?? 0)).length} deadline{hw.filter((h) => !(plannedCounts.get(h.id) ?? 0)).length === 1 ? "" : "s"} need{hw.filter((h) => !(plannedCounts.get(h.id) ?? 0)).length === 1 ? "s" : ""} time
+                </p>
+              )}
+
+              {/* Draft preview — "Draft for me" proposes, nothing is saved until confirmed */}
+              {draft && (
+                <section
+                  className="rounded-xl border p-3"
+                  style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 5%, transparent)" }}
+                >
+                  <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-accent)" }}>
+                    <Sparkles className="h-3 w-3" /> Draft — review before saving
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    {draft.map((p, i) => (
+                      <div key={i} className="flex items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                        <span className="shrink-0 text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                          {fmtMin(p.startMin)}–{fmtMin(p.endMin)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>
+                          {p.hwIds.map((id) => hw.find((h) => h.id === id)?.title ?? "Study").join(", ")}
+                        </span>
+                        <span className="shrink-0 text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                          {fmtDur(p.endMin - p.startMin)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={confirmDraft}
+                      disabled={busyAction}
+                      className="flex items-center gap-1.5 rounded-full px-5 py-2 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+                      style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 36 }}
+                    >
+                      {busyAction ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      Confirm plan
+                    </button>
+                    <button
+                      onClick={() => setDraft(null)}
+                      disabled={busyAction}
+                      className="rounded-full px-4 py-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-50"
+                      style={{ color: "var(--color-ink-muted)", minHeight: 36 }}
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </section>
+              )}
+
               {unworked.length > 0 && (
                 <section>
                   <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-warmth)" }}>

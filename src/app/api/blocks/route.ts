@@ -51,6 +51,7 @@ async function withAssignments<T extends { id: string }>(userId: string, rows: T
       title: schema.homeworks.title,
       dueDate: schema.homeworks.dueDate,
       hwStatus: schema.homeworks.status,
+      estimatedMinutes: schema.homeworks.estimatedMinutes,
     })
     .from(schema.blockAssignments)
     .innerJoin(schema.homeworks, eq(schema.homeworks.id, schema.blockAssignments.homeworkId))

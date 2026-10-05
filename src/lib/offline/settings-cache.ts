@@ -16,6 +16,8 @@ export interface CachedPrayerSettings {
   // written before this field existed.
   studyStartMin?: number;
   studyEndMin?: number;
+  // Show "+ plan" ghost chips in the day timeline's free gaps (default on)
+  studyShowGapChips?: boolean;
 }
 
 export function getCachedPrayerSettings(): CachedPrayerSettings | null {

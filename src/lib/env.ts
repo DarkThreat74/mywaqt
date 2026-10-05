@@ -82,4 +82,9 @@ export const env = {
   r2AccessKeyId: required('R2_ACCESS_KEY_ID'),
   r2SecretAccessKey: required('R2_SECRET_ACCESS_KEY'),
   r2BucketName: required('R2_BUCKET_NAME', 'waqt-talks'),
+
+  // OpenRouter — powers Vox study-session planning. Optional: the route falls
+  // back to a deterministic planner when unset.
+  openrouterApiKey: process.env.OPENROUTER_API_KEY ?? '',
+  openrouterModel: process.env.OPENROUTER_MODEL ?? 'openai/gpt-4o-mini',
 } as const;

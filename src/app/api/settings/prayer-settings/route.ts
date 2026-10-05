@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       isHifidh: schema.prayerSettings.isHifidh,
       studyStartMin: schema.prayerSettings.studyStartMin,
       studyEndMin: schema.prayerSettings.studyEndMin,
+      studyShowGapChips: schema.prayerSettings.studyShowGapChips,
     })
     .from(schema.prayerSettings)
     .where(eq(schema.prayerSettings.userId, session.userId))
@@ -84,6 +85,7 @@ export async function PATCH(request: NextRequest) {
     isHifidh?: boolean;
     studyStartMin?: number;
     studyEndMin?: number;
+    studyShowGapChips?: boolean;
   };
   try {
     body = await request.json();
@@ -185,6 +187,7 @@ export async function PATCH(request: NextRequest) {
     updates.studyStartMin = s;
     updates.studyEndMin = e;
   }
+  if (typeof body.studyShowGapChips === "boolean") updates.studyShowGapChips = body.studyShowGapChips;
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });

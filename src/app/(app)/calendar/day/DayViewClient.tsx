@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2 } from "lucide-react";
+import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { useUISFX } from "@/components/uisfx-provider";
@@ -13,6 +13,7 @@ import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFrom
 import { instantToWall, wallClockToUtc } from "@/lib/timezone";
 import PlanBlocksSheet, { type BlockWithAssignments } from "@/components/plan-blocks-sheet";
 import { freeGaps, fmtDur, fmtMin, DAY_START, DAY_END, type Interval } from "@/lib/blocks/gaps";
+import { planSession } from "@/lib/study/session";
 
 interface CalendarEvent {
   id: string;
@@ -246,6 +247,10 @@ export default function DayViewClient({ date }: { date: string }) {
   const [planOpen, setPlanOpen] = useState(false);
   const [planGap, setPlanGap] = useState<Interval | null>(null);
   const [planBlock, setPlanBlock] = useState<BlockWithAssignments | null>(null);
+  // Peek sheets — tapping an event/block previews it instead of jumping
+  // straight into the editor. Edit / Start study live inside the peek.
+  const [peekEvent, setPeekEvent] = useState<CalendarEvent | null>(null);
+  const [peekBlock, setPeekBlock] = useState<BlockWithAssignments | null>(null);
   const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>(() => getCachedHaydPeriods());
   // True when the viewed date falls inside a hayd period — chips render
   // excused and check-ins are disabled (the API rejects them too).
@@ -259,6 +264,7 @@ export default function DayViewClient({ date }: { date: string }) {
   // Study-block planning window — settings-controlled, defaults 7:00–22:00
   const [studyStartMin, setStudyStartMin] = useState(DAY_START);
   const [studyEndMin, setStudyEndMin] = useState(DAY_END);
+  const [showGapChips, setShowGapChips] = useState(true);
 
   // ── Load cached prayer settings from localStorage instantly ──
   // This avoids a network round-trip for timezone/madhab on every page load
@@ -271,6 +277,7 @@ export default function DayViewClient({ date }: { date: string }) {
         setUserMadhab(cached.madhab || "hanafi");
         if (typeof cached.studyStartMin === "number") setStudyStartMin(cached.studyStartMin);
         if (typeof cached.studyEndMin === "number") setStudyEndMin(cached.studyEndMin);
+        if (typeof cached.studyShowGapChips === "boolean") setShowGapChips(cached.studyShowGapChips);
       });
     }
   }, []);
@@ -530,6 +537,7 @@ export default function DayViewClient({ date }: { date: string }) {
               setUserTimezone(settingsData.timezone);
               if (typeof settingsData.studyStartMin === "number") setStudyStartMin(settingsData.studyStartMin);
               if (typeof settingsData.studyEndMin === "number") setStudyEndMin(settingsData.studyEndMin);
+              if (typeof settingsData.studyShowGapChips === "boolean") setShowGapChips(settingsData.studyShowGapChips);
               // Cache in localStorage for instant offline access
               setCachedPrayerSettings({
                 timezone: settingsData.timezone,
@@ -539,6 +547,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 longitude: settingsData.longitude,
                 studyStartMin: settingsData.studyStartMin,
                 studyEndMin: settingsData.studyEndMin,
+                studyShowGapChips: settingsData.studyShowGapChips,
               });
             }
           }
@@ -1417,39 +1426,38 @@ export default function DayViewClient({ date }: { date: string }) {
 
       {/* Work row — homework due + study planner, side by side pills */}
       {(dayHomeworkCount > 0 || !isPastDay) && (
-        <div className="mb-3 flex gap-2 sm:mb-4">
+        <div className="mb-2.5 flex gap-1.5 sm:mb-3">
           {dayHomeworkCount > 0 && (
             <Link
               href="/goals#homework"
-              className="flex flex-1 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors hover:opacity-80"
+              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors hover:opacity-80"
               style={{
                 borderColor: "var(--color-warmth)",
                 backgroundColor: "color-mix(in oklab, var(--color-warmth) 8%, var(--color-paper))",
                 color: "var(--color-ink)",
+                minHeight: 36,
               }}
             >
-              <BookOpen className="h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
-              <span className="min-w-0 flex-1 truncate">
-                {dayHomeworkCount} due today
-              </span>
-              <span className="shrink-0 text-xs" style={{ color: "var(--color-ink-muted)" }}>→</span>
+              <BookOpen className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warmth)" }} />
+              <span className="whitespace-nowrap">{dayHomeworkCount} due today</span>
+              <span className="shrink-0" style={{ color: "var(--color-ink-muted)" }}>→</span>
             </Link>
           )}
           {!isPastDay && (
             <button
               onClick={() => { setPlanOpen(true); play("open"); }}
-              className="flex flex-1 items-center gap-1.5 rounded-lg border border-dashed px-3 py-2 text-sm transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+              className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 36 }}
               aria-label={`Plan study blocks — ${fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free today`}
             >
-              <BookOpen className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
-              <span className="min-w-0 flex-1 truncate text-left">
+              <BookOpen className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />
+              <span className="min-w-0 flex-1 whitespace-nowrap text-left">
                 {dayBlocks.filter((b) => b.status !== "released").length > 0
                   ? `${dayBlocks.filter((b) => b.status !== "released").length} block${dayBlocks.filter((b) => b.status !== "released").length > 1 ? "s" : ""} planned`
                   : "Plan study"}
-              </span>
-              <span className="shrink-0 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free
+                <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                  {" "}· {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free
+                </span>
               </span>
             </button>
           )}
@@ -1708,7 +1716,7 @@ export default function DayViewClient({ date }: { date: string }) {
               >
                 <div className="h-0.5 flex-1" style={{ backgroundColor: color, opacity: 0.7 }} />
                 <button
-                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); openEditForm(event); }}
+                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); setPeekEvent(event); }}
                   className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-opacity hover:opacity-80 sm:px-2 sm:text-[10px]"
                   style={{
                     backgroundColor: "var(--color-paper)",
@@ -1761,7 +1769,7 @@ export default function DayViewClient({ date }: { date: string }) {
             return (
               <div
                 key={event.id}
-                onClick={() => openEditForm(event)}
+                onClick={() => setPeekEvent(event)}
                 className="absolute z-20 cursor-pointer overflow-hidden rounded-lg border transition-opacity hover:opacity-80"
                 style={{
                   top,
@@ -1814,7 +1822,7 @@ export default function DayViewClient({ date }: { date: string }) {
             return (
               <button
                 key={b.id}
-                onClick={(e) => { e.stopPropagation(); setPlanBlock(b); setPlanOpen(true); }}
+                onClick={(e) => { e.stopPropagation(); setPeekBlock(b); }}
                 className="absolute z-10 overflow-hidden rounded-lg text-left"
                 style={{
                   top,
@@ -1838,7 +1846,7 @@ export default function DayViewClient({ date }: { date: string }) {
           })}
 
           {/* Ghost gap chips — free-time slots you can claim */}
-          {!isPastDay && gaps.map((g) => {
+          {!isPastDay && showGapChips && gaps.map((g) => {
             if (g.end - g.start < 45) return null;
             return (
               <button
@@ -2482,6 +2490,118 @@ export default function DayViewClient({ date }: { date: string }) {
             setCheckinPopup(null);
           }}
         />
+      )}
+
+      {/* Event peek — tap shows details + actions, never jumps straight to edit */}
+      {peekEvent && (
+        <div className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Event">
+          <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }} onClick={() => setPeekEvent(null)} aria-label="Close" />
+          <div
+            className="relative w-full max-w-sm rounded-t-2xl border-t p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:border sm:pb-4"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+          >
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{peekEvent.title}</p>
+            <p className="mt-0.5 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+              {formatTime(isoToLocalTime(peekEvent.startAt))} – {formatTime(isoToLocalTime(peekEvent.endAt))}
+              {peekEvent.type !== "block" && ` · ${peekEvent.type}`}
+            </p>
+            {peekEvent.details && (
+              <p className="mt-1.5 line-clamp-3 text-xs" style={{ color: "var(--color-ink-soft)" }}>{peekEvent.details}</p>
+            )}
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => { const ev = peekEvent; setPeekEvent(null); openEditForm(ev); }}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </button>
+              <button
+                onClick={() => { const ev = peekEvent; setPeekEvent(null); setDeleteConfirm(ev); }}
+                className="rounded-full px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-error)", minHeight: 44 }}
+                aria-label="Delete event"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Study-block peek — Edit or launch a Vox session */}
+      {peekBlock && (
+        <div className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Study block">
+          <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }} onClick={() => setPeekBlock(null)} aria-label="Close" />
+          <div
+            className="relative w-full max-w-sm rounded-t-2xl border-t p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:border sm:pb-4"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+          >
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+              {peekBlock.assignments.map((a) => a.title).join(", ") || "Study block"}
+            </p>
+            <p className="mt-0.5 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+              {fmtMin(peekBlock.startMin)} – {fmtMin(peekBlock.endMin)} · {fmtDur(peekBlock.endMin - peekBlock.startMin)}
+              {peekBlock.status === "worked" && " · worked ✓"}
+            </p>
+            <div className="mt-3 flex flex-col gap-2">
+              {!isPastDay && (
+                <button
+                  onClick={() => {
+                    const b = peekBlock;
+                    setPeekBlock(null);
+                    // Session uses the time actually left in the block — when
+                    // started mid-block it plans for what remains, not the
+                    // original full length.
+                    let start = b.startMin;
+                    if (isToday) {
+                      try {
+                        const t = new Date().toLocaleTimeString("en-US", { timeZone: userTimezone || undefined, hour12: false });
+                        const m = t.match(/(\d+):(\d+)/);
+                        if (m) start = Math.max(b.startMin, (parseInt(m[1]) % 24) * 60 + parseInt(m[2]));
+                      } catch { /* fall back to block start */ }
+                    }
+                    const minutes = Math.max(10, b.endMin - start);
+                    void planSession(
+                      { minutes, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })) },
+                      b.id,
+                    );
+                  }}
+                  className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
+                >
+                  <Play className="h-4 w-4" /> Start studying
+                </button>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { const b = peekBlock; setPeekBlock(null); setPlanBlock(b); setPlanOpen(true); }}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit block
+                </button>
+                {isToday && peekBlock.status !== "worked" && (
+                  <button
+                    onClick={() => {
+                      const b = peekBlock;
+                      setPeekBlock(null);
+                      void fetch("/api/blocks", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: b.id, status: "worked" }),
+                      }).then(() => void refreshBlocks()).catch(() => {});
+                    }}
+                    className="flex items-center justify-center gap-1.5 rounded-full border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-success)", minHeight: 44 }}
+                  >
+                    <Check className="h-4 w-4" /> Worked
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Study-block planner sheet */}

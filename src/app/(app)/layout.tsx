@@ -27,6 +27,7 @@ import SyncStatus from "@/components/sync-status";
 import UserStamp from "@/components/user-stamp";
 import { SoundscapeProvider } from "@/components/soundscape-context";
 import SoundscapeIndicator from "@/components/soundscape-indicator";
+import StudySession from "@/components/study-session";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
@@ -187,6 +188,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* Global audio player — survives route changes for background playback */}
       <GlobalAudioPlayer />
+
+      {/* Vox study session — overlay + floating bubble, survives navigation */}
+      <StudySession />
     </div>
     </SoundscapeProvider>
     </AudioPlayerProvider>

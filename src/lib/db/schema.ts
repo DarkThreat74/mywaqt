@@ -397,6 +397,8 @@ export const prayerSettings = pgTable('prayer_settings', {
   // only offered inside this range. Defaults: 7:00–22:00.
   studyStartMin: integer('study_start_min').default(420).notNull(),
   studyEndMin: integer('study_end_min').default(1320).notNull(),
+  // Show the "+ plan · Nh free" ghost chips inside the day timeline's gaps
+  studyShowGapChips: boolean('study_show_gap_chips').default(true).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
