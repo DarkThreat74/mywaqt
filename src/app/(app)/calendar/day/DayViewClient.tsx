@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff } from "lucide-react";
+import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff, Cake } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { useUISFX } from "@/components/uisfx-provider";
@@ -11,6 +11,7 @@ import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings, setCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods } from "@/lib/offline/settings-cache";
 import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFromCache, upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
 import { instantToWall, wallClockToUtc } from "@/lib/timezone";
+import { isBirthdayOn, turningAge } from "@/lib/birthdays/math";
 import PlanBlocksSheet, { type BlockWithAssignments } from "@/components/plan-blocks-sheet";
 import { freeGaps, fmtDur, fmtMin, DAY_START, DAY_END, type Interval } from "@/lib/blocks/gaps";
 import { beginIntake } from "@/lib/study/session";
@@ -278,6 +279,8 @@ export default function DayViewClient({ date }: { date: string }) {
   const [studyStartMin, setStudyStartMin] = useState(DAY_START);
   const [studyEndMin, setStudyEndMin] = useState(DAY_END);
   const [showGapChips, setShowGapChips] = useState(true);
+  // Birthdays for the viewed date — fetched once, matched on month/day.
+  const [birthdaysToday, setBirthdaysToday] = useState<Array<{ id: string; name: string; birthMonth: number; birthDay: number; birthYear: number | null; color: string | null }>>([]);
 
   // ── Load cached prayer settings from localStorage instantly ──
   // This avoids a network round-trip for timezone/madhab on every page load
@@ -373,7 +376,7 @@ export default function DayViewClient({ date }: { date: string }) {
       // the events filter below uses the authoritative timezone instead of
       // re-running this whole effect when userTimezone state updates.
       try {
-        const [eventsRes, prayerRes, logRes, hwRes, haydRes, blocksRes, settingsRes] = await Promise.all([
+        const [eventsRes, prayerRes, logRes, hwRes, haydRes, blocksRes, settingsRes, bdayRes] = await Promise.all([
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
@@ -381,7 +384,34 @@ export default function DayViewClient({ date }: { date: string }) {
           fetch(`/api/hayd`).catch(() => null),
           fetch(`/api/blocks?date=${date}`).catch(() => null),
           fetch("/api/settings/prayer-settings").catch(() => null),
+          fetch("/api/birthdays").catch(() => null),
         ]);
+
+        // Birthdays recur annually — match the viewed date on month/day
+        // (Feb 29 birthdays observe on Feb 28 in non-leap years).
+        if (bdayRes?.ok && !cancelled) {
+          const data = await bdayRes.json().catch(() => null);
+          if (data && Array.isArray(data.birthdays)) {
+            const catColors = new Map<string, string>(
+              (Array.isArray(data.categories) ? data.categories : []).map(
+                (c: { id: string; color: string }) => [c.id, c.color],
+              ),
+            );
+            const [bYear, bMonth, bDay] = date.split("-").map(Number);
+            setBirthdaysToday(
+              data.birthdays
+                .filter((b: { birthMonth: number; birthDay: number; birthYear: number | null }) => isBirthdayOn(b, bYear, bMonth, bDay))
+                .map((b: { id: string; name: string; birthMonth: number; birthDay: number; birthYear: number | null; categoryId: string | null }) => ({
+                  id: b.id,
+                  name: b.name,
+                  birthMonth: b.birthMonth,
+                  birthDay: b.birthDay,
+                  birthYear: b.birthYear,
+                  color: b.categoryId ? catColors.get(b.categoryId) ?? null : null,
+                })),
+            );
+          }
+        }
 
         if (cancelled) return;
 
@@ -1511,6 +1541,34 @@ export default function DayViewClient({ date }: { date: string }) {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Birthdays today — a quiet warmth-tinted strip under the prayer bar */}
+      {birthdaysToday.length > 0 && (
+        <div
+          className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2 sm:mb-4"
+          style={{
+            borderColor: "color-mix(in oklab, var(--color-warmth) 35%, var(--color-paper-3))",
+            backgroundColor: "color-mix(in oklab, var(--color-warmth) 7%, var(--color-paper))",
+          }}
+        >
+          {birthdaysToday.map((b) => {
+            const [bYear] = date.split("-").map(Number);
+            const age = turningAge(b, new Date(bYear, b.birthMonth - 1, b.birthDay));
+            const color = b.color || "var(--color-warmth)";
+            return (
+              <span key={b.id} className="flex items-center gap-1.5 text-xs font-medium" style={{ color }}>
+                <Cake className="h-3.5 w-3.5 shrink-0" />
+                {b.name}
+                {age !== null && (
+                  <span className="font-normal" style={{ color: "var(--color-ink-muted)" }}>
+                    turns {age}
+                  </span>
+                )}
+              </span>
+            );
+          })}
         </div>
       )}
 

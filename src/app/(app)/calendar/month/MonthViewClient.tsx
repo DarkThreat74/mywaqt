@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Cake } from "lucide-react";
 import { getOfflineDB } from "@/lib/offline/db";
+import { isBirthdayOn, turningAge } from "@/lib/birthdays/math";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 
 // User's stored timezone (same source DayViewClient uses) — events must be
@@ -84,10 +85,20 @@ interface HomeworkDot {
   classColor: string | null;
 }
 
+interface MonthBirthday {
+  id: string;
+  name: string;
+  birthMonth: number;
+  birthDay: number;
+  birthYear: number | null;
+  color: string | null;
+}
+
 export default function MonthViewClient({ year, month }: { year: number; month: number }) {
   const [eventsByDate, setEventsByDate] = useState<Record<string, CalendarEvent[]>>({});
   const [prayerLogsByDate, setPrayerLogsByDate] = useState<Record<string, PrayerLogEntry[]>>({});
   const [homeworkByDate, setHomeworkByDate] = useState<Record<string, HomeworkDot[]>>({});
+  const [birthdays, setBirthdays] = useState<MonthBirthday[]>([]);
   const [maxVisibleEvents, setMaxVisibleEvents] = useState(2);
 
   // Responsive event count — show more events on larger screens
@@ -173,12 +184,34 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
 
       // ── Step 2: Fetch from API in background ──
       try {
-        const [eventsRes, logRes, hwRes, clsRes] = await Promise.all([
+        const [eventsRes, logRes, hwRes, clsRes, bdayRes] = await Promise.all([
           fetch(`/api/events?from=${fromStr}&to=${toStr}`),
           fetch(`/api/prayer-log/range?from=${fromStr}&to=${toStr}`).catch(() => null),
           fetch(`/api/homework?from=${fromStr}&to=${toStr}`).catch(() => null),
           fetch("/api/classes").catch(() => null),
+          fetch("/api/birthdays").catch(() => null),
         ]);
+
+        // Birthdays recur annually — the whole list arrives in one fetch and
+        // each cell matches on month/day.
+        if (bdayRes?.ok && !cancelled) {
+          const data = await bdayRes.json().catch(() => null);
+          if (data && Array.isArray(data.birthdays)) {
+            const catColors = new Map<string, string>(
+              (Array.isArray(data.categories) ? data.categories : []).map(
+                (c: { id: string; color: string }) => [c.id, c.color],
+              ),
+            );
+            setBirthdays(data.birthdays.map((b: { id: string; name: string; birthMonth: number; birthDay: number; birthYear: number | null; categoryId: string | null }) => ({
+              id: b.id,
+              name: b.name,
+              birthMonth: b.birthMonth,
+              birthDay: b.birthDay,
+              birthYear: b.birthYear,
+              color: b.categoryId ? catColors.get(b.categoryId) ?? null : null,
+            })));
+          }
+        }
 
         if (eventsRes.ok && !cancelled) {
           const events: CalendarEvent[] = await eventsRes.json().catch(() => []);
@@ -466,6 +499,40 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
                     <Check className="h-3 w-3" style={{ color: "var(--color-success)" }} />
                   )}
                 </span>
+
+                {/* Birthdays — cake glyph + name, category color when set */}
+                {cell.dateStr && cell.day != null && (() => {
+                  const todays = birthdays.filter((b) => isBirthdayOn(b, year, month, cell.day!));
+                  if (todays.length === 0) return null;
+                  const shown = todays.slice(0, 2);
+                  return (
+                    <div className="mb-0.5 flex flex-col gap-0.5">
+                      {shown.map((b) => {
+                        const color = b.color || "var(--color-warmth)";
+                        const age = turningAge(b, new Date(year, month - 1, cell.day!));
+                        return (
+                          <div
+                            key={b.id}
+                            className="flex items-center gap-1 truncate rounded px-1 py-0.5 text-[9px] font-medium leading-tight sm:text-[10px]"
+                            style={{
+                              backgroundColor: `color-mix(in oklab, ${color} 12%, transparent)`,
+                              color,
+                            }}
+                            title={age !== null ? `${b.name} — turns ${age}` : b.name}
+                          >
+                            <Cake className="h-2.5 w-2.5 shrink-0" />
+                            <span className="truncate">{b.name}</span>
+                          </div>
+                        );
+                      })}
+                      {todays.length > 2 && (
+                        <span className="px-1 text-[9px] sm:text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                          +{todays.length - 2} more
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Event blocks — show up to maxVisibleEvents, then "+N more" */}
                 <div className="flex flex-col gap-0.5 overflow-hidden">

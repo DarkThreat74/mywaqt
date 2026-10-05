@@ -27,6 +27,17 @@ export function nextBirthday(b: BDayLike, from: Date = new Date()): Date {
   return candidate;
 }
 
+/** Does this birthday fall on the given calendar day? Feb 29 birthdays show
+ *  on Feb 28 in non-leap years, matching nextBirthday()'s observation rule. */
+export function isBirthdayOn(b: BDayLike, year: number, month: number, day: number): boolean {
+  if (b.birthMonth === month && b.birthDay === day) return true;
+  if (b.birthMonth === 2 && b.birthDay === 29 && month === 2 && day === 28) {
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    return !leap;
+  }
+  return false;
+}
+
 export function daysUntilBirthday(b: BDayLike, from: Date = new Date()): number {
   return Math.round((nextBirthday(b, from).getTime() - toDay(from).getTime()) / 86400000);
 }
