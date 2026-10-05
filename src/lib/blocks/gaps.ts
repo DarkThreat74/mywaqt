@@ -6,8 +6,10 @@ export interface Interval {
   end: number;   // minutes
 }
 
-export const DAY_START = 5 * 60;   // 5:00 — matches the day view's default start
-export const DAY_END = 24 * 60;    // midnight
+// Default planning window — configurable per-user via prayer_settings
+// (study_start_min / study_end_min). Keep in sync with the column defaults.
+export const DAY_START = 7 * 60;   // 7:00
+export const DAY_END = 22 * 60;    // 22:00
 export const MIN_GAP = 30;         // gaps shorter than 30 min aren't claimable
 export const MIN_BLOCK = 15;       // blocks shorter than 15 min aren't useful
 

@@ -27,6 +27,8 @@ interface Props {
   onClose: () => void;
   initialGap?: Interval | null;  // open directly in compose mode for this gap
   initialBlock?: BlockWithAssignments | null;  // or directly editing this block
+  dayStart?: number;           // planning-window bounds (minutes from midnight)
+  dayEnd?: number;
 }
 
 const RELEASE_REASONS: { key: string; label: string }[] = [
@@ -46,7 +48,7 @@ function timeInputToMin(s: string): number | null {
   return v >= 0 && v <= 1440 ? v : null;
 }
 
-export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose, initialGap, initialBlock }: Props) {
+export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose, initialGap, initialBlock, dayStart, dayEnd }: Props) {
   const [hw, setHw] = useState<Homework[]>([]);
   const [unworked, setUnworked] = useState<BlockWithAssignments[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,8 +66,8 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     const blockInts = blocks
       .filter((b) => b.status !== "released")
       .map((b) => ({ start: b.startMin, end: b.endMin }));
-    return freeGaps([...busy, ...blockInts]);
-  }, [busy, blocks]);
+    return freeGaps([...busy, ...blockInts], dayStart, dayEnd);
+  }, [busy, blocks, dayStart, dayEnd]);
 
   const plannedCounts = useMemo(() => {
     const map = new Map<string, number>();

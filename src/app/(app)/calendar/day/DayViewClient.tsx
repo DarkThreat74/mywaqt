@@ -12,7 +12,7 @@ import { getCachedPrayerSettings, setCachedPrayerSettings, getCachedHaydPeriods,
 import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFromCache, upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
 import { instantToWall, wallClockToUtc } from "@/lib/timezone";
 import PlanBlocksSheet, { type BlockWithAssignments } from "@/components/plan-blocks-sheet";
-import { freeGaps, fmtDur, fmtMin, type Interval } from "@/lib/blocks/gaps";
+import { freeGaps, fmtDur, fmtMin, DAY_START, DAY_END, type Interval } from "@/lib/blocks/gaps";
 
 interface CalendarEvent {
   id: string;
@@ -256,6 +256,9 @@ export default function DayViewClient({ date }: { date: string }) {
   const [userMadhab, setUserMadhab] = useState<string>("hanafi");
   const [locationSet, setLocationSet] = useState(true);
   const [dayHomeworkCount, setDayHomeworkCount] = useState<number>(0);
+  // Study-block planning window — settings-controlled, defaults 7:00–22:00
+  const [studyStartMin, setStudyStartMin] = useState(DAY_START);
+  const [studyEndMin, setStudyEndMin] = useState(DAY_END);
 
   // ── Load cached prayer settings from localStorage instantly ──
   // This avoids a network round-trip for timezone/madhab on every page load
@@ -266,6 +269,8 @@ export default function DayViewClient({ date }: { date: string }) {
       Promise.resolve().then(() => {
         setUserTimezone(cached.timezone);
         setUserMadhab(cached.madhab || "hanafi");
+        if (typeof cached.studyStartMin === "number") setStudyStartMin(cached.studyStartMin);
+        if (typeof cached.studyEndMin === "number") setStudyEndMin(cached.studyEndMin);
       });
     }
   }, []);
@@ -523,6 +528,8 @@ export default function DayViewClient({ date }: { date: string }) {
             const settingsData = await settingsRes.json();
             if (settingsData.timezone) {
               setUserTimezone(settingsData.timezone);
+              if (typeof settingsData.studyStartMin === "number") setStudyStartMin(settingsData.studyStartMin);
+              if (typeof settingsData.studyEndMin === "number") setStudyEndMin(settingsData.studyEndMin);
               // Cache in localStorage for instant offline access
               setCachedPrayerSettings({
                 timezone: settingsData.timezone,
@@ -530,6 +537,8 @@ export default function DayViewClient({ date }: { date: string }) {
                 madhab: settingsData.madhab,
                 latitude: settingsData.latitude,
                 longitude: settingsData.longitude,
+                studyStartMin: settingsData.studyStartMin,
+                studyEndMin: settingsData.studyEndMin,
               });
             }
           }
@@ -764,7 +773,10 @@ export default function DayViewClient({ date }: { date: string }) {
     [busyBase, dayBlocks],
   );
 
-  const gaps = useMemo(() => freeGaps(busyIntervals), [busyIntervals]);
+  const gaps = useMemo(
+    () => freeGaps(busyIntervals, studyStartMin, studyEndMin),
+    [busyIntervals, studyStartMin, studyEndMin],
+  );
 
   // ── Greedy lane clustering for overlap layout ──
   // Computes a global column index + column count for each event based on
@@ -2481,6 +2493,8 @@ export default function DayViewClient({ date }: { date: string }) {
           onClose={() => { setPlanOpen(false); setPlanGap(null); setPlanBlock(null); }}
           initialGap={planGap}
           initialBlock={planBlock}
+          dayStart={studyStartMin}
+          dayEnd={studyEndMin}
         />
       )}
     </div>

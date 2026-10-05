@@ -393,6 +393,10 @@ export const prayerSettings = pgTable('prayer_settings', {
   showNaflTimes: boolean('show_nafl_times').default(false).notNull(),
   // Memorized the entire Quran — gates the hifidh badge + huffadh competitions
   isHifidh: boolean('is_hifidh').default(false).notNull(),
+  // Study-block planning window (minutes from local midnight) — free gaps are
+  // only offered inside this range. Defaults: 7:00–22:00.
+  studyStartMin: integer('study_start_min').default(420).notNull(),
+  studyEndMin: integer('study_end_min').default(1320).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

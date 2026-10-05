@@ -39,6 +39,8 @@ export async function GET(request: NextRequest) {
       timeOffsetMinutes: schema.prayerSettings.timeOffsetMinutes,
       showNaflTimes: schema.prayerSettings.showNaflTimes,
       isHifidh: schema.prayerSettings.isHifidh,
+      studyStartMin: schema.prayerSettings.studyStartMin,
+      studyEndMin: schema.prayerSettings.studyEndMin,
     })
     .from(schema.prayerSettings)
     .where(eq(schema.prayerSettings.userId, session.userId))
@@ -80,6 +82,8 @@ export async function PATCH(request: NextRequest) {
     timeOffsetMinutes?: number;
     showNaflTimes?: boolean;
     isHifidh?: boolean;
+    studyStartMin?: number;
+    studyEndMin?: number;
   };
   try {
     body = await request.json();
@@ -161,6 +165,26 @@ export async function PATCH(request: NextRequest) {
   }
   if (typeof body.showNaflTimes === "boolean") updates.showNaflTimes = body.showNaflTimes;
   if (typeof body.isHifidh === "boolean") updates.isHifidh = body.isHifidh;
+
+  // Study-block planning window — validate the merged pair (0 ≤ start < end
+  // ≤ 1440, at least 60 min) even when only one bound is patched.
+  if (body.studyStartMin !== undefined || body.studyEndMin !== undefined) {
+    const [cur] = await db
+      .select({
+        studyStartMin: schema.prayerSettings.studyStartMin,
+        studyEndMin: schema.prayerSettings.studyEndMin,
+      })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, session.userId))
+      .limit(1);
+    const s = body.studyStartMin ?? cur?.studyStartMin ?? 420;
+    const e = body.studyEndMin ?? cur?.studyEndMin ?? 1320;
+    if (!Number.isInteger(s) || !Number.isInteger(e) || s < 0 || e > 1440 || e - s < 60) {
+      return NextResponse.json({ error: "Study window must be 0:00–24:00 and at least 1 hour." }, { status: 400 });
+    }
+    updates.studyStartMin = s;
+    updates.studyEndMin = e;
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });

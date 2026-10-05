@@ -12,6 +12,10 @@ export interface CachedPrayerSettings {
   madhab: string | null;
   latitude: string;
   longitude: string;
+  // Study-block planning window (minutes from midnight) — optional for caches
+  // written before this field existed.
+  studyStartMin?: number;
+  studyEndMin?: number;
 }
 
 export function getCachedPrayerSettings(): CachedPrayerSettings | null {
