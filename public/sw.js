@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v59";
+const CACHE_VERSION = "waqt-v60";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -886,6 +886,12 @@ self.addEventListener("fetch", (event) => {
       if (url.pathname.startsWith("/api/prayer-log")) return 60 * 1000;             // 1 minute
       return 5 * 60 * 1000;                                                          // 5 minutes default
     })();
+
+    // Never serve cached private data to an unauthenticated request — the
+    // API cache must not outlive the session it was fetched under.
+    if (!/waqt-session=[^;]+/.test(request.headers.get("cookie") || "")) {
+      return; // let the browser hit the network → 401
+    }
 
     event.respondWith(
       (async () => {

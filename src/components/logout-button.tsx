@@ -19,6 +19,19 @@ export default function LogoutButton() {
       }
     } catch { /* non-critical */ }
     try {
+      // Wipe cached user data BEFORE logout — the SW caches private API
+      // responses + stamped page HTML, and serves them while fresh without
+      // checking auth. On a shared device that data must not survive logout.
+      const reg = await navigator.serviceWorker?.getRegistration();
+      reg?.active?.postMessage({ type: "CLEAR_USER_CACHE" });
+      // Offline IndexedDB (events, prayer logs, outbox) — same leak vector.
+      try { indexedDB.deleteDatabase("waqt-offline-data"); } catch { /* ignore */ }
+      // LocalStorage app keys (settings cache, session store, seen flags).
+      try {
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith("waqt-") || k.startsWith("waqt:"))
+          .forEach((k) => localStorage.removeItem(k));
+      } catch { /* ignore */ }
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     } catch { /* non-critical */ }
     // Full page reload on logout clears all client state — intentional
