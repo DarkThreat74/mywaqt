@@ -79,7 +79,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const needsSettings = await getNeedsSettings(session.userId);
+  // Kick both cached lookups in parallel instead of serializing round-trips.
+  const needsSettingsP = getNeedsSettings(session.userId);
+  const feedbackEnabledP = isFeedbackEnabled();
+  const needsSettings = await needsSettingsP;
 
   const navItems = [
     { label: "Calendar", href: "/calendar/day", icon: Calendar, alert: false },
@@ -186,7 +189,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <DuaToast />
       <FunFactPopup />
       <BirthdayAlerter />
-      {(await isFeedbackEnabled()) ? <FeedbackWidget /> : null}
+      {(await feedbackEnabledP) ? <FeedbackWidget /> : null}
 
       {/* Global audio player — survives route changes for background playback */}
       <GlobalAudioPlayer />

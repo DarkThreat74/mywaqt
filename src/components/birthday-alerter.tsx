@@ -39,14 +39,19 @@ export default function BirthdayAlerter() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/birthdays")
-      .then((r) => (r.ok ? r.json() : { birthdays: [] }))
-      .then((d) => {
-        if (!cancelled) setAll(d.birthdays ?? []);
-      })
-      .catch(() => null);
+    // Deferred past first paint — this is a popup alert, not boot content,
+    // and it shouldn't compete with the day view's initial fetch batch.
+    const t = setTimeout(() => {
+      fetch("/api/birthdays")
+        .then((r) => (r.ok ? r.json() : { birthdays: [] }))
+        .then((d) => {
+          if (!cancelled) setAll(d.birthdays ?? []);
+        })
+        .catch(() => null);
+    }, 2000);
     return () => {
       cancelled = true;
+      clearTimeout(t);
     };
   }, []);
 

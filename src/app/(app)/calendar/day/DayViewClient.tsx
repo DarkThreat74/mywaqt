@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
@@ -268,6 +268,9 @@ export default function DayViewClient({ date }: { date: string }) {
     (p) => date >= p.startDate && (!p.endDate || date <= p.endDate),
   );
   const [userTimezone, setUserTimezone] = useState("America/Chicago");
+  // Mirror for effects that must read the latest timezone without re-running.
+  const userTzRef = useRef(userTimezone);
+  useEffect(() => { userTzRef.current = userTimezone; }, [userTimezone]);
   const [userMadhab, setUserMadhab] = useState<string>("hanafi");
   const [locationSet, setLocationSet] = useState(true);
   const [dayHomeworkCount, setDayHomeworkCount] = useState<number>(0);
@@ -366,17 +369,49 @@ export default function DayViewClient({ date }: { date: string }) {
       }
 
       // ── Step 2: Fetch from API in background ──
+      // All seven requests go in ONE parallel batch — including settings, so
+      // the events filter below uses the authoritative timezone instead of
+      // re-running this whole effect when userTimezone state updates.
       try {
-        const [eventsRes, prayerRes, logRes, hwRes, haydRes, blocksRes] = await Promise.all([
+        const [eventsRes, prayerRes, logRes, hwRes, haydRes, blocksRes, settingsRes] = await Promise.all([
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
           fetch(`/api/homework?date=${date}`).catch(() => null),
           fetch(`/api/hayd`).catch(() => null),
           fetch(`/api/blocks?date=${date}`).catch(() => null),
+          fetch("/api/settings/prayer-settings").catch(() => null),
         ]);
 
         if (cancelled) return;
+
+        // Settings first — timezone/madhab/study window feed everything else.
+        let tz = userTzRef.current;
+        if (settingsRes?.ok) {
+          try {
+            const settingsData = await settingsRes.json();
+            if (settingsData.timezone) {
+              tz = settingsData.timezone;
+              setUserTimezone(settingsData.timezone);
+              if (typeof settingsData.studyStartMin === "number") setStudyStartMin(settingsData.studyStartMin);
+              if (typeof settingsData.studyEndMin === "number") setStudyEndMin(settingsData.studyEndMin);
+              if (typeof settingsData.studyShowGapChips === "boolean") setShowGapChips(settingsData.studyShowGapChips);
+              // Cache in localStorage for instant offline access
+              setCachedPrayerSettings({
+                timezone: settingsData.timezone,
+                calculationMethod: settingsData.calculationMethod,
+                madhab: settingsData.madhab,
+                latitude: settingsData.latitude,
+                longitude: settingsData.longitude,
+                studyStartMin: settingsData.studyStartMin,
+                studyEndMin: settingsData.studyEndMin,
+                studyShowGapChips: settingsData.studyShowGapChips,
+              });
+            }
+          } catch {
+            // non-critical — fall back to current timezone
+          }
+        }
 
         if (haydRes?.ok) {
           const data = await haydRes.json().catch(() => null);
@@ -389,7 +424,7 @@ export default function DayViewClient({ date }: { date: string }) {
         if (eventsRes?.ok) {
           const eventsData = await eventsRes.json();
           const filtered = eventsData.filter((e: { startAt: string }) => {
-            return localDateStrInTz(new Date(e.startAt), userTimezone) === date;
+            return localDateStrInTz(new Date(e.startAt), tz) === date;
           });
           if (!cancelled) setEvents(filtered);
 
@@ -540,33 +575,6 @@ export default function DayViewClient({ date }: { date: string }) {
           }
         }
 
-        // Fetch user timezone from settings — update localStorage cache
-        try {
-          const settingsRes = await fetch("/api/settings/prayer-settings");
-          if (settingsRes.ok && !cancelled) {
-            const settingsData = await settingsRes.json();
-            if (settingsData.timezone) {
-              setUserTimezone(settingsData.timezone);
-              if (typeof settingsData.studyStartMin === "number") setStudyStartMin(settingsData.studyStartMin);
-              if (typeof settingsData.studyEndMin === "number") setStudyEndMin(settingsData.studyEndMin);
-              if (typeof settingsData.studyShowGapChips === "boolean") setShowGapChips(settingsData.studyShowGapChips);
-              // Cache in localStorage for instant offline access
-              setCachedPrayerSettings({
-                timezone: settingsData.timezone,
-                calculationMethod: settingsData.calculationMethod,
-                madhab: settingsData.madhab,
-                latitude: settingsData.latitude,
-                longitude: settingsData.longitude,
-                studyStartMin: settingsData.studyStartMin,
-                studyEndMin: settingsData.studyEndMin,
-                studyShowGapChips: settingsData.studyShowGapChips,
-              });
-            }
-          }
-        } catch {
-          // Use default timezone or cached value
-        }
-
         if (!cancelled) setError(null);
       } catch {
         if (!cancelled && !navigator.onLine) {
@@ -580,8 +588,10 @@ export default function DayViewClient({ date }: { date: string }) {
     })();
 
     return () => { cancelled = true; };
-    // userTimezone: re-filter refetched events when the cached tz resolves
-  }, [date, userTimezone]);
+    // NOTE: userTimezone is intentionally NOT a dep — the effect fetches the
+    // authoritative timezone itself and filters with it. Depending on the
+    // state ran this entire 7-fetch + IndexedDB sequence 2–3× per load.
+  }, [date]);
 
   // ── Online/offline + sync listeners ──
   useEffect(() => {
