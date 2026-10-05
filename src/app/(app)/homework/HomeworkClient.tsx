@@ -160,7 +160,6 @@ export default function HomeworkClient({
   const [plannedEndTime, setPlannedEndTime] = useState("");
   const [estimatedMinutes, setEstimatedMinutes] = useState<number | "">("");
   const [subtasks, setSubtasks] = useState<HomeworkSubtask[]>([]);
-  const [newSubtask, setNewSubtask] = useState("");
   // NL quick-add: which fields the user explicitly set (parser won't override)
   const touchedRef = useRef<Set<string>>(new Set());
   // Import modal
@@ -308,7 +307,6 @@ export default function HomeworkClient({
     setPlannedEndTime("");
     setEstimatedMinutes("");
     setSubtasks([]);
-    setNewSubtask("");
     touchedRef.current.clear();
     setError(null);
     setEditingId(null);
@@ -329,7 +327,6 @@ export default function HomeworkClient({
     setPlannedEndTime(hw.plannedEndTime ? hw.plannedEndTime.slice(0, 5) : "");
     setEstimatedMinutes(hw.estimatedMinutes ?? "");
     setSubtasks(hw.subtasks ?? []);
-    setNewSubtask("");
     // Lock every field — typing in the title while editing must not let the
     // NL parser silently rewrite the item's saved kind/date/priority/class.
     touchedRef.current = new Set(["title", "kind", "classId", "dueDate", "dueTime", "priority"]);
@@ -471,13 +468,6 @@ export default function HomeworkClient({
     if (parsed.dueDate && !touched.has("dueDate")) setDueDate(parsed.dueDate);
     if (parsed.dueTime && !touched.has("dueTime")) setDueTime(parsed.dueTime);
     if (parsed.priority && !touched.has("priority")) setPriority(parsed.priority);
-  }
-
-  function addSubtask() {
-    const t = newSubtask.trim();
-    if (!t) return;
-    setSubtasks((prev) => [...prev, { id: `tmp-${Date.now()}-${prev.length}`, title: t, done: false }]);
-    setNewSubtask("");
   }
 
   // Toggle a step on a saved homework — sends the full subtask list as a diff
@@ -1562,131 +1552,20 @@ export default function HomeworkClient({
               </div>
             </div>
 
-            {/* Plan a work session ("do date") + time estimate */}
-            <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="mb-2 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
-                Plan when to work on it (optional)
-              </p>
-              <div className="flex flex-col gap-2">
-                <input
-                  type="date"
-                  value={plannedDate}
-                  onChange={(e) => setPlannedDate(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
-                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-                />
-                {plannedDate && (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      value={plannedStartTime}
-                      onChange={(e) => setPlannedStartTime(e.target.value)}
-                      className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
-                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-                      aria-label="Session start"
-                    />
-                    <span className="shrink-0 text-xs" style={{ color: "var(--color-ink-muted)" }}>to</span>
-                    <input
-                      type="time"
-                      value={plannedEndTime}
-                      onChange={(e) => setPlannedEndTime(e.target.value)}
-                      className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
-                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-                      aria-label="Session end"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => { setPlannedDate(""); setPlannedStartTime(""); setPlannedEndTime(""); }}
-                      className="shrink-0 rounded-lg p-1.5"
-                      style={{ color: "var(--color-ink-muted)" }}
-                      aria-label="Clear planned session"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Time needed:</span>
-                <select
-                  value={estimatedMinutes}
-                  onChange={(e) => setEstimatedMinutes(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="rounded-lg border px-2 py-1.5 text-xs outline-none focus:border-[var(--color-accent)]"
-                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-                >
-                  <option value="">No estimate</option>
-                  {[15, 30, 45, 60, 90, 120, 180, 240, 360, 480].map((m) => (
-                    <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60}h`}</option>
-                  ))}
-                </select>
-                {typeof estimatedMinutes === "number" && (
-                  <span className="w-full text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                    Used to warn you if there isn&rsquo;t enough free time before the deadline
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Subtasks / steps */}
-            <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="mb-2 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
-                Steps (optional)
-              </p>
-              {subtasks.length > 0 && (
-                <div className="mb-2 flex flex-col gap-1">
-                  {subtasks.map((s) => (
-                    <div key={s.id} className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSubtasks((prev) => prev.map((x) => (x.id === s.id ? { ...x, done: !x.done } : x)))}
-                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded border"
-                        style={{
-                          borderColor: s.done ? "var(--color-success)" : "var(--color-paper-3)",
-                          backgroundColor: s.done ? "var(--color-success)" : "var(--color-paper)",
-                        }}
-                        aria-label={s.done ? `Uncheck ${s.title}` : `Check ${s.title}`}
-                      >
-                        {s.done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
-                      </button>
-                      <span
-                        className="flex-1 truncate text-xs"
-                        style={{ color: "var(--color-ink)", textDecoration: s.done ? "line-through" : "none" }}
-                      >
-                        {s.title}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setSubtasks((prev) => prev.filter((x) => x.id !== s.id))}
-                        style={{ color: "var(--color-ink-muted)" }}
-                        aria-label={`Remove ${s.title}`}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newSubtask}
-                  onChange={(e) => setNewSubtask(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSubtask(); } }}
-                  placeholder="Add a step, e.g. outline, draft, revise"
-                  maxLength={200}
-                  className="flex-1 rounded-lg border px-3 py-2 text-xs outline-none focus:border-[var(--color-accent)]"
-                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 40 }}
-                />
-                <button
-                  type="button"
-                  onClick={addSubtask}
-                  disabled={!newSubtask.trim()}
-                  className="rounded-lg border px-3 text-xs font-medium disabled:opacity-50"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 40 }}
-                >
-                  Add
-                </button>
-              </div>
+            {/* Time estimate — planning sessions happen on the day view */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Time needed:</span>
+              <select
+                value={estimatedMinutes}
+                onChange={(e) => setEstimatedMinutes(e.target.value === "" ? "" : Number(e.target.value))}
+                className="rounded-lg border px-2 py-1.5 text-xs outline-none focus:border-[var(--color-accent)]"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              >
+                <option value="">No estimate</option>
+                {[15, 30, 45, 60, 90, 120, 180, 240, 360, 480].map((m) => (
+                  <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60}h`}</option>
+                ))}
+              </select>
             </div>
 
             {error && (

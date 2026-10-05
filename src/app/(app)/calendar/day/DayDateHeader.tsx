@@ -140,20 +140,16 @@ export default function DayDateHeader({ date }: { date: string }) {
                 </span>
               )}
             </h1>
-            {/* Subline: hijri left, view toggle right (mobile only) */}
-            <div className="flex items-center justify-between sm:justify-center">
-              {hijriDate ? (
-                <p
-                  className="truncate text-[11px] leading-tight"
-                  style={{ color: "var(--color-accent)", fontFamily: "var(--font-amiri, serif)" }}
-                >
-                  {hijriDate}
-                </p>
-              ) : (
-                <span />
-              )}
-              <div className="sm:hidden">{viewToggle}</div>
-            </div>
+            {hijriDate && (
+              <p
+                className="truncate text-[11px] leading-tight"
+                style={{ color: "var(--color-accent)", fontFamily: "var(--font-amiri, serif)" }}
+              >
+                {hijriDate}
+              </p>
+            )}
+            {/* View toggle — own centered row on mobile */}
+            <div className="mt-0.5 flex justify-center sm:hidden">{viewToggle}</div>
           </div>
 
           {/* Day/Month/List toggle — desktop sits beside the date */}
