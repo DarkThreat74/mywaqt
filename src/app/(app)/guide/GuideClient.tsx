@@ -33,7 +33,7 @@ interface GuideSection {
   link?: { href: string; label: string };
 }
 
-const SECTIONS: GuideSection[] = [
+export const SECTIONS: GuideSection[] = [
   {
     id: "checkins",
     icon: CheckCircle2,

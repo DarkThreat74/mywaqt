@@ -392,13 +392,10 @@ export default function BirthdaysClient() {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
             Birthdays
           </h1>
-          <p className="mt-0.5 text-lg leading-none" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }} aria-hidden="true">
-            أعياد
-          </p>
         </div>
         {birthdays.length > 0 && (
           <div className="flex items-center gap-2">
-            <div className="w-28 sm:w-32">
+            <div className="w-24 sm:w-32">
               <CustomSelect
                 value={sort}
                 onChange={(v) => setSort(v as "earliest" | "latest")}
@@ -408,7 +405,7 @@ export default function BirthdaysClient() {
               />
             </div>
             {categories.length > 0 && (
-              <div className="w-28 sm:w-36">
+              <div className="w-24 sm:w-36">
                 <CustomSelect
                   value={effectiveCat}
                   onChange={setCatFilter}
@@ -430,14 +427,14 @@ export default function BirthdaysClient() {
                 role="tab"
                 aria-selected={view === v}
                 onClick={() => setView(v)}
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3"
                 style={{
                   backgroundColor: view === v ? "var(--color-paper)" : "transparent",
                   color: view === v ? "var(--color-ink)" : "var(--color-ink-muted)",
                 }}
               >
                 {v === "list" ? <List className="h-3.5 w-3.5" /> : <CalendarDays className="h-3.5 w-3.5" />}
-                {v === "list" ? "List" : "Year"}
+                <span className="hidden sm:inline">{v === "list" ? "List" : "Year"}</span>
               </button>
             ))}
           </div>
@@ -456,7 +453,10 @@ export default function BirthdaysClient() {
                 {d === 0 ? "Today" : `${d}d`}
               </p>
               <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-                {next.name}{age !== null ? ` turns ${age}` : ""} · {birthdayLabel(next)}
+                {next.name}{age !== null ? ` turns ${age}` : ""}
+              </p>
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                {birthdayLabel(next)}
               </p>
             </div>
             <div>
@@ -836,10 +836,18 @@ export default function BirthdaysClient() {
                         <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
                           {b.name}
                         </p>
+                        {(cat || age !== null) && (
+                          <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                            {cat && <span className="font-medium" style={{ color: cat.color }}>{cat.name}</span>}
+                            {cat && age !== null && " · "}
+                            {age !== null && <>turns {age}</>}
+                          </p>
+                        )}
                         <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                          {cat && <span className="font-medium" style={{ color: cat.color }}>{cat.name} · </span>}
-                          {age !== null && <>turns {age} · </>}
-                          {birthdayLabel(b)}{b.birthYear ? `, ${b.birthYear}` : ""} · {zodiac(b.birthMonth, b.birthDay)}
+                          {MONTHS[b.birthMonth - 1]} {b.birthDay}{b.birthYear ? `, ${b.birthYear}` : ""}
+                        </p>
+                        <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                          {zodiac(b.birthMonth, b.birthDay)}
                           <span className="hidden sm:inline"> · reminds {reminds}</span>
                         </p>
                       </div>

@@ -41,13 +41,14 @@ function BirthdayArt() {
 }
 
 function SubsArt() {
-  // Card with a circular renewal arrow
+  // Receipt with a renewal loop
   return (
     <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
-      <rect x="8" y="14" width="32" height="22" rx="3" />
-      <path d="M8 21h32" />
-      <path d="M34 29a7 7 0 1 0 1.4 4.2" />
-      <path d="M35.5 28.5v4.7h-4.7" />
+      <path d="M15 8h18v30l-3-2.4-3 2.4-3-2.4-3 2.4-3-2.4-3 2.4z" />
+      <path d="M20 16h8" />
+      <path d="M20 21h8" />
+      <path d="M24 33a6 6 0 1 1 1.2-3.7" />
+      <path d="M25.3 24.8v4.5h-4.5" />
     </svg>
   );
 }

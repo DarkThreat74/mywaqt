@@ -5,8 +5,9 @@ import Link from "next/link";
 
 import { MapPin, Bell, ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, User, Shield, Camera, Users, NotebookPen, BookOpen, Compass, CloudOff, type LucideIcon } from "lucide-react";
 import { readAvatarFile, presetAvatarDataUrl, AVATAR_PRESETS } from "@/lib/avatar";
+import { GuideGate } from "./guide-gate";
 
-type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "location" | "madhab" | "hifidh" | "notifications" | "tour" | "done";
+type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "location" | "madhab" | "hifidh" | "notifications" | "tour" | "guide" | "done";
 
 type TourVisualKind = "dots" | "league" | "planner" | "quran" | "tools" | "offline";
 
@@ -294,7 +295,7 @@ export default function OnboardingWizard() {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight") setTourIdx((i) => Math.min(i + 1, TOUR_SLIDES.length - 1));
       if (e.key === "ArrowLeft") setTourIdx((i) => Math.max(i - 1, 0));
-      if (e.key === "Escape") setStep("done");
+      if (e.key === "Escape") setStep("guide");
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -519,8 +520,8 @@ export default function OnboardingWizard() {
 
   // Progress dots: hayd step only exists for girls — count it conditionally
   const steps: Step[] = gender === "female"
-    ? ["terms", "name", "avatar", "gender", "hayd", "location", "madhab", "hifidh", "notifications", "tour", "done"]
-    : ["terms", "name", "avatar", "gender", "location", "madhab", "hifidh", "notifications", "tour", "done"];
+    ? ["terms", "name", "avatar", "gender", "hayd", "location", "madhab", "hifidh", "notifications", "tour", "guide", "done"]
+    : ["terms", "name", "avatar", "gender", "location", "madhab", "hifidh", "notifications", "tour", "guide", "done"];
   const currentIdx = steps.indexOf(step);
 
   return (
@@ -1167,7 +1168,7 @@ export default function OnboardingWizard() {
                 </button>
               ) : (
                 <button
-                  onClick={() => setStep("done")}
+                  onClick={() => setStep("guide")}
                   className="text-sm font-medium transition-opacity hover:opacity-60"
                   style={{ color: "var(--color-ink-muted)" }}
                 >
@@ -1175,7 +1176,7 @@ export default function OnboardingWizard() {
                 </button>
               )}
               <button
-                onClick={() => (last ? setStep("done") : setTourIdx((i) => i + 1))}
+                onClick={() => (last ? setStep("guide") : setTourIdx((i) => i + 1))}
                 className="inline-flex items-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90"
                 style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
               >
@@ -1186,6 +1187,9 @@ export default function OnboardingWizard() {
           </div>
         );
       })()}
+
+      {/* ── Guide gate: read → quiz → pass ── */}
+      {step === "guide" && <GuideGate onPass={() => setStep("done")} />}
 
       {/* ── Done ── */}
       {step === "done" && (
