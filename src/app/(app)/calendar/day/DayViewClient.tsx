@@ -1995,7 +1995,7 @@ export default function DayViewClient({ date }: { date: string }) {
             <X className="h-5 w-5" />
           </button>
           <div
-            className="pointer-events-none fixed left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-xs font-medium shadow-lg backdrop-blur-md"
+            className="pointer-events-none fixed left-4 right-20 z-50 rounded-full px-4 py-2 text-xs font-medium shadow-lg backdrop-blur-md"
             style={{
               top: "calc(env(safe-area-inset-top, 0px) + 68px)",
               backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
