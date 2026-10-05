@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Cake, CalendarDays, List, Loader2, Pencil, Plus, Tag, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Cake, CalendarDays, Check, ChevronDown, List, Loader2, Pencil, Plus, Tag, Trash2, X } from "lucide-react";
 import type { Birthday, BirthdayCategory } from "@/lib/db/schema";
 import { birthdayLabel, daysUntilBirthday, turningAge, zodiac } from "@/lib/birthdays/math";
 import { CATEGORY_COLORS } from "@/lib/birthdays/palette";
@@ -34,6 +34,91 @@ interface FormState {
 
 const EMPTY_FORM: FormState = { name: "", month: 1, day: "", year: "", remindDays: [0, 1], categoryId: null };
 
+/** Theme-styled dropdown — replaces native <select> for pickers. */
+function CustomSelect({
+  value,
+  onChange,
+  options,
+  ariaLabel,
+  align = "left",
+  compact = false,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: React.ReactNode; dividerAbove?: boolean }[];
+  ariaLabel: string;
+  align?: "left" | "right";
+  compact?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const current = options.find((o) => o.value === value);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        className={`flex w-full items-center justify-between gap-2 rounded-lg border text-sm outline-none transition-colors ${compact ? "px-2.5 py-1.5 text-xs" : "px-3 py-2"}`}
+        style={{
+          borderColor: open ? "var(--color-accent)" : "var(--color-paper-3)",
+          backgroundColor: "var(--color-paper)",
+          color: "var(--color-ink)",
+        }}
+      >
+        <span className="truncate">{current?.label}</span>
+        <ChevronDown
+          className="h-3.5 w-3.5 shrink-0 transition-transform"
+          style={{ color: "var(--color-ink-muted)", transform: open ? "rotate(180deg)" : undefined }}
+        />
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          aria-label={ariaLabel}
+          className={`absolute z-30 mt-1 max-h-64 min-w-full overflow-y-auto rounded-xl border py-1 shadow-lg ${align === "right" ? "right-0" : "left-0"}`}
+          style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)", width: "max-content", minWidth: "100%" }}
+        >
+          {options.map((o) => (
+            <li key={o.value}>
+              {o.dividerAbove && <div className="my-1 border-t" style={{ borderColor: "var(--color-paper-3)" }} />}
+              <button
+                type="button"
+                role="option"
+                aria-selected={o.value === value}
+                onClick={() => { onChange(o.value); setOpen(false); }}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-ink)" }}
+              >
+                {o.label}
+                {o.value === value && <Check className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function BirthdaysClient() {
   const [birthdays, setBirthdays] = useState<Birthday[]>([]);
   const [categories, setCategories] = useState<BirthdayCategory[]>([]);
@@ -49,6 +134,8 @@ export default function BirthdaysClient() {
   const [newCatName, setNewCatName] = useState("");
   const [newCatColor, setNewCatColor] = useState<string>(CATEGORY_COLORS[0]);
   const [armDeleteCatId, setArmDeleteCatId] = useState<string | null>(null);
+  // Filter: "earliest" (soonest first, default) | "latest" | "all" | "cat:<id>"
+  const [filter, setFilter] = useState("earliest");
 
   const catMap = useMemo(() => {
     const m = new Map<string, BirthdayCategory>();
@@ -74,6 +161,34 @@ export default function BirthdaysClient() {
       ),
     [birthdays],
   );
+
+  // What the filter dropdown is showing: a category subset, and/or reversed.
+  const visible = useMemo(() => {
+    let items = sorted;
+    if (filter.startsWith("cat:")) {
+      const id = filter.slice(4);
+      items = items.filter((b) => b.categoryId === id);
+    }
+    return filter === "latest" ? [...items].reverse() : items;
+  }, [sorted, filter]);
+
+  const filterOptions = useMemo(() => {
+    const opts: { value: string; label: React.ReactNode; dividerAbove?: boolean }[] = [
+      { value: "earliest", label: "Earliest" },
+      { value: "latest", label: "Latest" },
+      { value: "all", label: "All", dividerAbove: categories.length > 0 },
+      ...categories.map((c) => ({
+        value: `cat:${c.id}`,
+        label: (
+          <span className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
+            {c.name}
+          </span>
+        ),
+      })),
+    ];
+    return opts;
+  }, [categories]);
 
   function startEdit(b: Birthday) {
     setEditingId(b.id);
@@ -231,13 +346,13 @@ export default function BirthdaysClient() {
   const now = new Date();
   const thisMonthCount = birthdays.filter((b) => b.birthMonth === now.getMonth() + 1).length;
   const groups: { label: string; items: Birthday[] }[] = [
-    { label: "Today", items: sorted.filter((b) => daysUntilBirthday(b) === 0) },
-    { label: "This week", items: sorted.filter((b) => { const d = daysUntilBirthday(b); return d >= 1 && d <= 7; }) },
-    { label: "This month", items: sorted.filter((b) => { const d = daysUntilBirthday(b); return d >= 8 && d <= 31; }) },
-    { label: "Later", items: sorted.filter((b) => daysUntilBirthday(b) > 31) },
+    { label: "Today", items: visible.filter((b) => daysUntilBirthday(b) === 0) },
+    { label: "This week", items: visible.filter((b) => { const d = daysUntilBirthday(b); return d >= 1 && d <= 7; }) },
+    { label: "This month", items: visible.filter((b) => { const d = daysUntilBirthday(b); return d >= 8 && d <= 31; }) },
+    { label: "Later", items: visible.filter((b) => daysUntilBirthday(b) > 31) },
   ].filter((g) => g.items.length > 0);
   const byMonth = MONTHS.map((_, i) =>
-    birthdays
+    visible
       .filter((b) => b.birthMonth === i + 1)
       .sort((a, b) => a.birthDay - b.birthDay),
   );
@@ -255,7 +370,18 @@ export default function BirthdaysClient() {
           </h1>
         </div>
         {birthdays.length > 0 && (
-          <div
+          <div className="flex items-center gap-2">
+            <div className="w-36 sm:w-44">
+              <CustomSelect
+                value={filter}
+                onChange={setFilter}
+                options={filterOptions}
+                ariaLabel="Filter birthdays"
+                align="right"
+                compact
+              />
+            </div>
+            <div
             className="flex rounded-lg border p-0.5"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
             role="tablist"
@@ -277,6 +403,7 @@ export default function BirthdaysClient() {
                 {v === "list" ? "List" : "Year"}
               </button>
             ))}
+          </div>
           </div>
         )}
       </div>
@@ -353,17 +480,15 @@ export default function BirthdaysClient() {
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
               />
             </label>
-            <label className="block">
+            <div className="block">
               <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Month</span>
-              <select
-                value={form.month}
-                onChange={(e) => setForm({ ...form, month: Number(e.target.value) })}
-                className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
-                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-              >
-                {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-              </select>
-            </label>
+              <CustomSelect
+                value={String(form.month)}
+                onChange={(v) => setForm({ ...form, month: Number(v) })}
+                options={MONTHS.map((m, i) => ({ value: String(i + 1), label: m }))}
+                ariaLabel="Birth month"
+              />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
                 <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Day</span>
@@ -625,6 +750,12 @@ export default function BirthdaysClient() {
               </div>
             );
           })}
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="flex flex-col items-center py-16 text-center">
+          <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
+            No birthdays in this category.
+          </p>
         </div>
       ) : (
         <div className="mt-6 flex flex-col gap-6">
