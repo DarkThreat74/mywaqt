@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v58";
+const CACHE_VERSION = "waqt-v59";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -512,6 +512,7 @@ self.addEventListener("fetch", (event) => {
               url.pathname === "/api/classes" ||
               url.pathname === "/api/subscriptions" ||
               url.pathname === "/api/birthdays" ||
+              url.pathname === "/api/birthday-categories" ||
               url.pathname === "/api/blocks");
           const tempId = isEntityPost && body
             ? (() => {
@@ -633,6 +634,14 @@ self.addEventListener("fetch", (event) => {
                 lastNotifiedOn: null,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
+              };
+              responseData._pending = true;
+            } else if (url.pathname.startsWith("/api/birthday-categories")) {
+              responseData.category = {
+                id: tempId,
+                name: body.name || "Category",
+                color: body.color || "#B4552D",
+                createdAt: new Date().toISOString(),
               };
               responseData._pending = true;
             } else if (url.pathname.startsWith("/api/blocks")) {

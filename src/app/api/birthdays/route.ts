@@ -18,7 +18,20 @@ interface BDayBody {
   birthDay?: number;
   birthYear?: number | null;
   remindDays?: number[];
+  categoryId?: string | null;
   clientId?: string;
+}
+
+/** Returns the category id if it's a valid uuid owned by the user, else null. */
+async function ownedCategoryId(userId: string, categoryId: unknown): Promise<string | null> {
+  if (categoryId === null || categoryId === undefined) return null;
+  if (typeof categoryId !== "string" || !isValidUUID(categoryId)) return null;
+  const [row] = await db
+    .select({ id: schema.birthdayCategories.id })
+    .from(schema.birthdayCategories)
+    .where(and(eq(schema.birthdayCategories.id, categoryId), eq(schema.birthdayCategories.userId, userId)))
+    .limit(1);
+  return row?.id ?? null;
 }
 
 function validateFields(body: BDayBody, partial: boolean) {
@@ -68,13 +81,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
-    const list = await db
-      .select()
-      .from(schema.birthdays)
-      .where(eq(schema.birthdays.userId, session.userId))
-      .limit(500);
+    const [list, categories] = await Promise.all([
+      db
+        .select()
+        .from(schema.birthdays)
+        .where(eq(schema.birthdays.userId, session.userId))
+        .limit(500),
+      db
+        .select()
+        .from(schema.birthdayCategories)
+        .where(eq(schema.birthdayCategories.userId, session.userId))
+        .limit(100),
+    ]);
 
-    return NextResponse.json({ birthdays: list });
+    return NextResponse.json({ birthdays: list, categories });
   } catch (err) {
     logError(err, { route: "birthdays/GET" });
     return NextResponse.json({ error: "Failed to fetch birthdays" }, { status: 500 });
@@ -113,6 +133,7 @@ export async function POST(request: NextRequest) {
         birthDay: out.birthDay as number,
         birthYear: (out.birthYear as number | null) ?? null,
         remindDays: (out.remindDays as number[]) ?? [0, 1],
+        categoryId: await ownedCategoryId(session.userId, body.categoryId),
       })
       .returning();
 
@@ -144,6 +165,16 @@ export async function PATCH(request: NextRequest) {
 
     const { out, errors } = validateFields(body, true);
     if (errors.length > 0) return NextResponse.json({ error: errors[0] }, { status: 400 });
+    if (body.categoryId !== undefined) {
+      // Explicit null clears the category; unowned/invalid ids become null only
+      // if they're null — an unknown uuid is rejected, not silently cleared.
+      if (body.categoryId === null) out.categoryId = null;
+      else {
+        const owned = await ownedCategoryId(session.userId, body.categoryId);
+        if (!owned) return NextResponse.json({ error: "Invalid category" }, { status: 400 });
+        out.categoryId = owned;
+      }
+    }
     if (Object.keys(out).length === 0) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }

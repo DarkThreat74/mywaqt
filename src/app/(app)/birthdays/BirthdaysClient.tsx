@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Cake, CalendarDays, List, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
-import type { Birthday } from "@/lib/db/schema";
+import { Cake, CalendarDays, List, Loader2, Pencil, Plus, Tag, Trash2, X } from "lucide-react";
+import type { Birthday, BirthdayCategory } from "@/lib/db/schema";
 import { birthdayLabel, daysUntilBirthday, turningAge, zodiac } from "@/lib/birthdays/math";
+import { CATEGORY_COLORS } from "@/lib/birthdays/palette";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -28,12 +29,14 @@ interface FormState {
   day: string;
   year: string;
   remindDays: number[];
+  categoryId: string | null;
 }
 
-const EMPTY_FORM: FormState = { name: "", month: 1, day: "", year: "", remindDays: [0, 1] };
+const EMPTY_FORM: FormState = { name: "", month: 1, day: "", year: "", remindDays: [0, 1], categoryId: null };
 
 export default function BirthdaysClient() {
   const [birthdays, setBirthdays] = useState<Birthday[]>([]);
+  const [categories, setCategories] = useState<BirthdayCategory[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -42,11 +45,24 @@ export default function BirthdaysClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "year">("list");
+  const [makingCat, setMakingCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatColor, setNewCatColor] = useState<string>(CATEGORY_COLORS[0]);
+  const [armDeleteCatId, setArmDeleteCatId] = useState<string | null>(null);
+
+  const catMap = useMemo(() => {
+    const m = new Map<string, BirthdayCategory>();
+    for (const c of categories) m.set(c.id, c);
+    return m;
+  }, [categories]);
 
   useEffect(() => {
     fetch("/api/birthdays")
-      .then((r) => (r.ok ? r.json() : { birthdays: [] }))
-      .then((d) => setBirthdays(d.birthdays ?? []))
+      .then((r) => (r.ok ? r.json() : { birthdays: [], categories: [] }))
+      .then((d) => {
+        setBirthdays(d.birthdays ?? []);
+        setCategories(d.categories ?? []);
+      })
       .catch(() => null)
       .finally(() => setLoaded(true));
   }, []);
@@ -68,8 +84,55 @@ export default function BirthdaysClient() {
       day: String(b.birthDay),
       year: b.birthYear ? String(b.birthYear) : "",
       remindDays: b.remindDays.length > 0 ? b.remindDays : [0],
+      categoryId: b.categoryId,
     });
     setError(null);
+  }
+
+  async function createCategory() {
+    const name = newCatName.trim();
+    if (!name) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/birthday-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, color: newCatColor }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if ((res.ok || res.status === 202) && (data.category || data.offline)) {
+        const cat: BirthdayCategory = data.category ?? {
+          id: data.tempId as string,
+          userId: "",
+          name,
+          color: newCatColor,
+          createdAt: new Date(),
+        };
+        setCategories((prev) => (prev.some((c) => c.id === cat.id) ? prev : [...prev, cat]));
+        setForm((f) => ({ ...f, categoryId: cat.id }));
+        setMakingCat(false);
+        setNewCatName("");
+      }
+    } catch {
+      setError("Network error — try again");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteCategory(id: string) {
+    try {
+      const res = await fetch(`/api/birthday-categories?id=${id}`, { method: "DELETE" });
+      if (res.ok || res.status === 202) {
+        setCategories((prev) => prev.filter((c) => c.id !== id));
+        setBirthdays((prev) => prev.map((b) => (b.categoryId === id ? { ...b, categoryId: null } : b)));
+        setForm((f) => (f.categoryId === id ? { ...f, categoryId: null } : f));
+      }
+    } catch {
+      // keep state
+    } finally {
+      setArmDeleteCatId(null);
+    }
   }
 
   function toggleRemind(days: number) {
@@ -105,6 +168,7 @@ export default function BirthdaysClient() {
       birthDay: day,
       birthYear: year,
       remindDays: form.remindDays,
+      categoryId: form.categoryId,
     };
     try {
       const res = editingId
@@ -129,6 +193,7 @@ export default function BirthdaysClient() {
           birthDay: payload.birthDay,
           birthYear: payload.birthYear,
           remindDays: payload.remindDays,
+          categoryId: payload.categoryId,
           lastNotifiedOn: null,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -331,6 +396,116 @@ export default function BirthdaysClient() {
             </div>
           </div>
 
+          {/* Category — optional grouping with its own color */}
+          <div className="mt-4">
+            <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+              <Tag className="h-3 w-3" /> Category — optional
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {categories.map((c) => {
+                const on = form.categoryId === c.id;
+                return (
+                  <span key={c.id} className="inline-flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, categoryId: on ? null : c.id })}
+                      aria-pressed={on}
+                      className="flex items-center gap-1.5 rounded-l-full border px-3 py-1.5 text-xs font-medium transition-colors"
+                      style={{
+                        borderColor: on ? c.color : "var(--color-paper-3)",
+                        backgroundColor: on ? `color-mix(in oklab, ${c.color} 12%, var(--color-paper))` : "var(--color-paper)",
+                        color: on ? c.color : "var(--color-ink-soft)",
+                        borderRightWidth: armDeleteCatId === c.id ? 0 : undefined,
+                        borderRadius: armDeleteCatId === c.id ? "9999px 0 0 9999px" : 9999,
+                      }}
+                    >
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
+                      {c.name}
+                    </button>
+                    {armDeleteCatId === c.id ? (
+                      <button
+                        type="button"
+                        onClick={() => void deleteCategory(c.id)}
+                        className="rounded-r-full border border-l-0 px-2 py-1.5 text-xs font-semibold"
+                        style={{ borderColor: "var(--color-error)", color: "var(--color-error)", backgroundColor: "var(--color-paper)" }}
+                      >
+                        Delete?
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setArmDeleteCatId(c.id)}
+                        className="rounded-full px-1 py-1 transition-colors hover:bg-[var(--color-paper-3)]"
+                        style={{ color: "var(--color-ink-muted)" }}
+                        aria-label={`Delete category ${c.name}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
+              {!makingCat ? (
+                <button
+                  type="button"
+                  onClick={() => { setMakingCat(true); setArmDeleteCatId(null); }}
+                  className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                >
+                  <Plus className="h-3 w-3" /> New
+                </button>
+              ) : (
+                <span className="flex flex-wrap items-center gap-2 rounded-xl border p-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <input
+                    autoFocus
+                    value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void createCategory(); } }}
+                    placeholder="e.g. Siblings"
+                    maxLength={40}
+                    className="w-32 rounded-md border px-2 py-1 text-xs outline-none"
+                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                  />
+                  <span className="flex items-center gap-1">
+                    {CATEGORY_COLORS.map((hex) => (
+                      <button
+                        key={hex}
+                        type="button"
+                        onClick={() => setNewCatColor(hex)}
+                        aria-label={`Color ${hex}`}
+                        aria-pressed={newCatColor === hex}
+                        className="h-5 w-5 rounded-full transition-transform"
+                        style={{
+                          backgroundColor: hex,
+                          outline: newCatColor === hex ? `2px solid var(--color-ink)` : "none",
+                          outlineOffset: 2,
+                        }}
+                      />
+                    ))}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void createCategory()}
+                    disabled={busy || !newCatName.trim()}
+                    className="rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-50"
+                    style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                  >
+                    Create
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMakingCat(false); setNewCatName(""); }}
+                    className="rounded-full px-1 py-1"
+                    style={{ color: "var(--color-ink-muted)" }}
+                    aria-label="Cancel new category"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              )}
+            </div>
+          </div>
+
           <div className="mt-4">
             <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
               Remind me — tap all that apply
@@ -427,21 +602,24 @@ export default function BirthdaysClient() {
                   <p className="mt-1.5 text-xs" style={{ color: "var(--color-paper-3)" }}>—</p>
                 ) : (
                   <div className="mt-1.5 flex flex-col gap-1">
-                    {cell.map((b) => (
-                      <button
-                        key={b.id}
-                        onClick={() => { setView("list"); startEdit(b); }}
-                        className="flex min-w-0 items-baseline gap-1.5 text-left"
-                        title={`${b.name} — ${MONTHS[i]} ${b.birthDay}`}
-                      >
-                        <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
-                          {b.birthDay}
-                        </span>
-                        <span className="truncate text-xs" style={{ color: "var(--color-ink)" }}>
-                          {b.name}
-                        </span>
-                      </button>
-                    ))}
+                    {cell.map((b) => {
+                      const cat = b.categoryId ? catMap.get(b.categoryId) : undefined;
+                      return (
+                        <button
+                          key={b.id}
+                          onClick={() => { setView("list"); startEdit(b); }}
+                          className="flex min-w-0 items-baseline gap-1.5 text-left"
+                          title={`${b.name}${cat ? ` (${cat.name})` : ""} — ${MONTHS[i]} ${b.birthDay}`}
+                        >
+                          <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                            {b.birthDay}
+                          </span>
+                          <span className="truncate text-xs" style={{ color: cat?.color ?? "var(--color-ink)" }}>
+                            {b.name}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -463,6 +641,7 @@ export default function BirthdaysClient() {
                 {g.items.map((b) => {
                   const d = daysUntilBirthday(b);
                   const age = turningAge(b);
+                  const cat = b.categoryId ? catMap.get(b.categoryId) : undefined;
                   const reminds = b.remindDays
                     .map((r) => (r === 0 ? "day-of" : r >= 7 ? `${r / 7}w` : `${r}d`))
                     .join(" · ");
@@ -474,10 +653,13 @@ export default function BirthdaysClient() {
                     >
                       <div
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-                        style={{
-                          backgroundColor: d === 0 ? "var(--color-accent)" : "var(--color-paper-2)",
-                          color: d === 0 ? "var(--color-paper)" : "var(--color-ink-soft)",
-                        }}
+                        style={
+                          d === 0
+                            ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
+                            : cat
+                              ? { backgroundColor: `color-mix(in oklab, ${cat.color} 14%, var(--color-paper))`, color: cat.color }
+                              : { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }
+                        }
                         aria-hidden
                       >
                         {d === 0 ? <Cake className="h-4 w-4" /> : b.name.trim().charAt(0).toUpperCase()}
@@ -490,6 +672,7 @@ export default function BirthdaysClient() {
                           )}
                         </p>
                         <p className="truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                          {cat && <span className="font-medium" style={{ color: cat.color }}>{cat.name} · </span>}
                           {birthdayLabel(b)}{b.birthYear ? `, ${b.birthYear}` : ""} · {zodiac(b.birthMonth, b.birthDay)}
                           <span className="hidden sm:inline"> · reminds {reminds}</span>
                         </p>

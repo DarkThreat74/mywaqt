@@ -1105,9 +1105,24 @@ export type NewSubscription = typeof subscriptions.$inferInsert;
 
 // ─── Birthdays (people's birthdays + reminder windows) ───────────────
 
+export const birthdayCategories = pgTable('birthday_categories', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),                    // "Siblings", "Friends", ...
+  color: text('color').notNull(),                  // hex from the fixed palette
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('birthday_categories_user_id_idx').on(table.userId),
+  userNameUq: uniqueIndex('birthday_categories_user_name_uq').on(table.userId, table.name),
+}));
+
+export type BirthdayCategory = typeof birthdayCategories.$inferSelect;
+export type NewBirthdayCategory = typeof birthdayCategories.$inferInsert;
+
 export const birthdays = pgTable('birthdays', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  categoryId: uuid('category_id').references(() => birthdayCategories.id, { onDelete: 'set null' }),
   name: text('name').notNull(),
   birthMonth: integer('birth_month').notNull(), // 1-12
   birthDay: integer('birth_day').notNull(),     // 1-31
