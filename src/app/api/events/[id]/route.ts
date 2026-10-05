@@ -102,7 +102,7 @@ export async function PATCH(
 
   // Validate that end > start
   // If only one of startAt/endAt is updated, we need to check against the existing value
-  if (updates.startAt || updates.endAt) {
+  if (updates.startAt || updates.endAt || updates.type) {
     // Fetch the existing event to compare against if needed
     const [existing] = await db
       .select({ startAt: schema.events.startAt, endAt: schema.events.endAt, type: schema.events.type })

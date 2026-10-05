@@ -233,6 +233,13 @@ export async function POST(request: NextRequest) {
     if (recurrenceEndDate <= startDateStr) {
       return NextResponse.json({ error: "Recurrence end date must be after start date." }, { status: 400 });
     }
+    // Cap the recurrence horizon — occurrences are already capped at 365 rows,
+    // but an absurd end date (e.g. 9999-12-31) would still iterate ~3M days
+    // of wall-clock conversions before the cap applies.
+    const maxEnd = new Date(startDateStr + "T00:00:00Z").getTime() + 370 * 24 * 60 * 60 * 1000;
+    if (new Date(recurrenceEndDate + "T00:00:00Z").getTime() > maxEnd) {
+      return NextResponse.json({ error: "Recurrence end date must be within a year of the start." }, { status: 400 });
+    }
 
     // Determine which days of the week to repeat on
     // recurrenceDays: array of 0-6 (0=Sunday, 6=Saturday) in user's LOCAL timezone

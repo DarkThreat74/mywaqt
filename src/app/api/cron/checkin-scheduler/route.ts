@@ -600,7 +600,13 @@ async function processUserBatch(
         }
       }
 
-      // 5. Send daily prayer schedule push
+      // 5. Send daily prayer schedule push — gated to the user's local
+      // morning (4:00–11:00). This cron runs once daily at a fixed UTC time,
+      // so without the gate users behind UTC got "Today's prayer times"
+      // mid-day or at night.
+      const hour = userNow.getHours();
+      if (hour < 4 || hour >= 11) continue;
+
       const cached = cachedTimesMap.get(s.userId)?.get(today);
       if (!cached) continue;
 
