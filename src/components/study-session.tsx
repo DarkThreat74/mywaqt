@@ -68,6 +68,32 @@ export default function StudySession() {
 
   useEffect(() => { hydrateSession(); }, []);
 
+  // Keep the screen awake while a session runs. The lock auto-releases when
+  // the tab hides, so re-acquire on every return to visible.
+  const wakeRef = useRef<{ release: () => Promise<void> } | null>(null);
+  useEffect(() => {
+    if (state.status !== "running") return;
+    let active = true;
+    const acquire = async () => {
+      try {
+        wakeRef.current = await (navigator as Navigator & {
+          wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> };
+        }).wakeLock?.request("screen") ?? null;
+      } catch { /* low battery / unsupported browser */ }
+    };
+    void acquire();
+    const onVis = () => {
+      if (active && document.visibilityState === "visible") void acquire();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", onVis);
+      void wakeRef.current?.release().catch(() => {});
+      wakeRef.current = null;
+    };
+  }, [state.status]);
+
   // 1s tick while a session is live
   useEffect(() => {
     if (state.status !== "running") return;
