@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2, Headphones, LayoutGrid } from "lucide-react";
+import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2, Headphones } from "lucide-react";
 import { HIDEABLE_TABS } from "@/lib/nav-tabs";
 import { useHiddenTabs, refreshNavPrefs } from "@/lib/nav-prefs";
 import { invalidateApiCache, clearApiCache } from "@/lib/sw-helpers";
@@ -201,7 +201,7 @@ function FunFactToggle() {
 
 // Navigation visibility — toggle which secondary tabs/tools appear.
 // The four mains (Calendar, Prayer, Today, Settings) are fixed.
-function NavTabsEditor() {
+export function NavTabsEditor() {
   const hidden = useHiddenTabs();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -1583,14 +1583,6 @@ export default function SettingsClient({
           </div>
         </CollapsibleSection>
 
-        {/* ── Navigation: show/hide secondary tabs ── */}
-        <CollapsibleSection
-          icon={<LayoutGrid className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
-          title="Navigation"
-        >
-          <NavTabsEditor />
-        </CollapsibleSection>
-
         {/* ── Profile: Name + Prayer Code ── */}
         <CollapsibleSection
           icon={<User className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
@@ -2583,27 +2575,21 @@ export default function SettingsClient({
 
         <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }} />
 
-        {/* ── Advanced settings (delete account) — collapsible ── */}
-        {/* ── Miscellaneous — separate tabbed page for optional tweaks ── */}
-        <Link
-          href="/settings/misc"
-          className="mb-3 flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors hover:bg-[var(--color-paper-2)]"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
-        >
-          <span
-            className="flex h-9 w-9 items-center justify-center rounded-lg border"
-            style={{ backgroundColor: "var(--color-paper-2)", borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+        {/* ── Miscellaneous — section-styled row that opens the misc page ── */}
+        <div className="p-4 sm:p-6">
+          <Link
+            href="/settings/misc"
+            className="flex w-full items-center justify-between gap-2"
           >
-            <Settings2 className="h-4 w-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Miscellaneous</span>
-            <span className="block text-xs" style={{ color: "var(--color-ink-muted)" }}>
-              Optional tweaks — planner display, free-time chips, study window
-            </span>
-          </span>
-          <ChevronDown className="h-4 w-4 -rotate-90" style={{ color: "var(--color-ink-muted)" }} />
-        </Link>
+            <div className="flex items-center gap-2">
+              <Settings2 className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+              <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Miscellaneous</h2>
+              <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>planner · navigation</span>
+            </div>
+            <ChevronDown className="h-4 w-4 shrink-0 -rotate-90" style={{ color: "var(--color-ink-muted)" }} />
+          </Link>
+        </div>
+        <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }} />
 
         <CollapsibleSection
           icon={<Settings2 className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />}

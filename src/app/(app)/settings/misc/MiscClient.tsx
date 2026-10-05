@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CalendarClock } from "lucide-react";
+import { ArrowLeft, CalendarClock, LayoutGrid } from "lucide-react";
 import { setCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { NavTabsEditor } from "../SettingsClient";
 
-type Tab = "planner";
+type Tab = "planner" | "navigation";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "planner", label: "Planner" },
+  { id: "navigation", label: "Navigation" },
 ];
 
 interface MiscSettings {
@@ -207,6 +209,16 @@ export default function MiscClient() {
               {msg}
             </p>
           )}
+        </div>
+      )}
+
+      {tab === "navigation" && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <LayoutGrid className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Navigation tabs</p>
+          </div>
+          <NavTabsEditor />
         </div>
       )}
     </div>
