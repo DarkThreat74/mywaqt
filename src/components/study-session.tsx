@@ -18,7 +18,8 @@ import VoxIcon from "@/components/vox-icon";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
-  planSession, takeBreakNow, switchFocus, type StudyMethod,
+  planSession, takeBreakNow, switchFocus, getDiscipline, recordOutcome,
+  runningBlockId, type StudyMethod,
 } from "@/lib/study/session";
 
 let audioCtx: AudioContext | null = null;
@@ -65,6 +66,9 @@ export default function StudySession() {
   const lastBeepRef = useRef(-1);
   // End-session check — "did you finish?" before the session is discarded.
   const [askFinish, setAskFinish] = useState(false);
+  // Auto-prompt the finish check once per session when the plan runs out —
+  // keyed by startedAt so each new session asks again.
+  const [donePromptedAt, setDonePromptedAt] = useState(0);
 
   useEffect(() => { hydrateSession(); }, []);
 
@@ -132,6 +136,28 @@ export default function StudySession() {
       }
     }
   }, [progress, state.status]);
+
+  // Timer's up → the checkoff is mandatory (adjust-during-render reset pattern).
+  if (state.status === "running" && progress?.done && donePromptedAt !== state.startedAt) {
+    setDonePromptedAt(state.startedAt);
+    setAskFinish(true);
+  }
+
+  /** Close the session and record the outcome — finishing grows the focus
+   *  streak and auto-marks the source block worked; quitting breaks it. */
+  const finish = (finished: boolean) => {
+    setAskFinish(false);
+    recordOutcome(finished);
+    const bid = runningBlockId();
+    if (finished && bid) {
+      void fetch("/api/blocks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: bid, status: "worked" }),
+      }).catch(() => { /* cosmetic — block stays unmarked */ });
+    }
+    endSession();
+  };
 
   if (state.status === "idle") return null;
 
@@ -219,29 +245,53 @@ export default function StudySession() {
   const isBreak = seg.kind === "break";
   const segAccent = isBreak ? "var(--color-success)" : "var(--color-accent)";
 
-  // Finish check — shown from both the bubble and the full overlay.
+  // Finish check — mandatory checkoff when the timer ends, streak-costed
+  // when quitting early. Shown from both the bubble and the full overlay.
+  const discipline = getDiscipline();
   const finishDialog = askFinish ? (
     <div className="fixed inset-0 z-[95] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="End session">
       <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => setAskFinish(false)} aria-label="Back" />
       <div className="relative w-full max-w-sm rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
         <p className="text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
-          {progress.done ? "All done?" : "Ending early — did you finish the assignment?"}
+          {progress.done ? "Time&apos;s up — did you finish?" : "Ending early — did you finish?"}
         </p>
+        {discipline.streak > 0 && (
+          <p className="mt-1.5 text-center text-[11px] font-medium" style={{ color: "var(--color-warmth)" }}>
+            Finishing keeps your {discipline.streak}-session focus streak — quitting breaks it.
+          </p>
+        )}
         <div className="mt-4 flex flex-col gap-2">
           <button
-            onClick={() => { setAskFinish(false); endSession(); }}
+            onClick={() => finish(true)}
             className="flex items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
           >
             <Check className="h-4 w-4" /> Yes, finished
           </button>
-          <button
-            onClick={() => { setAskFinish(false); extendSession(5); }}
-            className="rounded-full border py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 48 }}
-          >
-            Not yet — 5 more minutes
-          </button>
+          <p className="text-center text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+            Not yet — how much more?
+          </p>
+          <div className="grid grid-cols-4 gap-1.5">
+            {[5, 10, 15, 20].map((m) => (
+              <button
+                key={m}
+                onClick={() => { setAskFinish(false); setDonePromptedAt(0); extendSession(m); }}
+                className="rounded-full border py-2.5 text-sm font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 44 }}
+              >
+                +{m}m
+              </button>
+            ))}
+          </div>
+          {!progress.done && (
+            <button
+              onClick={() => finish(false)}
+              className="mt-1 text-center text-[11px] font-medium transition-opacity hover:opacity-70"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              End anyway — I didn&apos;t finish
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -372,7 +422,7 @@ export default function StudySession() {
         <div className="flex gap-2">
           {progress.done ? (
             <button
-              onClick={endSession}
+              onClick={() => setAskFinish(true)}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
             >
@@ -412,6 +462,9 @@ function IntakeSheet() {
 
   if (state.status !== "intake") return null;
 
+  const discipline = getDiscipline();
+  const startedLate = !!state.originalMinutes && state.minutes < state.originalMinutes;
+
   const bump = (i: number, delta: number) => {
     setEsts((prev) => prev.map((v, j) => j === i ? Math.min(180, Math.max(5, (v ?? 20) + delta)) : v));
   };
@@ -434,8 +487,15 @@ function IntakeSheet() {
               Vox
             </p>
             <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              I&apos;ll fit your work into {state.minutes} min — help me get it right.
+              {startedLate
+                ? `Running late — ${state.minutes} of ${state.originalMinutes} min left. I'll make it count.`
+                : `I'll fit your work into ${state.minutes} min — help me get it right.`}
             </p>
+            {discipline.streak > 0 && (
+              <p className="mt-1 text-[11px] font-semibold" style={{ color: "var(--color-warmth)" }}>
+                Focus streak: {discipline.streak} session{discipline.streak === 1 ? "" : "s"} — let&apos;s keep it alive.
+              </p>
+            )}
           </div>
           <button onClick={endSession} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Cancel">
             <X className="h-4 w-4" />

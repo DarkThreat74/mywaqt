@@ -15,6 +15,8 @@ export interface StudySegment {
 
 export interface SessionPlanInput {
   minutes: number; // usable minutes (remaining in the block, capped)
+  /** Full scheduled length — when minutes < this, the session started late. */
+  originalMinutes?: number;
   assignments: { title: string; estimatedMinutes?: number | null }[];
   method?: StudyMethod;
 }
@@ -23,7 +25,7 @@ export type StudyMethod = "auto" | "pomodoro" | "deep" | "review";
 
 export type SessionState =
   | { status: "idle" }
-  | { status: "intake"; minutes: number; assignments: { title: string; estimatedMinutes: number | null }[]; blockId?: string }
+  | { status: "intake"; minutes: number; originalMinutes?: number; assignments: { title: string; estimatedMinutes: number | null }[]; blockId?: string }
   | { status: "planning" }
   | { status: "planned"; segments: StudySegment[]; titles: string[]; blockId?: string }
   | { status: "running"; segments: StudySegment[]; titles: string[]; startedAt: number; overlayOpen: boolean; blockId?: string };
@@ -74,6 +76,7 @@ export function beginIntake(input: Omit<SessionPlanInput, "method">, blockId?: s
   state = {
     status: "intake",
     minutes: input.minutes,
+    originalMinutes: input.originalMinutes,
     assignments: input.assignments.map((a) => ({
       title: a.title,
       estimatedMinutes: a.estimatedMinutes ?? null,
@@ -139,6 +142,35 @@ export function discardPlan() {
 export function endSession() {
   state = { status: "idle" };
   emit();
+}
+
+// ─── Focus discipline record — the consequence layer ───
+// A completed session grows the streak; ending early (not finished) or
+// abandoning resets it. Persisted locally, surfaced in the intake sheet.
+export interface Discipline { streak: number; completed: number; abandoned: number }
+
+const DISC_KEY = "waqt-vox-discipline";
+
+export function getDiscipline(): Discipline {
+  try {
+    const d = JSON.parse(localStorage.getItem(DISC_KEY) ?? "null");
+    if (d && typeof d.streak === "number") return d;
+  } catch { /* fresh */ }
+  return { streak: 0, completed: 0, abandoned: 0 };
+}
+
+/** Record the outcome. finished=true grows the streak; false breaks it. */
+export function recordOutcome(finished: boolean): Discipline {
+  const d = getDiscipline();
+  const next = finished
+    ? { streak: d.streak + 1, completed: d.completed + 1, abandoned: d.abandoned }
+    : { streak: 0, completed: d.completed, abandoned: d.abandoned + 1 };
+  try { localStorage.setItem(DISC_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  return next;
+}
+
+export function runningBlockId(): string | undefined {
+  return state.status === "running" ? state.blockId : undefined;
 }
 
 /** "Not finished yet" — append a short study segment and keep running.

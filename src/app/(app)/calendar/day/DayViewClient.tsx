@@ -2746,7 +2746,7 @@ export default function DayViewClient({ date }: { date: string }) {
                     }
                     const minutes = Math.max(10, b.endMin - start);
                     beginIntake(
-                      { minutes, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })) },
+                      { minutes, originalMinutes: b.endMin - b.startMin, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })) },
                       b.id,
                     );
                   }}
