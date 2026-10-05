@@ -151,7 +151,19 @@ export async function POST(request: NextRequest) {
         remindDaysBefore: (out.remindDaysBefore as number) ?? 3,
         color: (out.color as string) ?? "#c2410c",
       })
+      .onConflictDoNothing({ target: schema.subscriptions.id })
       .returning();
+
+    // Retried offline replay — row exists; return it instead of 500ing.
+    if (!sub && validClientId) {
+      const [existing] = await db
+        .select()
+        .from(schema.subscriptions)
+        .where(and(eq(schema.subscriptions.id, validClientId), eq(schema.subscriptions.userId, session.userId)))
+        .limit(1);
+      if (existing) return NextResponse.json({ subscription: existing, deduped: true });
+      return NextResponse.json({ error: "Failed to create subscription" }, { status: 500 });
+    }
 
     return NextResponse.json({ subscription: sub });
   } catch (err) {

@@ -182,7 +182,23 @@ export async function POST(request: NextRequest) {
         endMin: body.endMin!,
         sharePublic: body.sharePublic !== false,
       })
+      .onConflictDoNothing({ target: schema.studyBlocks.id })
       .returning();
+
+    // Retried offline replay — the row already exists; return it as-is so the
+    // outbox item resolves instead of erroring on a unique-violation.
+    if (!block && validClientId) {
+      const [existing] = await db
+        .select()
+        .from(schema.studyBlocks)
+        .where(and(eq(schema.studyBlocks.id, validClientId), eq(schema.studyBlocks.userId, session.userId)))
+        .limit(1);
+      if (existing) {
+        const [withA] = await withAssignments(session.userId, [existing]);
+        return NextResponse.json({ block: withA, deduped: true });
+      }
+      return NextResponse.json({ error: "Failed to create block" }, { status: 500 });
+    }
 
     if (owned.length > 0) {
       await db.insert(schema.blockAssignments).values(

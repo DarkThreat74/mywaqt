@@ -29,7 +29,7 @@ export default function LogoutButton() {
       // LocalStorage app keys (settings cache, session store, seen flags).
       try {
         Object.keys(localStorage)
-          .filter((k) => k.startsWith("waqt-") || k.startsWith("waqt:"))
+          .filter((k) => k.startsWith("waqt-") || k.startsWith("waqt:") || k === "quran-best-streak")
           .forEach((k) => localStorage.removeItem(k));
       } catch { /* ignore */ }
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });

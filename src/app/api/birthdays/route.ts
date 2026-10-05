@@ -135,7 +135,19 @@ export async function POST(request: NextRequest) {
         remindDays: (out.remindDays as number[]) ?? [0, 1],
         categoryId: await ownedCategoryId(session.userId, body.categoryId),
       })
+      .onConflictDoNothing({ target: schema.birthdays.id })
       .returning();
+
+    // Retried offline replay — row exists; return it instead of 500ing.
+    if (!row && validClientId) {
+      const [existing] = await db
+        .select()
+        .from(schema.birthdays)
+        .where(and(eq(schema.birthdays.id, validClientId), eq(schema.birthdays.userId, session.userId)))
+        .limit(1);
+      if (existing) return NextResponse.json({ birthday: existing, deduped: true });
+      return NextResponse.json({ error: "Failed to create birthday" }, { status: 500 });
+    }
 
     return NextResponse.json({ birthday: row });
   } catch (err) {
