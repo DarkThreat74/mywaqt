@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSyncExternalStore } from "react";
 import { MessageCircle } from "lucide-react";
 import { useInbox } from "@/lib/inbox";
 import { useHiddenTabs } from "@/lib/nav-prefs";
@@ -9,6 +10,12 @@ import { useHiddenTabs } from "@/lib/nav-prefs";
 export default function MessagesNavItem({ mobile = false }: { mobile?: boolean }) {
   const inbox = useInbox();
   const hiddenTabs = useHiddenTabs();
+  // Same never-flash guard as ToolsFab — SSR HTML can't know the hidden set.
+  const ready = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   const unread = inbox.unreadMessages ?? 0;
   const badge = unread > 0 && (
     <span
@@ -21,6 +28,7 @@ export default function MessagesNavItem({ mobile = false }: { mobile?: boolean }
   );
 
   if (hiddenTabs.has("messages")) return null;
+  if (!ready) return mobile ? <div className="min-w-0 flex-1" aria-hidden /> : null;
 
   if (mobile) {
     return (

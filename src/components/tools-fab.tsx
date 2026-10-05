@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { LayoutGrid } from "lucide-react";
 import { useHiddenTabs } from "@/lib/nav-prefs";
 
@@ -7,7 +8,16 @@ import { useHiddenTabs } from "@/lib/nav-prefs";
    Hideable via Settings → Navigation ("Center tools button"). */
 export default function ToolsFab() {
   const hiddenTabs = useHiddenTabs();
-  if (hiddenTabs.has("tools-fab")) return null;
+  // false on the server, true once hydrated — the SSR'd HTML can't know the
+  // user's setting, so render a spacer until the cached prefs are read.
+  const ready = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+  if (!ready || hiddenTabs.has("tools-fab")) {
+    return <div className="min-w-0 flex-1" aria-hidden />;
+  }
 
   return (
     <button
