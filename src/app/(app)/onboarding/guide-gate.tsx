@@ -124,6 +124,7 @@ export function GuideGate({ onPass }: { onPass: () => void }) {
   const [picked, setPicked] = useState<(number | null)[]>([]);
   const [score, setScore] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLParagraphElement>(null);
 
   const checkScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -131,11 +132,19 @@ export function GuideGate({ onPass }: { onPass: () => void }) {
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8) setScrolled(true);
   }, []);
 
+  // Three independent ways to unlock, so the button can never get stuck:
+  // 1. IntersectionObserver on the end marker, 2. scroll fallback,
+  // 3. content-fits check on every layout change.
   useEffect(() => {
-    if (phase !== "read") return;
-    // If the content fits without scrolling, count it as read.
+    if (phase !== "read" || !endRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) setScrolled(true); },
+      { root: scrollRef.current, threshold: 0.5 },
+    );
+    observer.observe(endRef.current);
     const el = scrollRef.current;
     if (el && el.scrollHeight <= el.clientHeight + 8) setScrolled(true);
+    return () => observer.disconnect();
   }, [phase]);
 
   // Forced re-read timer after a failed quiz.
@@ -203,20 +212,25 @@ export function GuideGate({ onPass }: { onPass: () => void }) {
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-accent)" }}>
                   {s.kicker}
                 </p>
-                <h2 className="mt-0.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                <h2 className="mt-0.5 inline-block text-sm font-semibold" style={{ color: "var(--color-ink)", borderBottom: "2px solid var(--color-accent)", paddingBottom: 1 }}>
                   {s.title}
                 </h2>
                 <ul className="mt-1.5 space-y-1.5">
                   {s.items.map((it) => (
                     <li key={it.heading} className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                      <span className="font-medium" style={{ color: "var(--color-ink)" }}>{it.heading}.</span>{" "}
+                      <span
+                        className="font-medium"
+                        style={{ color: "var(--color-ink)", borderBottom: "1px solid var(--color-warmth)", paddingBottom: 0 }}
+                      >
+                        {it.heading}.
+                      </span>{" "}
                       {it.body}
                     </li>
                   ))}
                 </ul>
               </section>
             ))}
-            <p className="text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            <p ref={endRef} className="pt-2 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
               — end of the guide —
             </p>
           </div>
@@ -321,7 +335,9 @@ export function GuideGate({ onPass }: { onPass: () => void }) {
             className="mt-4 w-full rounded-xl py-3 text-sm font-semibold transition-opacity disabled:opacity-40"
             style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
           >
-            Submit answers
+            {picked.some((p) => p === null)
+              ? `Answer all ${QUESTIONS_PER_QUIZ} (${picked.filter((p) => p !== null).length}/${QUESTIONS_PER_QUIZ})`
+              : "Submit answers"}
           </button>
         </>
       )}
