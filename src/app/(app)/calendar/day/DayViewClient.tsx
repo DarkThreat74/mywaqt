@@ -1349,8 +1349,8 @@ export default function DayViewClient({ date }: { date: string }) {
           role="group"
           aria-label="Prayer times"
         >
-          {/* Mobile: single-row scrollable strip with inline label+time */}
-          <div className="flex gap-1 overflow-x-auto lg:hidden" style={{ scrollbarWidth: "none" }}>
+          {/* Mobile: single row, chips share the full width evenly */}
+          <div className="flex gap-1 lg:hidden">
             {PRAYER_NAMES.map((prayer) => {
               const rawTime = prayerTimes[prayer.key];
               if (!rawTime) return null;
@@ -1367,7 +1367,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   <div
                     key={prayer.key}
                     className="flex shrink-0 items-center self-stretch"
-                    style={{ minWidth: 20 }}
+                    style={{ width: 18 }}
                     title={`${prayer.label} ${formatTimeCompact(time)} — end of the Fajr window`}
                     aria-label={`${prayer.label} ${formatTimeCompact(time)}`}
                     role="separator"
@@ -1387,9 +1387,8 @@ export default function DayViewClient({ date }: { date: string }) {
                 <button
                   key={prayer.key}
                   onClick={isClickable ? () => setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayerLabel(prayer.key, prayer.label) }) : undefined}
-                  className="flex shrink-0 flex-col items-center justify-center rounded-lg border px-2 py-1.5 transition-colors"
+                  className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-lg border px-1 py-1.5 transition-colors"
                   style={{
-                    minWidth: 52,
                     minHeight: 44,
                     borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
                     backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
@@ -1397,9 +1396,9 @@ export default function DayViewClient({ date }: { date: string }) {
                   }}
                   disabled={!isClickable}
                 >
-                  <span className="flex items-center gap-0.5 text-[10px] font-semibold leading-none" style={{ color: prayer.color }}>
+                  <span className="flex items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none" style={{ color: prayer.color }}>
                     {prayerLabel(prayer.key, prayer.label)}
-                    {isPrayed && <Check className="h-2.5 w-2.5" style={{ color: "var(--color-success)" }} />}
+                    {isPrayed && <Check className="h-2.5 w-2.5 shrink-0" style={{ color: "var(--color-success)" }} />}
                     {isExcused && <span className="text-[8px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
                   </span>
                   <span className="mt-0.5 text-[10px] tabular-nums leading-none" style={{ color: "var(--color-ink-muted)" }}>
