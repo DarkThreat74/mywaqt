@@ -13,13 +13,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { BookOpen, Check, Coffee, Minus, Play, Plus, Shuffle, Square, X } from "lucide-react";
+import { BookOpen, Check, Coffee, Minus, Pause, Play, Plus, Shuffle, Square, X, Zap } from "lucide-react";
 import VoxIcon from "@/components/vox-icon";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
   planSession, takeBreakNow, switchFocus, getDiscipline, recordOutcome,
-  runningBlockId, type StudyMethod,
+  runningBlockId, pauseSession, resumeSession, startSprint, sessionElapsed,
+  type StudyMethod,
 } from "@/lib/study/session";
 
 let audioCtx: AudioContext | null = null;
@@ -72,11 +73,12 @@ export default function StudySession() {
 
   useEffect(() => { hydrateSession(); }, []);
 
-  // Keep the screen awake while a session runs. The lock auto-releases when
-  // the tab hides, so re-acquire on every return to visible.
+  // Keep the screen awake while a session is actively running — a paused
+  // session is meant to let you step away, so the lock releases there too.
+  const paused = state.status === "running" && state.pausedAt !== null;
   const wakeRef = useRef<{ release: () => Promise<void> } | null>(null);
   useEffect(() => {
-    if (state.status !== "running") return;
+    if (state.status !== "running" || paused) return;
     let active = true;
     const acquire = async () => {
       try {
@@ -100,7 +102,7 @@ export default function StudySession() {
       void wakeRef.current?.release().catch(() => {});
       wakeRef.current = null;
     };
-  }, [state.status]);
+  }, [state.status, paused]);
 
   // 1s tick while a session is live
   useEffect(() => {
@@ -111,7 +113,7 @@ export default function StudySession() {
 
   // Segment transitions + break-end countdown beeps
   const progress = state.status === "running"
-    ? segmentAt(state.segments, Math.floor((now - state.startedAt) / 1000))
+    ? segmentAt(state.segments, sessionElapsed(now))
     : null;
   useEffect(() => {
     if (!progress || state.status !== "running") return;
@@ -314,9 +316,11 @@ export default function StudySession() {
             style={{ color: "var(--color-paper)", minHeight: 44 }}
             aria-label={`Open study session — ${seg.label}, ${fmtClock(progress.remainingSec)} left`}
           >
-            <BookOpen className="h-4 w-4 shrink-0" style={{ color: segAccent }} />
+            {paused
+              ? <Pause className="h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
+              : <BookOpen className="h-4 w-4 shrink-0" style={{ color: segAccent }} />}
             <span className="text-xs font-semibold tabular-nums">{fmtClock(progress.remainingSec)}</span>
-            <span className="max-w-[7rem] truncate text-[11px] opacity-80">{seg.label}</span>
+            <span className="max-w-[7rem] truncate text-[11px] opacity-80">{paused ? "Paused" : seg.label}</span>
           </button>
           <button
             onClick={() => setAskFinish(true)}
@@ -361,7 +365,7 @@ export default function StudySession() {
             style={{ color: segAccent }}
             aria-live="polite"
           >
-            {progress.done ? "Session complete" : isBreak ? "Break — stretch, breathe" : "Stay with it"}
+            {progress.done ? "Session complete" : paused ? "Paused" : isBreak ? "Break — stretch, breathe" : "Stay with it"}
           </p>
           <p
             className="mt-2 text-6xl font-bold tabular-nums tracking-tight sm:text-7xl"
@@ -370,7 +374,7 @@ export default function StudySession() {
             {fmtClock(progress.remainingSec)}
           </p>
           <p className="mt-3 max-w-[16rem] text-base font-medium" style={{ color: "var(--color-ink-soft)" }}>
-            {progress.done ? "Nice work — go rest." : seg.label}
+            {progress.done ? "Nice work — go rest." : paused ? "Take the moment you need. I'll hold your place." : seg.label}
           </p>
           {isBreak && progress.remainingSec <= 5 && progress.remainingSec > 0 && (
             <p className="mt-1 text-sm font-semibold" style={{ color: "var(--color-success)" }} aria-live="assertive">
@@ -378,7 +382,7 @@ export default function StudySession() {
             </p>
           )}
           {/* Vox's coaching line — strict trainer voice, rotates per segment */}
-          {!progress.done && (
+          {!progress.done && !paused && (
             <p className="mt-3 text-[11px] font-medium italic" style={{ color: "var(--color-ink-muted)" }}>
               {(isBreak ? COACH_BREAK : COACH_STUDY)[progress.index % (isBreak ? COACH_BREAK : COACH_STUDY).length]}
             </p>
@@ -401,7 +405,7 @@ export default function StudySession() {
         )}
 
         {/* In-session rescue actions — break or switch without ending */}
-        {!progress.done && !isBreak && (
+        {!progress.done && !isBreak && !paused && (
           <div className="mb-3 flex justify-center gap-2">
             <button
               onClick={() => takeBreakNow(5)}
@@ -422,7 +426,7 @@ export default function StudySession() {
           </div>
         )}
 
-        {/* Footer */}
+        {/* Footer — pause/resume beside end-session */}
         <div className="flex gap-2">
           {progress.done ? (
             <button
@@ -433,13 +437,24 @@ export default function StudySession() {
               <Check className="h-4 w-4" /> Done
             </button>
           ) : (
-            <button
-              onClick={() => setAskFinish(true)}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 48 }}
-            >
-              <Square className="h-4 w-4" /> End session
-            </button>
+            <>
+              <button
+                onClick={paused ? resumeSession : pauseSession}
+                className="flex items-center justify-center gap-1.5 rounded-full border px-5 py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 48, minWidth: 96 }}
+                aria-label={paused ? "Resume session" : "Pause session"}
+              >
+                {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                {paused ? "Resume" : "Pause"}
+              </button>
+              <button
+                onClick={() => setAskFinish(true)}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 48 }}
+              >
+                <Square className="h-4 w-4" /> End session
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -526,6 +541,22 @@ function IntakeSheet() {
               </li>
             ))}
           </ul>
+
+          {/* Sprint — skip planning, one focused burst. Research: 10–20 min
+              sessions beat long blocks on attention + completion. */}
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>Short on time? Sprint instead</p>
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            {[10, 15, 20].map((m) => (
+              <button
+                key={m}
+                onClick={() => startSprint(m, state.assignments[0]?.title ?? "Focus sprint")}
+                className="flex items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 44 }}
+              >
+                <Zap className="h-3.5 w-3.5" /> {m}m
+              </button>
+            ))}
+          </div>
 
           <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>Study method</p>
           <div className="mt-2 grid grid-cols-2 gap-1.5">

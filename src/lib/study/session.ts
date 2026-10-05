@@ -28,7 +28,9 @@ export type SessionState =
   | { status: "intake"; minutes: number; originalMinutes?: number; assignments: { title: string; estimatedMinutes: number | null }[]; blockId?: string }
   | { status: "planning" }
   | { status: "planned"; segments: StudySegment[]; titles: string[]; blockId?: string }
-  | { status: "running"; segments: StudySegment[]; titles: string[]; startedAt: number; overlayOpen: boolean; blockId?: string };
+  | { status: "running"; segments: StudySegment[]; titles: string[]; startedAt: number; overlayOpen: boolean; blockId?: string;
+      /** Wall-clock pause support — elapsed time excludes paused periods. */
+      pausedAt: number | null; pausedMs: number };
 
 const KEY = "waqt-study-session";
 
@@ -60,7 +62,7 @@ export function hydrateSession() {
     if (!raw) return;
     const parsed = JSON.parse(raw) as SessionState;
     if (parsed.status === "running" && Array.isArray(parsed.segments) && typeof parsed.startedAt === "number") {
-      state = { ...parsed, overlayOpen: false };
+      state = { ...parsed, overlayOpen: false, pausedAt: parsed.pausedAt ?? null, pausedMs: parsed.pausedMs ?? 0 };
       emit();
     } else if (parsed.status === "planned" && Array.isArray(parsed.segments)) {
       state = parsed;
@@ -129,6 +131,8 @@ export function confirmSession() {
     titles: state.titles,
     startedAt: Date.now(),
     overlayOpen: true,
+    pausedAt: null,
+    pausedMs: 0,
     blockId: state.blockId,
   };
   emit();
@@ -141,6 +145,42 @@ export function discardPlan() {
 
 export function endSession() {
   state = { status: "idle" };
+  emit();
+}
+
+/** True elapsed seconds excluding paused time — the only clock math callers
+ *  should use, so a paused timer never ticks forward. */
+function runningElapsedSec(): number {
+  if (state.status !== "running") return 0;
+  const pauseMs = state.pausedMs + (state.pausedAt ? Date.now() - state.pausedAt : 0);
+  return Math.max(0, Math.floor((Date.now() - state.startedAt - pauseMs) / 1000));
+}
+
+/** Freeze the session — the timer stops but the plan stays put. */
+export function pauseSession() {
+  if (state.status !== "running" || state.pausedAt) return;
+  state = { ...state, pausedAt: Date.now() };
+  emit();
+}
+
+export function resumeSession() {
+  if (state.status !== "running" || !state.pausedAt) return;
+  state = { ...state, pausedMs: state.pausedMs + (Date.now() - state.pausedAt), pausedAt: null };
+  emit();
+}
+
+/** "I only have 10/15/20 minutes" — a single-segment sprint that skips
+ *  planning entirely. Labelled by the first assignment when present. */
+export function startSprint(minutes: number, label = "Focus sprint") {
+  state = {
+    status: "running",
+    segments: [{ kind: "study", minutes, label }],
+    titles: [label],
+    startedAt: Date.now(),
+    overlayOpen: true,
+    pausedAt: null,
+    pausedMs: 0,
+  };
   emit();
 }
 
@@ -180,8 +220,8 @@ export function extendSession(minutes = 5, label = "Finish up") {
   if (state.status !== "running") return;
   const segments = [...state.segments, { kind: "study" as const, minutes, label }];
   const priorSec = segments.slice(0, -1).reduce((s, x) => s + x.minutes * 60, 0);
-  const elapsedSec = Math.min(Math.floor((Date.now() - state.startedAt) / 1000), priorSec);
-  state = { ...state, segments, startedAt: Date.now() - elapsedSec * 1000 };
+  const elapsedSec = Math.min(runningElapsedSec(), priorSec);
+  state = { ...state, segments, startedAt: Date.now() - elapsedSec * 1000, pausedAt: null, pausedMs: 0 };
   emit();
 }
 
@@ -197,7 +237,7 @@ export function setOverlayOpen(open: boolean) {
  *  Vigilance research: brief diversions restore focus better than pushing through. */
 export function takeBreakNow(minutes = 5) {
   if (state.status !== "running") return;
-  const elapsedSec = Math.floor((Date.now() - state.startedAt) / 1000);
+  const elapsedSec = runningElapsedSec();
   const p = segmentAt(state.segments, elapsedSec);
   if (p.done || p.segment.kind !== "study") return;
 
@@ -217,7 +257,7 @@ export function takeBreakNow(minutes = 5) {
  *  Task switching beats grinding on something your attention has left. */
 export function switchFocus() {
   if (state.status !== "running") return;
-  const elapsedSec = Math.floor((Date.now() - state.startedAt) / 1000);
+  const elapsedSec = runningElapsedSec();
   const p = segmentAt(state.segments, elapsedSec);
   if (p.done || p.segment.kind !== "study") return;
 
@@ -234,7 +274,9 @@ export function switchFocus() {
 
 /** Elapsed seconds since the session started — call inside a ticking component. */
 export function sessionElapsed(now: number): number {
-  return state.status === "running" ? Math.max(0, Math.floor((now - state.startedAt) / 1000)) : 0;
+  if (state.status !== "running") return 0;
+  const pauseMs = state.pausedMs + (state.pausedAt ? now - state.pausedAt : 0);
+  return Math.max(0, Math.floor((now - state.startedAt - pauseMs) / 1000));
 }
 
 export interface SegmentProgress {
