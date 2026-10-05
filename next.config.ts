@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
   // Optimize heavy package imports to reduce bundle size
   experimental: {
     optimizePackageImports: ["lucide-react", "date-fns"],
+    // Router cache — keep visited pages warm so tab switches are instant
+    // instead of re-fetching the RSC payload on every navigation.
+    staleTimes: { dynamic: 30, static: 300 },
   },
   // Keep native-binary packages external so Vercel's NFT bundler emits the
   // actual binary into the serverless function instead of webpack trying to

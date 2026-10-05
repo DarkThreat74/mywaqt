@@ -1,8 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lte, ne } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { shareWindowUtc } from "@/lib/share-window";
+import { wallClockToUtc } from "@/lib/timezone";
+
+interface PublicEvent {
+  id: string;
+  title: string;
+  details: string | null;
+  startAt: Date;
+  endAt: Date;
+  type: string;
+  color: string | null;
+}
+
+/** Fetch the owner's shared study blocks as generic "Study block" events —
+ *  assignment titles are never exposed. Blocks are stored as user-local
+ *  date + minutes, so they're converted to instants in the owner's tz. */
+async function sharedBlocks(
+  userId: string,
+  timezone: string,
+  dateFrom: string,
+  dateTo: string,
+): Promise<PublicEvent[]> {
+  const blocks = await db
+    .select()
+    .from(schema.studyBlocks)
+    .where(
+      and(
+        eq(schema.studyBlocks.userId, userId),
+        eq(schema.studyBlocks.sharePublic, true),
+        ne(schema.studyBlocks.status, "released"),
+        gte(schema.studyBlocks.blockDate, dateFrom),
+        lte(schema.studyBlocks.blockDate, dateTo),
+      ),
+    )
+    .limit(1000);
+
+  return blocks.flatMap((b) => {
+    try {
+      const [y, mo, d] = b.blockDate.split("-").map(Number);
+      return [{
+        id: `block-${b.id}`,
+        title: "Study block",
+        details: null,
+        startAt: wallClockToUtc(y, mo, d, Math.floor(b.startMin / 60), b.startMin % 60, 0, timezone),
+        endAt: wallClockToUtc(y, mo, d, Math.floor(b.endMin / 60), b.endMin % 60, 0, timezone),
+        type: "study",
+        color: null,
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +87,10 @@ export async function GET(
       sharePastDays: schema.users.sharePastDays,
       shareShowEvents: schema.users.shareShowEvents,
       shareShowEventDetails: schema.users.shareShowEventDetails,
+      timezone: schema.prayerSettings.timezone,
     })
     .from(schema.users)
+    .leftJoin(schema.prayerSettings, eq(schema.prayerSettings.userId, schema.users.id))
     .where(eq(schema.users.publicShareToken, token))
     .limit(1);
 
@@ -107,8 +161,11 @@ export async function GET(
       .orderBy(schema.events.startAt)
       .limit(1000);
 
+    const blocks = await sharedBlocks(user.id, user.timezone ?? "UTC", cFrom, cTo);
+    const merged = [...events, ...blocks].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+
     // no-store: visibility changes must apply immediately, no edge caching
-    const response = NextResponse.json(events.map(mask));
+    const response = NextResponse.json(merged.map(mask));
     response.headers.set("Cache-Control", "no-store");
     return response;
   }
@@ -160,7 +217,10 @@ export async function GET(
     .orderBy(schema.events.startAt)
     .limit(500);
 
-  const response = NextResponse.json(events.map(mask));
+  const blocks = await sharedBlocks(user.id, user.timezone ?? "UTC", dateStr, dateStr);
+  const merged = [...events, ...blocks].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+
+  const response = NextResponse.json(merged.map(mask));
   response.headers.set("Cache-Control", "no-store");
   return response;
 }

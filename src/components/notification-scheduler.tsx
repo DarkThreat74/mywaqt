@@ -669,9 +669,12 @@ export default function NotificationScheduler() {
     // Permission is requested from the Settings page (user gesture required)
     if (Notification.permission !== "granted") return;
 
-    // On initial mount + when tab regains focus, check for missed prayers
-    checkMissedPrayers();
-    scheduleAll();
+    // On initial mount + when tab regains focus, check for missed prayers.
+    // Deferred past first paint so app-open isn't blocked by the fetch burst.
+    const bootTimer = setTimeout(() => {
+      checkMissedPrayers();
+      scheduleAll();
+    }, 1200);
 
     // Re-schedule when the page becomes visible again
     const handleVisibilityChange = () => {
@@ -691,6 +694,7 @@ export default function NotificationScheduler() {
     }, 5 * 60 * 1000);
 
     return () => {
+      clearTimeout(bootTimer);
       clearAllTimers();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(interval);

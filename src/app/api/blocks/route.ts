@@ -20,6 +20,7 @@ interface BlockBody {
   homeworkIds?: string[];
   status?: string;
   releaseReason?: string;
+  sharePublic?: boolean;
   clientId?: string;
 }
 
@@ -179,6 +180,7 @@ export async function POST(request: NextRequest) {
         blockDate: body.date!,
         startMin: body.startMin!,
         endMin: body.endMin!,
+        sharePublic: body.sharePublic !== false,
       })
       .returning();
 
@@ -250,6 +252,10 @@ export async function PATCH(request: NextRequest) {
       } else if (body.status !== "released") {
         set.releaseReason = null;
       }
+    }
+
+    if (body.sharePublic !== undefined) {
+      set.sharePublic = Boolean(body.sharePublic);
     }
 
     if (Array.isArray(body.homeworkIds)) {

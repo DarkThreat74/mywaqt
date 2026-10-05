@@ -13,7 +13,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { BookOpen, Check, Minus, Play, Plus, Sparkles, Square, X } from "lucide-react";
+import { BookOpen, Check, Minus, Play, Plus, Square, X } from "lucide-react";
+import VoxIcon from "@/components/vox-icon";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
@@ -118,7 +119,7 @@ export default function StudySession() {
           <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
             <div>
               <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                <Sparkles className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+                <VoxIcon size={16} />
                 Vox&apos;s plan · {total} min
               </p>
               <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -248,7 +249,7 @@ export default function StudySession() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
-            <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} /> Vox
+            <VoxIcon size={14} /> Vox
           </p>
           <button
             onClick={() => setOverlayOpen(false)}
@@ -361,7 +362,7 @@ function IntakeSheet() {
         <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
           <div>
             <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-              <Sparkles className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+              <VoxIcon size={16} />
               Vox
             </p>
             <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -424,7 +425,7 @@ function IntakeSheet() {
             className="flex w-full items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
           >
-            <Sparkles className="h-4 w-4" /> Plan my session
+            <VoxIcon size={16} /> Plan my session
           </button>
         </div>
       </div>
@@ -449,8 +450,8 @@ function ThinkingCard() {
 
   return (
     <div className="flex w-64 flex-col items-center gap-3 rounded-2xl border px-5 py-6 text-center" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
-      <div className="flex h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)" }}>
-        <Sparkles className="h-5 w-5 animate-pulse" style={{ color: "var(--color-accent)" }} />
+      <div className="animate-pulse">
+        <VoxIcon size={24} withBadge />
       </div>
       <p key={i} className="min-h-[1.25rem] text-sm font-medium" style={{ color: "var(--color-ink)", animation: "voxFade .4s ease" }}>
         {PHRASES[i]}

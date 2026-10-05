@@ -1160,6 +1160,9 @@ export const studyBlocks = pgTable('study_blocks', {
   status: text('status').notNull().default('planned'), // planned | worked | released
   releaseReason: text('release_reason'),
   workedAt: timestamp('worked_at', { withTimezone: true }),
+  // Whether this block appears on the public share view (as a generic
+  // "Study block" — assignment titles are never exposed).
+  sharePublic: boolean('share_public').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   userDateIdx: index('study_blocks_user_date_idx').on(table.userId, table.blockDate),

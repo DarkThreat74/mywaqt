@@ -355,7 +355,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                       <Link
                         key={tool.href}
                         href={tool.href}
-                        prefetch={false}
+                        prefetch
                         onClick={() => setOpen(false)}
                         className="group relative flex flex-col items-center overflow-hidden rounded-2xl border px-2 pb-2.5 pt-3 text-center transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
                         style={{

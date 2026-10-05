@@ -1919,7 +1919,7 @@ export default function DayViewClient({ date }: { date: string }) {
               >
                 {height >= 32 && (
                   <p className="truncate px-2 pt-1 text-[10px] font-medium" style={{ color: "var(--color-accent)" }}>
-                    {worked ? "✓ " : ""}{label}
+                    {worked ? "✓ " : ""}{b.sharePublic === false ? "⊘ " : ""}{label}
                   </p>
                 )}
               </button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, Loader2, Pencil, Sparkles, X } from "lucide-react";
+import { Check, ChevronLeft, Eye, EyeOff, Loader2, Pencil, Sparkles, X } from "lucide-react";
 import type { Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
 import { formatDueBadge } from "@/lib/homework/due-format";
@@ -62,6 +62,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   const [startStr, setStartStr] = useState("");
   const [endStr, setEndStr] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [shareOn, setShareOn] = useState(true);
   const [editingBlock, setEditingBlock] = useState<BlockWithAssignments | null>(null);
   // "Draft for me" proposals — nothing is saved until the user confirms.
   const [draft, setDraft] = useState<{ startMin: number; endMin: number; hwIds: string[] }[] | null>(null);
@@ -120,6 +121,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
       setGapSel(null);
       setEditingBlock(null);
       setPicked(new Set());
+      setShareOn(true);
       setDraft(null);
       setError(null);
     }
@@ -154,6 +156,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     setStartStr(minToTimeInput(d.start));
     setEndStr(minToTimeInput(d.end));
     setPicked(new Set());
+    setShareOn(true);
     setError(null);
   }
 
@@ -164,6 +167,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     setStartStr(minToTimeInput(b.startMin));
     setEndStr(minToTimeInput(b.endMin));
     setPicked(new Set(b.assignments.map((a) => a.homeworkId)));
+    setShareOn(b.sharePublic !== false);
     setError(null);
   }
 
@@ -189,18 +193,19 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
         ? await fetch("/api/blocks", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: editingBlock.id, date, startMin: start, endMin: end, homeworkIds: [...picked] }),
+            body: JSON.stringify({ id: editingBlock.id, date, startMin: start, endMin: end, homeworkIds: [...picked], sharePublic: shareOn }),
           })
         : await fetch("/api/blocks", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ date, startMin: start, endMin: end, homeworkIds: [...picked] }),
+            body: JSON.stringify({ date, startMin: start, endMin: end, homeworkIds: [...picked], sharePublic: shareOn }),
           });
       const data = await res.json().catch(() => ({}));
       if (res.ok || res.status === 202) {
         setGapSel(null);
         setEditingBlock(null);
         setPicked(new Set());
+        setShareOn(true);
         onChanged();
       } else {
         setError(data.error || "Could not save block");
@@ -307,7 +312,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
           <div className="flex items-center gap-2">
             {composing && (
               <button
-                onClick={() => { setGapSel(null); setEditingBlock(null); setPicked(new Set()); setError(null); }}
+                onClick={() => { setGapSel(null); setEditingBlock(null); setPicked(new Set()); setShareOn(true); setError(null); }}
                 className="rounded-md p-1 transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-ink-muted)" }}
                 aria-label="Back"
@@ -424,7 +429,31 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                 </div>
               )}
 
-              <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShareOn(!shareOn)}
+                aria-pressed={shareOn}
+                className="mt-4 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-[var(--color-paper-2)]"
+                title="Show this block on your shared public calendar (as a generic study block)"
+              >
+                <span className="flex items-center gap-1.5" style={{ color: "var(--color-ink-muted)" }}>
+                  {shareOn
+                    ? <Eye className="h-3.5 w-3.5" />
+                    : <EyeOff className="h-3.5 w-3.5" style={{ color: "var(--color-warmth)" }} />}
+                  Public view — shows as “Study block”
+                </span>
+                <span
+                  className="relative h-4 w-7 rounded-full transition-colors"
+                  style={{ backgroundColor: shareOn ? "var(--color-accent)" : "var(--color-paper-3)" }}
+                >
+                  <span
+                    className="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform"
+                    style={{ transform: shareOn ? "translateX(14px)" : "translateX(2px)" }}
+                  />
+                </span>
+              </button>
+
+              <div className="mt-3 flex gap-2">
                 <button
                   onClick={save}
                   disabled={busyAction}
