@@ -13,10 +13,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { BookOpen, Check, Loader2, Play, Sparkles, Square, X } from "lucide-react";
+import { BookOpen, Check, Loader2, Minus, Play, Plus, Sparkles, Square, X } from "lucide-react";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
-  discardPlan, endSession, setOverlayOpen, segmentAt,
+  discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
+  planSession, type StudyMethod,
 } from "@/lib/study/session";
 
 let audioCtx: AudioContext | null = null;
@@ -47,6 +48,8 @@ export default function StudySession() {
   const [now, setNow] = useState(() => Date.now());
   const lastSegRef = useRef(-1);
   const lastBeepRef = useRef(-1);
+  // End-session check — "did you finish?" before the session is discarded.
+  const [askFinish, setAskFinish] = useState(false);
 
   useEffect(() => { hydrateSession(); }, []);
 
@@ -90,6 +93,11 @@ export default function StudySession() {
   }, [progress, state.status]);
 
   if (state.status === "idle") return null;
+
+  // ── Intake — confirm each assignment's time + pick a method ──
+  if (state.status === "intake") {
+    return <IntakeSheet />;
+  }
 
   // ── Planning spinner ──
   if (state.status === "planning") {
@@ -168,10 +176,40 @@ export default function StudySession() {
   const isBreak = seg.kind === "break";
   const segAccent = isBreak ? "var(--color-success)" : "var(--color-accent)";
 
+  // Finish check — shown from both the bubble and the full overlay.
+  const finishDialog = askFinish ? (
+    <div className="fixed inset-0 z-[95] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="End session">
+      <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => setAskFinish(false)} aria-label="Back" />
+      <div className="relative w-full max-w-sm rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
+        <p className="text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
+          {progress.done ? "All done?" : "Ending early — did you finish the assignment?"}
+        </p>
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            onClick={() => { setAskFinish(false); endSession(); }}
+            className="flex items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
+          >
+            <Check className="h-4 w-4" /> Yes, finished
+          </button>
+          <button
+            onClick={() => { setAskFinish(false); extendSession(5); }}
+            className="rounded-full border py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 48 }}
+          >
+            Not yet — 5 more minutes
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // Bubble — persists while overlay is closed
   if (!state.overlayOpen) {
     return (
-      <div className="fixed bottom-20 right-3 z-[60] lg:bottom-6 lg:right-6" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <>
+        {finishDialog}
+        <div className="fixed bottom-20 right-3 z-[60] lg:bottom-6 lg:right-6" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <div className="flex items-center gap-1 rounded-full border shadow-lg" style={{ backgroundColor: "var(--color-ink)", borderColor: "transparent" }}>
           <button
             onClick={() => setOverlayOpen(true)}
@@ -184,7 +222,7 @@ export default function StudySession() {
             <span className="max-w-[7rem] truncate text-[11px] opacity-80">{seg.label}</span>
           </button>
           <button
-            onClick={endSession}
+            onClick={() => setAskFinish(true)}
             className="rounded-r-full p-2.5 pr-3.5 opacity-70 transition-opacity hover:opacity-100"
             style={{ color: "var(--color-paper)", minHeight: 44 }}
             aria-label="End session"
@@ -193,6 +231,7 @@ export default function StudySession() {
           </button>
         </div>
       </div>
+      </>
     );
   }
 
@@ -270,13 +309,116 @@ export default function StudySession() {
             </button>
           ) : (
             <button
-              onClick={endSession}
+              onClick={() => setAskFinish(true)}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 48 }}
             >
               <Square className="h-4 w-4" /> End session
             </button>
           )}
+        </div>
+      </div>
+
+      {finishDialog}
+    </div>
+  );
+}
+
+/** Pre-session intake — confirm how long each assignment needs and pick a
+ *  method before Vox segments the block. */
+function IntakeSheet() {
+  const state = useSyncExternalStore(subscribeSession, getSession, () => ({ status: "idle" }) as ReturnType<typeof getSession>);
+  const assignments = state.status === "intake" ? state.assignments : null;
+  // Reseed the editable estimates whenever a new intake's list arrives —
+  // adjusting state during render is the sanctioned reset pattern.
+  const [prev, setPrev] = useState(assignments);
+  const [ests, setEsts] = useState<(number | null)[]>(() => assignments?.map((a) => a.estimatedMinutes) ?? []);
+  if (assignments !== prev) {
+    setPrev(assignments);
+    setEsts(assignments?.map((a) => a.estimatedMinutes) ?? []);
+  }
+  const [method, setMethod] = useState<StudyMethod>("auto");
+
+  if (state.status !== "intake") return null;
+
+  const bump = (i: number, delta: number) => {
+    setEsts((prev) => prev.map((v, j) => j === i ? Math.min(180, Math.max(5, (v ?? 20) + delta)) : v));
+  };
+
+  const METHODS: { id: StudyMethod; label: string; hint: string }[] = [
+    { id: "auto",     label: "Vox decides", hint: "balanced" },
+    { id: "pomodoro", label: "Pomodoro",    hint: "25·5" },
+    { id: "deep",     label: "Deep work",   hint: "long stretches" },
+    { id: "review",   label: "Quick review",hint: "short sprints" },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Set up study session">
+      <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }} onClick={endSession} aria-label="Cancel" />
+      <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-2xl border-t sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
+        <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+          <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+            <Sparkles className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+            Vox · {state.minutes} min available
+          </p>
+          <button onClick={endSession} className="rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Cancel">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>How long each takes</p>
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {state.assignments.map((a, i) => (
+              <li key={i} className="flex items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>{a.title}</span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button onClick={() => bump(i, -5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`Less time for ${a.title}`}>
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                    {ests[i] ? `${ests[i]}m` : "—"}
+                  </span>
+                  <button onClick={() => bump(i, 5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`More time for ${a.title}`}>
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>Study method</p>
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            {METHODS.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setMethod(m.id)}
+                className="rounded-lg border px-3 py-2 text-left transition-colors"
+                style={{
+                  borderColor: method === m.id ? "var(--color-accent)" : "var(--color-paper-3)",
+                  backgroundColor: method === m.id ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "transparent",
+                  minHeight: 44,
+                }}
+                aria-pressed={method === m.id}
+              >
+                <span className="block text-sm font-medium" style={{ color: method === m.id ? "var(--color-accent)" : "var(--color-ink)" }}>{m.label}</span>
+                <span className="block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{m.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="border-t px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]" style={{ borderColor: "var(--color-paper-3)" }}>
+          <button
+            onClick={() => void planSession(
+              { minutes: state.minutes, method, assignments: state.assignments.map((a, i) => ({ title: a.title, estimatedMinutes: ests[i] })) },
+              state.blockId,
+            )}
+            className="flex w-full items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
+          >
+            <Sparkles className="h-4 w-4" /> Plan my session
+          </button>
         </div>
       </div>
     </div>

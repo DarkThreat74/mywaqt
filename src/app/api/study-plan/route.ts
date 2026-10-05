@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  let body: { minutes?: number; assignments?: { title?: string; estimatedMinutes?: number | null }[] };
+  let body: { minutes?: number; method?: string; assignments?: { title?: string; estimatedMinutes?: number | null }[] };
   try {
     body = await request.json();
   } catch {
@@ -41,15 +41,29 @@ export async function POST(request: NextRequest) {
     }));
   if (assignments.length === 0) assignments.push({ title: "Study", estimatedMinutes: null });
 
-  const segments = await planWithVox(minutes, assignments) ?? fallbackPlan(minutes, assignments);
+  const method = (["pomodoro", "deep", "review"] as const).includes(body.method as "pomodoro" | "deep" | "review")
+    ? (body.method as Method)
+    : "auto";
+
+  const segments = await planWithVox(minutes, assignments, method) ?? fallbackPlan(minutes, assignments, method);
   return NextResponse.json({ segments });
 }
+
+type Method = "auto" | "pomodoro" | "deep" | "review";
+
+const METHOD_HINTS: Record<Method, string> = {
+  auto: "Alternate focused study segments (10–35 min, longest for heavy/deep subjects, shorter for review or drilling) with short breaks (5–10 min).",
+  pomodoro: "Pomodoro style — study segments of about 25 min separated by 5 min breaks; a 15 min break after every third or fourth study segment. Keep to this rhythm but you may merge an assignment into a double pomodoro when its estimate demands it.",
+  deep: "Deep work — long uninterrupted study stretches (35–60 min, longest for heavy/deep subjects) separated by longer breaks (10–15 min). Fewer, bigger segments.",
+  review: "Quick review — short sprints (10–20 min) separated by tiny breaks (3–5 min). Fast rotation between subjects, good for drilling and revision.",
+};
 
 // ─── Vox (OpenRouter) ───
 
 async function planWithVox(
   minutes: number,
   assignments: { title: string; estimatedMinutes: number | null }[],
+  method: Method,
 ): Promise<Segment[] | null> {
   if (!env.openrouterApiKey) return null;
 
@@ -73,10 +87,10 @@ async function planWithVox(
             content:
               "You are Vox, a study-session planner inside a Muslim prayer app. " +
               "Given a fixed number of minutes and a list of assignments, output a segmented study plan. " +
-              "Rules: alternate focused study segments (10–35 min, longest for heavy/deep subjects, shorter for review or drilling) " +
-              "with short breaks (5–10 min). Start with the most demanding subject while focus is fresh. " +
+              `Method: ${METHOD_HINTS[method]} ` +
+              "Start with the most demanding subject while focus is fresh. " +
               "The sum of all segment minutes must exactly equal the total minutes given. " +
-              "If an assignment has an estimate, prefer a segment near that size. " +
+              "If an assignment has an estimate, prefer a segment near that size — the estimate is what the student believes the work takes. " +
               "Labels must be short imperative phrases naming the subject (e.g. 'Chem lab — outline the procedure'). " +
               "Break labels: 'Break'. Reply with ONLY a JSON array like " +
               '[{"kind":"study","minutes":25,"label":"Chem lab — outline"},{"kind":"break","minutes":5,"label":"Break"}].',
@@ -119,21 +133,34 @@ async function planWithVox(
 function fallbackPlan(
   minutes: number,
   assignments: { title: string; estimatedMinutes: number | null }[],
+  method: Method = "auto",
 ): Segment[] {
+  // Method shapes the default chunk + break lengths; a smaller estimate
+  // always wins when it fits inside what's left.
+  const shape = {
+    auto:     { study: 25, breakLen: 5,  maxStudy: 35 },
+    pomodoro: { study: 25, breakLen: 5,  maxStudy: 30 },
+    deep:     { study: 50, breakLen: 10, maxStudy: 60 },
+    review:   { study: 15, breakLen: 3,  maxStudy: 20 },
+  }[method];
+
   const segments: Segment[] = [];
   let remaining = minutes;
   let i = 0;
+  let studyCount = 0;
   while (remaining > 0 && i < 40) {
     const a = assignments[i % assignments.length];
-    // Study chunk: honor the estimate when it fits, else pomodoro-ish 25.
     const target = a.estimatedMinutes && a.estimatedMinutes <= remaining
-      ? Math.min(a.estimatedMinutes, 35)
-      : 25;
+      ? Math.min(a.estimatedMinutes, shape.maxStudy)
+      : shape.study;
     const chunk = Math.min(target, remaining);
     segments.push({ kind: "study", minutes: chunk, label: a.title });
     remaining -= chunk;
+    studyCount++;
     if (remaining >= 10) {
-      const brk = Math.min(5, remaining);
+      // Pomodoro rhythm earns a longer break every third study segment.
+      const brkLen = method === "pomodoro" && studyCount % 3 === 0 ? 15 : shape.breakLen;
+      const brk = Math.min(brkLen, remaining);
       segments.push({ kind: "break", minutes: brk, label: "Break" });
       remaining -= brk;
     }

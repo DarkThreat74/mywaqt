@@ -16,10 +16,14 @@ export interface StudySegment {
 export interface SessionPlanInput {
   minutes: number; // usable minutes (remaining in the block, capped)
   assignments: { title: string; estimatedMinutes?: number | null }[];
+  method?: StudyMethod;
 }
+
+export type StudyMethod = "auto" | "pomodoro" | "deep" | "review";
 
 export type SessionState =
   | { status: "idle" }
+  | { status: "intake"; minutes: number; assignments: { title: string; estimatedMinutes: number | null }[]; blockId?: string }
   | { status: "planning" }
   | { status: "planned"; segments: StudySegment[]; titles: string[]; blockId?: string }
   | { status: "running"; segments: StudySegment[]; titles: string[]; startedAt: number; overlayOpen: boolean; blockId?: string };
@@ -63,6 +67,20 @@ export function hydrateSession() {
   } catch {
     // corrupt cache — ignore
   }
+}
+
+/** Open the intake step — confirm each assignment's time + pick a method. */
+export function beginIntake(input: Omit<SessionPlanInput, "method">, blockId?: string) {
+  state = {
+    status: "intake",
+    minutes: input.minutes,
+    assignments: input.assignments.map((a) => ({
+      title: a.title,
+      estimatedMinutes: a.estimatedMinutes ?? null,
+    })),
+    blockId,
+  };
+  emit();
 }
 
 /** Ask Vox for a plan; lands in 'planned' (preview) state. */
@@ -120,6 +138,18 @@ export function discardPlan() {
 
 export function endSession() {
   state = { status: "idle" };
+  emit();
+}
+
+/** "Not finished yet" — append a short study segment and keep running.
+ *  If the plan had already run out, the clock rewinds so the new segment
+ *  gets its full length starting now. */
+export function extendSession(minutes = 5, label = "Finish up") {
+  if (state.status !== "running") return;
+  const segments = [...state.segments, { kind: "study" as const, minutes, label }];
+  const priorSec = segments.slice(0, -1).reduce((s, x) => s + x.minutes * 60, 0);
+  const elapsedSec = Math.min(Math.floor((Date.now() - state.startedAt) / 1000), priorSec);
+  state = { ...state, segments, startedAt: Date.now() - elapsedSec * 1000 };
   emit();
 }
 

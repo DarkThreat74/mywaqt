@@ -13,7 +13,7 @@ import { syncEventsToCache, addEventToCache, updateEventInCache, deleteEventFrom
 import { instantToWall, wallClockToUtc } from "@/lib/timezone";
 import PlanBlocksSheet, { type BlockWithAssignments } from "@/components/plan-blocks-sheet";
 import { freeGaps, fmtDur, fmtMin, DAY_START, DAY_END, type Interval } from "@/lib/blocks/gaps";
-import { planSession } from "@/lib/study/session";
+import { beginIntake } from "@/lib/study/session";
 
 interface CalendarEvent {
   id: string;
@@ -2700,7 +2700,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       } catch { /* fall back to block start */ }
                     }
                     const minutes = Math.max(10, b.endMin - start);
-                    void planSession(
+                    beginIntake(
                       { minutes, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })) },
                       b.id,
                     );
