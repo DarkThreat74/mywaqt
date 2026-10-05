@@ -95,8 +95,11 @@ export function useInbox(): Inbox {
   const tick = () => { if (!document.hidden) void fetchInbox(); };
   useEffect(() => {
     pollers += 1;
+    let boot: ReturnType<typeof setTimeout> | null = null;
     if (pollers === 1) {
-      void fetchInbox();
+      // Defer the first poll past first paint — the inbox aggregates six
+      // tables and shouldn't compete with the page's own boot fetches.
+      boot = setTimeout(() => void fetchInbox(), 1500);
       timer = setInterval(tick, POLL_MS);
       // iOS suspends intervals in background and restores via bfcache
       // (pageshow, no visibilitychange/focus) — refetch on every resume
@@ -108,6 +111,7 @@ export function useInbox(): Inbox {
     return () => {
       pollers -= 1;
       if (pollers === 0 && timer) {
+        if (boot) clearTimeout(boot);
         clearInterval(timer);
         timer = null;
         window.removeEventListener("focus", fetchInbox);

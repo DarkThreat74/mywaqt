@@ -807,8 +807,38 @@ export default function DayViewClient({ date }: { date: string }) {
   // Free time only counts from now — a morning that's already gone isn't
   // plannable, and once the window ends the day reports zero free time.
   // Computed per render (cheap) so a long-open page doesn't offer stale times.
-  const nowMin = isToday ? timeToMinutes(isoToLocalTime(new Date().toISOString())) : null;
+  // 60s tick — keeps the now-line and current-prayer highlight accurate
+  // while the page sits open.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const nowMin = isToday ? timeToMinutes(isoToLocalTime(new Date(nowTick).toISOString())) : null;
   const planDayStart = nowMin === null ? studyStartMin : Math.max(studyStartMin, nowMin);
+
+  // Prayer start minutes + which prayer's window is live right now.
+  const prayerStartMins = useMemo(() => {
+    const m: Record<string, number> = {};
+    if (!prayerTimes) return m;
+    for (const p of PRAYER_NAMES) {
+      const raw = prayerTimes[p.key];
+      if (raw) m[p.key] = timeToMinutes(adjTimeStr(p.key === "asr" ? getDisplayAsrTime(raw) : raw));
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- adjTimeStr/getDisplayAsrTime depend on tz state already captured via prayerTimes updates
+  }, [prayerTimes]);
+  const currentPrayerKey = useMemo(() => {
+    if (nowMin === null) return null;
+    let cur: string | null = null;
+    for (const p of PRAYER_NAMES) {
+      if (!p.isPrayer) continue;
+      const s = prayerStartMins[p.key];
+      if (s != null && s <= nowMin) cur = p.key;
+    }
+    return cur;
+  }, [nowMin, prayerStartMins]);
 
   const gaps = useMemo(
     () => freeGaps(busyIntervals, planDayStart, studyEndMin),
@@ -1398,6 +1428,7 @@ export default function DayViewClient({ date }: { date: string }) {
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
               const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
               const isClickable = prayer.isPrayer && !haydDay;
+              const isCurrent = prayer.key === currentPrayerKey;
               if (!prayer.isPrayer) {
                 // Non-prayer markers (sunrise) render as a slim divider — a
                 // hairline with a sun glyph, a barrier between Fajr and Dhuhr,
@@ -1429,13 +1460,17 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-lg border px-1 py-1.5 transition-colors"
                   style={{
                     minHeight: 44,
-                    borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
-                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
+                    borderColor: isPrayed ? "var(--color-success)" : isExcused || isCurrent ? "var(--color-accent)" : "var(--color-paper-3)",
+                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : isCurrent ? "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))" : "var(--color-paper)",
+                    boxShadow: isCurrent && !isPrayed && !isExcused ? "0 0 0 1px var(--color-accent)" : undefined,
                     cursor: isClickable ? "pointer" : "default",
                   }}
                   disabled={!isClickable}
                 >
                   <span className="flex items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none" style={{ color: prayer.color }}>
+                    {isCurrent && !isPrayed && !isExcused && (
+                      <span className="h-1 w-1 shrink-0 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-accent)" }} aria-hidden />
+                    )}
                     {prayerLabel(prayer.key, prayer.label)}
                     {isPrayed && <Check className="h-2.5 w-2.5 shrink-0" style={{ color: "var(--color-success)" }} />}
                     {isExcused && <span className="text-[8px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
@@ -1458,6 +1493,7 @@ export default function DayViewClient({ date }: { date: string }) {
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
               const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
               const isClickable = prayer.isPrayer && !haydDay;
+              const isCurrent = prayer.key === currentPrayerKey;
               if (!prayer.isPrayer) {
                 return (
                   <div
@@ -1485,13 +1521,17 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="flex flex-col items-center gap-0 rounded-lg border px-3 py-1.5 transition-colors"
                   style={{
                     minHeight: 44,
-                    borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
-                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
+                    borderColor: isPrayed ? "var(--color-success)" : isExcused || isCurrent ? "var(--color-accent)" : "var(--color-paper-3)",
+                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : isCurrent ? "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))" : "var(--color-paper)",
+                    boxShadow: isCurrent && !isPrayed && !isExcused ? "0 0 0 1px var(--color-accent)" : undefined,
                     cursor: isClickable ? "pointer" : "default",
                   }}
                   disabled={!isClickable}
                 >
                   <span className="flex items-center gap-0.5 text-xs font-medium leading-tight" style={{ color: prayer.color }}>
+                    {isCurrent && !isPrayed && !isExcused && (
+                      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-accent)" }} aria-hidden />
+                    )}
                     {prayerLabel(prayer.key, prayer.label)}
                     {isPrayed && <Check className="h-3 w-3" style={{ color: "var(--color-success)" }} />}
                     {isExcused && <span className="text-[9px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
@@ -1670,6 +1710,24 @@ export default function DayViewClient({ date }: { date: string }) {
                 />
               );
             })}
+
+          {/* Now-line — accent hairline at the current minute, today only */}
+          {nowMin !== null &&
+            nowMin >= HOURS[0] * 60 &&
+            nowMin <= (HOURS[HOURS.length - 1] + 1) * 60 && (
+            <div
+              className="absolute z-10 pointer-events-none"
+              style={{ top: minutesToTop(nowMin), left: TIME_COL, right: 0 }}
+              aria-hidden
+            >
+              <div className="relative h-px" style={{ backgroundColor: "var(--color-accent)" }}>
+                <span
+                  className="absolute -top-[3px] h-[7px] w-[7px] rounded-full"
+                  style={{ left: -3, backgroundColor: "var(--color-accent)" }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Prayer time lines — colored line with label pill (z-10, behind events at z-20) */}
           {prayerTimes &&
@@ -2063,9 +2121,19 @@ export default function DayViewClient({ date }: { date: string }) {
       </button>
 
       {loading && (
-        <p className="mt-4 text-sm" style={{ color: "var(--color-ink-muted)" }}>
-          Loading...
-        </p>
+        <div className="mt-4 flex items-center gap-2" role="status" aria-label="Loading calendar">
+          <span className="flex gap-1" aria-hidden>
+            {[0, 1, 2].map((d) => (
+              <span
+                key={d}
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: "var(--color-accent)", animation: `voxDot 1.2s ease-in-out ${d * 0.18}s infinite` }}
+              />
+            ))}
+          </span>
+          <span className="text-sm" style={{ color: "var(--color-ink-muted)" }}>Loading your day…</span>
+          <style>{`@keyframes voxDot { 0%,100% { opacity:.25; transform:translateY(0) } 50% { opacity:1; transform:translateY(-3px) } }`}</style>
+        </div>
       )}
       {error && !showAddForm && !editingEvent && (
         <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }}>{error}</p>
