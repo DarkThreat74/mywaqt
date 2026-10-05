@@ -327,16 +327,21 @@ export default function NotificationScheduler() {
         : now.toLocaleDateString("en-CA");
       if (date === todayStr) {
         const next = upcoming.sort((a, b) => a.at.getTime() - b.at.getTime())[0];
-        if (next) {
-          try {
+        try {
+          const badge = (navigator as Navigator & { setAppBadge?: (n: number) => Promise<void>; clearAppBadge?: () => Promise<void> });
+          if (next) {
             localStorage.setItem(
               "waqt-next-prayer",
               JSON.stringify({ prayer: next.key, at: next.at.toISOString(), date }),
             );
-            const badge = (navigator as Navigator & { setAppBadge?: (n: number) => Promise<void> }).setAppBadge;
-            if (badge) badge.call(navigator, 1).catch(() => {});
-          } catch { /* non-critical */ }
-        }
+            badge.setAppBadge?.call(navigator, 1).catch(() => {});
+          } else {
+            // All of today's prayers have passed — clear the stale payload so
+            // the widget/badge doesn't keep showing a finished prayer.
+            localStorage.removeItem("waqt-next-prayer");
+            badge.clearAppBadge?.call(navigator).catch(() => {});
+          }
+        } catch { /* non-critical */ }
       }
     } catch (err) {
       console.warn("[Waqt] Prayer notification scheduling failed:", err);
