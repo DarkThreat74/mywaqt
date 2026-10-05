@@ -257,8 +257,13 @@ export default function StudySession() {
                     borderStyle: s.kind === "break" ? "dashed" : "solid",
                   }}
                 >
-                  <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: s.kind === "break" ? "var(--color-ink-muted)" : "var(--color-accent)" }}>
-                    {s.minutes}m
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: s.kind === "break" ? "var(--color-success)" : "var(--color-accent)" }}
+                    aria-hidden
+                  />
+                  <span className="w-9 shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: s.kind === "break" ? "var(--color-success)" : "var(--color-accent)" }}>
+                    {Math.round(s.minutes)}m
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm" style={{ color: s.kind === "break" ? "var(--color-ink-muted)" : "var(--color-ink)" }}>
                     {s.label}
@@ -436,7 +441,7 @@ export default function StudySession() {
           </button>
         </div>
 
-        {/* Current segment */}
+        {/* Current segment — the clock sits inside a progress ring */}
         <div className="flex flex-1 flex-col items-center justify-center text-center">
           <p
             className="text-[11px] font-semibold uppercase tracking-[0.2em]"
@@ -445,13 +450,33 @@ export default function StudySession() {
           >
             {progress.done ? "Session complete" : paused ? "Paused" : isBreak ? "Break — stretch, breathe" : "Stay with it"}
           </p>
-          <p
-            className="mt-2 text-6xl font-bold tabular-nums tracking-tight sm:text-7xl"
-            style={{ color: isBreak ? "var(--color-success)" : "var(--color-ink)" }}
-          >
-            {fmtClock(progress.remainingSec)}
-          </p>
-          <p className="mt-3 max-w-[16rem] text-base font-medium" style={{ color: "var(--color-ink-soft)" }}>
+
+          <div className="relative mt-4 flex items-center justify-center" aria-hidden>
+            <svg width="224" height="224" viewBox="0 0 224 224" className="-rotate-90">
+              <circle cx="112" cy="112" r="102" fill="none" stroke="var(--color-paper-3)" strokeWidth="5" />
+              <circle
+                cx="112" cy="112" r="102" fill="none"
+                stroke={paused ? "var(--color-ink-muted)" : segAccent}
+                strokeWidth="5" strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 102}
+                strokeDashoffset={2 * Math.PI * 102 * (1 - pct / 100)}
+                style={{ transition: "stroke-dashoffset 1s linear, stroke 0.3s ease", opacity: paused ? 0.4 : 1 }}
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <p
+                className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
+                style={{ color: paused ? "var(--color-ink-muted)" : isBreak ? "var(--color-success)" : "var(--color-ink)" }}
+              >
+                {fmtClock(progress.remainingSec)}
+              </p>
+              <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-muted)" }}>
+                {progress.done ? "done" : `${Math.round(seg.minutes)}m ${isBreak ? "break" : "block"}`}
+              </p>
+            </div>
+          </div>
+
+          <p className="mt-4 max-w-[16rem] text-base font-medium" style={{ color: "var(--color-ink-soft)" }}>
             {progress.done ? "Nice work — go rest." : paused ? "Take the moment you need. I'll hold your place." : seg.label}
           </p>
           {isBreak && progress.remainingSec <= 5 && progress.remainingSec > 0 && (
@@ -473,12 +498,25 @@ export default function StudySession() {
             </p>
           )}
 
-          {/* Progress bar for this segment */}
-          <div className="mt-6 h-1.5 w-full max-w-[16rem] overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-            <div
-              className="h-full rounded-full transition-[width] duration-1000"
-              style={{ width: `${pct}%`, backgroundColor: segAccent }}
-            />
+          {/* Session timeline — every segment as a dash; done fills, current
+              pulses, upcoming stays hollow. Glanceable plan position. */}
+          <div className="mt-5 flex items-center justify-center gap-1" aria-hidden>
+            {state.segments.map((s, i) => (
+              <span
+                key={i}
+                className="h-1 rounded-full transition-all"
+                style={{
+                  width: i === progress.index ? 22 : Math.max(6, Math.min(14, s.minutes / 4)),
+                  backgroundColor:
+                    i < progress.index
+                      ? "var(--color-ink-muted)"
+                      : i === progress.index
+                        ? s.kind === "break" ? "var(--color-success)" : "var(--color-accent)"
+                        : "var(--color-paper-3)",
+                  opacity: i < progress.index ? 0.45 : i === progress.index ? 1 : 0.7,
+                }}
+              />
+            ))}
           </div>
         </div>
 
