@@ -400,50 +400,6 @@ export default function TodayTab({
         </Section>
       )}
 
-      {/* ── Today's study blocks — planned work sessions ── */}
-      {todayBlocks.filter((b) => b.status !== "released").length > 0 && (
-        <Section
-          icon={<Clock className="h-4 w-4" />}
-          title="Study blocks"
-          count={todayBlocks.filter((b) => b.status !== "released").length}
-          onMore={() => onNavigate("homework")}
-        >
-          {todayBlocks
-            .filter((b) => b.status !== "released")
-            .map((b) => {
-              const worked = b.status === "worked";
-              return (
-                <div key={b.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ backgroundColor: worked ? "color-mix(in oklab, var(--color-success) 6%, var(--color-paper))" : "var(--color-paper-2)" }}>
-                  <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
-                    {fmtMin(b.startMin)}–{fmtMin(b.endMin)}
-                  </span>
-                  <span
-                    className="min-w-0 flex-1 truncate text-sm"
-                    style={{ color: "var(--color-ink)", textDecoration: worked ? "line-through" : undefined, opacity: worked ? 0.7 : 1 }}
-                  >
-                    {b.assignments.map((a) => a.title).join(", ") || "Study block"}
-                  </span>
-                  <button
-                    onClick={() => void markBlockWorked(b.id, !worked)}
-                    aria-pressed={worked}
-                    className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors"
-                    style={
-                      worked
-                        ? { borderColor: "var(--color-success)", backgroundColor: "color-mix(in oklab, var(--color-success) 14%, var(--color-paper))", color: "var(--color-success)" }
-                        : { borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }
-                    }
-                  >
-                    {worked ? "Worked ✓" : "Mark worked"}
-                  </button>
-                </div>
-              );
-            })}
-          <Link href="/calendar/day" className="self-start pl-3 pt-1 text-xs font-medium transition-colors hover:opacity-70" style={{ color: "var(--color-ink-muted)" }}>
-            Plan blocks →
-          </Link>
-        </Section>
-      )}
-
       {/* ── Upcoming homework (5 closest due) ── */}
       <Section
         icon={<BookOpen className="h-4 w-4" />}
@@ -515,6 +471,50 @@ export default function TodayTab({
           </>
         )}
       </Section>
+
+      {/* ── Today's study blocks — planned work sessions ── */}
+      {todayBlocks.filter((b) => b.status !== "released").length > 0 && (
+        <Section
+          icon={<Clock className="h-4 w-4" />}
+          title="Study blocks"
+          count={todayBlocks.filter((b) => b.status !== "released").length}
+          onMore={() => onNavigate("homework")}
+        >
+          {todayBlocks
+            .filter((b) => b.status !== "released")
+            .map((b) => {
+              const worked = b.status === "worked";
+              return (
+                <div key={b.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ backgroundColor: worked ? "color-mix(in oklab, var(--color-success) 6%, var(--color-paper))" : "var(--color-paper-2)" }}>
+                  <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                    {fmtMin(b.startMin)}–{fmtMin(b.endMin)}
+                  </span>
+                  <span
+                    className="min-w-0 flex-1 truncate text-sm"
+                    style={{ color: "var(--color-ink)", textDecoration: worked ? "line-through" : undefined, opacity: worked ? 0.7 : 1 }}
+                  >
+                    {b.assignments.map((a) => a.title).join(", ") || "Study block"}
+                  </span>
+                  <button
+                    onClick={() => void markBlockWorked(b.id, !worked)}
+                    aria-pressed={worked}
+                    className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors"
+                    style={
+                      worked
+                        ? { borderColor: "var(--color-success)", backgroundColor: "color-mix(in oklab, var(--color-success) 14%, var(--color-paper))", color: "var(--color-success)" }
+                        : { borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }
+                    }
+                  >
+                    {worked ? "Worked ✓" : "Mark worked"}
+                  </button>
+                </div>
+              );
+            })}
+          <Link href="/calendar/day" className="self-start pl-3 pt-1 text-xs font-medium transition-colors hover:opacity-70" style={{ color: "var(--color-ink-muted)" }}>
+            Plan blocks →
+          </Link>
+        </Section>
+      )}
 
       {/* ── Near-term goals (week + month, max 3 shown) ── */}
       <CollapsibleSection
