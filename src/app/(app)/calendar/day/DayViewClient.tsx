@@ -1862,7 +1862,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 <div className="h-0.5 flex-1" style={{ backgroundColor: color, opacity: 0.7 }} />
                 <button
                   onClick={(e: React.MouseEvent) => { e.stopPropagation(); setPeekEvent(event); }}
-                  className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-opacity hover:opacity-80 sm:px-2 sm:text-[10px]"
+                  className={`shrink-0 ${event.details ? "flex flex-col items-start rounded-lg px-2 py-1" : "rounded-full px-1.5 py-0.5 sm:px-2"} text-left text-[11px] font-medium transition-opacity hover:opacity-80 sm:text-[10px]`}
                   style={{
                     backgroundColor: "var(--color-paper)",
                     color: color,
@@ -1870,8 +1870,15 @@ export default function DayViewClient({ date }: { date: string }) {
                     cursor: "pointer",
                   }}
                 >
-                  {event.sharePublic === false && <EyeOff className="mr-0.5 inline h-2.5 w-2.5 align-[-1px]" aria-label="Hidden from public view" />}
-                  {event.title} · {formatTime(startStr)}
+                  <span>
+                    {event.sharePublic === false && <EyeOff className="mr-0.5 inline h-2.5 w-2.5 align-[-1px]" aria-label="Hidden from public view" />}
+                    {event.title} · {formatTime(startStr)}
+                  </span>
+                  {event.details && (
+                    <span className="max-w-[14rem] truncate text-[10px] font-normal" style={{ color: "var(--color-ink-muted)" }}>
+                      {event.details}
+                    </span>
+                  )}
                 </button>
                 <div className="h-0.5 w-3 sm:w-4" style={{ backgroundColor: color, opacity: 0.7 }} />
                 {/* Delete button — appears on hover */}
@@ -1897,9 +1904,11 @@ export default function DayViewClient({ date }: { date: string }) {
             // after local midnight (23:00 → 01:00) would compute negative
             // minutes from wall-clock subtraction and render as a stub.
             const durationMin = (new Date(event.endAt).getTime() - new Date(event.startAt).getTime()) / 60000;
-            // Min height 44px so short events (<30min) still show title + time
-            const height = Math.max((durationMin / 60) * HOUR_HEIGHT, 44);
-            // Show details only when there's enough vertical room (>= 45 min)
+            // Min height 26px — a 15-min event still reads as its title.
+            const height = Math.max((durationMin / 60) * HOUR_HEIGHT, 26);
+            // Rows revealed as the box grows: title always, time at ~30min+,
+            // details at 45min+.
+            const showTime = durationMin >= 30;
             const showDetails = durationMin >= 45 && event.details;
 
             const layout = overlapLayout.get(event.id) ?? { colIndex: 0, colCount: 1 };
@@ -1939,7 +1948,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       <EyeOff className="ml-1 inline h-2.5 w-2.5 align-[-1px]" style={{ color: "var(--color-ink-muted)" }} aria-label="Hidden from public view" />
                     )}
                   </p>
-                  {endStr && (
+                  {endStr && showTime && (
                     <p className="w-full truncate text-center text-[11px] font-normal leading-tight sm:text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                       {formatTime(startStr)} – {formatTime(endStr)}
                     </p>
