@@ -782,9 +782,15 @@ export default function DayViewClient({ date }: { date: string }) {
     [busyBase, dayBlocks],
   );
 
+  // Free time only counts from now — a morning that's already gone isn't
+  // plannable, and once the window ends the day reports zero free time.
+  // Computed per render (cheap) so a long-open page doesn't offer stale times.
+  const nowMin = isToday ? timeToMinutes(isoToLocalTime(new Date().toISOString())) : null;
+  const planDayStart = nowMin === null ? studyStartMin : Math.max(studyStartMin, nowMin);
+
   const gaps = useMemo(
-    () => freeGaps(busyIntervals, studyStartMin, studyEndMin),
-    [busyIntervals, studyStartMin, studyEndMin],
+    () => freeGaps(busyIntervals, planDayStart, studyEndMin),
+    [busyIntervals, planDayStart, studyEndMin],
   );
 
   // ── Greedy lane clustering for overlap layout ──
@@ -2664,7 +2670,7 @@ export default function DayViewClient({ date }: { date: string }) {
           onClose={() => { setPlanOpen(false); setPlanGap(null); setPlanBlock(null); }}
           initialGap={planGap}
           initialBlock={planBlock}
-          dayStart={studyStartMin}
+          dayStart={planDayStart}
           dayEnd={studyEndMin}
         />
       )}
