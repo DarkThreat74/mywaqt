@@ -40,7 +40,9 @@ export async function POST(request: NextRequest) {
     const [row] = await db
       .insert(schema.birthdayCategories)
       .values({ id: validClientId, userId: session.userId, name, color: body.color })
-      .onConflictDoNothing({ target: [schema.birthdayCategories.userId, schema.birthdayCategories.name] })
+      // No target — suppress BOTH conflict shapes: duplicate (userId,name)
+      // and a retried offline replay colliding on the id PK.
+      .onConflictDoNothing()
       .returning();
 
     const category = row ?? (await db

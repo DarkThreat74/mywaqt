@@ -1112,10 +1112,14 @@ self.addEventListener("message", (event) => {
         for (const item of outbox) {
           if (tempId && item.tempId === tempId) {
             await removeFromOutbox(item.id);
-            // Also remove dependent writes targeting the temp entity
-            // (PATCH/DELETE urls contain the tempId in the path)
+            // Also remove dependent writes targeting the temp entity —
+            // most PATCH/DELETE carry it in the url path, but collection
+            // routes like /api/blocks pass it in the body instead.
             for (const dep of outbox) {
-              if (dep.id !== item.id && typeof dep.url === "string" && dep.url.includes(tempId)) {
+              if (dep.id !== item.id && (
+                (typeof dep.url === "string" && dep.url.includes(tempId)) ||
+                (dep.body && dep.body.id === tempId)
+              )) {
                 await removeFromOutbox(dep.id);
               }
             }

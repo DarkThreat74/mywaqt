@@ -277,12 +277,16 @@ export async function PATCH(request: NextRequest) {
     if (Array.isArray(body.homeworkIds)) {
       const ids = body.homeworkIds.filter(isValidUUID).slice(0, 20);
       const owned = await ownedHomeworkIds(session.userId, ids);
-      await db.delete(schema.blockAssignments).where(eq(schema.blockAssignments.blockId, existing.id));
-      if (owned.length > 0) {
-        await db.insert(schema.blockAssignments).values(
-          owned.map((homeworkId) => ({ blockId: existing.id, homeworkId })),
-        );
-      }
+      // Atomic replace — a failure between delete and insert must not leave
+      // the block with zero assignments.
+      await db.transaction(async (tx) => {
+        await tx.delete(schema.blockAssignments).where(eq(schema.blockAssignments.blockId, existing.id));
+        if (owned.length > 0) {
+          await tx.insert(schema.blockAssignments).values(
+            owned.map((homeworkId) => ({ blockId: existing.id, homeworkId })),
+          );
+        }
+      });
     }
 
     if (Object.keys(set).length > 0) {
