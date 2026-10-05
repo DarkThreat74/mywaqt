@@ -1415,42 +1415,45 @@ export default function DayViewClient({ date }: { date: string }) {
         </div>
       )}
 
-      {/* Homework badge — shows count of pending homework due this day */}
-      {dayHomeworkCount > 0 && (
-        <Link
-          href="/goals#homework"
-          className="mb-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:opacity-80 sm:mb-4"
-          style={{
-            borderColor: "var(--color-warmth)",
-            backgroundColor: "color-mix(in oklab, var(--color-warmth) 8%, var(--color-paper))",
-            color: "var(--color-ink)",
-          }}
-        >
-          <BookOpen className="h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
-          <span className="flex-1">
-            {dayHomeworkCount} assignment{dayHomeworkCount > 1 ? "s" : ""} due today
-          </span>
-          <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>View →</span>
-        </Link>
-      )}
-
-      {/* Plan strip — free time inventory + study blocks entry point */}
-      {!isPastDay && (
-        <button
-          onClick={() => { setPlanOpen(true); play("open"); }}
-          className="mb-3 flex w-full items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm transition-colors hover:bg-[var(--color-paper-2)] sm:mb-4"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-        >
-          <BookOpen className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
-          <span className="flex-1 text-left">
-            {dayBlocks.filter((b) => b.status !== "released").length > 0
-              ? `${dayBlocks.filter((b) => b.status !== "released").length} study block${dayBlocks.filter((b) => b.status !== "released").length > 1 ? "s" : ""} planned`
-              : "Plan study blocks"}
-          </span>
-          <span className="text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-            {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free
-          </span>
-        </button>
+      {/* Work row — homework due + study planner, side by side pills */}
+      {(dayHomeworkCount > 0 || !isPastDay) && (
+        <div className="mb-3 flex gap-2 sm:mb-4">
+          {dayHomeworkCount > 0 && (
+            <Link
+              href="/goals#homework"
+              className="flex flex-1 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors hover:opacity-80"
+              style={{
+                borderColor: "var(--color-warmth)",
+                backgroundColor: "color-mix(in oklab, var(--color-warmth) 8%, var(--color-paper))",
+                color: "var(--color-ink)",
+              }}
+            >
+              <BookOpen className="h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
+              <span className="min-w-0 flex-1 truncate">
+                {dayHomeworkCount} due today
+              </span>
+              <span className="shrink-0 text-xs" style={{ color: "var(--color-ink-muted)" }}>→</span>
+            </Link>
+          )}
+          {!isPastDay && (
+            <button
+              onClick={() => { setPlanOpen(true); play("open"); }}
+              className="flex flex-1 items-center gap-1.5 rounded-lg border border-dashed px-3 py-2 text-sm transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+              aria-label={`Plan study blocks — ${fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free today`}
+            >
+              <BookOpen className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+              <span className="min-w-0 flex-1 truncate text-left">
+                {dayBlocks.filter((b) => b.status !== "released").length > 0
+                  ? `${dayBlocks.filter((b) => b.status !== "released").length} block${dayBlocks.filter((b) => b.status !== "released").length > 1 ? "s" : ""} planned`
+                  : "Plan study"}
+              </span>
+              <span className="shrink-0 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free
+              </span>
+            </button>
+          )}
+        </div>
       )}
 
       {/* No location message — only when location is actually not set */}

@@ -73,6 +73,37 @@ export default function DayDateHeader({ date }: { date: string }) {
   const dateObj = new Date(y, m - 1, d);
   const isToday = today !== null && date === today;
 
+  // Rendered twice — once beside the hijri line on mobile, once beside the
+  // date on desktop. Only one instance is visible per breakpoint.
+  const viewToggle = (
+    <div
+      className="flex shrink-0 rounded-lg border"
+      style={{ borderColor: "var(--color-paper-3)" }}
+    >
+      <Link
+        href={`/calendar/day?date=${date}`}
+        className="rounded-l-lg px-3 py-1.5 text-xs font-medium"
+        style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+      >
+        Day
+      </Link>
+      <Link
+        href={`/calendar/month?year=${dateObj.getFullYear()}&month=${dateObj.getMonth() + 1}`}
+        className="px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+        style={{ color: "var(--color-ink-soft)" }}
+      >
+        Month
+      </Link>
+      <Link
+        href="/calendar/list"
+        className="rounded-r-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+        style={{ color: "var(--color-ink-soft)" }}
+      >
+        List
+      </Link>
+    </div>
+  );
+
   return (
     <div className="overflow-x-hidden border-b" style={{ borderColor: "var(--color-paper-3)" }}>
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-4 py-3 sm:px-6 sm:py-4">
@@ -86,62 +117,47 @@ export default function DayDateHeader({ date }: { date: string }) {
           <ChevronLeft className="h-5 w-5" />
         </Link>
 
-        {/* Date + view toggle */}
-        <div className="flex min-w-0 flex-1 flex-col items-center gap-1 sm:flex-row sm:justify-center sm:gap-4">
-          <div className="text-center">
+        {/* Date + view toggle — mobile: 2 compact rows (date+chips, hijri+toggle) */}
+        <div className="flex min-w-0 flex-1 flex-col items-center sm:flex-row sm:justify-center sm:gap-4">
+          <div className="w-full text-center sm:w-auto">
             {/* Render stable fallback during SSR, real value after mount */}
-            <h1 className="truncate text-sm font-semibold tracking-tight sm:text-lg" style={{ color: "var(--color-ink)" }}>
-              {formattedDate || `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`}
+            <h1 className="flex items-center justify-center gap-1.5 text-sm font-semibold tracking-tight sm:text-lg" style={{ color: "var(--color-ink)" }}>
+              <span className="truncate">{formattedDate || `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`}</span>
+              {isToday && (
+                <span
+                  className="shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold"
+                  style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                >
+                  Today
+                </span>
+              )}
+              {dateObj.getDay() === 5 && (
+                <span
+                  className="shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold"
+                  style={{ backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }}
+                >
+                  Jumu&apos;ah
+                </span>
+              )}
             </h1>
-            {hijriDate && (
-              <p
-                className="mt-0.5 truncate text-xs"
-                style={{ color: "var(--color-accent)", fontFamily: "var(--font-amiri, serif)" }}
-              >
-                {hijriDate}
-              </p>
-            )}
-            {isToday && (
-              <p className="text-xs" style={{ color: "var(--color-accent)" }}>Today</p>
-            )}
-            {/* Jumu'ah badge on Fridays */}
-            {dateObj.getDay() === 5 && (
-              <p
-                className="mt-0.5 text-[11px] font-semibold"
-                style={{ color: "var(--color-warmth)" }}
-              >
-                Jumu&apos;ah Mubarak
-              </p>
-            )}
+            {/* Subline: hijri left, view toggle right (mobile only) */}
+            <div className="flex items-center justify-between sm:justify-center">
+              {hijriDate ? (
+                <p
+                  className="truncate text-[11px] leading-tight"
+                  style={{ color: "var(--color-accent)", fontFamily: "var(--font-amiri, serif)" }}
+                >
+                  {hijriDate}
+                </p>
+              ) : (
+                <span />
+              )}
+              <div className="sm:hidden">{viewToggle}</div>
+            </div>
           </div>
 
-          {/* Day/Month/List toggle */}
-          <div
-            className="flex shrink-0 rounded-lg border"
-            style={{ borderColor: "var(--color-paper-3)" }}
-          >
-            <Link
-              href={`/calendar/day?date=${date}`}
-              className="rounded-l-lg px-3 py-1.5 text-xs font-medium"
-              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
-            >
-              Day
-            </Link>
-            <Link
-              href={`/calendar/month?year=${dateObj.getFullYear()}&month=${dateObj.getMonth() + 1}`}
-              className="px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ color: "var(--color-ink-soft)" }}
-            >
-              Month
-            </Link>
-            <Link
-              href="/calendar/list"
-              className="rounded-r-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ color: "var(--color-ink-soft)" }}
-            >
-              List
-            </Link>
-          </div>
+          {/* Day/Month/List toggle — desktop sits beside the date */}
+          <div className="hidden sm:flex">{viewToggle}</div>
         </div>
 
         {/* Next day */}
