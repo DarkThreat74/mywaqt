@@ -818,28 +818,6 @@ export default function DayViewClient({ date }: { date: string }) {
   const nowMin = isToday ? timeToMinutes(isoToLocalTime(new Date(nowTick).toISOString())) : null;
   const planDayStart = nowMin === null ? studyStartMin : Math.max(studyStartMin, nowMin);
 
-  // Prayer start minutes + which prayer's window is live right now.
-  const prayerStartMins = useMemo(() => {
-    const m: Record<string, number> = {};
-    if (!prayerTimes) return m;
-    for (const p of PRAYER_NAMES) {
-      const raw = prayerTimes[p.key];
-      if (raw) m[p.key] = timeToMinutes(adjTimeStr(p.key === "asr" ? getDisplayAsrTime(raw) : raw));
-    }
-    return m;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- adjTimeStr/getDisplayAsrTime depend on tz state already captured via prayerTimes updates
-  }, [prayerTimes]);
-  const currentPrayerKey = useMemo(() => {
-    if (nowMin === null) return null;
-    let cur: string | null = null;
-    for (const p of PRAYER_NAMES) {
-      if (!p.isPrayer) continue;
-      const s = prayerStartMins[p.key];
-      if (s != null && s <= nowMin) cur = p.key;
-    }
-    return cur;
-  }, [nowMin, prayerStartMins]);
-
   const gaps = useMemo(
     () => freeGaps(busyIntervals, planDayStart, studyEndMin),
     [busyIntervals, planDayStart, studyEndMin],
@@ -1428,7 +1406,6 @@ export default function DayViewClient({ date }: { date: string }) {
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
               const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
               const isClickable = prayer.isPrayer && !haydDay;
-              const isCurrent = prayer.key === currentPrayerKey;
               if (!prayer.isPrayer) {
                 // Non-prayer markers (sunrise) render as a slim divider — a
                 // hairline with a sun glyph, a barrier between Fajr and Dhuhr,
@@ -1460,17 +1437,13 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-lg border px-1 py-1.5 transition-colors"
                   style={{
                     minHeight: 44,
-                    borderColor: isPrayed ? "var(--color-success)" : isExcused || isCurrent ? "var(--color-accent)" : "var(--color-paper-3)",
-                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : isCurrent ? "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))" : "var(--color-paper)",
-                    boxShadow: isCurrent && !isPrayed && !isExcused ? "0 0 0 1px var(--color-accent)" : undefined,
+                    borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
+                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
                     cursor: isClickable ? "pointer" : "default",
                   }}
                   disabled={!isClickable}
                 >
                   <span className="flex items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none" style={{ color: prayer.color }}>
-                    {isCurrent && !isPrayed && !isExcused && (
-                      <span className="h-1 w-1 shrink-0 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-accent)" }} aria-hidden />
-                    )}
                     {prayerLabel(prayer.key, prayer.label)}
                     {isPrayed && <Check className="h-2.5 w-2.5 shrink-0" style={{ color: "var(--color-success)" }} />}
                     {isExcused && <span className="text-[8px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
@@ -1493,7 +1466,6 @@ export default function DayViewClient({ date }: { date: string }) {
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
               const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
               const isClickable = prayer.isPrayer && !haydDay;
-              const isCurrent = prayer.key === currentPrayerKey;
               if (!prayer.isPrayer) {
                 return (
                   <div
@@ -1521,17 +1493,13 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="flex flex-col items-center gap-0 rounded-lg border px-3 py-1.5 transition-colors"
                   style={{
                     minHeight: 44,
-                    borderColor: isPrayed ? "var(--color-success)" : isExcused || isCurrent ? "var(--color-accent)" : "var(--color-paper-3)",
-                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : isCurrent ? "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))" : "var(--color-paper)",
-                    boxShadow: isCurrent && !isPrayed && !isExcused ? "0 0 0 1px var(--color-accent)" : undefined,
+                    borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
+                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
                     cursor: isClickable ? "pointer" : "default",
                   }}
                   disabled={!isClickable}
                 >
                   <span className="flex items-center gap-0.5 text-xs font-medium leading-tight" style={{ color: prayer.color }}>
-                    {isCurrent && !isPrayed && !isExcused && (
-                      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-accent)" }} aria-hidden />
-                    )}
                     {prayerLabel(prayer.key, prayer.label)}
                     {isPrayed && <Check className="h-3 w-3" style={{ color: "var(--color-success)" }} />}
                     {isExcused && <span className="text-[9px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}

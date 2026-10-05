@@ -13,7 +13,7 @@ import { HTTP_USER_AGENT } from "@/lib/site-config";
 import { ShareQrButton } from "@/components/share-qr";
 import { clearCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 
-interface PrayerSettings {
+export interface PrayerSettings {
   latitude: string;
   longitude: string;
   timezone: string;
@@ -506,164 +506,6 @@ export default function SettingsClient({
   const [notifMsg, setNotifMsg] = useState<string | null>(null);
   const [swStatus, setSwStatus] = useState<string>("checking...");
   const [pushStatus, setPushStatus] = useState<string>("checking...");
-
-  // ── Prayer personalization ──
-  const [gender, setGender] = useState<string | null>(initialSettings?.gender ?? null);
-  const [haydTracking, setHaydTracking] = useState(initialSettings?.haydTracking ?? false);
-  const [showNafl, setShowNafl] = useState(initialSettings?.showNaflTimes ?? false);
-  const [timeOffset, setTimeOffset] = useState(initialSettings?.timeOffsetMinutes ?? 0);
-  const [useIqamah, setUseIqamah] = useState(initialSettings?.useIqamahReminders ?? false);
-  const [personalMsg, setPersonalMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  // Per-prayer notification prefs
-  const [perPrayer, setPerPrayer] = useState<PerPrayerMap>(() => {
-    try {
-      if (typeof window === "undefined") return {};
-      const raw = localStorage.getItem("waqt-per-prayer-prefs");
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  });
-  // Masjid picker
-  const [masjidResults, setMasjidResults] = useState<Array<{
-    id?: string; slug: string | null; name: string; city: string | null; country: string | null;
-    address?: string | null; distanceKm: number | null; hasIqama?: boolean;
-    iqamaOffsets?: (number | null)[] | null; iqamaFixed?: (string | null)[] | null; jummah?: string[] | null;
-  }>>([]);
-  const [masjidSearching, setMasjidSearching] = useState(false);
-  const [masjidManual, setMasjidManual] = useState(false);
-  const [manualIqamah, setManualIqamah] = useState<Record<string, string>>({});
-  const [masjidMsg, setMasjidMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
-  // Friend "made dua for you" thanks — in-app toast + push, both default on
-  const [duaThanks, setDuaThanks] = useState({ inApp: true, push: true });
-
-  useEffect(() => {
-    fetch("/api/notifications/prefs")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.perPrayer) setPerPrayer(d.perPrayer);
-        if (typeof d?.duaThanksInApp === "boolean" || typeof d?.duaThanksPush === "boolean") {
-          setDuaThanks({ inApp: d.duaThanksInApp !== false, push: d.duaThanksPush !== false });
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  function saveDuaThanks(next: { inApp: boolean; push: boolean }) {
-    setDuaThanks(next);
-    fetch("/api/notifications/prefs", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ duaThanksInApp: next.inApp, duaThanksPush: next.push }),
-    }).catch(() => {});
-  }
-
-  async function patchPrayerSettings(patch: Record<string, unknown>, okText: string) {
-    setPersonalMsg(null);
-    const res = await fetch("/api/settings/prayer-settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    setPersonalMsg(res.ok ? { ok: true, text: okText } : { ok: false, text: "Couldn't save." });
-  }
-
-  async function savePerPrayer(next: PerPrayerMap) {
-    setPerPrayer(next);
-    try { localStorage.setItem("waqt-per-prayer-prefs", JSON.stringify(next)); } catch { /* non-critical */ }
-    await fetch("/api/notifications/prefs", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ perPrayer: next }),
-    }).catch(() => {});
-  }
-
-  async function searchMasjids() {
-    setMasjidSearching(true);
-    setMasjidMsg(null);
-    const la = parseFloat(initialSettings?.latitude ?? "");
-    const ln = parseFloat(initialSettings?.longitude ?? "");
-    if (isNaN(la) || isNaN(ln)) {
-      setMasjidMsg({ ok: false, text: "Set your location above first, then search." });
-      setMasjidSearching(false);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=32&limit=50`);
-      const data = res.ok ? await res.json() : null;
-      // Pickable = has iqamah data: islamic.app entries resolve it via slug,
-      // Mawaqit entries carry it inline. Plain OSM POIs have neither.
-      const pickable = (data?.mosques ?? []).filter(
-        (m: { slug: string | null; hasIqama?: boolean }) => m.slug || m.hasIqama,
-      );
-      setMasjidResults(pickable as typeof masjidResults);
-      if (!pickable.length) setMasjidMsg({ ok: false, text: "No masjids with published iqamah found nearby — enter times manually below." });
-    } catch {
-      setMasjidMsg({ ok: false, text: "Search failed." });
-    } finally {
-      setMasjidSearching(false);
-    }
-  }
-
-  async function pickMasjid(entry: (typeof masjidResults)[number]) {
-    setMasjidMsg(null);
-    try {
-      // islamic.app entries need a detail fetch; Mawaqit entries already
-      // carry their iqamah data inline.
-      let m = entry as typeof entry & { slug: string };
-      if (!entry.slug) {
-        // use inline data directly
-      } else {
-        const res = await fetch(`/api/masjids?slug=${encodeURIComponent(entry.slug)}`);
-        const detail = res.ok ? await res.json() : null;
-        if (!detail) { setMasjidMsg({ ok: false, text: "Couldn't load masjid." }); return; }
-        m = detail;
-      }
-      const iqamah = { offsets: m.iqamaOffsets ?? undefined, fixed: m.iqamaFixed ?? undefined, jummah: m.jummah ?? undefined };
-      // Don't save an empty config — reminders keyed on it would silently
-      // never fire. Point the user at manual entry instead.
-      if (!iqamah.offsets?.some((o) => o != null) && !iqamah.fixed?.some(Boolean) && !iqamah.jummah?.length) {
-        setMasjidMsg({ ok: false, text: `${m.name} hasn't published iqamah — enter times manually below.` });
-        return;
-      }
-      const extId = entry.slug ?? entry.id ?? m.name;
-      await patchPrayerSettings(
-        { masjidExternalId: extId, masjidName: m.name, masjidIqamah: iqamah },
-        `Iqamah times set from ${m.name}.`,
-      );
-      setPrayerSettings((p) => p ? { ...p, masjidExternalId: extId, masjidName: m.name, masjidIqamah: iqamah } : p);
-      setMasjidResults([]);
-    } catch {
-      setMasjidMsg({ ok: false, text: "Couldn't load masjid." });
-    }
-  }
-
-  async function saveManualIqamah() {
-    const clean: Record<string, string> = {};
-    for (const k of ["fajr", "dhuhr", "asr", "maghrib", "isha"]) {
-      if (manualIqamah[k]) clean[k] = manualIqamah[k];
-    }
-    if (Object.keys(clean).length === 0) {
-      setMasjidMsg({ ok: false, text: "Enter at least one iqamah time." });
-      return;
-    }
-    await patchPrayerSettings(
-      { masjidExternalId: "manual", masjidName: "My masjid", masjidIqamah: { manual: clean } },
-      "Manual iqamah times saved.",
-    );
-    setPrayerSettings((p) => p ? { ...p, masjidExternalId: "manual", masjidName: "My masjid", masjidIqamah: { manual: clean } } : p);
-    setMasjidManual(false);
-  }
-
-  async function clearMasjid() {
-    await patchPrayerSettings(
-      { masjidExternalId: null, masjidName: null, masjidIqamah: null, useIqamahReminders: false },
-      "Masjid cleared.",
-    );
-    setPrayerSettings((p) => p ? { ...p, masjidExternalId: null, masjidName: null, masjidIqamah: null } : p);
-    setUseIqamah(false);
-  }
 
   // Offline audio storage state
   const [audioCacheInfo, setAudioCacheInfo] = useState<{ count: number; sizeBytes: number } | null>(null);
@@ -1912,272 +1754,6 @@ export default function SettingsClient({
               </p>
             )}
           </div>
-          {/* ── Personalization — lives inside Prayer Settings ── */}
-          <div className="mt-5 border-t pt-4" style={{ borderColor: "var(--color-paper-3)" }}>
-            <p className="mb-3 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-              Personalization
-            </p>
-          <div className="mb-4">
-            <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Gender</p>
-            <div className="flex gap-2">
-              {(["male", "female"] as const).map((g) => (
-                <button
-                  key={g}
-                  onClick={async () => {
-                    setGender(g);
-                    await patchPrayerSettings({ gender: g, ...(g === "male" ? { haydTracking: false } : {}) }, "Saved.");
-                    if (g === "male") setHaydTracking(false);
-                  }}
-                  className="flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
-                  style={{
-                    borderColor: gender === g ? "var(--color-accent)" : "var(--color-paper-3)",
-                    backgroundColor: gender === g ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "transparent",
-                    color: "var(--color-ink)",
-                    minHeight: 40,
-                  }}
-                >
-                  {g === "male" ? "Boy" : "Girl"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Hayd tracking — female only */}
-          {gender === "female" && (
-            <div className="mb-4">
-              <label className="flex items-center justify-between gap-3 rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
-                <div>
-                  <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Hayd tracking</p>
-                  <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                    Pause check-ins on marked days — streaks stay safe, days show as excused.
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={haydTracking}
-                  onChange={async (e) => {
-                    setHaydTracking(e.target.checked);
-                    await patchPrayerSettings({ haydTracking: e.target.checked }, "Saved.");
-                  }}
-                  className="h-5 w-5 shrink-0 accent-[var(--color-accent)]"
-                />
-              </label>
-            </div>
-          )}
-
-          {/* Per-prayer notifications */}
-          <div className="mb-4">
-            <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Per-prayer notifications</p>
-            <div className="space-y-2">
-              {(["fajr", "dhuhr", "asr", "maghrib", "isha"] as const).map((p) => {
-                const cfg = perPrayer[p] ?? { mode: "push" as const, beforeMin: 0 };
-                const set = (patch: Partial<typeof cfg>) => savePerPrayer({ ...perPrayer, [p]: { ...cfg, ...patch } });
-                return (
-                  <div key={p} className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
-                    <p className="mb-2 text-xs font-semibold capitalize" style={{ color: "var(--color-ink)" }}>{p}</p>
-                    <div className="grid grid-cols-3 gap-1 rounded-lg p-1" style={{ backgroundColor: "var(--color-paper-2)" }} role="group" aria-label={`${p} notification mode`}>
-                      {([["push", "Notify"], ["silent", "Silent"], ["off", "Off"]] as const).map(([m, label]) => (
-                        <button
-                          key={m}
-                          type="button"
-                          onClick={() => set({ mode: m })}
-                          aria-pressed={cfg.mode === m}
-                          className="rounded-md py-2 text-[11px] font-medium transition-colors"
-                          style={{
-                            backgroundColor: cfg.mode === m ? "var(--color-paper)" : "transparent",
-                            color: cfg.mode === m ? "var(--color-accent)" : "var(--color-ink-muted)",
-                            boxShadow: cfg.mode === m ? "0 1px 2px color-mix(in oklab, var(--color-ink) 15%, transparent)" : "none",
-                            minHeight: 36,
-                          }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className={`mt-2 flex flex-wrap items-center gap-1 ${cfg.mode === "off" ? "pointer-events-none opacity-40" : ""}`}>
-                      <span className="mr-1 text-[10px] uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Early</span>
-                      {[0, 5, 10, 15, 30].map((m) => (
-                        <button
-                          key={m}
-                          type="button"
-                          onClick={() => set({ beforeMin: m })}
-                          aria-pressed={cfg.beforeMin === m}
-                          className="rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors"
-                          style={{
-                            borderColor: cfg.beforeMin === m ? "var(--color-accent)" : "var(--color-paper-3)",
-                            backgroundColor: cfg.beforeMin === m ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "transparent",
-                            color: cfg.beforeMin === m ? "var(--color-accent)" : "var(--color-ink-soft)",
-                            minHeight: 28,
-                          }}
-                        >
-                          {m === 0 ? "None" : `${m}m`}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Friend dua thanks — when someone you nudged prays and sends
-              a dua back, how it reaches you */}
-          <div className="mb-4">
-            <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>When a friend you nudged sends you a dua</p>
-            <div className="space-y-1.5">
-              {(
-                [
-                  ["inApp", "Show in the app (toast + bell)"],
-                  ["push", "Push notification"],
-                ] as const
-              ).map(([k, label]) => (
-                <label key={k} className="flex items-center gap-2 rounded-lg border p-2 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
-                  <input
-                    type="checkbox"
-                    checked={duaThanks[k]}
-                    onChange={(e) => saveDuaThanks({ ...duaThanks, [k]: e.target.checked })}
-                    className="h-4 w-4 accent-[var(--color-accent)]"
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Masjid iqamah */}
-          <div className="mb-4">
-            <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Masjid iqamah</p>
-            {prayerSettings?.masjidName ? (
-              <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)" }}>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>{prayerSettings.masjidName}</p>
-                  <button onClick={clearMasjid} className="text-[11px] font-medium underline" style={{ color: "var(--color-ink-muted)" }}>Remove</button>
-                </div>
-                <label className="mt-2 flex items-center gap-2 text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
-                  <input
-                    type="checkbox"
-                    checked={useIqamah}
-                    onChange={async (e) => {
-                      setUseIqamah(e.target.checked);
-                      await patchPrayerSettings({ useIqamahReminders: e.target.checked }, "Saved.");
-                    }}
-                    className="h-4 w-4 accent-[var(--color-accent)]"
-                  />
-                  Notify me at iqamah time
-                </label>
-              </div>
-            ) : (
-              <>
-                <button
-                  onClick={searchMasjids}
-                  disabled={masjidSearching}
-                  className="mb-2 w-full rounded-lg border px-3 py-2 text-xs font-medium disabled:opacity-50"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 40 }}
-                >
-                  {masjidSearching ? "Searching…" : "Find masjids near me"}
-                </button>
-                {masjidResults.length > 0 && (
-                  <div className="mb-2 max-h-48 space-y-1 overflow-y-auto">
-                    {masjidResults.map((m) => (
-                      <button
-                        key={m.slug ?? m.id ?? m.name}
-                        onClick={() => pickMasjid(m)}
-                        className="w-full rounded-lg border p-2 text-left transition-colors"
-                        style={{ borderColor: "var(--color-paper-3)" }}
-                      >
-                        <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>{m.name}</p>
-                        <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                          {[m.city, m.country].filter(Boolean).join(", ") || m.address || ""}
-                          {m.distanceKm != null && ` · ${m.distanceKm.toFixed(1)} km`}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <button
-                  onClick={() => setMasjidManual((v) => !v)}
-                  className="text-[11px] font-medium underline"
-                  style={{ color: "var(--color-ink-muted)" }}
-                >
-                  {masjidManual ? "Hide manual entry" : "Enter iqamah times manually"}
-                </button>
-                {masjidManual && (
-                  <div className="mt-2 space-y-1.5">
-                    {(["fajr", "dhuhr", "asr", "maghrib", "isha"] as const).map((p) => (
-                      <div key={p} className="flex items-center gap-2">
-                        <span className="w-16 text-xs capitalize" style={{ color: "var(--color-ink)" }}>{p}</span>
-                        <input
-                          type="time"
-                          value={manualIqamah[p] ?? ""}
-                          onChange={(e) => setManualIqamah((prev) => ({ ...prev, [p]: e.target.value }))}
-                          className="flex-1 rounded-md border px-2 py-1.5 text-xs"
-                          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-                        />
-                      </div>
-                    ))}
-                    <button
-                      onClick={saveManualIqamah}
-                      className="w-full rounded-lg px-3 py-2 text-xs font-medium"
-                      style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 40 }}
-                    >
-                      Save iqamah times
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-            {masjidMsg && (
-              <p className="mt-2 text-[11px]" style={{ color: masjidMsg.ok ? "var(--color-success)" : "var(--color-warmth)" }}>{masjidMsg.text}</p>
-            )}
-          </div>
-
-          {/* Time offset */}
-          <div className="mb-4 flex items-center gap-2">
-            <p className="flex-1 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
-              Time offset
-              <span className="block text-[11px] font-normal" style={{ color: "var(--color-ink-muted)" }}>
-                Shift all displayed prayer times if your local times differ slightly.
-              </span>
-            </p>
-            <select
-              value={timeOffset}
-              onChange={async (e) => {
-                const v = parseInt(e.target.value);
-                setTimeOffset(v);
-                await patchPrayerSettings({ timeOffsetMinutes: v }, "Saved.");
-              }}
-              className="rounded-md border px-2 py-1.5 text-xs"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-            >
-              {[-15, -10, -5, -3, -2, -1, 0, 1, 2, 3, 5, 10, 15].map((m) => (
-                <option key={m} value={m}>{m === 0 ? "None" : `${m > 0 ? "+" : ""}${m} min`}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Nafl times */}
-          <label className="flex items-center justify-between gap-3 rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
-            <div>
-              <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Show nafl times</p>
-              <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                Imsak, Ishraq, and night thirds markers on the day view.
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              checked={showNafl}
-              onChange={async (e) => {
-                setShowNafl(e.target.checked);
-                await patchPrayerSettings({ showNaflTimes: e.target.checked }, "Saved.");
-              }}
-              className="h-5 w-5 shrink-0 accent-[var(--color-accent)]"
-            />
-          </label>
-
-          {personalMsg && (
-            <p className="mt-3 text-[11px]" style={{ color: personalMsg.ok ? "var(--color-success)" : "var(--color-warmth)" }}>{personalMsg.text}</p>
-          )}
-          </div>
         </CollapsibleSection>
 
         {/* ── Sharing — collapsible ── */}
@@ -2570,7 +2146,7 @@ export default function SettingsClient({
             <div className="flex items-center gap-2">
               <Settings2 className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
               <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Miscellaneous</h2>
-              <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>planner · navigation</span>
+              <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>planner · navigation · cards · personal</span>
             </div>
             <ChevronDown className="h-4 w-4 shrink-0 -rotate-90" style={{ color: "var(--color-ink-muted)" }} />
           </Link>
@@ -2733,6 +2309,443 @@ export default function SettingsClient({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Prayer personalization — gender, hayd, per-prayer notifications, dua
+ *  thanks, masjid iqamah, time offset, nafl times. Lives under
+ *  Settings → Miscellaneous → Personal. */
+export function PrayerPersonalization({ initialSettings }: { initialSettings: PrayerSettings | null }) {
+  const [gender, setGender] = useState<string | null>(initialSettings?.gender ?? null);
+  const [haydTracking, setHaydTracking] = useState(initialSettings?.haydTracking ?? false);
+  const [showNafl, setShowNafl] = useState(initialSettings?.showNaflTimes ?? false);
+  const [timeOffset, setTimeOffset] = useState(initialSettings?.timeOffsetMinutes ?? 0);
+  const [useIqamah, setUseIqamah] = useState(initialSettings?.useIqamahReminders ?? false);
+  const [personalMsg, setPersonalMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Masjid selection is shown here, not on the parent prayer-settings object.
+  const [masjid, setMasjid] = useState<{
+    externalId: string | null;
+    name: string | null;
+    iqamah: PrayerSettings["masjidIqamah"] | null;
+  } | null>(
+    initialSettings?.masjidName
+      ? { externalId: initialSettings.masjidExternalId ?? null, name: initialSettings.masjidName, iqamah: initialSettings.masjidIqamah ?? null }
+      : null,
+  );
+  // Per-prayer notification prefs
+  const [perPrayer, setPerPrayer] = useState<PerPrayerMap>(() => {
+    try {
+      if (typeof window === "undefined") return {};
+      const raw = localStorage.getItem("waqt-per-prayer-prefs");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  // Masjid picker
+  const [masjidResults, setMasjidResults] = useState<Array<{
+    id?: string; slug: string | null; name: string; city: string | null; country: string | null;
+    address?: string | null; distanceKm: number | null; hasIqama?: boolean;
+    iqamaOffsets?: (number | null)[] | null; iqamaFixed?: (string | null)[] | null; jummah?: string[] | null;
+  }>>([]);
+  const [masjidSearching, setMasjidSearching] = useState(false);
+  const [masjidManual, setMasjidManual] = useState(false);
+  const [manualIqamah, setManualIqamah] = useState<Record<string, string>>({});
+  const [masjidMsg, setMasjidMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Friend "made dua for you" thanks — in-app toast + push, both default on
+  const [duaThanks, setDuaThanks] = useState({ inApp: true, push: true });
+
+  useEffect(() => {
+    fetch("/api/notifications/prefs")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.perPrayer) setPerPrayer(d.perPrayer);
+        if (typeof d?.duaThanksInApp === "boolean" || typeof d?.duaThanksPush === "boolean") {
+          setDuaThanks({ inApp: d.duaThanksInApp !== false, push: d.duaThanksPush !== false });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  function saveDuaThanks(next: { inApp: boolean; push: boolean }) {
+    setDuaThanks(next);
+    fetch("/api/notifications/prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ duaThanksInApp: next.inApp, duaThanksPush: next.push }),
+    }).catch(() => {});
+  }
+
+  async function patchPrayerSettings(patch: Record<string, unknown>, okText: string) {
+    setPersonalMsg(null);
+    const res = await fetch("/api/settings/prayer-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    setPersonalMsg(res.ok ? { ok: true, text: okText } : { ok: false, text: "Couldn't save." });
+  }
+
+  async function savePerPrayer(next: PerPrayerMap) {
+    setPerPrayer(next);
+    try { localStorage.setItem("waqt-per-prayer-prefs", JSON.stringify(next)); } catch { /* non-critical */ }
+    await fetch("/api/notifications/prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ perPrayer: next }),
+    }).catch(() => {});
+  }
+
+  async function searchMasjids() {
+    setMasjidSearching(true);
+    setMasjidMsg(null);
+    const la = parseFloat(initialSettings?.latitude ?? "");
+    const ln = parseFloat(initialSettings?.longitude ?? "");
+    if (isNaN(la) || isNaN(ln)) {
+      setMasjidMsg({ ok: false, text: "Set your location in Prayer settings first, then search." });
+      setMasjidSearching(false);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/masjids?lat=${la}&lng=${ln}&radius=32&limit=50`);
+      const data = res.ok ? await res.json() : null;
+      // Pickable = has iqamah data: islamic.app entries resolve it via slug,
+      // Mawaqit entries carry it inline. Plain OSM POIs have neither.
+      const pickable = (data?.mosques ?? []).filter(
+        (m: { slug: string | null; hasIqama?: boolean }) => m.slug || m.hasIqama,
+      );
+      setMasjidResults(pickable as typeof masjidResults);
+      if (!pickable.length) setMasjidMsg({ ok: false, text: "No masjids with published iqamah found nearby — enter times manually below." });
+    } catch {
+      setMasjidMsg({ ok: false, text: "Search failed." });
+    } finally {
+      setMasjidSearching(false);
+    }
+  }
+
+  async function pickMasjid(entry: (typeof masjidResults)[number]) {
+    setMasjidMsg(null);
+    try {
+      // islamic.app entries need a detail fetch; Mawaqit entries already
+      // carry their iqamah data inline.
+      let m = entry as typeof entry & { slug: string };
+      if (!entry.slug) {
+        // use inline data directly
+      } else {
+        const res = await fetch(`/api/masjids?slug=${encodeURIComponent(entry.slug)}`);
+        const detail = res.ok ? await res.json() : null;
+        if (!detail) { setMasjidMsg({ ok: false, text: "Couldn't load masjid." }); return; }
+        m = detail;
+      }
+      const iqamah = { offsets: m.iqamaOffsets ?? undefined, fixed: m.iqamaFixed ?? undefined, jummah: m.jummah ?? undefined };
+      // Don't save an empty config — reminders keyed on it would silently
+      // never fire. Point the user at manual entry instead.
+      if (!iqamah.offsets?.some((o) => o != null) && !iqamah.fixed?.some(Boolean) && !iqamah.jummah?.length) {
+        setMasjidMsg({ ok: false, text: `${m.name} hasn't published iqamah — enter times manually below.` });
+        return;
+      }
+      const extId = entry.slug ?? entry.id ?? m.name;
+      await patchPrayerSettings(
+        { masjidExternalId: extId, masjidName: m.name, masjidIqamah: iqamah },
+        `Iqamah times set from ${m.name}.`,
+      );
+      setMasjid({ externalId: extId, name: m.name, iqamah });
+      setMasjidResults([]);
+    } catch {
+      setMasjidMsg({ ok: false, text: "Couldn't load masjid." });
+    }
+  }
+
+  async function saveManualIqamah() {
+    const clean: Record<string, string> = {};
+    for (const k of ["fajr", "dhuhr", "asr", "maghrib", "isha"]) {
+      if (manualIqamah[k]) clean[k] = manualIqamah[k];
+    }
+    if (Object.keys(clean).length === 0) {
+      setMasjidMsg({ ok: false, text: "Enter at least one iqamah time." });
+      return;
+    }
+    await patchPrayerSettings(
+      { masjidExternalId: "manual", masjidName: "My masjid", masjidIqamah: { manual: clean } },
+      "Manual iqamah times saved.",
+    );
+    setMasjid({ externalId: "manual", name: "My masjid", iqamah: { manual: clean } });
+    setMasjidManual(false);
+  }
+
+  async function clearMasjid() {
+    await patchPrayerSettings(
+      { masjidExternalId: null, masjidName: null, masjidIqamah: null, useIqamahReminders: false },
+      "Masjid cleared.",
+    );
+    setMasjid(null);
+    setUseIqamah(false);
+  }
+
+  return (
+    <div>
+      <div className="mb-4">
+        <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Gender</p>
+        <div className="flex gap-2">
+          {(["male", "female"] as const).map((g) => (
+            <button
+              key={g}
+              onClick={async () => {
+                setGender(g);
+                await patchPrayerSettings({ gender: g, ...(g === "male" ? { haydTracking: false } : {}) }, "Saved.");
+                if (g === "male") setHaydTracking(false);
+              }}
+              className="flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
+              style={{
+                borderColor: gender === g ? "var(--color-accent)" : "var(--color-paper-3)",
+                backgroundColor: gender === g ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "transparent",
+                color: "var(--color-ink)",
+                minHeight: 40,
+              }}
+            >
+              {g === "male" ? "Boy" : "Girl"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Hayd tracking — female only */}
+      {gender === "female" && (
+        <div className="mb-4">
+          <label className="flex items-center justify-between gap-3 rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div>
+              <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Hayd tracking</p>
+              <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                Pause check-ins on marked days — streaks stay safe, days show as excused.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={haydTracking}
+              onChange={async (e) => {
+                setHaydTracking(e.target.checked);
+                await patchPrayerSettings({ haydTracking: e.target.checked }, "Saved.");
+              }}
+              className="h-5 w-5 shrink-0 accent-[var(--color-accent)]"
+            />
+          </label>
+        </div>
+      )}
+
+      {/* Per-prayer notifications */}
+      <div className="mb-4">
+        <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Per-prayer notifications</p>
+        <div className="space-y-2">
+          {(["fajr", "dhuhr", "asr", "maghrib", "isha"] as const).map((p) => {
+            const cfg = perPrayer[p] ?? { mode: "push" as const, beforeMin: 0 };
+            const set = (patch: Partial<typeof cfg>) => savePerPrayer({ ...perPrayer, [p]: { ...cfg, ...patch } });
+            return (
+              <div key={p} className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+                <p className="mb-2 text-xs font-semibold capitalize" style={{ color: "var(--color-ink)" }}>{p}</p>
+                <div className="grid grid-cols-3 gap-1 rounded-lg p-1" style={{ backgroundColor: "var(--color-paper-2)" }} role="group" aria-label={`${p} notification mode`}>
+                  {([["push", "Notify"], ["silent", "Silent"], ["off", "Off"]] as const).map(([m, label]) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => set({ mode: m })}
+                      aria-pressed={cfg.mode === m}
+                      className="rounded-md py-2 text-[11px] font-medium transition-colors"
+                      style={{
+                        backgroundColor: cfg.mode === m ? "var(--color-paper)" : "transparent",
+                        color: cfg.mode === m ? "var(--color-accent)" : "var(--color-ink-muted)",
+                        boxShadow: cfg.mode === m ? "0 1px 2px color-mix(in oklab, var(--color-ink) 15%, transparent)" : "none",
+                        minHeight: 36,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className={`mt-2 flex flex-wrap items-center gap-1 ${cfg.mode === "off" ? "pointer-events-none opacity-40" : ""}`}>
+                  <span className="mr-1 text-[10px] uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Early</span>
+                  {[0, 5, 10, 15, 30].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => set({ beforeMin: m })}
+                      aria-pressed={cfg.beforeMin === m}
+                      className="rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors"
+                      style={{
+                        borderColor: cfg.beforeMin === m ? "var(--color-accent)" : "var(--color-paper-3)",
+                        backgroundColor: cfg.beforeMin === m ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "transparent",
+                        color: cfg.beforeMin === m ? "var(--color-accent)" : "var(--color-ink-soft)",
+                        minHeight: 28,
+                      }}
+                    >
+                      {m === 0 ? "None" : `${m}m`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Friend dua thanks — when someone you nudged prays and sends
+          a dua back, how it reaches you */}
+      <div className="mb-4">
+        <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>When a friend you nudged sends you a dua</p>
+        <div className="space-y-1.5">
+          {(
+            [
+              ["inApp", "Show in the app (toast + bell)"],
+              ["push", "Push notification"],
+            ] as const
+          ).map(([k, label]) => (
+            <label key={k} className="flex items-center gap-2 rounded-lg border p-2 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
+              <input
+                type="checkbox"
+                checked={duaThanks[k]}
+                onChange={(e) => saveDuaThanks({ ...duaThanks, [k]: e.target.checked })}
+                className="h-4 w-4 accent-[var(--color-accent)]"
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Masjid iqamah */}
+      <div className="mb-4">
+        <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Masjid iqamah</p>
+        {masjid?.name ? (
+          <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)" }}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>{masjid.name}</p>
+              <button onClick={clearMasjid} className="text-[11px] font-medium underline" style={{ color: "var(--color-ink-muted)" }}>Remove</button>
+            </div>
+            <label className="mt-2 flex items-center gap-2 text-[11px]" style={{ color: "var(--color-ink-soft)" }}>
+              <input
+                type="checkbox"
+                checked={useIqamah}
+                onChange={async (e) => {
+                  setUseIqamah(e.target.checked);
+                  await patchPrayerSettings({ useIqamahReminders: e.target.checked }, "Saved.");
+                }}
+                className="h-4 w-4 accent-[var(--color-accent)]"
+              />
+              Notify me at iqamah time
+            </label>
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={searchMasjids}
+              disabled={masjidSearching}
+              className="mb-2 w-full rounded-lg border px-3 py-2 text-xs font-medium disabled:opacity-50"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 40 }}
+            >
+              {masjidSearching ? "Searching…" : "Find masjids near me"}
+            </button>
+            {masjidResults.length > 0 && (
+              <div className="mb-2 max-h-48 space-y-1 overflow-y-auto">
+                {masjidResults.map((m) => (
+                  <button
+                    key={m.slug ?? m.id ?? m.name}
+                    onClick={() => pickMasjid(m)}
+                    className="w-full rounded-lg border p-2 text-left transition-colors"
+                    style={{ borderColor: "var(--color-paper-3)" }}
+                  >
+                    <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>{m.name}</p>
+                    <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                      {[m.city, m.country].filter(Boolean).join(", ") || m.address || ""}
+                      {m.distanceKm != null && ` · ${m.distanceKm.toFixed(1)} km`}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setMasjidManual((v) => !v)}
+              className="text-[11px] font-medium underline"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              {masjidManual ? "Hide manual entry" : "Enter iqamah times manually"}
+            </button>
+            {masjidManual && (
+              <div className="mt-2 space-y-1.5">
+                {(["fajr", "dhuhr", "asr", "maghrib", "isha"] as const).map((p) => (
+                  <div key={p} className="flex items-center gap-2">
+                    <span className="w-16 text-xs capitalize" style={{ color: "var(--color-ink)" }}>{p}</span>
+                    <input
+                      type="time"
+                      value={manualIqamah[p] ?? ""}
+                      onChange={(e) => setManualIqamah((prev) => ({ ...prev, [p]: e.target.value }))}
+                      className="flex-1 rounded-md border px-2 py-1.5 text-xs"
+                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                    />
+                  </div>
+                ))}
+                <button
+                  onClick={saveManualIqamah}
+                  className="w-full rounded-lg px-3 py-2 text-xs font-medium"
+                  style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 40 }}
+                >
+                  Save iqamah times
+                </button>
+              </div>
+            )}
+          </>
+        )}
+        {masjidMsg && (
+          <p className="mt-2 text-[11px]" style={{ color: masjidMsg.ok ? "var(--color-success)" : "var(--color-warmth)" }}>{masjidMsg.text}</p>
+        )}
+      </div>
+
+      {/* Time offset */}
+      <div className="mb-4 flex items-center gap-2">
+        <p className="flex-1 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
+          Time offset
+          <span className="block text-[11px] font-normal" style={{ color: "var(--color-ink-muted)" }}>
+            Shift all displayed prayer times if your local times differ slightly.
+          </span>
+        </p>
+        <select
+          value={timeOffset}
+          onChange={async (e) => {
+            const v = parseInt(e.target.value);
+            setTimeOffset(v);
+            await patchPrayerSettings({ timeOffsetMinutes: v }, "Saved.");
+          }}
+          className="rounded-md border px-2 py-1.5 text-xs"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+        >
+          {[-15, -10, -5, -3, -2, -1, 0, 1, 2, 3, 5, 10, 15].map((m) => (
+            <option key={m} value={m}>{m === 0 ? "None" : `${m > 0 ? "+" : ""}${m} min`}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Nafl times */}
+      <label className="flex items-center justify-between gap-3 rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div>
+          <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Show nafl times</p>
+          <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            Imsak, Ishraq, and night thirds markers on the day view.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          checked={showNafl}
+          onChange={async (e) => {
+            setShowNafl(e.target.checked);
+            await patchPrayerSettings({ showNaflTimes: e.target.checked }, "Saved.");
+          }}
+          className="h-5 w-5 shrink-0 accent-[var(--color-accent)]"
+        />
+      </label>
+
+      {personalMsg && (
+        <p className="mt-3 text-[11px]" style={{ color: personalMsg.ok ? "var(--color-success)" : "var(--color-warmth)" }}>{personalMsg.text}</p>
+      )}
     </div>
   );
 }

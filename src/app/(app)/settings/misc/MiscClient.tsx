@@ -2,16 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CalendarClock, LayoutGrid, Lightbulb } from "lucide-react";
+import { ArrowLeft, CalendarClock, LayoutGrid, Lightbulb, UserRound } from "lucide-react";
 import { setCachedPrayerSettings } from "@/lib/offline/settings-cache";
-import { NavTabsEditor, FunFactToggle, FunFactCountdown } from "../SettingsClient";
+import { NavTabsEditor, FunFactToggle, FunFactCountdown, PrayerPersonalization, type PrayerSettings } from "../SettingsClient";
 
-type Tab = "planner" | "navigation" | "cards";
+type Tab = "planner" | "navigation" | "cards" | "personal";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "planner", label: "Planner" },
   { id: "navigation", label: "Navigation" },
   { id: "cards", label: "Cards" },
+  { id: "personal", label: "Personal" },
 ];
 
 interface MiscSettings {
@@ -23,6 +24,8 @@ interface MiscSettings {
 export default function MiscClient() {
   const [tab, setTab] = useState<Tab>("planner");
   const [settings, setSettings] = useState<MiscSettings | null>(null);
+  // Full prayer-settings payload — the Personal tab seeds from it.
+  const [full, setFull] = useState<PrayerSettings | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -31,6 +34,7 @@ export default function MiscClient() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d) {
+          setFull(d);
           setSettings({
             studyStartMin: d.studyStartMin ?? 420,
             studyEndMin: d.studyEndMin ?? 1320,
@@ -235,6 +239,20 @@ export default function MiscClient() {
           </p>
           <FunFactToggle />
           <FunFactCountdown />
+        </div>
+      )}
+
+      {tab === "personal" && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <UserRound className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Personalization</p>
+          </div>
+          {full ? (
+            <PrayerPersonalization initialSettings={full} />
+          ) : (
+            <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>
+          )}
         </div>
       )}
     </div>
