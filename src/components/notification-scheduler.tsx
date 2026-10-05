@@ -83,6 +83,9 @@ type PerPrayerPrefs = Partial<Record<
 export default function NotificationScheduler() {
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const perPrayerRef = useRef<PerPrayerPrefs | null | undefined>(undefined);
+  // Throttle refires — checkMissedPrayers + scheduleAll cost ~5 fetches, and
+  // visibilitychange fires on every tab switch.
+  const lastRunRef = useRef(0);
 
   // Per-prayer prefs — localStorage first (works offline), API refresh once
   // per mount. Settings changes apply on reload.
@@ -676,9 +679,11 @@ export default function NotificationScheduler() {
       scheduleAll();
     }, 1200);
 
-    // Re-schedule when the page becomes visible again
+    // Re-schedule when the page becomes visible again — throttled so rapid
+    // tab switches don't spam the API. The 5-min interval is the backstop.
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && Date.now() - lastRunRef.current > 60_000) {
+        lastRunRef.current = Date.now();
         clearAllTimers();
         checkMissedPrayers();
         scheduleAll();

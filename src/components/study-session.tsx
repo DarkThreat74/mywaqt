@@ -80,9 +80,13 @@ export default function StudySession() {
     let active = true;
     const acquire = async () => {
       try {
-        wakeRef.current = await (navigator as Navigator & {
+        const s = await (navigator as Navigator & {
           wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> };
         }).wakeLock?.request("screen") ?? null;
+        // The request can resolve after cleanup ran — releasing immediately
+        // instead of storing avoids leaking a lock the page can never drop.
+        if (!active) { void s?.release().catch(() => {}); return; }
+        wakeRef.current = s;
       } catch { /* low battery / unsupported browser */ }
     };
     void acquire();
