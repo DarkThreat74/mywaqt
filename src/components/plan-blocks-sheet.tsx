@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, Loader2, Sparkles, X } from "lucide-react";
+import { Check, ChevronLeft, Loader2, Pencil, Sparkles, X } from "lucide-react";
 import type { Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
 import { formatDueBadge } from "@/lib/homework/due-format";
@@ -26,6 +26,7 @@ interface Props {
   blocks: BlockWithAssignments[];
   onChanged: () => void;     // parent refetches blocks
   onClose: () => void;
+  onPickOnCalendar?: () => void; // close sheet, let the user tap a time on the day grid
   initialGap?: Interval | null;  // open directly in compose mode for this gap
   initialBlock?: BlockWithAssignments | null;  // or directly editing this block
   dayStart?: number;           // planning-window bounds (minutes from midnight)
@@ -49,7 +50,7 @@ function timeInputToMin(s: string): number | null {
   return v >= 0 && v <= 1440 ? v : null;
 }
 
-export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose, initialGap, initialBlock, dayStart, dayEnd }: Props) {
+export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose, onPickOnCalendar, initialGap, initialBlock, dayStart, dayEnd }: Props) {
   const [hw, setHw] = useState<Homework[]>([]);
   const [unworked, setUnworked] = useState<BlockWithAssignments[]>([]);
   const [loading, setLoading] = useState(true);
@@ -319,6 +320,17 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
             </p>
           </div>
           <div className="flex items-center gap-1">
+            {!composing && !draft && !isPast && onPickOnCalendar && (
+              <button
+                onClick={onPickOnCalendar}
+                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-85"
+                style={{ backgroundColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+                aria-label="Pick a time on the calendar"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Pick on calendar
+              </button>
+            )}
             {!composing && !draft && !isPast && gaps.length > 0 && hw.length > 0 && (
               <button
                 onClick={buildDraft}

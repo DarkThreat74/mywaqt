@@ -245,6 +245,14 @@ export default function DayViewClient({ date }: { date: string }) {
   const [checkinPopup, setCheckinPopup] = useState<{ prayer: PrayerKey; label: string } | null>(null);
   const [studyBlocks, setStudyBlocks] = useState<BlockWithAssignments[]>([]);
   const [planOpen, setPlanOpen] = useState(false);
+  const [pickMode, setPickMode] = useState(false); // tap-a-slot-on-the-calendar mode
+
+  useEffect(() => {
+    if (!pickMode) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPickMode(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pickMode]);
   const [planGap, setPlanGap] = useState<Interval | null>(null);
   const [planBlock, setPlanBlock] = useState<BlockWithAssignments | null>(null);
   // Peek sheets — tapping an event/block previews it instead of jumping
@@ -1899,8 +1907,55 @@ export default function DayViewClient({ date }: { date: string }) {
             );
           })}
 
+          {/* Pick mode — every gap is a highlighted band; a transparent
+              catcher turns any tap into "plan here". */}
+          {pickMode && (
+            <button
+              aria-label="Tap a time to plan a study block"
+              className="absolute inset-0 z-30 cursor-crosshair"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const tap = Math.round(HOURS[0] * 60 + ((e.clientY - rect.top) / HOUR_HEIGHT) * 60);
+                // Inside a gap → start there; otherwise snap to the next gap.
+                let g = gaps.find((x) => tap >= x.start && tap < x.end);
+                let start = tap, end = tap + 60;
+                if (g) {
+                  end = Math.min(tap + 60, g.end);
+                  if (end - start < 15) start = g.end - 15;
+                } else {
+                  g = gaps.find((x) => x.start >= tap);
+                  if (!g) return;
+                  start = g.start;
+                  end = Math.min(g.start + 60, g.end);
+                }
+                if (end - start < 15) return;
+                setPickMode(false);
+                setPlanGap({ start, end });
+                setPlanOpen(true);
+              }}
+            >
+              {gaps.map((g) => (
+                <span
+                  key={`pick-${g.start}`}
+                  className="absolute flex items-start justify-center rounded-lg border pt-1.5 text-[10px] font-semibold"
+                  style={{
+                    top: minutesToTop(g.start) + 2,
+                    height: Math.max(((g.end - g.start) / 60) * HOUR_HEIGHT - 4, 20),
+                    left: TIME_COL + 4,
+                    right: 4,
+                    borderColor: "var(--color-accent)",
+                    backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)",
+                    color: "var(--color-accent)",
+                  }}
+                >
+                  {fmtMin(g.start)} – {fmtMin(g.end)}
+                </span>
+              ))}
+            </button>
+          )}
+
           {/* Ghost gap chips — free-time slots you can claim */}
-          {!isPastDay && showGapChips && gaps.map((g) => {
+          {!isPastDay && showGapChips && !pickMode && gaps.map((g) => {
             if (g.end - g.start < 45) return null;
             return (
               <button
@@ -1923,6 +1978,35 @@ export default function DayViewClient({ date }: { date: string }) {
           </div>
         </div>
       </div>
+
+      {/* Pick mode — big X + hint */}
+      {pickMode && (
+        <>
+          <button
+            onClick={() => setPickMode(false)}
+            className="fixed right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-105"
+            style={{
+              top: "calc(env(safe-area-inset-top, 0px) + 64px)",
+              backgroundColor: "var(--color-ink)",
+              color: "var(--color-paper)",
+            }}
+            aria-label="Cancel picking a time"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <div
+            className="pointer-events-none fixed left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-xs font-medium shadow-lg backdrop-blur-md"
+            style={{
+              top: "calc(env(safe-area-inset-top, 0px) + 68px)",
+              backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
+              color: "var(--color-ink)",
+              border: "1px solid var(--color-paper-3)",
+            }}
+          >
+            Tap a time to plan — highlighted stretches are free
+          </div>
+        </>
+      )}
 
       {/* Floating action button — sits above mobile bottom nav, top-right on desktop */}
       <button
@@ -2668,6 +2752,7 @@ export default function DayViewClient({ date }: { date: string }) {
           blocks={dayBlocks}
           onChanged={() => void refreshBlocks()}
           onClose={() => { setPlanOpen(false); setPlanGap(null); setPlanBlock(null); }}
+          onPickOnCalendar={() => { setPlanOpen(false); setPickMode(true); }}
           initialGap={planGap}
           initialBlock={planBlock}
           dayStart={planDayStart}
