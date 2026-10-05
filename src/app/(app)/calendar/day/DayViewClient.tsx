@@ -1360,21 +1360,22 @@ export default function DayViewClient({ date }: { date: string }) {
               const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
               const isClickable = prayer.isPrayer && !haydDay;
               if (!prayer.isPrayer) {
-                // Non-prayer markers (sunrise) get their own look — a bare label
-                // with a sun glyph, never the bordered "unmarked" chip.
+                // Non-prayer markers (sunrise) render as a slim divider — a
+                // hairline with a sun glyph, a barrier between Fajr and Dhuhr,
+                // never an "unmarked" chip.
                 return (
                   <div
                     key={prayer.key}
-                    className="flex shrink-0 flex-col items-center justify-center px-1.5 py-1.5"
-                    style={{ minWidth: 44, minHeight: 44 }}
-                    title={`${prayer.label} — end of the Fajr window`}
+                    className="flex shrink-0 items-center self-stretch"
+                    style={{ minWidth: 20 }}
+                    title={`${prayer.label} ${formatTimeCompact(time)} — end of the Fajr window`}
+                    aria-label={`${prayer.label} ${formatTimeCompact(time)}`}
+                    role="separator"
                   >
-                    <span className="flex items-center gap-0.5 text-[10px] font-medium leading-none" style={{ color: "var(--color-ink-muted)" }}>
-                      <Sunrise className="h-2.5 w-2.5" style={{ color: "var(--color-warmth)" }} />
-                      {prayerLabel(prayer.key, prayer.label)}
-                    </span>
-                    <span className="mt-0.5 text-[10px] tabular-nums leading-none" style={{ color: "var(--color-ink-muted)" }}>
-                      {formatTimeCompact(time)}
+                    <span className="flex flex-col items-center gap-0.5">
+                      <span className="h-2 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
+                      <Sunrise className="h-3 w-3" style={{ color: "var(--color-warmth)" }} />
+                      <span className="h-2 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                     </span>
                   </div>
                 );
@@ -1407,7 +1408,7 @@ export default function DayViewClient({ date }: { date: string }) {
           </div>
 
           {/* Desktop: cards with full label and time */}
-          <div className="hidden flex-wrap gap-1.5 lg:flex">
+          <div className="hidden flex-wrap justify-center gap-1.5 lg:flex">
             {PRAYER_NAMES.map((prayer) => {
               const rawTime = prayerTimes[prayer.key];
               if (!rawTime) return null;
@@ -1420,16 +1421,15 @@ export default function DayViewClient({ date }: { date: string }) {
                 return (
                   <div
                     key={prayer.key}
-                    className="flex flex-col items-center gap-0 px-3 py-1.5"
-                    style={{ minHeight: 44 }}
-                    title={`${prayer.label} — end of the Fajr window`}
+                    className="flex items-center self-stretch"
+                    title={`${prayer.label} ${formatTime(time)} — end of the Fajr window`}
+                    aria-label={`${prayer.label} ${formatTime(time)}`}
+                    role="separator"
                   >
-                    <span className="flex items-center gap-1 text-xs font-medium leading-tight" style={{ color: "var(--color-ink-muted)" }}>
-                      <Sunrise className="h-3 w-3" style={{ color: "var(--color-warmth)" }} />
-                      {prayerLabel(prayer.key, prayer.label)}
-                    </span>
-                    <span className="text-xs tabular-nums leading-tight" style={{ color: "var(--color-ink-muted)" }}>
-                      {formatTime(time)}
+                    <span className="flex flex-col items-center gap-0.5">
+                      <span className="h-2.5 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
+                      <Sunrise className="h-3.5 w-3.5" style={{ color: "var(--color-warmth)" }} />
+                      <span className="h-2.5 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                     </span>
                   </div>
                 );
@@ -1489,15 +1489,12 @@ export default function DayViewClient({ date }: { date: string }) {
         </div>
       )}
 
-      {/* Day grid */}
-      <div
-        className="relative overflow-hidden rounded-2xl border"
-        style={{ borderColor: "var(--color-paper-3)" }}
-      >
-        {/* Floating summary chip — due count + planner, reads as info not buttons */}
-        {(dayHomeworkCount > 0 || !isPastDay) && (
+      {/* Floating summary chip — sticky so it rides the viewport top while the
+          day scrolls beneath it; never permanently covers a band. */}
+      {(dayHomeworkCount > 0 || !isPastDay) && (
+        <div className="pointer-events-none sticky top-2 z-30 -mb-9 flex justify-end">
           <div
-            className="absolute right-2 top-10 z-20 flex items-stretch overflow-hidden rounded-full border text-[11px] font-medium shadow-sm backdrop-blur-md"
+            className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[11px] font-medium shadow-sm backdrop-blur-md"
             style={{
               borderColor: "var(--color-paper-3)",
               backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
@@ -1534,7 +1531,14 @@ export default function DayViewClient({ date }: { date: string }) {
               </button>
             )}
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Day grid */}
+      <div
+        className="relative overflow-hidden rounded-2xl border"
+        style={{ borderColor: "var(--color-paper-3)" }}
+      >
         {/* View More / Hide button for early hours */}
         <button
           onClick={() => setShowEarlyHours(!showEarlyHours)}

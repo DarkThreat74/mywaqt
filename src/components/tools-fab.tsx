@@ -15,9 +15,10 @@ export default function ToolsFab() {
     () => true,
     () => false,
   );
-  if (!ready || hiddenTabs.has("tools-fab")) {
-    return <div className="min-w-0 flex-1" aria-hidden />;
-  }
+  // Pre-hydration: a spacer keeps the nav layout stable. Once the cached
+  // prefs are known, hidden means truly gone — no empty slot.
+  if (!ready) return <div className="min-w-0 flex-1" aria-hidden />;
+  if (hiddenTabs.has("tools-fab")) return null;
 
   return (
     <button

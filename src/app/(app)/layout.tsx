@@ -25,6 +25,7 @@ import GlobalAudioPlayer from "@/components/global-audio-player";
 import LogoutButton from "@/components/logout-button";
 import SyncStatus from "@/components/sync-status";
 import UserStamp from "@/components/user-stamp";
+import ThemeGuard from "@/components/theme-guard";
 import { SoundscapeProvider } from "@/components/soundscape-context";
 import SoundscapeIndicator from "@/components/soundscape-indicator";
 import StudySession from "@/components/study-session";
@@ -175,6 +176,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {/* Service worker + notification scheduler + deep links + fun fact popup */}
       <ServiceWorkerRegister />
       <UserStamp userId={session.userId} />
+      <ThemeGuard />
       <SyncStatus />
       <SoundscapeIndicator />
       <NotificationScheduler />
