@@ -97,8 +97,12 @@ export async function planSession(input: SessionPlanInput, blockId?: string) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
+      signal: AbortSignal.timeout(45_000),
     });
     const data = await res.json().catch(() => null);
+    // The user may have cancelled while the request was in flight — don't
+    // resurrect a plan they already walked away from.
+    if (state.status !== "planning") return;
     const segments = Array.isArray(data?.segments) ? (data.segments as StudySegment[]) : null;
     if (res.ok && segments && segments.length > 0) {
       state = {
@@ -242,7 +246,7 @@ export function setOverlayOpen(open: boolean) {
  *  is, inserts a short break, and re-queues the remaining work right after.
  *  Vigilance research: brief diversions restore focus better than pushing through. */
 export function takeBreakNow(minutes = 5) {
-  if (state.status !== "running") return;
+  if (state.status !== "running" || state.pausedAt) return;
   const elapsedSec = runningElapsedSec();
   const p = segmentAt(state.segments, elapsedSec);
   if (p.done || p.segment.kind !== "study") return;
@@ -262,7 +266,7 @@ export function takeBreakNow(minutes = 5) {
  *  subject, and move the leftover minutes to the end as a finish-up task.
  *  Task switching beats grinding on something your attention has left. */
 export function switchFocus() {
-  if (state.status !== "running") return;
+  if (state.status !== "running" || state.pausedAt) return;
   const elapsedSec = runningElapsedSec();
   const p = segmentAt(state.segments, elapsedSec);
   if (p.done || p.segment.kind !== "study") return;
@@ -293,6 +297,9 @@ export interface SegmentProgress {
 }
 
 export function segmentAt(segments: StudySegment[], elapsedSec: number): SegmentProgress {
+  if (segments.length === 0) {
+    return { index: 0, segment: { kind: "break", minutes: 0, label: "" }, remainingSec: 0, done: true };
+  }
   let acc = 0;
   for (let i = 0; i < segments.length; i++) {
     const segSec = segments[i].minutes * 60;

@@ -27,6 +27,9 @@ let audioCtx: AudioContext | null = null;
 function beep(freq = 880, dur = 0.12) {
   try {
     audioCtx ??= new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    // iOS keeps the context suspended until a resume — without this every
+    // beep silently no-ops on Safari.
+    if (audioCtx.state === "suspended") void audioCtx.resume().catch(() => {});
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
     o.frequency.value = freq;
@@ -65,6 +68,7 @@ export default function StudySession() {
   const [now, setNow] = useState(() => Date.now());
   const lastSegRef = useRef(-1);
   const lastBeepRef = useRef(-1);
+  const doneChimedRef = useRef(false);
   // End-session check — "did you finish?" before the session is discarded.
   const [askFinish, setAskFinish] = useState(false);
   // Auto-prompt the finish check once per session when the plan runs out —
@@ -75,8 +79,9 @@ export default function StudySession() {
   const hiddenAtRef = useRef<number | null>(null);
   const [driftNudge, setDriftNudge] = useState(false);
   const driftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Halfway attention check on long study segments — shown once per segment.
-  const [checkinDismissed, setCheckinDismissed] = useState(-1);
+  // Halfway attention check on long study segments — shown once per segment
+  // per session (keyed by startedAt+index so the next session asks again).
+  const [checkinDismissed, setCheckinDismissed] = useState("");
   // "What pulled you away" — captured into history on unfinished ends.
   const [endReason, setEndReason] = useState<string | null>(null);
 
@@ -126,6 +131,15 @@ export default function StudySession() {
     : null;
   useEffect(() => {
     if (!progress || state.status !== "running") return;
+    // Session complete — index doesn't change when the last segment ends,
+    // so it needs its own edge-trigger or the finish is silent.
+    if (progress.done && !doneChimedRef.current) {
+      doneChimedRef.current = true;
+      beep(1040, 0.15);
+      setTimeout(() => beep(1320, 0.2), 170);
+      return;
+    }
+    if (!progress.done) doneChimedRef.current = false;
     if (progress.index !== lastSegRef.current) {
       lastSegRef.current = progress.index;
       lastBeepRef.current = -1;
@@ -191,8 +205,11 @@ export default function StudySession() {
     const label = state.status === "running"
       ? state.segments.find((s) => s.kind === "study")?.label ?? "Focus session"
       : "Focus session";
+    // Local date, not UTC — an evening session in a negative-offset timezone
+    // must log to today, not tomorrow.
+    const d = new Date();
     recordOutcome(finished, {
-      date: new Date().toISOString().slice(0, 10),
+      date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
       minutes: Math.max(1, Math.round(sessionElapsed(Date.now()) / 60)),
       label,
       reason: reason ?? undefined,
@@ -218,8 +235,15 @@ export default function StudySession() {
   // ── Vox thinking ──
   if (state.status === "planning") {
     return (
-      <div className="fixed inset-0 z-[90] flex items-center justify-center" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }}>
+      <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-3" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }}>
         <ThinkingCard />
+        <button
+          onClick={endSession}
+          className="rounded-full px-4 py-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ color: "var(--color-paper)", minHeight: 40 }}
+        >
+          Cancel
+        </button>
       </div>
     );
   }
@@ -304,7 +328,7 @@ export default function StudySession() {
   const discipline = getDiscipline();
   const finishDialog = askFinish ? (
     <div className="fixed inset-0 z-[95] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="End session">
-      <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => setAskFinish(false)} aria-label="Back" />
+      <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => { setAskFinish(false); setEndReason(null); }} aria-label="Back" />
       <div className="relative w-full max-w-sm rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
         <p className="text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
           {progress.done ? "Time&apos;s up — did you finish?" : "Ending early — did you finish?"}
@@ -419,10 +443,11 @@ export default function StudySession() {
   const next = state.segments[progress.index + 1];
   // Attention check — vigilance drops around the 60% mark of a long block.
   // Brief+rare resets beat long breaks, so the offer is a 90-second reset.
+  const checkinKey = `${state.startedAt}:${progress.index}`;
   const showCheckin =
     !isBreak && !paused && !progress.done &&
     seg.minutes >= 20 && elapsedInSeg >= seg.minutes * 60 * 0.6 &&
-    checkinDismissed !== progress.index;
+    checkinDismissed !== checkinKey;
 
   return (
     <div className="fixed inset-0 z-[90] flex flex-col" style={{ backgroundColor: "var(--color-paper)" }} role="dialog" aria-modal="true" aria-label="Study session">
@@ -534,14 +559,14 @@ export default function StudySession() {
               Still locked in?
             </span>
             <button
-              onClick={() => { takeBreakNow(1.5); setCheckinDismissed(progress.index); }}
+              onClick={() => { takeBreakNow(1.5); setCheckinDismissed(checkinKey); }}
               className="rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
               style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", minHeight: 32 }}
             >
               Reset · 90s
             </button>
             <button
-              onClick={() => setCheckinDismissed(progress.index)}
+              onClick={() => setCheckinDismissed(checkinKey)}
               className="rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 32 }}
             >
