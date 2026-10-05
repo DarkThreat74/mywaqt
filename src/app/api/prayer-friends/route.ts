@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and, or, inArray, gte } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { calculateStreak } from "@/lib/prayer/checkin";
+import { calculateStreak, weekStartInTimezone } from "@/lib/prayer/checkin";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +67,14 @@ export async function GET(request: NextRequest) {
     friendSettingsAll.map((s) => [
       s.userId,
       new Date().toLocaleDateString("en-CA", { timeZone: s.timezone || "America/Chicago" }),
+    ]),
+  );
+  // Each friend's week runs Sunday→today in THEIR timezone — identical to the
+  // analytics endpoint's "this week", so the league compares like with like.
+  const weekStartByUser = new Map(
+    friendSettingsAll.map((s) => [
+      s.userId,
+      weekStartInTimezone(s.timezone || "America/Chicago"),
     ]),
   );
   const distinctTodayStrs = [...new Set(todayByUser.values())];
@@ -201,7 +209,8 @@ export async function GET(request: NextRequest) {
     friendSettingsAll.map((s) => [s.userId, {
       timezone: s.timezone || "America/Chicago",
       friendsSeeStreak: s.friendsSeeStreak ?? true,
-      friendsSeeTodayStatus: s.friendsSeeTodayStatus ?? false,
+      // Match the schema default — a friend with no settings row is visible.
+      friendsSeeTodayStatus: s.friendsSeeTodayStatus ?? true,
       friendsSeeSunnah: s.friendsSeeSunnah ?? false,
       friendsSeeMasjidPct: s.friendsSeeMasjidPct ?? true,
     }]),
@@ -282,7 +291,7 @@ export async function GET(request: NextRequest) {
     displayName: string | null;
     avatarUrl: string | null;
     streak: number | null;
-    totalCompleteDays: number | null;
+    weekCompleteDays: number | null;
     totalPrayed: number | null;
     masjidPct: number | null;
     thisWeekPrayed: number | null;
@@ -309,15 +318,16 @@ export async function GET(request: NextRequest) {
     const timezone = settings.timezone;
     const todayStr = todayByUser.get(friendUser.id)
       ?? new Date().toLocaleDateString("en-CA", { timeZone: timezone });
+    const weekStartStr = weekStartByUser.get(friendUser.id) ?? weekStartInTimezone(timezone);
     const friendLogs = logsByUser.get(friendUser.id) ?? [];
 
     // Build logs by date map
     const logsByDate = new Map<string, Array<{ status: string }>>();
-    let completeDays = 0;
     let totalPrayed = 0;
-    let totalMasjid = 0;
-    let thisWeekPrayed = 0;
     let lastPrayedDate: string | null = null;
+    // Week-scoped stats — same Sunday→today window the viewer's own card uses
+    let weekPrayed = 0;
+    let weekMasjid = 0;
 
     for (const log of friendLogs) {
       const dateStr = typeof log.date === "string" ? log.date : String(log.date);
@@ -326,19 +336,23 @@ export async function GET(request: NextRequest) {
 
       if (log.status === "prayed" || log.status === "assumed_prayed") {
         totalPrayed++;
-        if (log.wentToMasjid === true) totalMasjid++;
-        if (dateStr >= weekAgoStr) thisWeekPrayed++;
         if (!lastPrayedDate || dateStr > lastPrayedDate) lastPrayedDate = dateStr;
+        if (dateStr >= weekStartStr && dateStr <= todayStr) {
+          weekPrayed++;
+          if (log.wentToMasjid === true) weekMasjid++;
+        }
       }
     }
 
-    // Count complete days — excused counts (it never breaks a streak), but
-    // isn't included in the "prayed" totals above.
-    for (const [, logs] of logsByDate) {
+    // Complete days this week — excused counts (it never breaks a streak),
+    // but isn't included in the "prayed" totals above.
+    let weekCompleteDays = 0;
+    for (const [dateStr, logs] of logsByDate) {
+      if (dateStr < weekStartStr || dateStr > todayStr) continue;
       const prayedCount = logs.filter(
         (l) => l.status === "prayed" || l.status === "assumed_prayed" || l.status === "excused",
       ).length;
-      if (prayedCount === 5) completeDays++;
+      if (prayedCount === 5) weekCompleteDays++;
     }
 
     const streak = calculateStreak(logsByDate, todayStr);
@@ -356,12 +370,12 @@ export async function GET(request: NextRequest) {
       displayName: friendUser.displayName,
       avatarUrl: friendUser.avatarUrl,
       streak: settings.friendsSeeStreak ? streak : null,
-      totalCompleteDays: settings.friendsSeeStreak ? completeDays : null,
+      weekCompleteDays: settings.friendsSeeStreak ? weekCompleteDays : null,
       totalPrayed: settings.friendsSeeStreak ? totalPrayed : null,
       masjidPct: settings.friendsSeeMasjidPct
-        ? (totalPrayed > 0 ? Math.round((totalMasjid / totalPrayed) * 100) : 0)
+        ? (weekPrayed > 0 ? Math.round((weekMasjid / weekPrayed) * 100) : 0)
         : null,
-      thisWeekPrayed: settings.friendsSeeStreak ? thisWeekPrayed : null,
+      thisWeekPrayed: settings.friendsSeeStreak ? weekPrayed : null,
       lastPrayedDate: settings.friendsSeeStreak ? lastPrayedDate : null,
       todayLogs,
       todaySunnahs,

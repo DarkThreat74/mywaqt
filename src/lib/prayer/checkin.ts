@@ -89,6 +89,19 @@ export function todayInTimezone(timezone?: string | null): string {
 }
 
 /**
+ * Start of the current calendar week (Sunday) as "YYYY-MM-DD" in a given
+ * IANA timezone. Kept next to todayInTimezone so "this week" means the same
+ * thing everywhere — the league compares everyone on their own calendar week.
+ */
+export function weekStartInTimezone(timezone?: string | null): string {
+  const todayStr = todayInTimezone(timezone);
+  const [y, m, d] = todayStr.split("-").map(Number);
+  const dayOfWeek = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sunday
+  const start = new Date(Date.UTC(y, m - 1, d - dayOfWeek));
+  return start.toISOString().split("T")[0];
+}
+
+/**
  * Get the end time (in minutes since midnight) for a prayer's window.
  *
  * Windows:

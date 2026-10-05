@@ -192,14 +192,28 @@ export async function GET(request: NextRequest) {
       ));
     const weekSunnah = weekSunnahRows.filter((r) => MUAKKADAH_WAJIB.has(r.sunnahKey)).length;
 
+    // Week-scoped league stats — computed regardless of the selected stats
+    // range so the "You" league row always compares on the same window as
+    // /api/prayer-friends (Sunday→today, user's timezone).
+    let weekMasjid = 0;
+    const weekPrayedByDate = new Map<string, Set<string>>();
+
     for (const log of allLogs) {
+      const dateStr = typeof log.date === "string" ? log.date : String(log.date);
       if (log.status === "prayed" || log.status === "assumed_prayed") {
-        const dateStr = typeof log.date === "string" ? log.date : String(log.date);
         if (dateStr >= weekStartStr && dateStr <= todayStr) thisWeekPrayed++;
         if (dateStr >= monthStartStr && dateStr <= todayStr) thisMonthPrayed++;
         if (!lastPrayedDate || dateStr > lastPrayedDate) lastPrayedDate = dateStr;
       }
+      if (dateStr >= weekStartStr && dateStr <= todayStr &&
+          (log.status === "prayed" || log.status === "assumed_prayed" || log.status === "excused")) {
+        if (!weekPrayedByDate.has(dateStr)) weekPrayedByDate.set(dateStr, new Set());
+        weekPrayedByDate.get(dateStr)!.add(log.prayerName);
+        if (log.wentToMasjid === true && log.status !== "excused") weekMasjid++;
+      }
     }
+    const weekCompleteDays = [...weekPrayedByDate.values()].filter((s) => s.size === 5).length;
+    const weekMasjidPct = thisWeekPrayed > 0 ? Math.round((weekMasjid / thisWeekPrayed) * 100) : 0;
 
     // ── Active days (denominator for consistency) ──
     let activeDays: number;
@@ -461,6 +475,8 @@ export async function GET(request: NextRequest) {
       timezone,
       madhab: settings?.madhab || "hanafi",
       thisWeekPrayed,
+      weekCompleteDays,
+      weekMasjidPct,
       weekSunnah,
       thisMonthPrayed,
       lastPrayedDate,

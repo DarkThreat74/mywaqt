@@ -56,6 +56,8 @@ interface Analytics {
   timezone: string;
   madhab?: string;
   thisWeekPrayed: number;
+  weekCompleteDays?: number;
+  weekMasjidPct?: number;
   weekSunnah?: number;
   thisMonthPrayed: number;
   lastPrayedDate: string | null;
@@ -74,7 +76,7 @@ interface Friend {
   displayName: string | null;
   avatarUrl?: string | null;
   streak: number | null;
-  totalCompleteDays: number | null;
+  weekCompleteDays: number | null;
   totalPrayed: number | null;
   masjidPct: number | null;
   thisWeekPrayed: number | null;
@@ -319,10 +321,13 @@ export default function PrayerDashboard() {
   const fetchTodayData = useCallback(async () => {
     if (!todayStr) return;
     try {
-      const [logsRes, sunnahRes, timesRes] = await Promise.all([
+      const [logsRes, sunnahRes, timesRes, analyticsRes] = await Promise.all([
         fetch(`/api/prayer-log?date=${todayStr}`).catch(() => null),
         fetch(`/api/prayer-log/sunnah?date=${todayStr}`).catch(() => null),
         fetch(`/api/prayer-times?date=${todayStr}`).catch(() => null),
+        // League row must reflect a check-in immediately — the "You" card's
+        // week/streak numbers come from analytics, not todayLogs.
+        fetch(`/api/prayer-log/analytics?range=${statsRange}`).catch(() => null),
       ]);
       if (logsRes?.ok) {
         const data = await logsRes.json().catch(() => null);
@@ -343,10 +348,14 @@ export default function PrayerDashboard() {
           isha: data.isha,
         });
       }
+      if (analyticsRes?.ok) {
+        const data = await analyticsRes.json().catch(() => null);
+        if (data) setAnalytics(data);
+      }
     } catch {
       // ignore
     }
-  }, [todayStr]);
+  }, [todayStr, statsRange]);
 
   const refreshFriends = useCallback(async () => {
     const res = await fetch("/api/prayer-friends").catch(() => null);
@@ -1045,8 +1054,10 @@ export default function PrayerDashboard() {
 
   const myStreak = analytics?.streak || 0;
   const myWeekPrayed = analytics?.thisWeekPrayed || 0;
-  const myComplete = analytics?.totalCompleteDays || 0;
-  const myMasjidPct = analytics?.masjidPct || 0;
+  // League rows all use the same Sunday→today window — never the selectable
+  // stats range, or changing the stats filter would silently shift the race.
+  const myComplete = analytics?.weekCompleteDays || 0;
+  const myMasjidPct = analytics?.weekMasjidPct || 0;
 
   // Hayd: does any recorded period cover today? Open-ended counts.
   const haydToday = !!todayStr && haydPeriods.some(
@@ -1739,9 +1750,11 @@ export default function PrayerDashboard() {
                       weekSunnah={friend.weekSunnah ?? 0}
                       todayLogs={friend.todayLogs}
                       todaySunnahs={friend.todaySunnahs}
-                      // Their own cached times decide the open salah — same
-                      // inputs the remind route validates against.
-                      prayerTimes={friend.times ?? prayerTimes}
+                      // Their own cached times decide the open salah — never
+                      // fall back to the viewer's times, or "now" in their
+                      // timezone gets compared against OUR salah schedule and
+                      // highlights the wrong dot (zuhr-vs-asr bug).
+                      prayerTimes={friend.times ?? null}
                       currentTime={currentTime}
                       madhab={madhab}
                       timezone={friend.timezone}
@@ -2597,7 +2610,7 @@ export default function PrayerDashboard() {
                   const streakLabel = streakVal !== null ? streakVal : "—";
                   const subStats: string[] = [];
                   if (friend.thisWeekPrayed !== null) subStats.push(`${friend.thisWeekPrayed} this week`);
-                  if (friend.totalCompleteDays !== null) subStats.push(`${friend.totalCompleteDays} complete`);
+                  if (friend.weekCompleteDays !== null) subStats.push(`${friend.weekCompleteDays} complete`);
                   if (friend.masjidPct !== null) subStats.push(`${friend.masjidPct}% masjid`);
                   return (
                     <div
@@ -2683,7 +2696,7 @@ export default function PrayerDashboard() {
                           todayLogs={friend.todayLogs}
                           todaySunnahs={friend.todaySunnahs}
                           sunnahDefs={getSunnahsForMadhab(madhab)}
-                          prayerTimes={friend.times ?? prayerTimes}
+                          prayerTimes={friend.times ?? null}
                           currentTime={currentTime}
                           todayVisible={friend.todayVisible}
                           remindedAt={friend.remindedAt}
