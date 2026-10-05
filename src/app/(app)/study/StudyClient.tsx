@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Timer, Volume2, Wind, Hand, GraduationCap } from "lucide-react";
+import { Check, Timer, Volume2, Wind, Hand, GraduationCap, X } from "lucide-react";
 import FocusTimer from "./FocusTimer";
 import Soundscape from "./Soundscape";
 import Breathe from "./Breathe";
 import Fidget from "./Fidget";
 import { useUISFX } from "@/components/uisfx-provider";
+import VoxIcon from "@/components/vox-icon";
+import { getDiscipline } from "@/lib/study/session";
 
 type Tab = "focus" | "sounds" | "breathe" | "fidget";
 
@@ -71,6 +73,8 @@ export default function StudyClient() {
       <div className={tab === "breathe" ? "" : "hidden"}><Breathe /></div>
       <div className={tab === "fidget" ? "" : "hidden"}><Fidget /></div>
 
+      <VoxStats />
+
       {/* Homework shortcut */}
       <Link
         href="/homework"
@@ -90,6 +94,62 @@ export default function StudyClient() {
           </span>
         </span>
       </Link>
+    </div>
+  );
+}
+
+/** Vox session stats — streak, this week's focus minutes, recent history.
+ *  Data is local (the discipline record written on every session end). */
+function VoxStats() {
+  // Re-read on mount only — sessions ending elsewhere update on next visit.
+  const [stats] = useState(() => {
+    const disc = getDiscipline();
+    const now = Date.now();
+    const wk = disc.history
+      .filter((e) => now - new Date(e.date + "T00:00:00").getTime() < 7 * 86400e3)
+      .reduce((s, e) => s + e.minutes, 0);
+    return { disc, weekMin: wk };
+  });
+  const d = stats.disc;
+  const weekMin = stats.weekMin;
+
+  if (d.completed === 0 && d.abandoned === 0) return null;
+
+  return (
+    <div
+      className="mt-8 rounded-xl border p-4"
+      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+    >
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+        <VoxIcon size={14} /> Vox record
+      </p>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        {[
+          { v: String(d.streak), l: "focus streak" },
+          { v: `${Math.floor(weekMin / 60) ? `${Math.floor(weekMin / 60)}h ` : ""}${weekMin % 60}m`, l: "this week" },
+          { v: String(d.completed), l: "finished" },
+        ].map((s) => (
+          <div key={s.l} className="rounded-lg py-2" style={{ backgroundColor: "var(--color-paper-2)" }}>
+            <p className="text-base font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{s.v}</p>
+            <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{s.l}</p>
+          </div>
+        ))}
+      </div>
+      {d.history.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-1">
+          {d.history.slice(0, 5).map((e, i) => (
+            <li key={i} className="flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-soft)" }}>
+              {e.finished
+                ? <Check className="h-3 w-3 shrink-0" style={{ color: "var(--color-success)" }} />
+                : <X className="h-3 w-3 shrink-0" style={{ color: "var(--color-warmth)" }} />}
+              <span className="min-w-0 flex-1 truncate">{e.label}</span>
+              <span className="shrink-0 tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                {e.minutes}m · {new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -171,7 +171,7 @@ export function resumeSession() {
 
 /** "I only have 10/15/20 minutes" — a single-segment sprint that skips
  *  planning entirely. Labelled by the first assignment when present. */
-export function startSprint(minutes: number, label = "Focus sprint") {
+export function startSprint(minutes: number, label = "Focus sprint", blockId?: string) {
   state = {
     status: "running",
     segments: [{ kind: "study", minutes, label }],
@@ -180,6 +180,7 @@ export function startSprint(minutes: number, label = "Focus sprint") {
     overlayOpen: true,
     pausedAt: null,
     pausedMs: 0,
+    blockId,
   };
   emit();
 }
@@ -187,24 +188,29 @@ export function startSprint(minutes: number, label = "Focus sprint") {
 // ─── Focus discipline record — the consequence layer ───
 // A completed session grows the streak; ending early (not finished) or
 // abandoning resets it. Persisted locally, surfaced in the intake sheet.
-export interface Discipline { streak: number; completed: number; abandoned: number }
+export interface SessionEntry { date: string; minutes: number; finished: boolean; label: string }
+export interface Discipline { streak: number; completed: number; abandoned: number; history: SessionEntry[] }
 
 const DISC_KEY = "waqt-vox-discipline";
 
 export function getDiscipline(): Discipline {
   try {
     const d = JSON.parse(localStorage.getItem(DISC_KEY) ?? "null");
-    if (d && typeof d.streak === "number") return d;
+    if (d && typeof d.streak === "number") return { history: [], ...d };
   } catch { /* fresh */ }
-  return { streak: 0, completed: 0, abandoned: 0 };
+  return { streak: 0, completed: 0, abandoned: 0, history: [] };
 }
 
-/** Record the outcome. finished=true grows the streak; false breaks it. */
-export function recordOutcome(finished: boolean): Discipline {
+/** Record the outcome. finished=true grows the streak; false breaks it.
+ *  `entry` logs the session into the local history (newest first, cap 60). */
+export function recordOutcome(finished: boolean, entry?: Omit<SessionEntry, "finished">): Discipline {
   const d = getDiscipline();
+  const history = entry
+    ? [{ ...entry, finished }, ...d.history].slice(0, 60)
+    : d.history;
   const next = finished
-    ? { streak: d.streak + 1, completed: d.completed + 1, abandoned: d.abandoned }
-    : { streak: 0, completed: d.completed, abandoned: d.abandoned + 1 };
+    ? { streak: d.streak + 1, completed: d.completed + 1, abandoned: d.abandoned, history }
+    : { streak: 0, completed: d.completed, abandoned: d.abandoned + 1, history };
   try { localStorage.setItem(DISC_KEY, JSON.stringify(next)); } catch { /* ignore */ }
   return next;
 }

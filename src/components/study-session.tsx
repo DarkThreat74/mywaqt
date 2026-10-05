@@ -153,7 +153,14 @@ export default function StudySession() {
    *  streak and auto-marks the source block worked; quitting breaks it. */
   const finish = (finished: boolean) => {
     setAskFinish(false);
-    recordOutcome(finished);
+    const label = state.status === "running"
+      ? state.segments.find((s) => s.kind === "study")?.label ?? "Focus session"
+      : "Focus session";
+    recordOutcome(finished, {
+      date: new Date().toISOString().slice(0, 10),
+      minutes: Math.max(1, Math.round(sessionElapsed(Date.now()) / 60)),
+      label,
+    });
     const bid = runningBlockId();
     if (finished && bid) {
       void fetch("/api/blocks", {
@@ -290,13 +297,22 @@ export default function StudySession() {
             ))}
           </div>
           {!progress.done && (
-            <button
-              onClick={() => finish(false)}
-              className="mt-1 text-center text-[11px] font-medium transition-opacity hover:opacity-70"
-              style={{ color: "var(--color-ink-muted)" }}
-            >
-              End anyway — I didn&apos;t finish
-            </button>
+            <div className="mt-1 flex flex-col gap-1.5">
+              <button
+                onClick={() => { setAskFinish(false); pauseSession(); setOverlayOpen(false); }}
+                className="rounded-full border py-2.5 text-[12px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 40 }}
+              >
+                Pause for later — keep my streak
+              </button>
+              <button
+                onClick={() => finish(false)}
+                className="text-center text-[11px] font-medium transition-opacity hover:opacity-70"
+                style={{ color: "var(--color-ink-muted)" }}
+              >
+                End anyway — I didn&apos;t finish
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -549,7 +565,7 @@ function IntakeSheet() {
             {[10, 15, 20].map((m) => (
               <button
                 key={m}
-                onClick={() => startSprint(m, state.assignments[0]?.title ?? "Focus sprint")}
+                onClick={() => startSprint(m, state.assignments[0]?.title ?? "Focus sprint", state.blockId)}
                 className="flex items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 44 }}
               >
