@@ -1375,6 +1375,9 @@ export default function DayViewClient({ date }: { date: string }) {
                     <span className="flex flex-col items-center gap-0.5">
                       <span className="h-2 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                       <Sunrise className="h-3 w-3" style={{ color: "var(--color-warmth)" }} />
+                      <span className="text-[8px] leading-none tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                        {formatTimeCompact(time)}
+                      </span>
                       <span className="h-2 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                     </span>
                   </div>
@@ -1429,6 +1432,9 @@ export default function DayViewClient({ date }: { date: string }) {
                     <span className="flex flex-col items-center gap-0.5">
                       <span className="h-2.5 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                       <Sunrise className="h-3.5 w-3.5" style={{ color: "var(--color-warmth)" }} />
+                      <span className="text-[9px] leading-none tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                        {formatTimeCompact(time)}
+                      </span>
                       <span className="h-2.5 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                     </span>
                   </div>
