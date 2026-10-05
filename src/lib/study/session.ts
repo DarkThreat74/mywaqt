@@ -160,6 +160,46 @@ export function setOverlayOpen(open: boolean) {
   }
 }
 
+/** "I need a quick break" — pauses the current study segment exactly where it
+ *  is, inserts a short break, and re-queues the remaining work right after.
+ *  Vigilance research: brief diversions restore focus better than pushing through. */
+export function takeBreakNow(minutes = 5) {
+  if (state.status !== "running") return;
+  const elapsedSec = Math.floor((Date.now() - state.startedAt) / 1000);
+  const p = segmentAt(state.segments, elapsedSec);
+  if (p.done || p.segment.kind !== "study") return;
+
+  const segs = [...state.segments];
+  const usedMin = (p.segment.minutes * 60 - p.remainingSec) / 60;
+  const leftMin = p.segment.minutes - usedMin;
+  const next: StudySegment[] = segs.slice(0, p.index);
+  if (usedMin > 0.1) next.push({ ...p.segment, minutes: usedMin });
+  next.push({ kind: "break", minutes, label: "Quick break" });
+  if (leftMin > 0.1) next.push({ ...p.segment, minutes: leftMin });
+  state = { ...state, segments: [...next, ...segs.slice(p.index + 1)] };
+  emit();
+}
+
+/** "I've lost interest" — end this segment now, jump straight to the next
+ *  subject, and move the leftover minutes to the end as a finish-up task.
+ *  Task switching beats grinding on something your attention has left. */
+export function switchFocus() {
+  if (state.status !== "running") return;
+  const elapsedSec = Math.floor((Date.now() - state.startedAt) / 1000);
+  const p = segmentAt(state.segments, elapsedSec);
+  if (p.done || p.segment.kind !== "study") return;
+
+  const segs = [...state.segments];
+  const usedMin = (p.segment.minutes * 60 - p.remainingSec) / 60;
+  const leftMin = p.segment.minutes - usedMin;
+  const next: StudySegment[] = segs.slice(0, p.index);
+  if (usedMin > 0.1) next.push({ ...p.segment, minutes: usedMin });
+  next.push(...segs.slice(p.index + 1));
+  if (leftMin > 0.5) next.push({ ...p.segment, minutes: leftMin, label: `${p.segment.label} (finish)` });
+  state = { ...state, segments: next };
+  emit();
+}
+
 /** Elapsed seconds since the session started — call inside a ticking component. */
 export function sessionElapsed(now: number): number {
   return state.status === "running" ? Math.max(0, Math.floor((now - state.startedAt) / 1000)) : 0;

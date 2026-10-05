@@ -13,12 +13,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { BookOpen, Check, Minus, Play, Plus, Square, X } from "lucide-react";
+import { BookOpen, Check, Coffee, Minus, Play, Plus, Shuffle, Square, X } from "lucide-react";
 import VoxIcon from "@/components/vox-icon";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
-  planSession, type StudyMethod,
+  planSession, takeBreakNow, switchFocus, type StudyMethod,
 } from "@/lib/study/session";
 
 let audioCtx: AudioContext | null = null;
@@ -37,6 +37,20 @@ function beep(freq = 880, dur = 0.12) {
     o.stop(audioCtx.currentTime + dur);
   } catch { /* audio unavailable — silent */ }
 }
+
+// Vox coach voice — strict, warm, short. Rotates per segment.
+const COACH_STUDY = [
+  "Eyes on the page. No phone.",
+  "You chose this block — honor it.",
+  "One task. Full effort.",
+  "Bismillah. Deep breath, begin.",
+  "Muscles for the mind — reps count.",
+];
+const COACH_BREAK = [
+  "Stand up. Water. No scrolling.",
+  "Real rest — away from the screen.",
+  "Breathe. The work is still there.",
+];
 
 function fmtClock(sec: number) {
   const m = Math.floor(sec / 60);
@@ -283,6 +297,12 @@ export default function StudySession() {
               Back to it in {progress.remainingSec}…
             </p>
           )}
+          {/* Vox's coaching line — strict trainer voice, rotates per segment */}
+          {!progress.done && (
+            <p className="mt-3 text-[11px] font-medium italic" style={{ color: "var(--color-ink-muted)" }}>
+              {(isBreak ? COACH_BREAK : COACH_STUDY)[progress.index % (isBreak ? COACH_BREAK : COACH_STUDY).length]}
+            </p>
+          )}
 
           {/* Progress bar for this segment */}
           <div className="mt-6 h-1.5 w-full max-w-[16rem] overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
@@ -296,8 +316,30 @@ export default function StudySession() {
         {/* Up next */}
         {next && !progress.done && (
           <p className="mb-3 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            Next: {next.minutes}m {next.kind === "break" ? "break" : next.label}
+            Next: {Math.round(next.minutes)}m {next.kind === "break" ? "break" : next.label}
           </p>
+        )}
+
+        {/* In-session rescue actions — break or switch without ending */}
+        {!progress.done && !isBreak && (
+          <div className="mb-3 flex justify-center gap-2">
+            <button
+              onClick={() => takeBreakNow(5)}
+              className="flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 36 }}
+            >
+              <Coffee className="h-3.5 w-3.5" /> Quick break · 5m
+            </button>
+            {state.segments.some((s, i) => i > progress.index && s.kind === "study") && (
+              <button
+                onClick={switchFocus}
+                className="flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 36 }}
+              >
+                <Shuffle className="h-3.5 w-3.5" /> Lost interest — switch it up
+              </button>
+            )}
+          </div>
         )}
 
         {/* Footer */}
