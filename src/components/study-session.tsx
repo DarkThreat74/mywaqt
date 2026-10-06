@@ -22,7 +22,7 @@ import type { PlayerTrack } from "@/components/advanced-audio-player";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
-  planSession, takeBreakNow, switchFocus, getDiscipline, recordOutcome,
+  planSession, takeBreakNow, switchFocus, getDiscipline, recordOutcome, todayFocusMinutes,
   beginIntake,
   runningBlockId, pauseSession, resumeSession, startSprint, sessionElapsed,
   endBreakEarly, prayerBreakNow, insertPrayerBreakAfterCurrent,
@@ -751,6 +751,7 @@ export default function StudySession() {
   const elapsedInSeg = seg.minutes * 60 - progress.remainingSec;
   const pct = seg.minutes > 0 ? Math.min(100, (elapsedInSeg / (seg.minutes * 60)) * 100) : 100;
   const next = state.segments[progress.index + 1];
+  const todayMin = todayFocusMinutes();
   // Final 10s — ring and clock shift to warmth so a transition is felt
   // before it lands (pairs with the countdown chimes).
   const winding = !progress.done && !paused && progress.remainingSec <= 10 && progress.remainingSec > 0;
@@ -862,6 +863,14 @@ export default function StudySession() {
 
           {/* Session timeline — every segment as a dash; done fills, current
               pulses, upcoming stays hollow. Glanceable plan position. */}
+          {/* Today's banked focus — the running total that makes finishing
+              another block feel like growth, not just elapsed time. */}
+          {todayMin > 0 && (
+            <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
+              Today: {todayMin >= 60 ? `${Math.floor(todayMin / 60)}h ${Math.round(todayMin % 60)}m` : `${Math.round(todayMin)}m`} focused
+            </p>
+          )}
+
           <div className="mt-5 flex items-center justify-center gap-1" aria-hidden>
             {state.segments.map((s, i) => (
               <span

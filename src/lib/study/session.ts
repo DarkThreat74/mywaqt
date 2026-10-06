@@ -229,6 +229,15 @@ export function recordOutcome(finished: boolean, entry?: Omit<SessionEntry, "fin
   return next;
 }
 
+/** Minutes focused today across finished sessions — the Forest-style
+ *  "your forest grew" number that keeps a studier coming back. */
+export function todayFocusMinutes(): number {
+  const today = new Date().toDateString();
+  return getDiscipline().history
+    .filter((e) => e.finished && new Date(e.date).toDateString() === today)
+    .reduce((s, e) => s + (e.minutes || 0), 0);
+}
+
 export function runningBlockId(): string | undefined {
   return state.status === "running" ? state.blockId : undefined;
 }

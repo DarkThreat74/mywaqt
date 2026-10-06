@@ -86,7 +86,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#1a1815",
+  // Media-aware theme-color: iOS standalone + Android chrome tint should match
+  // the app's actual surface, not always-dark. Matches --color-paper (light)
+  // and the dark theme's paper token.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f5f0e8" },
+    { media: "(prefers-color-scheme: dark)", color: "#1a1815" },
+  ],
   width: "device-width",
   initialScale: 1,
   // NOTE: maximumScale/userScalable are NOT set here — they violate WCAG 1.4.4
