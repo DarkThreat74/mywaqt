@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
-import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName } from "@/lib/prayer/checkin";
+import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
@@ -3028,31 +3028,25 @@ function PrayerDots({
   }
 
   // Which prayer window we're in — viewer's clock for "You", the friend's
-  // local time (their timezone vs our prayer times) for friends.
+  // local time (their timezone vs their prayer times) for friends. Same
+  // openPrayer() the check-in windows use — Fajr ends at sunrise, Isha
+  // crosses midnight, and nothing is "current" between sunrise and Dhuhr.
   const currentPrayerIdx = (() => {
     if (!prayerTimes) return -1;
     let currentMinutes: number;
     const fallback = currentTime ?? new Date(0);
-    if (isMe || !timezone) {
-      currentMinutes = fallback.getHours() * 60 + fallback.getMinutes();
+    if (!isMe && timezone) {
+      // Friend's clock — the helper normalizes the "24:xx" midnight quirk
+      // and falls back to device time on an unparseable zone.
+      currentMinutes = getCurrentMinutesInTimezonePrecise(timezone);
     } else {
-      try {
-        const [h, m] = new Date()
-          .toLocaleTimeString("en-US", { timeZone: timezone, hour12: false })
-          .split(":")
-          .map(Number);
-        currentMinutes = h * 60 + m;
-      } catch {
-        currentMinutes = fallback.getHours() * 60 + fallback.getMinutes();
-      }
+      currentMinutes = fallback.getHours() * 60 + fallback.getMinutes() + fallback.getSeconds() / 60;
     }
-    for (let i = PRAYER_ORDER.length - 1; i >= 0; i--) {
-      const timeStr = prayerTimes[PRAYER_ORDER[i]];
-      if (!timeStr) continue;
-      const [h, m] = timeStr.split(" ")[0].split(":").map(Number);
-      if (!isNaN(h) && !isNaN(m) && currentMinutes >= h * 60 + m) return i;
-    }
-    return -1;
+    const open = openPrayer(currentMinutes, {
+      fajr: prayerTimes.fajr, sunrise: prayerTimes.sunrise, dhuhr: prayerTimes.dhuhr,
+      asr: prayerTimes.asr, maghrib: prayerTimes.maghrib, isha: prayerTimes.isha,
+    });
+    return open ? PRAYER_ORDER.indexOf(open) : -1;
   })();
 
   const dotSize = compact ? "h-6 w-6" : "h-7 w-7 sm:h-8 sm:w-8";

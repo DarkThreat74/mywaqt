@@ -5,6 +5,7 @@ import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { sendPrayerPush } from "@/lib/notifications/push";
+import { openPrayer } from "@/lib/prayer/checkin";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -30,23 +31,11 @@ const PRAYER_LABEL: Record<string, string> = {
 
 const REMIND_COOLDOWN_MS = 2 * 60 * 1000;
 const MAX_NUDGES_PER_SALAH = 3;
-const PRAYER_ORDER = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
-type PrayerName = (typeof PRAYER_ORDER)[number];
 
 function toMinutes(t: string | null | undefined): number | null {
   if (!t) return null;
   const [h, m] = t.split(":").map(Number);
   return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
-}
-
-/** Which salah's window is live for the friend, from THEIR local clock. */
-function currentPrayer(times: { fajr: string; dhuhr: string; asr: string; maghrib: string; isha: string }, mins: number): PrayerName {
-  let current: PrayerName = "isha"; // after midnight / before Fajr → Isha still open
-  for (const p of PRAYER_ORDER) {
-    const start = toMinutes(times[p]);
-    if (start !== null && mins >= start) current = p;
-  }
-  return current;
 }
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -175,10 +164,12 @@ export async function POST(request: NextRequest) {
     }
     const times = beforeFajr ? timesYesterday! : timesToday;
     const dateStr = beforeFajr ? yesterdayStr : todayStr;
-    const live = currentPrayer(times, localMins);
-    if (prayerName !== live) {
+    // Same openPrayer() the UI highlights — server and client can never
+    // disagree about which salah is live.
+    const live = openPrayer(localMins, times);
+    if (!live || prayerName !== live) {
       return NextResponse.json(
-        { error: `Only ${PRAYER_LABEL[live]} can be nudged right now — that's the salah happening.` },
+        { error: live ? `Only ${PRAYER_LABEL[live]} can be nudged right now — that's the salah happening.` : "No salah window is open for them right now." },
         { status: 409 },
       );
     }

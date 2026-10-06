@@ -209,6 +209,28 @@ export function getPrayerWindowState(
   return "open";
 }
 
+export const PRAYER_ORDER_KEYS: PrayerKey[] = ["fajr", "dhuhr", "asr", "maghrib", "isha"];
+
+/**
+ * The salah whose window is open RIGHT NOW — the single source of truth used
+ * by the viewer's own card, friend dots, reminders, and the study overlay.
+ *
+ * Uses real window ends (Fajr→sunrise, Isha→tomorrow's Fajr across midnight),
+ * so sunrise→dhuhr returns null and post-midnight correctly returns isha.
+ * `timings` are "HH:MM" in the user's local timezone; `currentMinutes` is
+ * minutes-since-midnight in that same timezone.
+ */
+export function openPrayer(currentMinutes: number, timings: PrayerTimings): PrayerKey | null {
+  // Check Isha first — its window spans midnight, so post-midnight minutes
+  // (smaller than every start time) resolve to yesterday's Isha rather than
+  // falling through to "nothing open".
+  if (getPrayerWindowState("isha", currentMinutes, timings) === "open") return "isha";
+  for (const p of ["fajr", "dhuhr", "asr", "maghrib"] as const) {
+    if (getPrayerWindowState(p, currentMinutes, timings) === "open") return p;
+  }
+  return null;
+}
+
 /**
  * Determine whether the "Did you pray in the masjid?" question should be shown
  * for the given prayer, based on the current time and prayer timings.
