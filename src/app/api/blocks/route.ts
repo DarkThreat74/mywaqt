@@ -87,6 +87,9 @@ export async function GET(request: NextRequest) {
           homeworkId: schema.blockAssignments.homeworkId,
           planned: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'planned')::int`,
           worked: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'worked')::int`,
+          // Earliest upcoming planned block — powers the "planned for Thu"
+          // badge in the planner so the chip says WHEN, not just how many.
+          nextDate: sql<string | null>`min(${schema.studyBlocks.blockDate}) filter (where ${schema.studyBlocks.status} = 'planned')`,
         })
         .from(schema.blockAssignments)
         .innerJoin(schema.studyBlocks, eq(schema.studyBlocks.id, schema.blockAssignments.blockId))
@@ -96,8 +99,8 @@ export async function GET(request: NextRequest) {
           eq(schema.homeworks.status, "pending"),
         ))
         .groupBy(schema.blockAssignments.homeworkId);
-      const summary: Record<string, { planned: number; worked: number }> = {};
-      for (const r of rows) summary[r.homeworkId] = { planned: r.planned, worked: r.worked };
+      const summary: Record<string, { planned: number; worked: number; nextDate?: string }> = {};
+      for (const r of rows) summary[r.homeworkId] = { planned: r.planned, worked: r.worked, nextDate: r.nextDate ?? undefined };
       return NextResponse.json({ summary });
     }
 

@@ -58,7 +58,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   const [classes, setClasses] = useState<Class[]>([]);
   // Per-assignment coverage across ALL blocks (not just this day's) —
   // summary counts planned blocks anywhere in the future.
-  const [coverage, setCoverage] = useState<Record<string, { planned: number; worked: number }>>({});
+  const [coverage, setCoverage] = useState<Record<string, { planned: number; worked: number; nextDate?: string }>>({});
   const [unworked, setUnworked] = useState<BlockWithAssignments[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,18 +82,20 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   }, [busy, blocks, dayStart, dayEnd]);
 
   const plannedCounts = useMemo(() => {
-    const map = new Map<string, { planned: number; worked: number }>();
+    const map = new Map<string, { planned: number; worked: number; nextDate?: string }>();
     // Coverage summary spans every planned block on any day — the prop only
     // carries the viewed date, so without this an assignment planned on
     // another day looked unplanned.
     for (const [id, c] of Object.entries(coverage)) {
-      if (c.planned > 0 || c.worked > 0) map.set(id, { planned: c.planned, worked: c.worked });
+      if (c.planned > 0 || c.worked > 0) map.set(id, { planned: c.planned, worked: c.worked, nextDate: c.nextDate });
     }
     for (const b of blocks) {
       for (const a of b.assignments) {
         const e = map.get(a.homeworkId) ?? { planned: 0, worked: 0 };
-        if (b.status === "planned") e.planned++;
-        else if (b.status === "worked") e.worked++;
+        if (b.status === "planned") {
+          e.planned++;
+          if (!e.nextDate || b.blockDate < e.nextDate) e.nextDate = b.blockDate;
+        } else if (b.status === "worked") e.worked++;
         map.set(a.homeworkId, e);
       }
     }
@@ -704,6 +706,11 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                       const cov = plannedCounts.get(h.id);
                       const n = cov?.planned ?? 0;
                       const w = cov?.worked ?? 0;
+                      // "planned for Th" — the nearest upcoming block's day,
+                      // parsed as a local date so UTC-midnight doesn't shift it.
+                      const dayAbbr = cov?.nextDate
+                        ? (() => { const [y, m, dd] = cov.nextDate!.split("-").map(Number); return ["Su","Mo","Tu","We","Th","Fr","Sa"][new Date(y, m - 1, dd).getDay()]; })()
+                        : null;
                       return (
                         <div key={h.id} className="flex items-center gap-2 border-b py-2 last:border-0" style={{ borderColor: "var(--color-paper-3)" }}>
                           <span className="min-w-0 flex-1 text-sm leading-snug" style={{ color: "var(--color-ink)" }}>
@@ -735,7 +742,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                                   : { backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }
                             }
                           >
-                            {n > 0 ? `${n} block${n === 1 ? "" : "s"}` : w > 0 ? "studied" : "unplanned"}
+                            {n > 0 ? (dayAbbr ? `planned for ${dayAbbr}` : `${n} block${n === 1 ? "" : "s"}`) : w > 0 ? "studied" : "unplanned"}
                           </span>
                         </div>
                       );

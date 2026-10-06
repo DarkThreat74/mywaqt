@@ -262,9 +262,13 @@ export default function DayViewClient({ date }: { date: string }) {
   // straight into the editor. Edit / Start study live inside the peek.
   const [peekEvent, setPeekEvent] = useState<CalendarEvent | null>(null);
   const [peekBlock, setPeekBlock] = useState<BlockWithAssignments | null>(null);
+  // Expired-block replanning — when a planned block's window already passed,
+  // the peek offers a from/to picker instead of a dead "start" button.
+  const [expiredPick, setExpiredPick] = useState<{ from: string; to: string } | null>(null);
   // Live study-session state — tapping the block a paused session belongs to
   // offers "resume" vs "start new" instead of silently clobbering it.
   const studySession = useSyncExternalStore(subscribeSession, getSession, () => ({ status: "idle" }) as ReturnType<typeof getSession>);
+
   const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>(() => getCachedHaydPeriods());
   // True when the viewed date falls inside a hayd period — chips render
   // excused and check-ins are disabled (the API rejects them too).
@@ -2009,7 +2013,7 @@ export default function DayViewClient({ date }: { date: string }) {
             return (
               <button
                 key={b.id}
-                onClick={(e) => { e.stopPropagation(); setPeekBlock(b); }}
+                onClick={(e) => { e.stopPropagation(); setPeekBlock(b); setExpiredPick(null); }}
                 className="absolute z-10 overflow-hidden rounded-lg text-left"
                 style={{
                   top,
@@ -2831,7 +2835,7 @@ export default function DayViewClient({ date }: { date: string }) {
       {/* Study-block peek — Edit or launch a Vox session */}
       {peekBlock && (
         <div className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Study block">
-          <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }} onClick={() => setPeekBlock(null)} aria-label="Close" />
+          <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }} onClick={() => { setPeekBlock(null); setExpiredPick(null); }} aria-label="Close" />
           <div
             className="relative w-full max-w-sm rounded-t-2xl border-t p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:border sm:pb-4"
             style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
@@ -2873,6 +2877,113 @@ export default function DayViewClient({ date }: { date: string }) {
                     Start a new session
                   </button>
                 </>
+              ) : !isPastDay && (() => {
+                  // Current minutes in the user's tz — the block is "expired"
+                  // when its end has already passed today.
+                  let nowMin: number | null = null;
+                  try {
+                    const t = new Date().toLocaleTimeString("en-US", { timeZone: userTimezone || undefined, hour12: false });
+                    const m = t.match(/(\d+):(\d+)/);
+                    nowMin = m ? (parseInt(m[1]) % 24) * 60 + parseInt(m[2]) : null;
+                  } catch { /* fall back to not-expired */ }
+                  return peekBlock.status === "planned" && nowMin !== null && isToday && nowMin >= peekBlock.endMin;
+                })() ? (
+                expiredPick ? (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                      Pick a new window — or tap the calendar
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        value={expiredPick.from}
+                        onChange={(e) => setExpiredPick({ ...expiredPick, from: e.target.value })}
+                        className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                      />
+                      <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>to</span>
+                      <input
+                        type="time"
+                        value={expiredPick.to}
+                        onChange={(e) => setExpiredPick({ ...expiredPick, to: e.target.value })}
+                        className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                      />
+                    </div>
+                    {(() => {
+                      const pm = (v: string) => { const m = v.match(/^(\d{1,2}):(\d{2})$/); return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : null; };
+                      const s = pm(expiredPick.from), e = pm(expiredPick.to);
+                      const dur = s !== null && e !== null ? e - s : 0;
+                      return dur > 0 && s !== null && e !== null ? (
+                        <button
+                          onClick={() => {
+                            const b = peekBlock;
+                            setPeekBlock(null); setExpiredPick(null);
+                            // Move the block to the chosen window so "studied"
+                            // and the timeline reflect when it actually ran.
+                            void fetch("/api/blocks", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ id: b.id, startMin: s, endMin: e }),
+                            }).then(() => void refreshBlocks()).catch(() => {});
+                            beginIntake(
+                              { minutes: dur, originalMinutes: dur, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })) },
+                              b.id,
+                            );
+                          }}
+                          className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                          style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
+                        >
+                          <Play className="h-4 w-4" /> Use {fmtMin(s)}–{fmtMin(e)} · {fmtDur(dur)}
+                        </button>
+                      ) : (
+                        <p className="text-center text-[11px] font-medium" style={{ color: "var(--color-warmth)" }}>
+                          End must be after start
+                        </p>
+                      );
+                    })()}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { const b = peekBlock; setPeekBlock(null); setExpiredPick(null); setPlanBlock(b); setPlanOpen(true); }}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
+                      >
+                        Pick on calendar
+                      </button>
+                      <button
+                        onClick={() => setExpiredPick(null)}
+                        className="flex items-center justify-center rounded-full border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 44 }}
+                      >
+                        Back
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs" style={{ color: "var(--color-warmth)" }}>
+                      This block&apos;s time has passed — {fmtMin(peekBlock.startMin)}–{fmtMin(peekBlock.endMin)} already ended.
+                    </p>
+                    <button
+                      onClick={() => {
+                        let nowMin = peekBlock.endMin;
+                        try {
+                          const t = new Date().toLocaleTimeString("en-US", { timeZone: userTimezone || undefined, hour12: false });
+                          const m = t.match(/(\d+):(\d+)/);
+                          if (m) nowMin = (parseInt(m[1]) % 24) * 60 + parseInt(m[2]);
+                        } catch { /* keep block end */ }
+                        const s = Math.min(nowMin, 1435);
+                        const e = Math.min(s + 60, 1439);
+                        const pad = (n: number) => String(n).padStart(2, "0");
+                        setExpiredPick({ from: `${pad(Math.floor(s / 60))}:${pad(s % 60)}`, to: `${pad(Math.floor(e / 60))}:${pad(e % 60)}` });
+                      }}
+                      className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                      style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
+                    >
+                      <Play className="h-4 w-4" /> Plan my session
+                    </button>
+                  </>
+                )
               ) : !isPastDay && (
                 <button
                   onClick={() => {

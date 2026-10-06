@@ -35,6 +35,7 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/icon.svg",
+  "/icon-badge.png",
   "/offline.html",
 ];
 
@@ -1191,7 +1192,9 @@ self.addEventListener("push", (event) => {
   const options = {
     body: data.body,
     icon: data.icon || "/icon-192.png",
-    badge: data.badge || "/icon-192.png",
+    // Status-bar badge is alpha-masked by Android — an opaque tile icon shows
+    // as a white blob. icon-badge.png is transparent with the 5-band glyph.
+    badge: data.badge || "/icon-badge.png",
     data: data.data || { url: "/" },
     tag,
     requireInteraction: data.requireInteraction === true,
