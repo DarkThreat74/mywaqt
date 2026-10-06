@@ -82,17 +82,19 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   }, [busy, blocks, dayStart, dayEnd]);
 
   const plannedCounts = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { planned: number; worked: number }>();
     // Coverage summary spans every planned block on any day — the prop only
     // carries the viewed date, so without this an assignment planned on
     // another day looked unplanned.
     for (const [id, c] of Object.entries(coverage)) {
-      if (c.planned > 0) map.set(id, c.planned);
+      if (c.planned > 0 || c.worked > 0) map.set(id, { planned: c.planned, worked: c.worked });
     }
     for (const b of blocks) {
-      if (b.status !== "planned") continue;
       for (const a of b.assignments) {
-        map.set(a.homeworkId, (map.get(a.homeworkId) ?? 0) + 1);
+        const e = map.get(a.homeworkId) ?? { planned: 0, worked: 0 };
+        if (b.status === "planned") e.planned++;
+        else if (b.status === "worked") e.worked++;
+        map.set(a.homeworkId, e);
       }
     }
     return map;
@@ -278,7 +280,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
    */
   function buildDraft() {
     const unplanned = hw
-      .filter((h) => !(plannedCounts.get(h.id) ?? 0))
+      .filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0))
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     if (unplanned.length === 0 || gaps.length === 0) return;
     const sortedGaps = [...gaps].sort((a, b) => b.end - b.start - (a.end - a.start));
@@ -527,7 +529,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                     {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free
                   </span>
                   {" · "}
-                  {hw.filter((h) => !(plannedCounts.get(h.id) ?? 0)).length} deadline{hw.filter((h) => !(plannedCounts.get(h.id) ?? 0)).length === 1 ? "" : "s"} need{hw.filter((h) => !(plannedCounts.get(h.id) ?? 0)).length === 1 ? "s" : ""} time
+                  {hw.filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0)).length} deadline{hw.filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0)).length === 1 ? "" : "s"} need{hw.filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0)).length === 1 ? "s" : ""} time
                 </p>
               )}
 
@@ -699,7 +701,9 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                 ) : (
                   <div className="flex flex-col">
                     {hw.map((h) => {
-                      const n = plannedCounts.get(h.id) ?? 0;
+                      const cov = plannedCounts.get(h.id);
+                      const n = cov?.planned ?? 0;
+                      const w = cov?.worked ?? 0;
                       return (
                         <div key={h.id} className="flex items-center gap-2 border-b py-2 last:border-0" style={{ borderColor: "var(--color-paper-3)" }}>
                           <span className="min-w-0 flex-1 text-sm leading-snug" style={{ color: "var(--color-ink)" }}>
@@ -724,12 +728,14 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                           <span
                             className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
                             style={
-                              n === 0
-                                ? { backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }
-                                : { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }
+                              n > 0
+                                ? { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }
+                                : w > 0
+                                  ? { backgroundColor: "color-mix(in oklab, var(--color-success) 12%, var(--color-paper))", color: "var(--color-success)" }
+                                  : { backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }
                             }
                           >
-                            {n === 0 ? "unplanned" : `${n} block${n === 1 ? "" : "s"}`}
+                            {n > 0 ? `${n} block${n === 1 ? "" : "s"}` : w > 0 ? "studied" : "unplanned"}
                           </span>
                         </div>
                       );

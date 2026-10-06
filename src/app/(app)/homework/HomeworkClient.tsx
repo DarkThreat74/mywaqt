@@ -966,6 +966,17 @@ export default function HomeworkClient({
                   </span>
                 );
               }
+              if (cov && cov.worked > 0) {
+                return (
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{ backgroundColor: "color-mix(in oklab, var(--color-success) 12%, var(--color-paper))", color: "var(--color-success)" }}
+                    title="A study session ran on this — no upcoming blocks"
+                  >
+                    studied
+                  </span>
+                );
+              }
               if (soon) {
                 return (
                   <span

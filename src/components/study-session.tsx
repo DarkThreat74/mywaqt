@@ -26,7 +26,7 @@ import {
   beginIntake,
   runningBlockId, pauseSession, resumeSession, startSprint, sessionElapsed,
   endBreakEarly, prayerBreakNow, insertPrayerBreakAfterCurrent,
-  type StudyMethod,
+  type StudyMethod, type SessionState,
 } from "@/lib/study/session";
 
 let audioCtx: AudioContext | null = null;
@@ -92,6 +92,50 @@ function fmtDur(min: number) {
   return `${Math.floor(min / 60)}h ${Math.round(min % 60)}m`;
 }
 
+const fmtTime = (ms: number) =>
+  new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+const localDateStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+type RunState = Extract<SessionState, { status: "running" }>;
+
+interface RecapRow { kind: "study" | "break"; label: string; startMs: number; endMs: number; min: number }
+
+/** Recap math shared by finish() and the silent-exit watcher — walks the plan
+ *  against the elapsed clock so focus counts only study time actually used,
+ *  and stamps each segment's wall-clock window for the timeline. */
+function buildRecap(run: RunState, label: string, finished: boolean, streak: number) {
+  const now = Date.now();
+  const pausedMs = run.pausedMs + (run.pausedAt ? now - run.pausedAt : 0);
+  const elapsed = Math.max(0, (now - run.startedAt - pausedMs) / 1000);
+  let acc = 0, focusSec = 0, breaks = 0, segsDone = 0;
+  const rows: RecapRow[] = [];
+  for (const s of run.segments) {
+    const segSec = s.minutes * 60;
+    const used = Math.max(0, Math.min(segSec, elapsed - acc));
+    if (used >= segSec - 1) segsDone++;
+    if (s.kind === "study") focusSec += used;
+    else if (used > 0) breaks++;
+    // ponytail: segment timestamps assume no mid-run pause gaps — pausedMs is
+    // one aggregate, so post-pause start times drift early. Close enough for a
+    // recap; upgrade path is recording pause intervals on the run state.
+    if (used > 0.5) rows.push({ kind: s.kind, label: s.label, startMs: run.startedAt + acc * 1000, endMs: run.startedAt + (acc + used) * 1000, min: used / 60 });
+    acc += segSec;
+  }
+  const totalMin = elapsed / 60;
+  const focusMin = focusSec / 60;
+  return {
+    label, finished,
+    focusMin: Math.round(focusMin), totalMin: Math.round(totalMin),
+    pausedMin: Math.round(pausedMs / 60000),
+    awayMin: Math.round(totalMin - focusMin + pausedMs / 60000),
+    rows, breaks, segsDone, segsTotal: run.segments.length, streak,
+  };
+}
+
 export default function StudySession() {
   const state = useSyncExternalStore(subscribeSession, getSession, () => ({ status: "idle" }) as ReturnType<typeof getSession>);
   const [now, setNow] = useState(() => Date.now());
@@ -134,6 +178,9 @@ export default function StudySession() {
   const [confirmPrayer, setConfirmPrayer] = useState<string | null>(null);
   // Pressed "No" on the confirm — escalate the break message.
   const [lied, setLied] = useState(false);
+  // Prayers confirmed via the dialog this mount — a periodic refetch must not
+  // resurrect the banner while a queued/slow check-in write lands.
+  const markedPrayersRef = useRef(new Set<string>());
   const soundscape = useSoundscape();
   const talksPlayer = useAudioPlayer();
 
@@ -204,6 +251,7 @@ export default function StudySession() {
           if (nowMs >= s && nowMs < e) { found = { name: p, endsAt: e }; break; }
         }
         if (!found) { setSalah(null); return; }
+        if (markedPrayersRef.current.has(found.name)) { setSalah(null); return; }
         const entry = logs.find((l) => l.prayerName === found!.name);
         if (entry && (entry.status === "prayed" || entry.status === "excused")) { setSalah(null); return; }
         setSalah({ ...found, date: dateStr });
@@ -213,12 +261,38 @@ export default function StudySession() {
     const t = setInterval(load, 60_000);
     return () => { cancelled = true; clearInterval(t); };
   }, [state.status]);
+  // Recap bookkeeping — `finish()` builds the summary explicitly; the watcher
+  // below catches silent exits (start-new, discard, restart) so cancelling a
+  // live session still lands on a recap instead of vanishing.
+  const finishHandledRef = useRef(false);
+  const lastRunRef = useRef<RunState | null>(null);
+
   // Post-session recap — populated by finish(), survives endSession() going
   // idle. Cleared when a new session starts running.
   const [summary, setSummary] = useState<{
     label: string; finished: boolean; focusMin: number; totalMin: number;
+    pausedMin: number; awayMin: number;
+    rows: { kind: "study" | "break"; label: string; startMs: number; endMs: number; min: number }[];
     breaks: number; segsDone: number; segsTotal: number; streak: number;
   } | null>(null);
+
+  // Silent-exit watcher — a running session that ends without finish()
+  // (start-new, discard, restart) still gets a recap + abandonment record.
+  useEffect(() => {
+    if (state.status === "running") { lastRunRef.current = state; finishHandledRef.current = false; return; }
+    const run = lastRunRef.current;
+    lastRunRef.current = null;
+    if (!run) return;
+    if (finishHandledRef.current) { finishHandledRef.current = false; return; }
+    const label = run.segments.find((s) => s.kind === "study")?.label ?? "Focus session";
+    const disc = recordOutcome(false, {
+      date: localDateStr(),
+      minutes: Math.max(1, Math.round((Date.now() - run.startedAt - run.pausedMs) / 60000)),
+      label,
+      reason: "ended without finishing",
+    });
+    setSummary(buildRecap(run, label, false, disc.streak));
+  }, [state]);
 
   useEffect(() => { hydrateSession(); }, []);
 
@@ -382,6 +456,7 @@ export default function StudySession() {
   /** Close the session and record the outcome — finishing grows the focus
    *  streak and auto-marks the source block worked; quitting breaks it. */
   const finish = (finished: boolean, reason?: string | null) => {
+    finishHandledRef.current = true;
     setAskFinish(false);
     setEndReason(null);
     const label = state.status === "running"
@@ -399,26 +474,7 @@ export default function StudySession() {
     // Recap numbers — walk the plan against the elapsed clock so focus time
     // counts only study segments and only up to where the session ended.
     if (state.status === "running") {
-      const elapsed = sessionElapsed(Date.now());
-      let acc = 0, focusSec = 0, breaks = 0, segsDone = 0;
-      for (const s of state.segments) {
-        const segSec = s.minutes * 60;
-        const used = Math.max(0, Math.min(segSec, elapsed - acc));
-        if (used >= segSec - 1) segsDone++;
-        if (s.kind === "study") focusSec += used;
-        else if (used > 0) breaks++;
-        acc += segSec;
-      }
-      setSummary({
-        label,
-        finished,
-        focusMin: Math.round(focusSec / 60),
-        totalMin: Math.round(elapsed / 60),
-        breaks,
-        segsDone,
-        segsTotal: state.segments.length,
-        streak: nextDiscipline.streak,
-      });
+      setSummary(buildRecap(state, label, finished, nextDiscipline.streak));
     }
     const bid = runningBlockId();
     if (finished && bid) {
@@ -437,28 +493,50 @@ export default function StudySession() {
     return (
       <div className="fixed inset-0 z-[95] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Session recap">
         <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => setSummary(null)} aria-label="Close recap" />
-        <div className="relative w-full max-w-sm rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
+        <div className="relative max-h-[85dvh] w-full max-w-sm overflow-y-auto rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
           <p className="flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
             <VoxIcon size={14} /> Session recap
           </p>
           <p className="mt-3 text-center text-4xl font-bold tabular-nums tracking-tight" style={{ color: summary.finished ? "var(--color-accent)" : "var(--color-warmth)" }}>
-            {summary.focusMin}<span className="text-base font-semibold" style={{ color: "var(--color-ink-muted)" }}> min focused</span>
+            {fmtDur(summary.focusMin)}<span className="text-base font-semibold" style={{ color: "var(--color-ink-muted)" }}> locked in</span>
           </p>
           <p className="mt-1 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
             {summary.label} · {summary.finished ? "finished" : "ended early"}
           </p>
           <div className="mt-4 grid grid-cols-3 gap-2 text-center">
             {[
+              { v: fmtDur(summary.awayMin), l: "breaks + away", warn: summary.awayMin > summary.focusMin },
               { v: `${summary.segsDone}/${summary.segsTotal}`, l: "segments" },
-              { v: `${summary.breaks}`, l: summary.breaks === 1 ? "break" : "breaks" },
               { v: fmtDur(summary.totalMin), l: "elapsed" },
             ].map((s) => (
               <div key={s.l} className="rounded-lg border px-2 py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-                <p className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{s.v}</p>
+                <p className="text-sm font-bold tabular-nums" style={{ color: s.warn ? "var(--color-warmth)" : "var(--color-ink)" }}>{s.v}</p>
                 <p className="text-[10px] font-medium" style={{ color: "var(--color-ink-muted)" }}>{s.l}</p>
               </div>
             ))}
           </div>
+          {summary.rows.length > 0 && (
+            <div className="mt-4 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                Timeline
+              </p>
+              <div className="flex flex-col">
+                {summary.rows.map((r, i) => (
+                  <div key={i} className="flex items-baseline gap-2 py-1 text-xs" style={{ color: r.kind === "break" ? "var(--color-ink-muted)" : "var(--color-ink)" }}>
+                    <span className="shrink-0 tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                      {fmtTime(r.startMs)}–{fmtTime(r.endMs)}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {r.kind === "break" ? "☾ " : ""}{r.label}
+                    </span>
+                    <span className="shrink-0 font-medium tabular-nums" style={{ color: r.kind === "break" ? "var(--color-success)" : "var(--color-ink-soft)" }}>
+                      {fmtDur(Math.round(r.min))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {summary.streak > 0 && (
             <p className="mt-3 text-center text-[11px] font-semibold" style={{ color: "var(--color-warmth)" }}>
               Focus streak: {summary.streak} session{summary.streak === 1 ? "" : "s"}
@@ -546,7 +624,19 @@ export default function StudySession() {
             </ol>
             <div className="mt-4 flex gap-2">
               <button
-                onClick={confirmSession}
+                onClick={() => {
+                  // A session that starts counts the block as studied — the
+                  // planner badge flips from "planned" to "studied" even if the
+                  // session is later cut short or cancelled.
+                  if (state.blockId) {
+                    void fetch("/api/blocks", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ id: state.blockId, status: "worked" }),
+                    }).catch(() => { /* cosmetic — planner badge only */ });
+                  }
+                  confirmSession();
+                }}
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
                 style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
               >
@@ -710,11 +800,15 @@ export default function StudySession() {
     try {
       const d = new Date();
       const dateStr = salah?.date ?? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      await fetch("/api/prayer-log/checkin", {
+      const res = await fetch("/api/prayer-log/checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: dateStr, prayerName: name, status: "prayed" }),
       });
+      // Only treat it as prayed once the write is confirmed — 200 online or
+      // the SW's 202 offline-queue receipt. A failed write keeps the banner.
+      if (res.ok || res.status === 202) markedPrayersRef.current.add(name);
+      else return;
     } catch { /* check-in is best-effort — the prayer page can still mark it */ }
     setSalah(null);
     setLied(false);
