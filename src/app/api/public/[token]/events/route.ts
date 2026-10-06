@@ -136,8 +136,11 @@ export async function GET(
       response.headers.set("Cache-Control", "no-store");
       return response;
     }
-    const qFrom = new Date(cFrom + "T00:00:00");
-    const qTo = new Date(cTo + "T23:59:59.999");
+    // Clamp to the actual window instants — the ±tz coverage on date strings
+    // otherwise leaks events beyond the shared window's edge. Parsed as UTC
+    // (the clamps are ISO date strings, not wall times).
+    const qFrom = new Date(Math.max(new Date(cFrom + "T00:00:00Z").getTime(), window.min.getTime()));
+    const qTo = new Date(Math.min(new Date(cTo + "T23:59:59.999Z").getTime(), window.max.getTime()));
 
     const events = await db
       .select({
@@ -195,6 +198,12 @@ export async function GET(
     return response;
   }
 
+  // Clamp the query to the share window — the ±tz buffer above exists to catch
+  // the owner's local calendar day, but without this it also returns events
+  // starting just past the window edge to an unauthenticated caller.
+  const qStart = new Date(Math.max(startOfDayUtc.getTime(), window.min.getTime()));
+  const qEnd = new Date(Math.min(endWithBuffer.getTime(), window.max.getTime()));
+
   const events = await db
     .select({
       id: schema.events.id,
@@ -210,8 +219,8 @@ export async function GET(
       and(
         eq(schema.events.userId, user.id),
         eq(schema.events.sharePublic, true),
-        gte(schema.events.startAt, startOfDayUtc),
-        lte(schema.events.startAt, endWithBuffer),
+        gte(schema.events.startAt, qStart),
+        lte(schema.events.startAt, qEnd),
       ),
     )
     .orderBy(schema.events.startAt)

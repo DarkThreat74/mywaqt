@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     }> = [];
     const classIds = new Set<string>();
     for (const item of body.items) {
-      const title = item.title?.trim().slice(0, 300);
+      const title = typeof item.title === "string" ? item.title.trim().slice(0, 300) : "";
       if (!title) continue;
       if (!item.dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(item.dueDate)) continue;
       if (item.classId) classIds.add(item.classId);

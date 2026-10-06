@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Validate email ──
-  const normalizedEmail = email?.trim().toLowerCase();
+  const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
     return NextResponse.json(
       { error: "Please enter a valid email." },

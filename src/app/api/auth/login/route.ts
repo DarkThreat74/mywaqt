@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const normalizedEmail = email?.trim().toLowerCase();
+  const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
     return NextResponse.json(
       { error: "Invalid email or password." },

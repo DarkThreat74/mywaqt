@@ -63,12 +63,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (body.title !== undefined) {
-      const trimmed = body.title.trim();
+      const trimmed = typeof body.title === "string" ? body.title.trim() : "";
       if (!trimmed) return NextResponse.json({ error: "Title cannot be empty" }, { status: 400 });
       updates.title = trimmed.slice(0, 300);
     }
     if (body.description !== undefined) {
-      const desc = body.description ?? "";
+      const desc = typeof body.description === "string" ? body.description : "";
       if (desc.length > 2000) {
         return NextResponse.json({ error: "Description must be 2000 characters or less" }, { status: 400 });
       }

@@ -28,11 +28,10 @@ export async function POST(request: NextRequest) {
 
   const { displayName } = body as { displayName?: string };
 
-  if (!displayName?.trim()) {
+  const trimmed = typeof displayName === "string" ? displayName.trim() : "";
+  if (!trimmed) {
     return NextResponse.json({ error: "Name is required." }, { status: 400 });
   }
-
-  const trimmed = displayName.trim();
   if (trimmed.length > 50) {
     return NextResponse.json({ error: "Name must be 50 characters or less." }, { status: 400 });
   }

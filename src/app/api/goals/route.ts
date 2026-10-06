@@ -76,14 +76,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const title = body.title?.trim();
+    const title = typeof body.title === "string" ? body.title.trim() : "";
     if (!title) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 });
     }
     if (title.length > 200) {
       return NextResponse.json({ error: "Title must be 200 characters or less" }, { status: 400 });
     }
-    if (body.description && body.description.length > 2000) {
+    if (typeof body.description === "string" && body.description.length > 2000) {
       return NextResponse.json({ error: "Description must be 2000 characters or less" }, { status: 400 });
     }
 
@@ -128,8 +128,8 @@ export async function POST(request: NextRequest) {
         userId: session.userId,
         parentId: body.parentId ?? null,
         title,
-        description: body.description?.trim() || null,
-        color: body.color || null,
+        description: typeof body.description === "string" ? body.description.trim() || null : null,
+        color: typeof body.color === "string" ? body.color : null,
         goalType,
         targetDate,
         progressTarget: typeof body.progressTarget === "number" && body.progressTarget > 0 && body.progressTarget <= 1_000_000
@@ -236,12 +236,12 @@ export async function PATCH(request: NextRequest) {
 
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (body.title !== undefined) {
-      const trimmed = body.title.trim();
+      const trimmed = typeof body.title === "string" ? body.title.trim() : "";
       if (!trimmed) return NextResponse.json({ error: "Title cannot be empty" }, { status: 400 });
       updates.title = trimmed.slice(0, 200);
     }
     if (body.description !== undefined) {
-      const desc = body.description ?? "";
+      const desc = typeof body.description === "string" ? body.description : "";
       if (desc.length > 2000) {
         return NextResponse.json({ error: "Description must be 2000 characters or less" }, { status: 400 });
       }

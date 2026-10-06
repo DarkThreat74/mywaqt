@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const name = body.name?.trim();
+    const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name || name.length > 40) {
       return NextResponse.json({ error: "A category name (1–40 chars) is required" }, { status: 400 });
     }

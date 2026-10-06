@@ -39,7 +39,7 @@ function validateFields(body: BDayBody, partial: boolean) {
   const errors: string[] = [];
 
   if (!partial || body.name !== undefined) {
-    const name = body.name?.trim();
+    const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name) errors.push("Name is required");
     else if (name.length > 100) errors.push("Name too long");
     else out.name = name;

@@ -33,13 +33,13 @@ function validateFields(body: SubBody, partial: boolean) {
   const errors: string[] = [];
 
   if (!partial || body.company !== undefined) {
-    const company = body.company?.trim();
+    const company = typeof body.company === "string" ? body.company.trim() : "";
     if (!company) errors.push("Company name is required");
     else if (company.length > 80) errors.push("Company name too long");
     else out.company = company;
   }
   if (body.plan !== undefined) {
-    const plan = body.plan?.trim() || null;
+    const plan = typeof body.plan === "string" ? body.plan.trim() || null : null;
     if (plan && plan.length > 80) errors.push("Plan name too long");
     else out.plan = plan;
   }
@@ -55,7 +55,7 @@ function validateFields(body: SubBody, partial: boolean) {
     } else out.amountCents = cents;
   }
   if (body.currency !== undefined) {
-    const currency = body.currency?.trim().toUpperCase();
+    const currency = typeof body.currency === "string" ? body.currency.trim().toUpperCase() : "";
     if (!currency || !CURRENCY_RE.test(currency)) errors.push("Invalid currency");
     else out.currency = currency;
   } else if (!partial) {
@@ -66,7 +66,7 @@ function validateFields(body: SubBody, partial: boolean) {
     else out.cycle = body.cycle;
   }
   if (!partial || body.startDate !== undefined) {
-    const startDate = body.startDate?.trim();
+    const startDate = typeof body.startDate === "string" ? body.startDate.trim() : "";
     if (!startDate || !DATE_RE.test(startDate) || !Number.isFinite(new Date(startDate + "T00:00:00Z").getTime())) {
       errors.push("Valid start date (YYYY-MM-DD) is required");
     } else out.startDate = startDate;

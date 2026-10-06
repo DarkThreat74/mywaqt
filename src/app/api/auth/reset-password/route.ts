@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     // ── Action: request a reset link ──
     if (action === "request") {
-      const normalizedEmail = email?.trim().toLowerCase();
+      const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
       if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
         // Same response shape — don't reveal anything about validity/existence
         return NextResponse.json(GENERIC_OK);

@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
 
   const { email, fingerprintHash } = body as { email?: string; fingerprintHash?: string };
 
-  const normalizedEmail = email?.trim().toLowerCase();
+  const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
     return NextResponse.json({ trusted: false });
   }

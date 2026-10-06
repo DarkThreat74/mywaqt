@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   const { displayName } = body as { displayName?: string };
 
   // Validate and sanitize display name if provided
-  const trimmedName = displayName?.trim();
+  const trimmedName = typeof displayName === "string" ? displayName.trim() : "";
   if (trimmedName && trimmedName.length > 50) {
     return NextResponse.json({ error: "Name must be 50 characters or less." }, { status: 400 });
   }

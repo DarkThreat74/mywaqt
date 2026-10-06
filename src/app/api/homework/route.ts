@@ -175,14 +175,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const title = body.title?.trim();
+    const title = typeof body.title === "string" ? body.title.trim() : "";
     if (!title) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 });
     }
     if (title.length > 300) {
       return NextResponse.json({ error: "Title must be 300 characters or less" }, { status: 400 });
     }
-    if (body.description && body.description.length > 2000) {
+    if (typeof body.description === "string" && body.description.length > 2000) {
       return NextResponse.json({ error: "Description must be 2000 characters or less" }, { status: 400 });
     }
     if (!body.dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate)) {
@@ -241,7 +241,7 @@ export async function POST(request: NextRequest) {
         id: validClientId,
         userId: session.userId,
         title,
-        description: body.description?.trim() || null,
+        description: typeof body.description === "string" ? body.description.trim() || null : null,
         classId: body.classId || null,
         dueDate: body.dueDate,
         dueTime: body.dueTime || null,

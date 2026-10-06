@@ -48,7 +48,7 @@ export async function PATCH(
       if (body.title === null) {
         updates.title = null;
       } else {
-        const trimmed = body.title.trim();
+        const trimmed = typeof body.title === "string" ? body.title.trim() : "";
         if (trimmed.length > 200) {
           return NextResponse.json({ error: "Title must be 200 characters or less" }, { status: 400 });
         }
@@ -56,6 +56,9 @@ export async function PATCH(
       }
     }
     if (body.content !== undefined) {
+      if (typeof body.content !== "string" || body.content.length > 50_000) {
+        return NextResponse.json({ error: "Content must be a string under 50,000 characters" }, { status: 400 });
+      }
       updates.content = body.content;
     }
     if (body.pinned !== undefined) {

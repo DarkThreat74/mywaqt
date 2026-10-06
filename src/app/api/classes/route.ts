@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const name = body.name?.trim();
+    const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name) {
       return NextResponse.json({ error: "Class name is required" }, { status: 400 });
     }
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate color is a hex string
-    const color = body.color?.trim();
+    const color = typeof body.color === "string" ? body.color.trim() : "";
     if (!color || !/^#[0-9a-fA-F]{6}$/.test(color)) {
       return NextResponse.json({ error: "Valid hex color is required" }, { status: 400 });
     }
@@ -140,7 +140,7 @@ export async function PATCH(request: NextRequest) {
 
     const updates: Record<string, unknown> = {};
     if (body.name !== undefined) {
-      const trimmed = body.name.trim();
+      const trimmed = typeof body.name === "string" ? body.name.trim() : "";
       if (!trimmed) return NextResponse.json({ error: "Name cannot be empty" }, { status: 400 });
       updates.name = trimmed.slice(0, 100);
     }

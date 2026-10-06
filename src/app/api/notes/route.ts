@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     }
 
     // content is required but may be an empty string
-    if (body.content === undefined || body.content === null) {
+    if (typeof body.content !== "string") {
       return NextResponse.json({ error: "Content is required" }, { status: 400 });
     }
     const content = body.content;
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     // title is optional, max 200 chars if provided
     let title: string | null = null;
     if (body.title !== undefined && body.title !== null) {
-      const trimmed = body.title.trim();
+      const trimmed = typeof body.title === "string" ? body.title.trim() : "";
       if (trimmed.length > 200) {
         return NextResponse.json({ error: "Title must be 200 characters or less" }, { status: 400 });
       }
