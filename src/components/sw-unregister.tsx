@@ -106,7 +106,10 @@ export default function UnregisterServiceWorker() {
         try {
           for (let i = localStorage.length - 1; i >= 0; i--) {
             const key = localStorage.key(i);
-            if (key && key.startsWith("waqt") && !PRESERVE_KEYS.has(key)) {
+            // waqt:funfact:* holds only content indices + the on/off toggle —
+            // no private data, and wiping it made disabled cards come back
+            // the next day after any visit to a public page.
+            if (key && key.startsWith("waqt") && !PRESERVE_KEYS.has(key) && !key.startsWith("waqt:funfact:")) {
               localStorage.removeItem(key);
             }
           }

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { X, LayoutGrid } from "lucide-react";
 import { useHiddenTabs } from "@/lib/nav-prefs";
+import { useInbox } from "@/lib/inbox";
 
 /**
  * Tool picker — pictorial tiles, not a numbered list. Each tool carries its
@@ -164,6 +165,18 @@ function TalksArt() {
   );
 }
 
+function MessageArt() {
+  // Speech bubble with a tail
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M10 12h28a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H20l-7 7v-7h-3a4 4 0 0 1-4-4V16a4 4 0 0 1 4-4z" />
+      <circle cx="17" cy="23" r="1.8" />
+      <circle cx="24" cy="23" r="1.8" />
+      <circle cx="31" cy="23" r="1.8" />
+    </svg>
+  );
+}
+
 interface Tool {
   href: string;
   label: string;
@@ -171,9 +184,17 @@ interface Tool {
   description: string;
   art: () => React.ReactElement;
   ranked?: boolean;
+  /** Registry key in HIDEABLE_SET when it differs from href (e.g. "messages"). */
+  prefKey?: string;
 }
 
 const SECTIONS: { title: string; tools: Tool[] }[] = [
+  {
+    title: "Connect",
+    tools: [
+      { href: "/messages", prefKey: "messages", label: "Messages", arabic: "رسائل", description: "Prayer-friend chats", art: MessageArt },
+    ],
+  },
   {
     title: "Worship",
     tools: [
@@ -214,8 +235,9 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
   const [closing, setClosing] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   const hiddenTabs = useHiddenTabs();
+  const inbox = useInbox();
   const sections = SECTIONS
-    .map((s) => ({ ...s, tools: s.tools.filter((t) => !hiddenTabs.has(t.href)) }))
+    .map((s) => ({ ...s, tools: s.tools.filter((t) => !hiddenTabs.has(t.prefKey ?? t.href)) }))
     .filter((s) => s.tools.length > 0);
 
   // Mount guard for portal (document.body doesn't exist during SSR)
@@ -372,10 +394,19 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                           </span>
                         )}
                         <span
-                          className="block h-11 w-11 transition-colors group-hover:text-[var(--color-accent)]"
+                          className="relative block h-11 w-11 transition-colors group-hover:text-[var(--color-accent)]"
                           style={{ color: "var(--color-ink-soft)" }}
                         >
                           <Art />
+                          {tool.prefKey === "messages" && (inbox.unreadMessages ?? 0) > 0 && (
+                            <span
+                              className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[8px] font-bold text-white"
+                              style={{ backgroundColor: "var(--color-accent)" }}
+                              aria-label={`${inbox.unreadMessages} unread messages`}
+                            >
+                              {(inbox.unreadMessages ?? 0) > 99 ? "99+" : inbox.unreadMessages}
+                            </span>
+                          )}
                         </span>
                         <span className="mt-1.5 text-[11px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
                           {tool.label}

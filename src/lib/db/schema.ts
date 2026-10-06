@@ -398,7 +398,7 @@ export const prayerSettings = pgTable('prayer_settings', {
   studyStartMin: integer('study_start_min').default(420).notNull(),
   studyEndMin: integer('study_end_min').default(1320).notNull(),
   // Show the "+ plan · Nh free" ghost chips inside the day timeline's gaps
-  studyShowGapChips: boolean('study_show_gap_chips').default(true).notNull(),
+  studyShowGapChips: boolean('study_show_gap_chips').default(false).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

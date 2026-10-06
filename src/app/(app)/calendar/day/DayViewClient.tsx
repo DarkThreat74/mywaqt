@@ -278,7 +278,7 @@ export default function DayViewClient({ date }: { date: string }) {
   // Study-block planning window — settings-controlled, defaults 7:00–22:00
   const [studyStartMin, setStudyStartMin] = useState(DAY_START);
   const [studyEndMin, setStudyEndMin] = useState(DAY_END);
-  const [showGapChips, setShowGapChips] = useState(true);
+  const [showGapChips, setShowGapChips] = useState(false);
   // Birthdays for the viewed date — fetched once, matched on month/day.
   const [birthdaysToday, setBirthdaysToday] = useState<Array<{ id: string; name: string; birthMonth: number; birthDay: number; birthYear: number | null; color: string | null }>>([]);
 

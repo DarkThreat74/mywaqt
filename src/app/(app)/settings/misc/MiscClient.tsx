@@ -38,7 +38,7 @@ export default function MiscClient() {
           setSettings({
             studyStartMin: d.studyStartMin ?? 420,
             studyEndMin: d.studyEndMin ?? 1320,
-            studyShowGapChips: d.studyShowGapChips !== false,
+            studyShowGapChips: d.studyShowGapChips === true,
           });
         }
       })
@@ -139,7 +139,7 @@ export default function MiscClient() {
             </div>
             <button
               role="switch"
-              aria-checked={settings?.studyShowGapChips ?? true}
+              aria-checked={settings?.studyShowGapChips ?? false}
               disabled={!settings || busy}
               onClick={() =>
                 patch(
@@ -149,7 +149,7 @@ export default function MiscClient() {
               }
               className="relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50"
               style={{
-                backgroundColor: settings?.studyShowGapChips !== false ? "var(--color-accent)" : "var(--color-paper-3)",
+                backgroundColor: settings?.studyShowGapChips === true ? "var(--color-accent)" : "var(--color-paper-3)",
               }}
               aria-label="Toggle free-time chips"
             >
@@ -157,7 +157,7 @@ export default function MiscClient() {
                 className="absolute top-0.5 h-5 w-5 rounded-full transition-all"
                 style={{
                   backgroundColor: "var(--color-paper)",
-                  left: settings?.studyShowGapChips !== false ? "22px" : "2px",
+                  left: settings?.studyShowGapChips === true ? "22px" : "2px",
                 }}
               />
             </button>

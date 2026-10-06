@@ -20,26 +20,40 @@ import {
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
   planSession, takeBreakNow, switchFocus, getDiscipline, recordOutcome,
   runningBlockId, pauseSession, resumeSession, startSprint, sessionElapsed,
+  endBreakEarly,
   type StudyMethod,
 } from "@/lib/study/session";
 
 let audioCtx: AudioContext | null = null;
-function beep(freq = 880, dur = 0.12) {
+// Soft chime rather than a raw beep — fast attack, exponential decay, and a
+// quiet octave-up partial so it reads as a struck bell, not an alarm.
+function beep(freq = 880, dur = 0.12, vol = 0.12) {
   try {
     audioCtx ??= new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     // iOS keeps the context suspended until a resume — without this every
     // beep silently no-ops on Safari.
     if (audioCtx.state === "suspended") void audioCtx.resume().catch(() => {});
-    const o = audioCtx.createOscillator();
+    const t = audioCtx.currentTime;
     const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    const o = audioCtx.createOscillator();
     o.frequency.value = freq;
     o.type = "sine";
-    g.gain.setValueAtTime(0.12, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    const partial = audioCtx.createOscillator();
+    partial.frequency.value = freq * 2;
+    partial.type = "sine";
+    const pg = audioCtx.createGain();
+    pg.gain.value = 0.22;
     o.connect(g);
+    partial.connect(pg);
+    pg.connect(g);
     g.connect(audioCtx.destination);
-    o.start();
-    o.stop(audioCtx.currentTime + dur);
+    o.start(t);
+    partial.start(t);
+    o.stop(t + dur);
+    partial.stop(t + dur);
   } catch { /* audio unavailable — silent */ }
 }
 
@@ -84,8 +98,20 @@ export default function StudySession() {
   const [checkinDismissed, setCheckinDismissed] = useState("");
   // "What pulled you away" — captured into history on unfinished ends.
   const [endReason, setEndReason] = useState<string | null>(null);
+  // Post-session recap — populated by finish(), survives endSession() going
+  // idle. Cleared when a new session starts running.
+  const [summary, setSummary] = useState<{
+    label: string; finished: boolean; focusMin: number; totalMin: number;
+    breaks: number; segsDone: number; segsTotal: number; streak: number;
+  } | null>(null);
 
   useEffect(() => { hydrateSession(); }, []);
+
+  // A new session supersedes any lingering recap (adjust-during-render reset,
+  // same pattern the finish prompt uses below).
+  if ((state.status === "running" || state.status === "intake" || state.status === "planned") && summary) {
+    setSummary(null);
+  }
 
   // Keep the screen awake while a session is actively running — a paused
   // session is meant to let you step away, so the lock releases there too.
@@ -157,11 +183,20 @@ export default function StudySession() {
       }
       return;
     }
-    // Last 5 seconds of a break — tick each second so returning is timed.
-    if (progress.segment.kind === "break" && progress.remainingSec <= 5 && progress.remainingSec > 0) {
+    // Final 10 seconds of EVERY segment — a chime each second that swells as
+    // the boundary approaches, with a distinct higher last chime before the
+    // two-tone transition fires. A paused clock stays on one second and the
+    // dedupe key keeps it from repeating.
+    if (!progress.done && progress.remainingSec <= 10 && progress.remainingSec > 0) {
       if (lastBeepRef.current !== progress.remainingSec) {
         lastBeepRef.current = progress.remainingSec;
-        beep(progress.remainingSec === 1 ? 1320 : 980, 0.09);
+        if (progress.remainingSec === 1) {
+          // Distinct final cue — brighter, longer, slightly louder.
+          beep(1175, 0.22, 0.2);
+        } else {
+          const vol = 0.04 + (10 - progress.remainingSec) * 0.016;
+          beep(784, 0.1, vol);
+        }
       }
     }
   }, [progress, state.status]);
@@ -208,12 +243,36 @@ export default function StudySession() {
     // Local date, not UTC — an evening session in a negative-offset timezone
     // must log to today, not tomorrow.
     const d = new Date();
-    recordOutcome(finished, {
+    const nextDiscipline = recordOutcome(finished, {
       date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
       minutes: Math.max(1, Math.round(sessionElapsed(Date.now()) / 60)),
       label,
       reason: reason ?? undefined,
     });
+    // Recap numbers — walk the plan against the elapsed clock so focus time
+    // counts only study segments and only up to where the session ended.
+    if (state.status === "running") {
+      const elapsed = sessionElapsed(Date.now());
+      let acc = 0, focusSec = 0, breaks = 0, segsDone = 0;
+      for (const s of state.segments) {
+        const segSec = s.minutes * 60;
+        const used = Math.max(0, Math.min(segSec, elapsed - acc));
+        if (used >= segSec - 1) segsDone++;
+        if (s.kind === "study") focusSec += used;
+        else if (used > 0) breaks++;
+        acc += segSec;
+      }
+      setSummary({
+        label,
+        finished,
+        focusMin: Math.round(focusSec / 60),
+        totalMin: Math.round(elapsed / 60),
+        breaks,
+        segsDone,
+        segsTotal: state.segments.length,
+        streak: nextDiscipline.streak,
+      });
+    }
     const bid = runningBlockId();
     if (finished && bid) {
       void fetch("/api/blocks", {
@@ -225,7 +284,50 @@ export default function StudySession() {
     endSession();
   };
 
-  if (state.status === "idle") return null;
+  // Session recap — survives endSession() → idle; dismiss to fully close.
+  if (state.status === "idle") {
+    if (!summary) return null;
+    return (
+      <div className="fixed inset-0 z-[95] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Session recap">
+        <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => setSummary(null)} aria-label="Close recap" />
+        <div className="relative w-full max-w-sm rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
+          <p className="flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
+            <VoxIcon size={14} /> Session recap
+          </p>
+          <p className="mt-3 text-center text-4xl font-bold tabular-nums tracking-tight" style={{ color: summary.finished ? "var(--color-accent)" : "var(--color-warmth)" }}>
+            {summary.focusMin}<span className="text-base font-semibold" style={{ color: "var(--color-ink-muted)" }}> min focused</span>
+          </p>
+          <p className="mt-1 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            {summary.label} · {summary.finished ? "finished" : "ended early"}
+          </p>
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+            {[
+              { v: `${summary.segsDone}/${summary.segsTotal}`, l: "segments" },
+              { v: `${summary.breaks}`, l: summary.breaks === 1 ? "break" : "breaks" },
+              { v: `${summary.totalMin}m`, l: "elapsed" },
+            ].map((s) => (
+              <div key={s.l} className="rounded-lg border px-2 py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <p className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{s.v}</p>
+                <p className="text-[10px] font-medium" style={{ color: "var(--color-ink-muted)" }}>{s.l}</p>
+              </div>
+            ))}
+          </div>
+          {summary.streak > 0 && (
+            <p className="mt-3 text-center text-[11px] font-semibold" style={{ color: "var(--color-warmth)" }}>
+              Focus streak: {summary.streak} session{summary.streak === 1 ? "" : "s"}
+            </p>
+          )}
+          <button
+            onClick={() => setSummary(null)}
+            className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
+          >
+            <Check className="h-4 w-4" /> Done
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Intake — confirm each assignment's time + pick a method ──
   if (state.status === "intake") {
@@ -441,6 +543,9 @@ export default function StudySession() {
   const elapsedInSeg = seg.minutes * 60 - progress.remainingSec;
   const pct = seg.minutes > 0 ? Math.min(100, (elapsedInSeg / (seg.minutes * 60)) * 100) : 100;
   const next = state.segments[progress.index + 1];
+  // Final 10s — ring and clock shift to warmth so a transition is felt
+  // before it lands (pairs with the countdown chimes).
+  const winding = !progress.done && !paused && progress.remainingSec <= 10 && progress.remainingSec > 0;
   // Attention check — vigilance drops around the 60% mark of a long block.
   // Brief+rare resets beat long breaks, so the offer is a 90-second reset.
   const checkinKey = `${state.startedAt}:${progress.index}`;
@@ -481,7 +586,7 @@ export default function StudySession() {
               <circle cx="112" cy="112" r="102" fill="none" stroke="var(--color-paper-3)" strokeWidth="5" />
               <circle
                 cx="112" cy="112" r="102" fill="none"
-                stroke={paused ? "var(--color-ink-muted)" : segAccent}
+                stroke={paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : segAccent}
                 strokeWidth="5" strokeLinecap="round"
                 strokeDasharray={2 * Math.PI * 102}
                 strokeDashoffset={2 * Math.PI * 102 * (1 - pct / 100)}
@@ -491,7 +596,7 @@ export default function StudySession() {
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <p
                 className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
-                style={{ color: paused ? "var(--color-ink-muted)" : isBreak ? "var(--color-success)" : "var(--color-ink)" }}
+                style={{ color: paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : isBreak ? "var(--color-success)" : "var(--color-ink)", transition: "color 0.4s ease" }}
               >
                 {fmtClock(progress.remainingSec)}
               </p>
@@ -571,6 +676,20 @@ export default function StudySession() {
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 32 }}
             >
               Locked in
+            </button>
+          </div>
+        )}
+
+        {/* Break state — an obvious way back into the work, not just waiting
+            for the countdown. */}
+        {!progress.done && isBreak && !paused && (
+          <div className="mb-3 flex justify-center">
+            <button
+              onClick={endBreakEarly}
+              className="flex items-center gap-1.5 rounded-full px-4 py-2.5 text-[12px] font-semibold transition-opacity hover:opacity-90"
+              style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)", minHeight: 44 }}
+            >
+              <Play className="h-4 w-4" /> Back to studying
             </button>
           </div>
         )}

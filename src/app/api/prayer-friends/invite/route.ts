@@ -145,21 +145,25 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Atomically claim the invite AND create the friendship — a failure after
-    // the claim alone would burn the invite with no friendship and make every
-    // retry report "already used".
+    // Claim the invite (atomic conditional update — the isNull(usedAt) guard
+    // makes it single-use), then create the mutual friendship rows. neon-http
+    // doesn't support db.transaction, so if the insert fails we roll the
+    // claim back — a burned invite that never created a friendship is worse
+    // than a retry.
     const now = new Date();
-    const claimed = await db.transaction(async (tx) => {
-      const c = await tx
-        .update(schema.prayerInvites)
-        .set({ usedBy: session.userId, usedAt: now })
-        .where(and(eq(schema.prayerInvites.id, invite.id), isNull(schema.prayerInvites.usedAt)))
-        .returning({ id: schema.prayerInvites.id });
-      if (c.length === 0) return false;
+    const claimed = await db
+      .update(schema.prayerInvites)
+      .set({ usedBy: session.userId, usedAt: now })
+      .where(and(eq(schema.prayerInvites.id, invite.id), isNull(schema.prayerInvites.usedAt)))
+      .returning({ id: schema.prayerInvites.id });
+    if (claimed.length === 0) {
+      return NextResponse.json({ error: "This invite was already used." }, { status: 409 });
+    }
 
+    try {
       // Mutual accepted rows (any pre-existing pending/rejected rows get
       // upgraded — both sides consented via the link).
-      await tx
+      await db
         .insert(schema.prayerFriends)
         .values([
           { userId: session.userId, friendId: invite.inviterId, status: "accepted", respondedAt: now },
@@ -169,10 +173,13 @@ export async function PUT(request: NextRequest) {
           target: [schema.prayerFriends.userId, schema.prayerFriends.friendId],
           set: { status: "accepted", respondedAt: now },
         });
-      return true;
-    });
-    if (!claimed) {
-      return NextResponse.json({ error: "This invite was already used." }, { status: 409 });
+    } catch (err) {
+      // Compensating rollback — unclaim the invite so it stays usable.
+      await db
+        .update(schema.prayerInvites)
+        .set({ usedBy: null, usedAt: null })
+        .where(eq(schema.prayerInvites.id, invite.id));
+      throw err;
     }
 
     // Notify the inviter — best effort

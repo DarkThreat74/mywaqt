@@ -29,7 +29,9 @@ export default function LogoutButton() {
       // LocalStorage app keys (settings cache, session store, seen flags).
       try {
         Object.keys(localStorage)
-          .filter((k) => k.startsWith("waqt-") || k.startsWith("waqt:") || k === "quran-best-streak")
+          // waqt:funfact:* is exempt — content indices + an on/off toggle,
+          // no private data; wiping it reset the cards preference every logout.
+          .filter((k) => (k.startsWith("waqt-") || k.startsWith("waqt:")) && !k.startsWith("waqt:funfact:") || k === "quran-best-streak")
           .forEach((k) => localStorage.removeItem(k));
       } catch { /* ignore */ }
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });

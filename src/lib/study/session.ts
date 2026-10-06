@@ -262,6 +262,21 @@ export function takeBreakNow(minutes = 5) {
   emit();
 }
 
+/** "Done resting" — end the current break early; the next segment starts
+ *  right now. Shrinks the break to the time already used so the shared
+ *  elapsed-clock math just works. */
+export function endBreakEarly() {
+  if (state.status !== "running" || state.pausedAt) return;
+  const elapsedSec = runningElapsedSec();
+  const p = segmentAt(state.segments, elapsedSec);
+  if (p.done || p.segment.kind !== "break") return;
+  const usedMin = (p.segment.minutes * 60 - p.remainingSec) / 60;
+  const segs = [...state.segments];
+  segs[p.index] = { ...p.segment, minutes: usedMin };
+  state = { ...state, segments: segs };
+  emit();
+}
+
 /** "I've lost interest" — end this segment now, jump straight to the next
  *  subject, and move the leftover minutes to the end as a finish-up task.
  *  Task switching beats grinding on something your attention has left. */

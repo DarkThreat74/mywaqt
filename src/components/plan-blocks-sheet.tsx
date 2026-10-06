@@ -41,7 +41,10 @@ const RELEASE_REASONS: { key: string; label: string }[] = [
 ];
 
 function minToTimeInput(min: number): string {
-  return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+  // Clamp 1440 (midnight) to 23:59 — <input type="time"> rejects "24:00",
+  // which left blocks ending at midnight uneditable.
+  const m = Math.min(min, 1439);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 function timeInputToMin(s: string): number | null {
   const m = s.match(/^(\d{1,2}):(\d{2})$/);

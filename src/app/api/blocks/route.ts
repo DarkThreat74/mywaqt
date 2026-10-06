@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, gte, lte, inArray, sql, asc } from "drizzle-orm";
+import { eq, and, gte, lte, inArray, notInArray, sql, asc } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -277,16 +277,22 @@ export async function PATCH(request: NextRequest) {
     if (Array.isArray(body.homeworkIds)) {
       const ids = body.homeworkIds.filter(isValidUUID).slice(0, 20);
       const owned = await ownedHomeworkIds(session.userId, ids);
-      // Atomic replace — a failure between delete and insert must not leave
-      // the block with zero assignments.
-      await db.transaction(async (tx) => {
-        await tx.delete(schema.blockAssignments).where(eq(schema.blockAssignments.blockId, existing.id));
-        if (owned.length > 0) {
-          await tx.insert(schema.blockAssignments).values(
-            owned.map((homeworkId) => ({ blockId: existing.id, homeworkId })),
-          );
-        }
-      });
+      // Replace without a transaction (neon-http doesn't support them):
+      // insert new links first, then delete the ones not in the new set —
+      // a mid-failure can never leave the block with fewer assignments
+      // than before.
+      if (owned.length > 0) {
+        await db
+          .insert(schema.blockAssignments)
+          .values(owned.map((homeworkId) => ({ blockId: existing.id, homeworkId })))
+          .onConflictDoNothing();
+      }
+      await db
+        .delete(schema.blockAssignments)
+        .where(and(
+          eq(schema.blockAssignments.blockId, existing.id),
+          owned.length > 0 ? notInArray(schema.blockAssignments.homeworkId, owned) : undefined,
+        ));
     }
 
     if (Object.keys(set).length > 0) {
