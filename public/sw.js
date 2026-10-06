@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v60";
+const CACHE_VERSION = "waqt-v61";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -813,17 +813,22 @@ self.addEventListener("fetch", (event) => {
           const preloadResponse = await event.preloadResponse;
           const response = preloadResponse || await timedFetch(request, 10000);
           if (response && response.ok) {
-            // Cache the fresh HTML (keyed by full URL) for offline use
-            const body = await response.blob();
-            const headers = new Headers(response.headers);
-            headers.set("x-waqt-cached-at", String(Date.now()));
-            const cachedRes = new Response(body, {
-              status: response.status,
-              statusText: response.statusText,
-              headers,
-            });
-            await pageCache.put(cacheKey, cachedRes.clone());
-            return cachedRes;
+            // Return the response NOW and cache the clone in the background —
+            // buffering the whole body + writing the cache before responding
+            // added avoidable latency to every tab switch.
+            event.waitUntil(
+              (async () => {
+                const body = await response.blob();
+                const headers = new Headers(response.headers);
+                headers.set("x-waqt-cached-at", String(Date.now()));
+                await pageCache.put(cacheKey, new Response(body, {
+                  status: response.status,
+                  statusText: response.statusText,
+                  headers,
+                }));
+              })()
+            );
+            return response;
           }
           // Non-ok response (e.g. redirect to /login) — return as-is
           return response || new Response("Offline", { status: 503 });
@@ -927,9 +932,11 @@ self.addEventListener("fetch", (event) => {
           );
           return cached;
         }
-        // No cache — try network
+        // No cache — try network. 8s cap: on a flaky connection a bare fetch
+        // can hang 30s+, which reads as a frozen app; the 503 below lets the
+        // caller fall back to IndexedDB instead.
         try {
-          const response = await fetch(request);
+          const response = await timedFetch(request, 8000);
           if (response.ok) {
             const body = await response.blob();
             const headers = new Headers(response.headers);
@@ -1002,10 +1009,12 @@ self.addEventListener("fetch", (event) => {
         // Try exact match first (handles re-requests of the same presigned URL)
         const exactMatch = await audioCache.match(request, { ignoreVary: true });
         if (exactMatch) {
-          // Revalidate in background (presigned URLs expire — refresh the cache)
+          // Revalidate in background (presigned URLs expire — refresh the cache).
+          // Request carries the player's Range header — a 206 partial response
+          // must NOT overwrite the cached full file or the download is corrupted.
           event.waitUntil(
             fetch(request).then(async (response) => {
-              if (response.ok) {
+              if (response.status === 200) {
                 await audioCache.put(request, response.clone());
               }
             }).catch(() => {})
