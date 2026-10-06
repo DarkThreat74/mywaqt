@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, Eye, EyeOff, Loader2, Pencil, Sparkles, X } from "lucide-react";
-import type { Homework, StudyBlock } from "@/lib/db/schema";
+import type { Class, Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
 import { formatDueBadge } from "@/lib/homework/due-format";
 
@@ -55,6 +55,10 @@ function timeInputToMin(s: string): number | null {
 
 export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose, onPickOnCalendar, initialGap, initialBlock, dayStart, dayEnd }: Props) {
   const [hw, setHw] = useState<Homework[]>([]);
+  const [classes, setClasses] = useState<Class[]>([]);
+  // Per-assignment coverage across ALL blocks (not just this day's) —
+  // summary counts planned blocks anywhere in the future.
+  const [coverage, setCoverage] = useState<Record<string, { planned: number; worked: number }>>({});
   const [unworked, setUnworked] = useState<BlockWithAssignments[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +83,12 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
 
   const plannedCounts = useMemo(() => {
     const map = new Map<string, number>();
+    // Coverage summary spans every planned block on any day — the prop only
+    // carries the viewed date, so without this an assignment planned on
+    // another day looked unplanned.
+    for (const [id, c] of Object.entries(coverage)) {
+      if (c.planned > 0) map.set(id, c.planned);
+    }
     for (const b of blocks) {
       if (b.status !== "planned") continue;
       for (const a of b.assignments) {
@@ -86,23 +96,39 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
       }
     }
     return map;
-  }, [blocks]);
+  }, [blocks, coverage]);
+
+  const classMap = useMemo(() => {
+    const m = new Map<string, Class>();
+    for (const c of classes) m.set(c.id, c);
+    return m;
+  }, [classes]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const [hwRes, unRes] = await Promise.all([
+        const [hwRes, unRes, classRes, sumRes] = await Promise.all([
           // Unfiltered list (200 most recent by dueDate, ascending) — includes
           // overdue pending work, which is exactly what needs planning.
           fetch(`/api/homework`).catch(() => null),
           isToday ? fetch(`/api/blocks?unworked=1&date=${date}`).catch(() => null) : Promise.resolve(null),
+          fetch(`/api/classes`).catch(() => null),
+          fetch(`/api/blocks?summary=1`).catch(() => null),
         ]);
         if (cancelled) return;
         if (hwRes?.ok) {
           const data = await hwRes.json();
           setHw(Array.isArray(data) ? data.filter((h: Homework) => h.status === "pending") : []);
+        }
+        if (classRes?.ok) {
+          const data = await classRes.json();
+          setClasses(Array.isArray(data) ? data : (data.classes ?? []));
+        }
+        if (sumRes?.ok) {
+          const data = await sumRes.json();
+          setCoverage(data.summary ?? {});
         }
         if (unRes?.ok) {
           const data = await unRes.json();
@@ -422,9 +448,24 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                         >
                           {on && <Check className="h-3 w-3" />}
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>{h.title}</span>
-                        <span className="shrink-0 text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
-                          {formatDueBadge(h.dueDate, h.dueTime).label}
+                        <span className="min-w-0 flex-1 text-sm leading-snug" style={{ color: "var(--color-ink)" }}>
+                          {(() => {
+                            const cls = h.classId ? classMap.get(h.classId) : undefined;
+                            return (
+                              <>
+                                {cls && (
+                                  <span className="font-medium" style={{ color: cls.color }}>
+                                    {cls.name}
+                                    <span style={{ color: "var(--color-ink-muted)" }}> · </span>
+                                  </span>
+                                )}
+                                {h.title}
+                                <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                                  {" "}· {formatDueBadge(h.dueDate, h.dueTime).label}
+                                </span>
+                              </>
+                            );
+                          })()}
                         </span>
                       </button>
                     );
@@ -661,9 +702,24 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                       const n = plannedCounts.get(h.id) ?? 0;
                       return (
                         <div key={h.id} className="flex items-center gap-2 border-b py-2 last:border-0" style={{ borderColor: "var(--color-paper-3)" }}>
-                          <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>{h.title}</span>
-                          <span className="shrink-0 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                            {formatDueBadge(h.dueDate, h.dueTime).label}
+                          <span className="min-w-0 flex-1 text-sm leading-snug" style={{ color: "var(--color-ink)" }}>
+                            {(() => {
+                              const cls = h.classId ? classMap.get(h.classId) : undefined;
+                              return (
+                                <>
+                                  {cls && (
+                                    <span className="font-medium" style={{ color: cls.color }}>
+                                      {cls.name}
+                                      <span style={{ color: "var(--color-ink-muted)" }}> · </span>
+                                    </span>
+                                  )}
+                                  {h.title}
+                                  <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                                    {" "}· {formatDueBadge(h.dueDate, h.dueTime).label}
+                                  </span>
+                                </>
+                              );
+                            })()}
                           </span>
                           <span
                             className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"

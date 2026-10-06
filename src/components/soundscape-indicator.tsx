@@ -155,7 +155,7 @@ export default function SoundscapeIndicator() {
           className="rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-muted)", minHeight: 32 }}
         >
-          Stop
+          Close
         </button>
         <Link
           href="/study"

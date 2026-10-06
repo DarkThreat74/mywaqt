@@ -13,12 +13,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { BookOpen, Check, Coffee, Minus, Pause, Play, Plus, Shuffle, Square, X, Zap } from "lucide-react";
+import { BookOpen, Check, ChevronDown, ChevronUp, Coffee, Minus, Pause, Play, Plus, RefreshCw, Shuffle, Square, Volume2, VolumeX, X, Zap } from "lucide-react";
 import VoxIcon from "@/components/vox-icon";
+import { useSoundscape, SOUNDSCAPES } from "@/components/soundscape-context";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
   planSession, takeBreakNow, switchFocus, getDiscipline, recordOutcome,
+  beginIntake,
   runningBlockId, pauseSession, resumeSession, startSprint, sessionElapsed,
   endBreakEarly,
   type StudyMethod,
@@ -85,6 +87,8 @@ export default function StudySession() {
   const doneChimedRef = useRef(false);
   // End-session check — "did you finish?" before the session is discarded.
   const [askFinish, setAskFinish] = useState(false);
+  // Two-step: "ask" (did you finish?) → "more" (how much longer / end anyway).
+  const [finishStep, setFinishStep] = useState<"ask" | "more">("ask");
   // Auto-prompt the finish check once per session when the plan runs out —
   // keyed by startedAt so each new session asks again.
   const [donePromptedAt, setDonePromptedAt] = useState(0);
@@ -98,6 +102,10 @@ export default function StudySession() {
   const [checkinDismissed, setCheckinDismissed] = useState("");
   // "What pulled you away" — captured into history on unfinished ends.
   const [endReason, setEndReason] = useState<string | null>(null);
+  // Soundscape picker inside the running overlay — pick focus audio without
+  // leaving the session.
+  const [soundsOpen, setSoundsOpen] = useState(false);
+  const soundscape = useSoundscape();
   // Post-session recap — populated by finish(), survives endSession() going
   // idle. Cleared when a new session starts running.
   const [summary, setSummary] = useState<{
@@ -229,7 +237,7 @@ export default function StudySession() {
   // Timer's up → the checkoff is mandatory (adjust-during-render reset pattern).
   if (state.status === "running" && progress?.done && donePromptedAt !== state.startedAt) {
     setDonePromptedAt(state.startedAt);
-    setAskFinish(true);
+    setAskFinish(true); setFinishStep("ask");
   }
 
   /** Close the session and record the outcome — finishing grows the focus
@@ -406,9 +414,30 @@ export default function StudySession() {
                 <Play className="h-4 w-4" /> Start
               </button>
               <button
+                onClick={() => void planSession(state.planInput, state.blockId)}
+                className="flex items-center justify-center gap-1.5 rounded-full border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
+                aria-label="Re-analyze and plan again"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Re-plan
+              </button>
+            </div>
+            <div className="mt-2 flex justify-center gap-4">
+              <button
+                onClick={() => beginIntake({
+                  minutes: state.planInput.minutes,
+                  originalMinutes: state.planInput.originalMinutes,
+                  assignments: state.planInput.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })),
+                }, state.blockId)}
+                className="text-[11px] font-medium transition-opacity hover:opacity-70"
+                style={{ color: "var(--color-ink-muted)" }}
+              >
+                Adjust order &amp; times
+              </button>
+              <button
                 onClick={discardPlan}
-                className="rounded-full px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ color: "var(--color-ink-muted)", minHeight: 44 }}
+                className="text-[11px] font-medium transition-opacity hover:opacity-70"
+                style={{ color: "var(--color-ink-muted)" }}
               >
                 Not now
               </button>
@@ -430,76 +459,95 @@ export default function StudySession() {
   const discipline = getDiscipline();
   const finishDialog = askFinish ? (
     <div className="fixed inset-0 z-[95] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="End session">
-      <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => { setAskFinish(false); setEndReason(null); }} aria-label="Back" />
+      <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => { setAskFinish(false); setFinishStep("ask"); setEndReason(null); }} aria-label="Back" />
       <div className="relative w-full max-w-sm rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
-        <p className="text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
-          {progress.done ? "Time&apos;s up — did you finish?" : "Ending early — did you finish?"}
-        </p>
-        {discipline.streak > 0 && (
-          <p className="mt-1.5 text-center text-[11px] font-medium" style={{ color: "var(--color-warmth)" }}>
-            Finishing keeps your {discipline.streak}-session focus streak — quitting breaks it.
-          </p>
-        )}
-        <div className="mt-4 flex flex-col gap-2">
-          <button
-            onClick={() => finish(true)}
-            className="flex items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
-            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
-          >
-            <Check className="h-4 w-4" /> Yes, finished
-          </button>
-          <p className="text-center text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-            Not yet — how much more?
-          </p>
-          <div className="grid grid-cols-4 gap-1.5">
-            {[5, 10, 15, 20].map((m) => (
+        {finishStep === "ask" ? (
+          <>
+            <p className="text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
+              {progress.done ? "Time&apos;s up — did you finish?" : "Ending early — did you finish?"}
+            </p>
+            {discipline.streak > 0 && (
+              <p className="mt-1.5 text-center text-[11px] font-medium" style={{ color: "var(--color-warmth)" }}>
+                Finishing keeps your {discipline.streak}-session focus streak — quitting breaks it.
+              </p>
+            )}
+            <div className="mt-4 flex flex-col gap-2">
               <button
-                key={m}
-                onClick={() => { setAskFinish(false); setDonePromptedAt(0); extendSession(m); }}
-                className="rounded-full border py-2.5 text-sm font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 44 }}
+                onClick={() => finish(true)}
+                className="flex items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
               >
-                +{m}m
+                <Check className="h-4 w-4" /> Yes, I finished
               </button>
-            ))}
-          </div>
-          {!progress.done && (
-            <div className="mt-1 flex flex-col gap-1.5">
               <button
-                onClick={() => { setAskFinish(false); pauseSession(); setOverlayOpen(false); }}
-                className="rounded-full border py-2.5 text-[12px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                onClick={() => setFinishStep("more")}
+                className="flex items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 48 }}
+              >
+                No, I didn&apos;t
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
+              How much more do you need?
+            </p>
+            <div className="mt-4 grid grid-cols-4 gap-1.5">
+              {[5, 10, 15, 20].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => { setAskFinish(false); setFinishStep("ask"); setDonePromptedAt(0); extendSession(m); }}
+                  className="rounded-full border py-2.5 text-sm font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 44 }}
+                >
+                  +{m}m
+                </button>
+              ))}
+            </div>
+            {!progress.done && (
+              <button
+                onClick={() => { setAskFinish(false); setFinishStep("ask"); pauseSession(); setOverlayOpen(false); }}
+                className="mt-3 w-full rounded-full border py-2.5 text-[12px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 40 }}
               >
                 Pause for later — keep my streak
               </button>
-              <div className="flex justify-center gap-1.5" role="group" aria-label="What pulled you away?">
-                {["Phone", "Tired", "Bored", "Life"].map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => setEndReason(endReason === r ? null : r)}
-                    className="rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors"
-                    style={{
-                      borderColor: endReason === r ? "var(--color-warmth)" : "var(--color-paper-3)",
-                      color: endReason === r ? "var(--color-warmth)" : "var(--color-ink-muted)",
-                      backgroundColor: endReason === r ? "color-mix(in oklab, var(--color-warmth) 10%, transparent)" : "transparent",
-                      minHeight: 28,
-                    }}
-                    aria-pressed={endReason === r}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-              <button
-                onClick={() => finish(false, endReason)}
-                className="text-center text-[11px] font-medium transition-opacity hover:opacity-70"
-                style={{ color: "var(--color-ink-muted)" }}
-              >
-                End anyway — I didn&apos;t finish
-              </button>
+            )}
+            <div className="mt-3 flex justify-center gap-1.5" role="group" aria-label="What pulled you away?">
+              {["Phone", "Tired", "Bored", "Life"].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setEndReason(endReason === r ? null : r)}
+                  className="rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors"
+                  style={{
+                    borderColor: endReason === r ? "var(--color-warmth)" : "var(--color-paper-3)",
+                    color: endReason === r ? "var(--color-warmth)" : "var(--color-ink-muted)",
+                    backgroundColor: endReason === r ? "color-mix(in oklab, var(--color-warmth) 10%, transparent)" : "transparent",
+                    minHeight: 28,
+                  }}
+                  aria-pressed={endReason === r}
+                >
+                  {r}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
+            <button
+              onClick={() => finish(false, endReason)}
+              className="mt-3 w-full text-center text-[11px] font-medium transition-opacity hover:opacity-70"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              End anyway — I didn&apos;t finish
+            </button>
+            <button
+              onClick={() => setFinishStep("ask")}
+              className="mt-1 w-full text-center text-[11px] transition-opacity hover:opacity-70"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              ← Back
+            </button>
+          </>
+        )}
       </div>
     </div>
   ) : null;
@@ -526,7 +574,7 @@ export default function StudySession() {
             </span>
           </button>
           <button
-            onClick={() => setAskFinish(true)}
+            onClick={() => { setAskFinish(true); setFinishStep("ask"); }}
             className="rounded-r-full p-2.5 pr-3.5 opacity-70 transition-opacity hover:opacity-100"
             style={{ color: "var(--color-paper)", minHeight: 44 }}
             aria-label="End session"
@@ -716,11 +764,65 @@ export default function StudySession() {
           </div>
         )}
 
+        {/* Soundscape pill — pick focus audio without leaving the session */}
+        {!progress.done && (
+          <div className="mb-3 flex flex-col items-center">
+            <button
+              onClick={() => setSoundsOpen((v) => !v)}
+              className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: soundscape.active ? "var(--color-accent)" : "var(--color-ink-muted)", minHeight: 32 }}
+              aria-expanded={soundsOpen}
+              aria-label="Choose a focus sound"
+            >
+              {soundscape.active ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+              {soundscape.active ? SOUNDSCAPES.find((s) => s.id === soundscape.active)?.label ?? "Sound" : "Sounds"}
+              {soundscape.paused ? " · paused" : ""}
+            </button>
+            {soundsOpen && (
+              <div className="mt-2 w-full rounded-xl border p-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <div className="grid max-h-40 grid-cols-3 gap-1.5 overflow-y-auto">
+                  {SOUNDSCAPES.map((s) => {
+                    const on = soundscape.active === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => (on ? soundscape.stop() : soundscape.start(s.id))}
+                        className="rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors"
+                        style={{
+                          borderColor: on ? "var(--color-accent)" : "var(--color-paper-3)",
+                          backgroundColor: on ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "var(--color-paper)",
+                          color: on ? "var(--color-accent)" : "var(--color-ink)",
+                          minHeight: 34,
+                        }}
+                        aria-pressed={on}
+                      >
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <VolumeX className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                  <input
+                    type="range" min={0} max={1} step={0.01}
+                    value={soundscape.volume}
+                    onChange={(e) => soundscape.setVolume(Number(e.target.value))}
+                    className="h-1 flex-1 cursor-pointer appearance-none rounded-full"
+                    style={{ accentColor: "var(--color-accent)", backgroundColor: "var(--color-paper-3)" }}
+                    aria-label="Soundscape volume"
+                  />
+                  <Volume2 className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Footer — pause/resume beside end-session */}
         <div className="flex gap-2">
           {progress.done ? (
             <button
-              onClick={() => setAskFinish(true)}
+              onClick={() => { setAskFinish(true); setFinishStep("ask"); }}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
             >
@@ -738,7 +840,7 @@ export default function StudySession() {
                 {paused ? "Resume" : "Pause"}
               </button>
               <button
-                onClick={() => setAskFinish(true)}
+                onClick={() => { setAskFinish(true); setFinishStep("ask"); }}
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 48 }}
               >
@@ -768,21 +870,41 @@ function IntakeSheet() {
     setEsts(assignments?.map((a) => a.estimatedMinutes) ?? []);
   }
   const [method, setMethod] = useState<StudyMethod>("auto");
+  // Manual order — touched when the user moves a row; sent as `ordered` so
+  // Vox respects their arrangement instead of sorting hardest-first.
+  const [order, setOrder] = useState<number[] | null>(null);
+  if (assignments !== prev) setOrder(null);
 
   if (state.status !== "intake") return null;
 
   const discipline = getDiscipline();
   const startedLate = !!state.originalMinutes && state.minutes < state.originalMinutes;
 
+  // Display order — manual arrangement wins over the original list order.
+  const idx = order ?? state.assignments.map((_, i) => i);
+
   const bump = (i: number, delta: number) => {
     setEsts((prev) => prev.map((v, j) => j === i ? Math.min(180, Math.max(5, (v ?? 20) + delta)) : v));
   };
 
-  const METHODS: { id: StudyMethod; label: string; hint: string }[] = [
-    { id: "auto",     label: "Vox decides", hint: "balanced" },
-    { id: "pomodoro", label: "Pomodoro",    hint: "25·5" },
-    { id: "deep",     label: "Deep work",   hint: "long stretches" },
-    { id: "review",   label: "Quick review",hint: "short sprints" },
+  const move = (pos: number, dir: -1 | 1) => {
+    const arr = [...idx];
+    const j = pos + dir;
+    if (j < 0 || j >= arr.length) return;
+    [arr[pos], arr[j]] = [arr[j], arr[pos]];
+    setOrder(arr);
+  };
+
+  // Evidence-based, genuinely different rhythms — not four flavors of the
+  // same timer.
+  const METHODS: { id: StudyMethod; label: string; hint: string; best: string }[] = [
+    { id: "auto",       label: "Vox decides",  hint: "mixed pacing",   best: "balanced mix of work" },
+    { id: "pomodoro",   label: "Pomodoro",     hint: "25·5, +15 every 3rd", best: "starting is the hard part" },
+    { id: "sprint",     label: "Sprints",      hint: "12·3 rapid fire", best: "drilling, flashcards, review" },
+    { id: "deep",       label: "Deep work",    hint: "50·10 long stretches", best: "heavy reading & problem sets" },
+    { id: "ultradian",  label: "Ultradian",    hint: "90·20 single blocks", best: "one big piece of work" },
+    { id: "interleave", label: "Interleaved",  hint: "rotate ~20 min",  best: "several subjects at once" },
+    { id: "flowtime",   label: "Flowtime",     hint: "work till you fade", best: "when you're already in flow" },
   ];
 
   return (
@@ -813,23 +935,37 @@ function IntakeSheet() {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>How long does each need?</p>
+          <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+            Hardest runs first — use the arrows to reorder, or leave the time at — to skip it.
+          </p>
           <ul className="mt-2 flex flex-col gap-1.5">
-            {state.assignments.map((a, i) => (
-              <li key={i} className="flex items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-                <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>{a.title}</span>
-                <div className="flex shrink-0 items-center gap-1">
-                  <button onClick={() => bump(i, -5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`Less time for ${a.title}`}>
-                    <Minus className="h-3.5 w-3.5" />
-                  </button>
-                  <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
-                    {ests[i] ? `${ests[i]}m` : "—"}
-                  </span>
-                  <button onClick={() => bump(i, 5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`More time for ${a.title}`}>
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </li>
-            ))}
+            {idx.map((i, pos) => {
+              const a = state.assignments[i];
+              return (
+                <li key={i} className="flex items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                  <div className="flex shrink-0 flex-col">
+                    <button onClick={() => move(pos, -1)} disabled={pos === 0} className="flex h-4 w-5 items-center justify-center rounded transition-colors hover:bg-[var(--color-paper-3)] disabled:opacity-30" style={{ color: "var(--color-ink-muted)" }} aria-label={`Move ${a.title} up`}>
+                      <ChevronUp className="h-3 w-3" />
+                    </button>
+                    <button onClick={() => move(pos, 1)} disabled={pos === idx.length - 1} className="flex h-4 w-5 items-center justify-center rounded transition-colors hover:bg-[var(--color-paper-3)] disabled:opacity-30" style={{ color: "var(--color-ink-muted)" }} aria-label={`Move ${a.title} down`}>
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>{a.title}</span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button onClick={() => bump(i, -5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`Less time for ${a.title}`}>
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                      {ests[i] ? `${ests[i]}m` : "—"}
+                    </span>
+                    <button onClick={() => bump(i, 5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`More time for ${a.title}`}>
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
 
           {/* Sprint — skip planning, one focused burst. Research: 10–20 min
@@ -839,7 +975,7 @@ function IntakeSheet() {
             {[10, 15, 20].map((m) => (
               <button
                 key={m}
-                onClick={() => startSprint(m, state.assignments[0]?.title ?? "Focus sprint", state.blockId)}
+                onClick={() => startSprint(m, state.assignments[idx[0]]?.title ?? "Focus sprint", state.blockId)}
                 className="flex items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 44 }}
               >
@@ -863,7 +999,8 @@ function IntakeSheet() {
                 aria-pressed={method === m.id}
               >
                 <span className="block text-sm font-medium" style={{ color: method === m.id ? "var(--color-accent)" : "var(--color-ink)" }}>{m.label}</span>
-                <span className="block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{m.hint}</span>
+                <span className="block text-[11px] font-medium" style={{ color: method === m.id ? "var(--color-accent)" : "var(--color-ink-muted)" }}>{m.hint}</span>
+                <span className="block text-[10px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>{m.best}</span>
               </button>
             ))}
           </div>
@@ -872,7 +1009,17 @@ function IntakeSheet() {
         <div className="border-t px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]" style={{ borderColor: "var(--color-paper-3)" }}>
           <button
             onClick={() => void planSession(
-              { minutes: state.minutes, method, assignments: state.assignments.map((a, i) => ({ title: a.title, estimatedMinutes: ests[i] })) },
+              {
+                minutes: state.minutes,
+                originalMinutes: state.originalMinutes,
+                method,
+                ordered: order !== null,
+                // No time set → the user didn't commit to it — skip it in the
+                // plan rather than inventing a chunk for it.
+                assignments: idx
+                  .map((i) => ({ title: state.assignments[i].title, estimatedMinutes: ests[i] }))
+                  .filter((a) => a.estimatedMinutes !== null),
+              },
               state.blockId,
             )}
             className="flex w-full items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"

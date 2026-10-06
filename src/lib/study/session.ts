@@ -19,15 +19,21 @@ export interface SessionPlanInput {
   originalMinutes?: number;
   assignments: { title: string; estimatedMinutes?: number | null }[];
   method?: StudyMethod;
+  /** User manually arranged the assignment order — keep it instead of
+   *  sorting hardest-first. */
+  ordered?: boolean;
 }
 
-export type StudyMethod = "auto" | "pomodoro" | "deep" | "review";
+export type StudyMethod = "auto" | "pomodoro" | "sprint" | "deep" | "ultradian" | "interleave" | "flowtime";
 
 export type SessionState =
   | { status: "idle" }
   | { status: "intake"; minutes: number; originalMinutes?: number; assignments: { title: string; estimatedMinutes: number | null }[]; blockId?: string }
   | { status: "planning" }
-  | { status: "planned"; segments: StudySegment[]; titles: string[]; blockId?: string }
+  | { status: "planned"; segments: StudySegment[]; titles: string[]; blockId?: string;
+      /** What was asked for — kept so the preview can re-plan or go back to
+       *  intake with the same inputs. */
+      planInput: SessionPlanInput }
   | { status: "running"; segments: StudySegment[]; titles: string[]; startedAt: number; overlayOpen: boolean; blockId?: string;
       /** Wall-clock pause support — elapsed time excludes paused periods. */
       pausedAt: number | null; pausedMs: number };
@@ -110,6 +116,7 @@ export async function planSession(input: SessionPlanInput, blockId?: string) {
         segments: segments.filter((s) => (s.kind === "study" || s.kind === "break") && s.minutes > 0),
         titles: input.assignments.map((a) => a.title),
         blockId,
+        planInput: input,
       };
     } else {
       state = { status: "idle" };
@@ -277,9 +284,10 @@ export function endBreakEarly() {
   emit();
 }
 
-/** "I've lost interest" — end this segment now, jump straight to the next
- *  subject, and move the leftover minutes to the end as a finish-up task.
- *  Task switching beats grinding on something your attention has left. */
+/** "I've lost interest" — jump straight to the next STUDY segment (skipping
+ *  any queued break — switching means you want to work, not rest) and park
+ *  the leftover minutes right after it so the skipped work comes back
+ *  promptly instead of getting buried at the end of the plan. */
 export function switchFocus() {
   if (state.status !== "running" || state.pausedAt) return;
   const elapsedSec = runningElapsedSec();
@@ -291,8 +299,17 @@ export function switchFocus() {
   const leftMin = p.segment.minutes - usedMin;
   const next: StudySegment[] = segs.slice(0, p.index);
   if (usedMin > 0.1) next.push({ ...p.segment, minutes: usedMin });
-  next.push(...segs.slice(p.index + 1));
-  if (leftMin > 0.5) next.push({ ...p.segment, minutes: leftMin, label: `${p.segment.label} (finish)` });
+
+  const rest = segs.slice(p.index + 1);
+  const nextStudyIdx = rest.findIndex((s) => s.kind === "study");
+  // Pull the next study segment forward so the switch lands on work.
+  const after = nextStudyIdx === -1 ? rest : [rest[nextStudyIdx], ...rest.filter((_, i) => i !== nextStudyIdx)];
+  if (leftMin > 0.5) {
+    // Re-queue the abandoned remainder directly after that next block —
+    // the work returns soon, not at the end of the session.
+    after.splice(nextStudyIdx === -1 ? after.length : 1, 0, { ...p.segment, minutes: leftMin, label: `${p.segment.label} (finish)` });
+  }
+  next.push(...after);
   state = { ...state, segments: next };
   emit();
 }

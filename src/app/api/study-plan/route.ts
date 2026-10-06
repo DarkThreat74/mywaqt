@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  let body: { minutes?: number; method?: string; assignments?: { title?: string; estimatedMinutes?: number | null }[] };
+  let body: { minutes?: number; method?: string; ordered?: boolean; assignments?: { title?: string; estimatedMinutes?: number | null }[] };
   try {
     body = await request.json();
   } catch {
@@ -40,22 +40,31 @@ export async function POST(request: NextRequest) {
       estimatedMinutes: typeof a.estimatedMinutes === "number" ? Math.min(480, Math.max(0, a.estimatedMinutes)) : null,
     }));
   if (assignments.length === 0) assignments.push({ title: "Study", estimatedMinutes: null });
+  // Hardest first while focus is fresh — unless the user manually ordered the
+  // list, in which case their arrangement is intentional and stays.
+  if (body.ordered !== true) {
+    assignments.sort((a, b) => (b.estimatedMinutes ?? 15) - (a.estimatedMinutes ?? 15));
+  }
 
-  const method = (["pomodoro", "deep", "review"] as const).includes(body.method as "pomodoro" | "deep" | "review")
+  const METHODS = ["pomodoro", "sprint", "deep", "ultradian", "interleave", "flowtime"] as const;
+  const method = (METHODS as readonly string[]).includes(body.method ?? "")
     ? (body.method as Method)
     : "auto";
 
-  const segments = await planWithVox(minutes, assignments, method) ?? fallbackPlan(minutes, assignments, method);
+  const segments = await planWithVox(minutes, assignments, method, body.ordered === true) ?? fallbackPlan(minutes, assignments, method);
   return NextResponse.json({ segments });
 }
 
-type Method = "auto" | "pomodoro" | "deep" | "review";
+type Method = "auto" | "pomodoro" | "sprint" | "deep" | "ultradian" | "interleave" | "flowtime";
 
 const METHOD_HINTS: Record<Method, string> = {
-  auto: "Alternate focused study segments (10–35 min, longest for heavy/deep subjects, shorter for review or drilling) with short breaks (5–10 min).",
-  pomodoro: "Pomodoro style — study segments of about 25 min separated by 5 min breaks; a 15 min break after every third or fourth study segment. Keep to this rhythm but you may merge an assignment into a double pomodoro when its estimate demands it.",
-  deep: "Deep work — long uninterrupted study stretches (35–60 min, longest for heavy/deep subjects) separated by longer breaks (10–15 min). Fewer, bigger segments.",
-  review: "Quick review — short sprints (10–20 min) separated by tiny breaks (3–5 min). Fast rotation between subjects, good for drilling and revision.",
+  auto: "Balanced — focused study segments (10–35 min, longest for heavy subjects, shorter for review) with short breaks (5–10 min).",
+  pomodoro: "Pomodoro (systematic long breaks) — ~25 min work, ~5 min rest, a 15 min break after every third study segment. The most-studied rhythm: systematic breaks lower fatigue and raise motivation vs self-paced breaks (Biwer et al. 2023).",
+  sprint: "Sprint (systematic short breaks) — ~12 min work, ~3 min rest. For drilling, flashcards and revision — short blocks cut task-switching cost and keep energy high.",
+  deep: "Deep work — long uninterrupted stretches (35–60 min) with 10–15 min breaks. For heavy reading, problem sets, writing — the work that needs sustained attention.",
+  ultradian: "Ultradian — a single ~90 min deep block per subject matching the brain's basic rest-activity cycle, with 20 min breaks. Best for one big piece of work.",
+  interleave: "Interleaving — rotate subjects every ~20 min instead of finishing each in one go. Mixed practice strengthens discrimination and memory vs blocked study, especially for problem-solving subjects.",
+  flowtime: "Flowtime — work until focus fades instead of by the clock. Plan generous ~15 min breaks between big chunks; the student takes them when needed.",
 };
 
 // ─── Vox (OpenRouter) ───
@@ -64,6 +73,7 @@ async function planWithVox(
   minutes: number,
   assignments: { title: string; estimatedMinutes: number | null }[],
   method: Method,
+  ordered: boolean,
 ): Promise<Segment[] | null> {
   if (!env.openrouterApiKey) return null;
 
@@ -88,7 +98,9 @@ async function planWithVox(
               "You are Vox, a study-session planner inside a Muslim prayer app. " +
               "Given a fixed number of minutes and a list of assignments, output a segmented study plan. " +
               `Method: ${METHOD_HINTS[method]} ` +
-              "Start with the most demanding subject while focus is fresh. " +
+              (ordered
+                ? "The assignment order below is deliberate — the student arranged it themselves; respect it exactly. "
+                : "Start with the most demanding subject while focus is fresh. ") +
               "The sum of all segment minutes must exactly equal the total minutes given. " +
               "If an assignment has an estimate, prefer a segment near that size — the estimate is what the student believes the work takes. " +
               "Labels must be short imperative phrases naming the subject (e.g. 'Chem lab — outline the procedure'). " +
@@ -138,10 +150,13 @@ function fallbackPlan(
   // Method shapes the default chunk + break lengths; a smaller estimate
   // always wins when it fits inside what's left.
   const shape = {
-    auto:     { study: 25, breakLen: 5,  maxStudy: 35 },
-    pomodoro: { study: 25, breakLen: 5,  maxStudy: 30 },
-    deep:     { study: 50, breakLen: 10, maxStudy: 60 },
-    review:   { study: 15, breakLen: 3,  maxStudy: 20 },
+    auto:       { study: 25, breakLen: 5,  maxStudy: 35 },
+    pomodoro:   { study: 25, breakLen: 5,  maxStudy: 30 },
+    sprint:     { study: 12, breakLen: 3,  maxStudy: 15 },
+    deep:       { study: 50, breakLen: 10, maxStudy: 60 },
+    ultradian:  { study: 90, breakLen: 20, maxStudy: 120 },
+    interleave: { study: 20, breakLen: 5,  maxStudy: 25 },
+    flowtime:   { study: 60, breakLen: 15, maxStudy: 90 },
   }[method];
 
   const segments: Segment[] = [];
