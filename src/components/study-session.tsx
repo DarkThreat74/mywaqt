@@ -15,9 +15,10 @@ import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
 import { Check, ChevronDown, ChevronUp, Coffee, ListMusic, Minus, Pause, Play, Plus, RefreshCw, Shuffle, Square, Volume2, VolumeX, X, Zap } from "lucide-react";
 import VoxIcon from "@/components/vox-icon";
-import { useRouter } from "next/navigation";
 import { useSoundscape, SOUNDSCAPES } from "@/components/soundscape-context";
 import { useAudioPlayer } from "@/components/audio-player-context";
+import { SoundscapePanel } from "@/components/soundscape-indicator";
+import type { PlayerTrack } from "@/components/advanced-audio-player";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
@@ -107,9 +108,31 @@ export default function StudySession() {
   // Soundscape picker inside the running overlay — pick focus audio without
   // leaving the session.
   const [soundsOpen, setSoundsOpen] = useState(false);
+  const [talksOpen, setTalksOpen] = useState(false);
+  const [openFolder, setOpenFolder] = useState<string | null | undefined>(undefined);
+  const [talksData, setTalksData] = useState<{ folders: { id: string; name: string }[]; tracks: PlayerTrack[] } | null>(null);
   const soundscape = useSoundscape();
   const talksPlayer = useAudioPlayer();
-  const router = useRouter();
+
+  // Lazy-load the talks library only when the in-session talks popover opens.
+  useEffect(() => {
+    if (!talksOpen || talksData) return;
+    let cancelled = false;
+    fetch("/api/talks")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        const nameOf = (id: string | null) => d.folders.find((f: { id: string; name: string }) => f.id === id)?.name ?? null;
+        setTalksData({
+          folders: d.folders,
+          tracks: (d.talks as { id: string; title: string; speaker: string | null; description: string | null; streamUrl: string | null; externalUrl: string | null; fileSize: number | null; duration: number | null; folderId: string | null }[])
+            .filter((t) => t.streamUrl)
+            .map((t) => ({ ...t, folderName: nameOf(t.folderId), folderImageUrl: null })),
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [talksOpen, talksData]);
   // Post-session recap — populated by finish(), survives endSession() going
   // idle. Cleared when a new session starts running.
   const [summary, setSummary] = useState<{
@@ -739,70 +762,112 @@ export default function StudySession() {
           </div>
         )}
 
-        {/* Audio pills — focus soundscape + talks, without leaving the session */}
+        {/* Audio pills — popover panels anchored above the pill row, same
+            pattern as the floating dock */}
         {!progress.done && (
-          <div className="mb-3 flex flex-col items-center">
+          <div className="relative mb-3 flex flex-col items-center">
             <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSoundsOpen((v) => !v)}
-              className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ borderColor: "var(--color-paper-3)", color: soundscape.active ? "var(--color-accent)" : "var(--color-ink-muted)", minHeight: 32 }}
-              aria-expanded={soundsOpen}
-              aria-label="Choose a focus sound"
-            >
-              {soundscape.active ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-              {soundscape.active ? SOUNDSCAPES.find((s) => s.id === soundscape.active)?.label ?? "Sound" : "Sounds"}
-              {soundscape.paused ? " · paused" : ""}
-            </button>
-            {/* Talks pill — opens the half-screen player sheet (or /talks if nothing loaded) */}
-            <button
-              onClick={() => {
-                if (talksPlayer.currentTrack) talksPlayer.setView("sheet");
-                else router.push("/talks");
-              }}
-              className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ borderColor: "var(--color-paper-3)", color: talksPlayer.currentTrack ? "var(--color-accent)" : "var(--color-ink-muted)", minHeight: 32 }}
-              aria-label={talksPlayer.currentTrack ? `Open talks player — ${talksPlayer.currentTrack.title}` : "Open talks"}
-            >
-              <ListMusic className="h-3.5 w-3.5" />
-              {talksPlayer.currentTrack ? talksPlayer.currentTrack.title.slice(0, 18) + (talksPlayer.currentTrack.title.length > 18 ? "…" : "") : "Talks"}
-            </button>
+              <button
+                onClick={() => { setSoundsOpen((v) => !v); setTalksOpen(false); }}
+                className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: soundsOpen ? "var(--color-accent)" : "var(--color-paper-3)", color: soundscape.active ? "var(--color-accent)" : "var(--color-ink-muted)", minHeight: 32 }}
+                aria-expanded={soundsOpen}
+                aria-label="Choose a focus sound"
+              >
+                {soundscape.active ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                {soundscape.active ? SOUNDSCAPES.find((s) => s.id === soundscape.active)?.label ?? "Sound" : "Sounds"}
+                {soundscape.paused ? " · paused" : ""}
+              </button>
+              {/* Talks — a loaded track opens the half-screen sheet (renders
+                  above this overlay); nothing loaded opens the in-overlay
+                  browser so you can start a talk mid-session. */}
+              <button
+                onClick={() => {
+                  if (talksPlayer.currentTrack) talksPlayer.setView("sheet");
+                  else { setTalksOpen((v) => !v); setSoundsOpen(false); }
+                }}
+                className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: talksOpen ? "var(--color-accent)" : "var(--color-paper-3)", color: talksPlayer.currentTrack ? "var(--color-accent)" : "var(--color-ink-muted)", minHeight: 32 }}
+                aria-label={talksPlayer.currentTrack ? `Open talks player — ${talksPlayer.currentTrack.title}` : "Browse talks"}
+                aria-expanded={!talksPlayer.currentTrack ? talksOpen : undefined}
+              >
+                <ListMusic className="h-3.5 w-3.5" />
+                {talksPlayer.currentTrack ? talksPlayer.currentTrack.title.slice(0, 18) + (talksPlayer.currentTrack.title.length > 18 ? "…" : "") : "Talks"}
+              </button>
             </div>
+
             {soundsOpen && (
-              <div className="mt-2 w-full rounded-xl border p-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-                <div className="grid max-h-40 grid-cols-3 gap-1.5 overflow-y-auto">
-                  {SOUNDSCAPES.map((s) => {
-                    const on = soundscape.active === s.id;
-                    return (
-                      <button
-                        key={s.id}
-                        onClick={() => (on ? soundscape.stop() : soundscape.start(s.id))}
-                        className="rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors"
-                        style={{
-                          borderColor: on ? "var(--color-accent)" : "var(--color-paper-3)",
-                          backgroundColor: on ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "var(--color-paper)",
-                          color: on ? "var(--color-accent)" : "var(--color-ink)",
-                          minHeight: 34,
-                        }}
-                        aria-pressed={on}
-                      >
-                        {s.label}
-                      </button>
-                    );
-                  })}
+              <div
+                className="absolute bottom-full left-1/2 mb-2 w-[min(19rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border p-3 shadow-lg backdrop-blur-md"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 96%, transparent)" }}
+              >
+                <SoundscapePanel onCollapse={() => setSoundsOpen(false)} />
+              </div>
+            )}
+
+            {talksOpen && !talksPlayer.currentTrack && (
+              <div
+                className="absolute bottom-full left-1/2 mb-2 w-[min(19rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border p-3 shadow-lg backdrop-blur-md"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 96%, transparent)" }}
+                role="dialog"
+                aria-label="Browse talks"
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Play a talk</p>
+                  <button
+                    onClick={() => setTalksOpen(false)}
+                    className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ color: "var(--color-ink-muted)", minHeight: 28, minWidth: 28 }}
+                    aria-label="Close talks browser"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <VolumeX className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
-                  <input
-                    type="range" min={0} max={1} step={0.01}
-                    value={soundscape.volume}
-                    onChange={(e) => soundscape.setVolume(Number(e.target.value))}
-                    className="h-1 flex-1 cursor-pointer appearance-none rounded-full"
-                    style={{ accentColor: "var(--color-accent)", backgroundColor: "var(--color-paper-3)" }}
-                    aria-label="Soundscape volume"
-                  />
-                  <Volume2 className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
-                </div>
+                {!talksData ? (
+                  <p className="py-4 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>
+                ) : (
+                  <div className="max-h-64 space-y-0.5 overflow-y-auto">
+                    {(() => {
+                      const groups = [
+                        ...talksData.folders.map((f) => ({ id: f.id as string | null, name: f.name, tracks: talksData.tracks.filter((t) => t.folderId === f.id) })),
+                        { id: null, name: "More talks", tracks: talksData.tracks.filter((t) => t.folderId === null) },
+                      ].filter((g) => g.tracks.length > 0);
+                      if (groups.length === 0) return <p className="py-3 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>No talks yet.</p>;
+                      return groups.map((g) => {
+                        const open = openFolder === g.id;
+                        return (
+                          <div key={g.id ?? "uncategorized"}>
+                            <button
+                              onClick={() => setOpenFolder(open ? undefined : g.id)}
+                              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+                              aria-expanded={open}
+                            >
+                              <ListMusic className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warmth)" }} />
+                              <span className="min-w-0 flex-1 truncate text-xs font-medium" style={{ color: "var(--color-ink)" }}>{g.name}</span>
+                              <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{g.tracks.length}</span>
+                              {open ? <ChevronDown className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} /> : <ChevronUp className="h-3 w-3 shrink-0 rotate-90" style={{ color: "var(--color-ink-muted)" }} />}
+                            </button>
+                            {open && (
+                              <div className="ml-6 mt-0.5 space-y-0.5 border-l pl-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                                {g.tracks.map((t) => (
+                                  <button
+                                    key={t.id}
+                                    onClick={() => { talksPlayer.play(t, g.tracks); setTalksOpen(false); }}
+                                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+                                  >
+                                    <Play className="h-3 w-3 shrink-0" style={{ color: "var(--color-accent)" }} />
+                                    <span className="min-w-0 flex-1 truncate text-xs" style={{ color: "var(--color-ink)" }}>{t.title}</span>
+                                    <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{t.duration ? `${Math.round(t.duration / 60)}m` : ""}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
               </div>
             )}
           </div>
