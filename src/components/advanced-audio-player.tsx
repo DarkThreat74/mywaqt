@@ -902,7 +902,7 @@ export default function AdvancedAudioPlayer({
       <audio
         key={track.id}
         ref={audioRef}
-        src={track.streamUrl || undefined}
+        src={track.streamUrl ? `${track.streamUrl}&proxy=1` : undefined}
         preload="auto"
         playsInline
         {...{ "x-webkit-airplay": "allow" }}

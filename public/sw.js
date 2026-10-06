@@ -1013,10 +1013,15 @@ self.addEventListener("fetch", (event) => {
           return audioRangeResponse(request, exactMatch);
         }
 
-        // Match the stable R2 object path when the presigned query string rotates.
+        // Match the stable object identity when the URL shape differs — but
+        // for /api/talks?stream= the stream param IS the identity; pathname
+        // alone would serve whichever talk happens to be cached.
+        const streamParam = url.pathname === "/api/talks" ? url.searchParams.get("stream") : null;
         const matchingKey = (await audioCache.keys()).find((key) => {
           const keyUrl = new URL(key.url);
-          return keyUrl.origin === url.origin && keyUrl.pathname === url.pathname;
+          if (keyUrl.origin !== url.origin || keyUrl.pathname !== url.pathname) return false;
+          if (streamParam !== null) return keyUrl.searchParams.get("stream") === streamParam;
+          return true;
         });
         if (matchingKey) {
           const cached = await audioCache.match(matchingKey, { ignoreVary: true });
