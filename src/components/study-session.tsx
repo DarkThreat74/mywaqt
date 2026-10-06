@@ -86,6 +86,12 @@ function fmtClock(sec: number) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+// "75m" reads badly past an hour — "1h 15m" is glanceable.
+function fmtDur(min: number) {
+  if (min < 60) return `${min}m`;
+  return `${Math.floor(min / 60)}h ${Math.round(min % 60)}m`;
+}
+
 export default function StudySession() {
   const state = useSyncExternalStore(subscribeSession, getSession, () => ({ status: "idle" }) as ReturnType<typeof getSession>);
   const [now, setNow] = useState(() => Date.now());
@@ -286,7 +292,7 @@ export default function StudySession() {
       // the web can't tick while fully closed, so this covers minimize/tab-away.
       if (typeof document !== "undefined" && document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
         const title = progress.segment.kind === "break" ? "Break — books down" : "Back to studying";
-        const body = `${progress.segment.minutes}m · ${progress.segment.label}`;
+        const body = `${fmtDur(progress.segment.minutes)} · ${progress.segment.label}`;
         navigator.serviceWorker?.ready
           .then((r) => r.showNotification(title, { body, tag: "waqt-study", data: { url: "/calendar/day" } }))
           .catch(() => { try { new Notification(title, { body, tag: "waqt-study" }); } catch { /* ignore */ } });
@@ -445,7 +451,7 @@ export default function StudySession() {
             {[
               { v: `${summary.segsDone}/${summary.segsTotal}`, l: "segments" },
               { v: `${summary.breaks}`, l: summary.breaks === 1 ? "break" : "breaks" },
-              { v: `${summary.totalMin}m`, l: "elapsed" },
+              { v: fmtDur(summary.totalMin), l: "elapsed" },
             ].map((s) => (
               <div key={s.l} className="rounded-lg border px-2 py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
                 <p className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{s.v}</p>
@@ -502,7 +508,7 @@ export default function StudySession() {
             <div>
               <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
                 <VoxIcon size={16} />
-                Vox&apos;s plan · {total} min
+                Vox&apos;s plan · {fmtDur(total)}
               </p>
               <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
                 Hardest work first while you&apos;re fresh — I&apos;ve paced the rest.
@@ -530,7 +536,7 @@ export default function StudySession() {
                     aria-hidden
                   />
                   <span className="w-9 shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: s.kind === "break" ? "var(--color-success)" : "var(--color-accent)" }}>
-                    {Math.round(s.minutes)}m
+                    {fmtDur(Math.round(s.minutes))}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm" style={{ color: s.kind === "break" ? "var(--color-ink-muted)" : "var(--color-ink)" }}>
                     {s.label}
@@ -782,8 +788,9 @@ export default function StudySession() {
 
         {/* Salah banner — the open prayer window still waiting on you */}
         {salah && salahLeftMin !== null && (
-          <div
-            className="mt-3 flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold"
+          <button
+            onClick={() => { setLied(false); setConfirmPrayer(salah.name); }}
+            className="mt-3 flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
             style={{
               borderColor: salahLeftMin <= 30 ? "color-mix(in oklab, var(--color-warmth) 45%, transparent)" : "var(--color-paper-3)",
               backgroundColor: salahLeftMin <= 30 ? "color-mix(in oklab, var(--color-warmth) 8%, transparent)" : "transparent",
@@ -792,8 +799,8 @@ export default function StudySession() {
             role="status"
             aria-live="polite"
           >
-            {PRAYER_LABEL[salah.name] ?? salah.name} ends in {salahLeftMin}m — not marked prayed yet
-          </div>
+            {PRAYER_LABEL[salah.name] ?? salah.name} ends in {fmtDur(salahLeftMin)} — prayed? Tap to mark
+          </button>
         )}
 
         {/* Current segment — the clock sits inside a progress ring */}
@@ -826,7 +833,7 @@ export default function StudySession() {
                 {fmtClock(progress.remainingSec)}
               </p>
               <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-muted)" }}>
-                {progress.done ? "done" : `${Math.round(seg.minutes)}m ${isBreak ? "break" : "block"}`}
+                {progress.done ? "done" : `${fmtDur(Math.round(seg.minutes))} ${isBreak ? "break" : "block"}`}
               </p>
             </div>
           </div>
@@ -867,7 +874,7 @@ export default function StudySession() {
               another block feel like growth, not just elapsed time. */}
           {todayMin > 0 && (
             <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
-              Today: {todayMin >= 60 ? `${Math.floor(todayMin / 60)}h ${Math.round(todayMin % 60)}m` : `${Math.round(todayMin)}m`} focused
+              Today: {fmtDur(Math.round(todayMin))} focused
             </p>
           )}
 
@@ -894,7 +901,7 @@ export default function StudySession() {
         {/* Up next */}
         {next && !progress.done && (
           <p className="mb-3 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            Next: {Math.round(next.minutes)}m {next.kind === "break" ? "break" : next.label}
+            Next: {fmtDur(Math.round(next.minutes))} {next.kind === "break" ? "break" : next.label}
           </p>
         )}
 
@@ -1063,7 +1070,7 @@ export default function StudySession() {
                                   >
                                     <Play className="h-3 w-3 shrink-0" style={{ color: "var(--color-accent)" }} />
                                     <span className="min-w-0 flex-1 truncate text-xs" style={{ color: "var(--color-ink)" }}>{t.title}</span>
-                                    <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{t.duration ? `${Math.round(t.duration / 60)}m` : ""}</span>
+                                    <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{t.duration ? fmtDur(Math.round(t.duration / 60)) : ""}</span>
                                   </button>
                                 ))}
                               </div>
@@ -1181,8 +1188,8 @@ function IntakeSheet() {
             </p>
             <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
               {startedLate
-                ? `Running late — ${state.minutes} of ${state.originalMinutes} min left. I'll make it count.`
-                : `I'll fit your work into ${state.minutes} min — help me get it right.`}
+                ? `Running late — ${fmtDur(state.minutes)} of ${fmtDur(state.originalMinutes ?? state.minutes)} left. I'll make it count.`
+                : `I'll fit your work into ${fmtDur(state.minutes)} — help me get it right.`}
             </p>
             {discipline.streak > 0 && (
               <p className="mt-1 text-[11px] font-semibold" style={{ color: "var(--color-warmth)" }}>
@@ -1219,7 +1226,7 @@ function IntakeSheet() {
                       <Minus className="h-3.5 w-3.5" />
                     </button>
                     <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
-                      {ests[i] ? `${ests[i]}m` : "—"}
+                      {ests[i] ? fmtDur(ests[i]) : "—"}
                     </span>
                     <button onClick={() => bump(i, 5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`More time for ${a.title}`}>
                       <Plus className="h-3.5 w-3.5" />
