@@ -204,12 +204,14 @@ export async function saveAudioOffline(
       .map((request) => cache.delete(request))
   );
 
-  // Download and cache. We can't use cache.add() — the stream endpoint 307s to
-  // a cross-origin R2 URL, so the response is opaque (status 0) and cache.add()
-  // rejects non-2xx, surfacing as "failed to fetch" on the first attempt.
-  // fetch + cache.put stores opaque responses correctly.
-  const res = await fetch(url, { redirect: "follow" });
-  if (!res.ok && res.type !== "opaque") throw new Error(`Download failed (${res.status})`);
+  // Download and cache via the same-origin proxy (?proxy=1). The plain stream
+  // endpoint 307s to a cross-origin R2 URL — that response is opaque, and an
+  // opaque cached response can't be range-sliced by the service worker, so
+  // every offline play hit 416 / "source not found". The proxy returns real
+  // bytes we can read, size, and slice.
+  const proxyUrl = url + (url.includes("?") ? "&" : "?") + "proxy=1";
+  const res = await fetch(proxyUrl, { redirect: "follow" });
+  if (!res.ok) throw new Error(`Download failed (${res.status})`);
   await cache.put(new Request(url), res);
 
   // Get the actual cached size. The stream endpoint returns a 307 redirect
@@ -300,16 +302,21 @@ export async function touchAudioCache(url: string): Promise<void> {
   }
 }
 
+export type PlayerView = "collapsed" | "sheet";
+
 interface AudioPlayerState {
   currentTrack: PlayerTrack | null;
   queue: PlayerTrack[];
   offlineStatus: Record<string, boolean>;
+  /** collapsed = pill inside the floating dock; sheet = half-screen popup */
+  view: PlayerView;
   play: (track: PlayerTrack, queue?: PlayerTrack[]) => void;
   close: () => void;
   next: () => void;
   prev: () => void;
   selectTrack: (track: PlayerTrack) => void;
   setOffline: (talkId: string, isOffline: boolean) => void;
+  setView: (view: PlayerView) => void;
 }
 
 const AudioPlayerContext = createContext<AudioPlayerState | null>(null);
@@ -328,6 +335,8 @@ export function useAudioPlayer(): AudioPlayerState {
       prev: () => {},
       selectTrack: () => {},
       setOffline: () => {},
+      view: "collapsed",
+      setView: () => {},
     };
   }
   return ctx;
@@ -337,6 +346,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const [currentTrack, setCurrentTrack] = useState<PlayerTrack | null>(null);
   const [queue, setQueue] = useState<PlayerTrack[]>([]);
   const [offlineStatus, setOfflineStatus] = useState<Record<string, boolean>>({});
+  const [view, setView] = useState<PlayerView>("collapsed");
 
   // Keep a ref to current track + queue for stable callbacks
   const trackRef = useRef(currentTrack);
@@ -357,6 +367,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const play = useCallback((track: PlayerTrack, trackQueue?: PlayerTrack[]) => {
     setCurrentTrack(track);
     if (trackQueue) setQueue(trackQueue);
+    setView("collapsed");
   }, []);
 
   const close = useCallback(() => {
@@ -405,12 +416,14 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     currentTrack,
     queue,
     offlineStatus,
+    view,
     play,
     close,
     next,
     prev,
     selectTrack,
     setOffline,
+    setView,
   };
 
   return (

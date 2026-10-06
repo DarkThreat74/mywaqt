@@ -327,7 +327,12 @@ async function audioRangeResponse(request, response) {
   if (!range) return response;
   const match = /^bytes=(\d+)-(\d*)$/.exec(range);
   if (!match) return response;
+  // Opaque cached responses (older downloads stored the cross-origin R2
+  // redirect result) can't be read — arrayBuffer() would be empty and we'd
+  // return a bogus 416. Hand it back whole; the element can still play it.
+  if (response.type === "opaque") return response;
   const buffer = await response.arrayBuffer();
+  if (buffer.byteLength === 0) return response;
   const start = Number(match[1]);
   const end = Math.min(match[2] ? Number(match[2]) : buffer.byteLength - 1, buffer.byteLength - 1);
   if (start > end || start >= buffer.byteLength) {

@@ -13,9 +13,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { BookOpen, Check, ChevronDown, ChevronUp, Coffee, Minus, Pause, Play, Plus, RefreshCw, Shuffle, Square, Volume2, VolumeX, X, Zap } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Coffee, ListMusic, Minus, Pause, Play, Plus, RefreshCw, Shuffle, Square, Volume2, VolumeX, X, Zap } from "lucide-react";
 import VoxIcon from "@/components/vox-icon";
+import { useRouter } from "next/navigation";
 import { useSoundscape, SOUNDSCAPES } from "@/components/soundscape-context";
+import { useAudioPlayer } from "@/components/audio-player-context";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
@@ -106,6 +108,8 @@ export default function StudySession() {
   // leaving the session.
   const [soundsOpen, setSoundsOpen] = useState(false);
   const soundscape = useSoundscape();
+  const talksPlayer = useAudioPlayer();
+  const router = useRouter();
   // Post-session recap — populated by finish(), survives endSession() going
   // idle. Cleared when a new session starts running.
   const [summary, setSummary] = useState<{
@@ -552,39 +556,10 @@ export default function StudySession() {
     </div>
   ) : null;
 
-  // Bubble — persists while overlay is closed
+  // While the overlay is closed the unified FloatingDock carries the session
+  // pill — only the finish dialog still needs to render here.
   if (!state.overlayOpen) {
-    return (
-      <>
-        {finishDialog}
-        <div className="fixed bottom-20 right-3 z-[60] lg:bottom-6 lg:right-6" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="flex items-center gap-1 rounded-full border shadow-lg" style={{ backgroundColor: "var(--color-ink)", borderColor: "transparent" }}>
-          <button
-            onClick={() => setOverlayOpen(true)}
-            className="flex items-center gap-2 rounded-l-full py-2.5 pl-3.5 pr-2"
-            style={{ color: "var(--color-paper)", minHeight: 44 }}
-            aria-label={`Open study session — ${seg.label}, ${fmtClock(progress.remainingSec)} left`}
-          >
-            {paused
-              ? <Pause className="h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
-              : <BookOpen className="h-4 w-4 shrink-0" style={{ color: segAccent }} />}
-            <span className="text-xs font-semibold tabular-nums">{fmtClock(progress.remainingSec)}</span>
-            <span className="max-w-[7rem] truncate text-[11px] opacity-80">
-              {paused ? "Paused" : driftNudge ? "Drifted — back to it" : seg.label}
-            </span>
-          </button>
-          <button
-            onClick={() => { setAskFinish(true); setFinishStep("ask"); }}
-            className="rounded-r-full p-2.5 pr-3.5 opacity-70 transition-opacity hover:opacity-100"
-            style={{ color: "var(--color-paper)", minHeight: 44 }}
-            aria-label="End session"
-          >
-            <Square className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-      </>
-    );
+    return <>{finishDialog}</>;
   }
 
   // Full overlay
@@ -764,9 +739,10 @@ export default function StudySession() {
           </div>
         )}
 
-        {/* Soundscape pill — pick focus audio without leaving the session */}
+        {/* Audio pills — focus soundscape + talks, without leaving the session */}
         {!progress.done && (
           <div className="mb-3 flex flex-col items-center">
+            <div className="flex items-center gap-2">
             <button
               onClick={() => setSoundsOpen((v) => !v)}
               className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
@@ -778,6 +754,20 @@ export default function StudySession() {
               {soundscape.active ? SOUNDSCAPES.find((s) => s.id === soundscape.active)?.label ?? "Sound" : "Sounds"}
               {soundscape.paused ? " · paused" : ""}
             </button>
+            {/* Talks pill — opens the half-screen player sheet (or /talks if nothing loaded) */}
+            <button
+              onClick={() => {
+                if (talksPlayer.currentTrack) talksPlayer.setView("sheet");
+                else router.push("/talks");
+              }}
+              className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: talksPlayer.currentTrack ? "var(--color-accent)" : "var(--color-ink-muted)", minHeight: 32 }}
+              aria-label={talksPlayer.currentTrack ? `Open talks player — ${talksPlayer.currentTrack.title}` : "Open talks"}
+            >
+              <ListMusic className="h-3.5 w-3.5" />
+              {talksPlayer.currentTrack ? talksPlayer.currentTrack.title.slice(0, 18) + (talksPlayer.currentTrack.title.length > 18 ? "…" : "") : "Talks"}
+            </button>
+            </div>
             {soundsOpen && (
               <div className="mt-2 w-full rounded-xl border p-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
                 <div className="grid max-h-40 grid-cols-3 gap-1.5 overflow-y-auto">

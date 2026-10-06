@@ -8,7 +8,7 @@ import { MessageSquarePlus, X, Send, Check } from "lucide-react";
 // every authenticated screen. Captures full page context (path + query,
 // theme, viewport) so a report like "this button looks bad in dark mode
 // on the October 1st day view" is self-describing.
-export default function FeedbackWidget() {
+export default function FeedbackWidget({ docked = false }: { docked?: boolean }) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
@@ -107,21 +107,26 @@ export default function FeedbackWidget() {
 
   return (
     <>
-      {/* Trigger — small pill above the mobile bottom nav */}
+      {/* Trigger — small pill above the mobile bottom nav.
+          Docked mode renders an inline segment button for the FloatingDock. */}
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Send feedback"
         title="Send feedback"
-        className="feedback-fab fixed z-40 flex items-center justify-center rounded-full border shadow-lg transition-colors"
-        style={{
-          width: 36,
-          height: 36,
-          borderColor: "var(--color-paper-3)",
-          backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
-          color: "var(--color-ink-muted)",
-          backdropFilter: "blur(8px)",
-          WebkitBackdropFilter: "blur(8px)",
-        }}
+        className={docked
+          ? "flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+          : "feedback-fab fixed z-40 flex items-center justify-center rounded-full border shadow-lg transition-colors"}
+        style={docked
+          ? { width: 32, height: 32, color: "var(--color-ink-muted)" }
+          : {
+              width: 36,
+              height: 36,
+              borderColor: "var(--color-paper-3)",
+              backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
+              color: "var(--color-ink-muted)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+            }}
       >
         <MessageSquarePlus className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
       </button>
@@ -130,7 +135,16 @@ export default function FeedbackWidget() {
       {open && (
         <div
           className="feedback-panel fixed z-50 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border p-4 shadow-2xl"
-          style={{
+          style={docked ? {
+            right: "1rem",
+            left: "auto",
+            bottom: "calc(4rem + env(safe-area-inset-bottom) + 4rem)",
+            maxHeight: "calc(100dvh - 160px)",
+            overflowY: "auto",
+            borderColor: "var(--color-paper-3)",
+            backgroundColor: "var(--color-paper)",
+            animation: "feedback-pop 0.18s cubic-bezier(0.16,1,0.3,1)",
+          } : {
             borderColor: "var(--color-paper-3)",
             backgroundColor: "var(--color-paper)",
             animation: "feedback-pop 0.18s cubic-bezier(0.16,1,0.3,1)",

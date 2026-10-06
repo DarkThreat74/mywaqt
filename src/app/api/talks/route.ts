@@ -32,7 +32,26 @@ export async function GET(request: NextRequest) {
       )).limit(1);
       const key = talk?.processedStorageKey || talk?.storageKey;
       if (!key) return NextResponse.json({ error: "Talk audio not found." }, { status: 404 });
-      const response = NextResponse.redirect(await getStreamUrl(key), 307);
+      const signed = await getStreamUrl(key);
+      // proxy=1 streams the bytes through this origin instead of redirecting.
+      // Used by the offline-download path: the 307→cross-origin R2 response is
+      // opaque, which can't be range-sliced (or typed) when replayed from the
+      // Cache API — every offline play died as "source not found". A proxied
+      // same-origin response is readable, so cached copies seek correctly.
+      if (searchParams.get("proxy") === "1") {
+        const upstream = await fetch(signed, {
+          headers: request.headers.get("range") ? { range: request.headers.get("range")! } : {},
+        });
+        const headers = new Headers();
+        for (const h of ["content-type", "content-length", "accept-ranges", "content-range"]) {
+          const v = upstream.headers.get(h);
+          if (v) headers.set(h, v);
+        }
+        if (!headers.has("content-type")) headers.set("content-type", "audio/mpeg");
+        headers.set("cache-control", "private, no-store");
+        return new NextResponse(upstream.body, { status: upstream.status, headers });
+      }
+      const response = NextResponse.redirect(signed, 307);
       response.headers.set("Cache-Control", "private, no-store");
       return response;
     }

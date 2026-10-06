@@ -17,7 +17,7 @@ import ToolsFab from "@/components/tools-fab";
 import DuaToast from "@/components/dua-toast";
 import FunFactPopup from "@/components/fun-fact-popup";
 import BirthdayAlerter from "@/components/birthday-alerter";
-import FeedbackWidget from "@/components/feedback-widget";
+import FloatingDock from "@/components/floating-dock";
 import { isFeedbackEnabled } from "@/lib/app-settings";
 import OfflineBanner from "@/components/offline-banner";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
@@ -27,7 +27,6 @@ import SyncStatus from "@/components/sync-status";
 import UserStamp from "@/components/user-stamp";
 import ThemeGuard from "@/components/theme-guard";
 import { SoundscapeProvider } from "@/components/soundscape-context";
-import SoundscapeIndicator from "@/components/soundscape-indicator";
 import StudySession from "@/components/study-session";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
@@ -181,7 +180,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <UserStamp userId={session.userId} />
       <ThemeGuard />
       <SyncStatus />
-      <SoundscapeIndicator />
       <NotificationScheduler />
       <DeepLinkHandler />
       <PendingInvite />
@@ -189,7 +187,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <DuaToast />
       <FunFactPopup />
       <BirthdayAlerter />
-      {(await feedbackEnabledP) ? <FeedbackWidget /> : null}
+      {/* Unified floating dock — study timer, sounds, talks, feedback segments */}
+      <FloatingDock feedbackEnabled={await feedbackEnabledP} />
 
       {/* Global audio player — survives route changes for background playback */}
       <GlobalAudioPlayer />

@@ -4,11 +4,11 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Play, Pause, SkipBack, SkipForward, RotateCcw, RotateCw,
   Download, Trash2, Clock, Volume2, VolumeX, Volume1,
-  ChevronUp, ChevronDown, Repeat, Repeat1, Shuffle,
+  ChevronDown, ChevronRight, Repeat, Repeat1, Shuffle,
   Gauge, Moon, Bookmark, BookmarkPlus, ListMusic,
   X, AlertCircle, RefreshCw, Airplay,
 } from "lucide-react";
-import { isAudioCached, removeAudioOffline, saveAudioOffline } from "@/components/audio-player-context";
+import { isAudioCached, removeAudioOffline, saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
 
 // ─── Types ───
 
@@ -33,7 +33,16 @@ interface Bookmark {
 }
 
 type RepeatMode = "off" | "one" | "all";
-type PlayerView = "fab" | "mini" | "full" | "closed";
+
+// Shape of GET /api/talks — used by the queue panel's "suggested series" browser.
+interface TalksApiResponse {
+  folders: { id: string; name: string; imageUrl: string | null }[];
+  talks: {
+    id: string; title: string; speaker: string | null; description: string | null;
+    streamUrl: string | null; externalUrl: string | null; fileSize: number | null;
+    duration: number | null; folderId: string | null;
+  }[];
+}
 
 // ─── Helpers ───
 
@@ -117,7 +126,8 @@ export default function AdvancedAudioPlayer({
   onOfflineStatusChange,
 }: AdvancedAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [view, setView] = useState<PlayerView>("fab");
+  // View is shared with the floating dock: "collapsed" = pill, "sheet" = half-screen.
+  const { view, setView, play: playFromBrowse } = useAudioPlayer();
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -147,11 +157,36 @@ export default function AdvancedAudioPlayer({
   });
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
+  // Suggested-series browser inside the queue panel — lazy-fetched once.
+  const [browse, setBrowse] = useState<{ folders: TalksApiResponse["folders"]; tracks: PlayerTrack[] } | null>(null);
+  const [openFolder, setOpenFolder] = useState<string | null | undefined>(undefined);
   const [showSpeedControl, setShowSpeedControl] = useState(false);
   const [showSleepControl, setShowSleepControl] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [isSavingOffline, setIsSavingOffline] = useState(false);
   const [airplayAvailable, setAirplayAvailable] = useState(false);
+
+  // Fetch folders + episodes once for the queue panel's suggested browser.
+  useEffect(() => {
+    if (!showQueue || browse) return;
+    let cancelled = false;
+    fetch("/api/talks")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: TalksApiResponse | null) => {
+        if (cancelled || !d) return;
+        const nameOf = (id: string | null) => d.folders.find((f) => f.id === id)?.name ?? null;
+        setBrowse({
+          folders: d.folders,
+          tracks: d.talks.filter((t) => t.streamUrl).map((t) => ({
+            id: t.id, title: t.title, speaker: t.speaker, description: t.description,
+            streamUrl: t.streamUrl, externalUrl: t.externalUrl, fileSize: t.fileSize,
+            duration: t.duration, folderId: t.folderId, folderName: nameOf(t.folderId),
+          })),
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [showQueue, browse]);
 
   // Refs for retry
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -735,17 +770,17 @@ export default function AdvancedAudioPlayer({
           break;
         case "f":
           e.preventDefault();
-          setView((v) => v === "full" ? "fab" : v === "fab" ? "mini" : "full");
+          setView(view === "sheet" ? "collapsed" : "sheet");
           break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handlePlayPause, skipBy, goNext, goPrev]);
+  }, [handlePlayPause, skipBy, goNext, goPrev, view, setView]);
 
   // ─── Double-tap to skip (mobile gesture) ───
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (view !== "full") return;
+    if (view !== "sheet") return;
     const touch = e.changedTouches[0];
     const now = Date.now();
     const last = lastTapRef.current;
@@ -868,7 +903,6 @@ export default function AdvancedAudioPlayer({
         key={track.id}
         ref={audioRef}
         src={track.streamUrl || undefined}
-        crossOrigin="anonymous"
         preload="auto"
         playsInline
         {...{ "x-webkit-airplay": "allow" }}
@@ -921,154 +955,30 @@ export default function AdvancedAudioPlayer({
         className="hidden"
       />
 
-      {/* ─── FAB (floating circle — minimized state) ─── */}
-      {view === "fab" && (
-        <button
-          onClick={() => setView("mini")}
-          className="fixed z-50 flex items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 lg:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)]"
-          style={{
-            right: "calc(env(safe-area-inset-right) + 1rem)",
-            // Mobile: above the bottom nav (4rem). Desktop: overridden by lg: class.
-            bottom: "calc(env(safe-area-inset-bottom) + 5rem)",
-            width: 56,
-            height: 56,
-            backgroundColor: "var(--color-accent)",
-            boxShadow: "0 8px 24px -8px color-mix(in oklab, var(--color-accent) 60%, transparent)",
-            animation: "player-fade-in 0.25s ease-out",
-          }}
-          aria-label="Open player"
-        >
-          {isBuffering ? (
-            <RefreshCw className="h-5 w-5 animate-spin" style={{ color: "var(--color-paper)" }} />
-          ) : isPlaying ? (
-            <div className="flex items-end gap-0.5" aria-hidden>
-              <div className="h-2.5 w-0.5 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-paper)", animationDuration: "0.4s" }} />
-              <div className="h-4 w-0.5 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-paper)", animationDuration: "0.6s" }} />
-              <div className="h-3 w-0.5 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-paper)", animationDuration: "0.5s" }} />
-            </div>
-          ) : (
-            <Play className="h-5 w-5 translate-x-0.5" style={{ color: "var(--color-paper)" }} />
-          )}
-          {/* Mini progress ring around the FAB */}
-          <svg
-            className="absolute inset-0 -rotate-90"
-            viewBox="0 0 56 56"
-            style={{ pointerEvents: "none" }}
-          >
-            <circle cx="28" cy="28" r="26" fill="none" stroke="color-mix(in oklab, var(--color-paper) 30%, transparent)" strokeWidth="2" />
-            <circle
-              cx="28" cy="28" r="26" fill="none"
-              stroke="var(--color-paper)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeDasharray={`${2 * Math.PI * 26}`}
-              strokeDashoffset={`${2 * Math.PI * 26 * (1 - progressPercent / 100)}`}
-              style={{ transition: "stroke-dashoffset 0.3s linear" }}
-            />
-          </svg>
-        </button>
-      )}
-
-      {/* ─── Mini Player (bottom bar) ─── */}
-      {view === "mini" && (
-        <div
-          className="fixed left-0 right-0 z-50 border-t backdrop-blur-md lg:bottom-[calc(env(safe-area-inset-bottom)+0px)]"
-          style={{
-            // Mobile: sit above the bottom nav (~64px / 4rem tall).
-            // Desktop: overridden by lg: class to sit at the bottom.
-            bottom: "calc(4rem + env(safe-area-inset-bottom))",
-            paddingBottom: 0,
-            backgroundColor: "color-mix(in oklab, var(--color-paper) 96%, transparent)",
-            borderColor: "var(--color-paper-3)",
-            animation: "player-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
-        >
-          {/* Progress bar (thin, at top of bar) */}
-          <div className="relative h-0.5 w-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-            <div className="absolute h-full" style={{ width: `${bufferedPercent}%`, backgroundColor: "color-mix(in oklab, var(--color-accent) 30%, transparent)" }} />
-            <div className="absolute h-full" style={{ width: `${progressPercent}%`, backgroundColor: "var(--color-accent)" }} />
-          </div>
-
-          <div className="mx-auto flex max-w-2xl items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4">
-            {/* Track info (tap to expand) */}
-            <button onClick={() => setView("full")} className="flex min-w-0 flex-1 items-center gap-2.5 text-left sm:gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)" }}>
-                {isBuffering ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" style={{ color: "var(--color-accent)" }} />
-                ) : isPlaying ? (
-                  <div className="flex items-end gap-0.5" aria-hidden>
-                    <div className="h-2 w-0.5 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-accent)", animationDuration: "0.4s" }} />
-                    <div className="h-3 w-0.5 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-accent)", animationDuration: "0.6s" }} />
-                    <div className="h-2.5 w-0.5 animate-pulse rounded-full" style={{ backgroundColor: "var(--color-accent)", animationDuration: "0.5s" }} />
-                  </div>
-                ) : (
-                  <Play className="h-4 w-4 translate-x-0.5" style={{ color: "var(--color-accent)" }} />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{track.title}</p>
-                <p className="truncate text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                  {track.speaker ? `${track.speaker} · ` : ""}{formatTime(currentTime)} / {formatTime(duration)}
-                </p>
-              </div>
-            </button>
-
-            {/* Controls — compact on mobile, full on sm+ */}
-            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
-              <button onClick={() => skipBy(-15)} className="flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 36, minWidth: 36 }} aria-label="Skip back 15 seconds">
-                <RotateCcw className="h-4 w-4" />
-                <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>15s</span>
-              </button>
-              <button onClick={handlePlayPause} className="flex h-11 w-11 items-center justify-center rounded-full transition-transform active:scale-95 sm:h-12 sm:w-12" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }} aria-label={isPlaying ? "Pause" : "Play"}>
-                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 translate-x-0.5" />}
-              </button>
-              <button onClick={() => skipBy(30)} className="flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-soft)", minHeight: 36, minWidth: 36 }} aria-label="Skip forward 30 seconds">
-                <RotateCw className="h-4 w-4" />
-                <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>30s</span>
-              </button>
-              <button onClick={() => setView("full")} className="hidden items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)] sm:flex" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Expand player">
-                <ChevronUp className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Minimize to bubble + Close */}
-            <button onClick={() => setView("fab")} className="flex shrink-0 flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Minimize to bubble">
-              <ChevronDown className="h-4 w-4" />
-              <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>Bubble</span>
-            </button>
-            <button onClick={onClose} className="flex shrink-0 flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close player">
-              <X className="h-4 w-4" />
-              <span className="text-[8px] font-semibold leading-none" style={{ color: "var(--color-ink-muted)" }}>Close</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Full Player (bottom sheet) ─── */}
-      {view === "full" && (
+      {view === "sheet" && (
         <div
           className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4"
           style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)", animation: "player-fade-in 0.2s ease-out" }}
-          onClick={() => setView("mini")}
+          onClick={() => setView("collapsed")}
         >
           <div
             className="relative w-full overflow-hidden rounded-t-3xl border sm:max-w-lg sm:rounded-3xl"
             style={{
               backgroundColor: "var(--color-paper)",
               borderColor: "var(--color-paper-3)",
-              maxHeight: "92dvh",
+              maxHeight: "80dvh",
               animation: "player-slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
             }}
             onClick={(e) => e.stopPropagation()}
             onTouchEnd={handleTouchEnd}
           >
             {/* Drag handle — minimize to mini bar */}
-            <div className="flex justify-center pt-2.5 pb-1" onClick={() => setView("mini")} role="button" aria-label="Minimize to bar">
+            <div className="flex justify-center pt-2.5 pb-1" onClick={() => setView("collapsed")} role="button" aria-label="Minimize to dock pill">
               <div className="h-1 w-10 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
             </div>
 
             {/* Minimize to FAB (left) + Close (right) */}
-            <button onClick={() => setView("fab")} className="absolute left-3 top-3 flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Minimize to circle">
+            <button onClick={() => setView("collapsed")} className="absolute left-3 top-3 flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Minimize to dock pill">
               <ChevronDown className="h-4 w-4" />
             </button>
             <button onClick={onClose} className="absolute right-3 top-3 flex flex-col items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close player">
@@ -1398,7 +1308,9 @@ export default function AdvancedAudioPlayer({
               {/* ─── Queue panel ─── */}
               {showQueue && (
                 <div className="mb-4 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Queue ({effectiveQueue.length})</p>
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                    {track.folderName ? `This series — ${track.folderName}` : `Queue`} ({effectiveQueue.length})
+                  </p>
                   <div className="max-h-48 space-y-1 overflow-y-auto">
                     {effectiveQueue.map((t, i) => (
                       <button
@@ -1422,6 +1334,61 @@ export default function AdvancedAudioPlayer({
                       </button>
                     ))}
                   </div>
+
+                  {/* Suggested — every other series, tap a folder to browse its episodes */}
+                  {browse && (() => {
+                    const otherFolders = browse.folders.filter((f) => f.id !== track.folderId);
+                    const uncategorized = browse.tracks.filter((t) => t.folderId === null);
+                    const groups: { id: string | null; name: string; tracks: PlayerTrack[] }[] = [
+                      ...otherFolders.map((f) => ({ id: f.id as string | null, name: f.name, tracks: browse.tracks.filter((t) => t.folderId === f.id) })),
+                      ...(uncategorized.length > 0 && track.folderId !== null ? [{ id: null, name: "More talks", tracks: uncategorized }] : []),
+                    ].filter((g) => g.tracks.length > 0);
+                    if (groups.length === 0) return null;
+                    return (
+                      <div className="mt-3 border-t pt-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Suggested</p>
+                        <div className="space-y-0.5">
+                          {groups.map((g) => {
+                            const open = openFolder === g.id;
+                            return (
+                              <div key={g.id ?? "uncategorized"}>
+                                <button
+                                  onClick={() => setOpenFolder(open ? undefined : g.id)}
+                                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-paper)]"
+                                  aria-expanded={open}
+                                >
+                                  <ListMusic className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warmth)" }} />
+                                  <span className="min-w-0 flex-1 truncate text-xs font-medium" style={{ color: "var(--color-ink)" }}>{g.name}</span>
+                                  <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{g.tracks.length}</span>
+                                  {open
+                                    ? <ChevronDown className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                                    : <ChevronRight className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />}
+                                </button>
+                                {open && (
+                                  <div className="ml-6 mt-0.5 space-y-0.5 border-l pl-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                                    {g.tracks.map((t) => (
+                                      <button
+                                        key={t.id}
+                                        onClick={() => playFromBrowse(t, g.tracks)}
+                                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-paper)]"
+                                        style={{ backgroundColor: t.id === track.id ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "transparent" }}
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <p className="truncate text-xs" style={{ color: t.id === track.id ? "var(--color-accent)" : "var(--color-ink)" }}>{t.title}</p>
+                                          {t.speaker && <p className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{t.speaker}</p>}
+                                        </div>
+                                        <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{formatDuration(t.duration)}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
