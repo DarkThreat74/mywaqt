@@ -631,7 +631,10 @@ export default function StudySession() {
         ) : (
           <>
             <p className="text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
-              How much more do you need?
+              Ok — work a bit more, then we stop.
+            </p>
+            <p className="mt-1 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              Pick how much longer — a fresh timer starts for just that.
             </p>
             <div className="mt-4 grid grid-cols-4 gap-1.5">
               {[5, 10, 15, 20].map((m) => (

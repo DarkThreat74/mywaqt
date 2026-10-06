@@ -350,9 +350,13 @@ export function switchFocus() {
   // Pull the next study segment forward so the switch lands on work.
   const after = nextStudyIdx === -1 ? rest : [rest[nextStudyIdx], ...rest.filter((_, i) => i !== nextStudyIdx)];
   if (leftMin > 0.5) {
-    // Re-queue the abandoned remainder directly after that next block —
-    // the work returns soon, not at the end of the session.
-    after.splice(nextStudyIdx === -1 ? after.length : 1, 0, { ...p.segment, minutes: leftMin, label: `${p.segment.label} (finish)` });
+    // Re-queue the abandoned remainder after the LAST remaining study block,
+    // not right after the next one — parking it at position 1 made switches
+    // ping-pong between two items while the rest never surfaced. Stripping
+    // prior "(finish)" tags stops the label accumulating on repeat switches.
+    const label = p.segment.label.replace(/( \(finish\))+$/, "");
+    const lastStudy = after.reduce((last, s, i) => (s.kind === "study" ? i : last), -1);
+    after.splice(lastStudy + 1, 0, { ...p.segment, minutes: leftMin, label: `${label} (finish)` });
   }
   next.push(...after);
   state = { ...state, segments: next };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff, Cake } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
@@ -14,7 +14,7 @@ import { instantToWall, wallClockToUtc } from "@/lib/timezone";
 import { isBirthdayOn, turningAge } from "@/lib/birthdays/math";
 import PlanBlocksSheet, { type BlockWithAssignments } from "@/components/plan-blocks-sheet";
 import { freeGaps, fmtDur, fmtMin, DAY_START, DAY_END, type Interval } from "@/lib/blocks/gaps";
-import { beginIntake } from "@/lib/study/session";
+import { beginIntake, getSession, subscribeSession, resumeSession, setOverlayOpen } from "@/lib/study/session";
 
 interface CalendarEvent {
   id: string;
@@ -262,6 +262,9 @@ export default function DayViewClient({ date }: { date: string }) {
   // straight into the editor. Edit / Start study live inside the peek.
   const [peekEvent, setPeekEvent] = useState<CalendarEvent | null>(null);
   const [peekBlock, setPeekBlock] = useState<BlockWithAssignments | null>(null);
+  // Live study-session state — tapping the block a paused session belongs to
+  // offers "resume" vs "start new" instead of silently clobbering it.
+  const studySession = useSyncExternalStore(subscribeSession, getSession, () => ({ status: "idle" }) as ReturnType<typeof getSession>);
   const [haydPeriods, setHaydPeriods] = useState<Array<{ id: string; startDate: string; endDate: string | null }>>(() => getCachedHaydPeriods());
   // True when the viewed date falls inside a hayd period — chips render
   // excused and check-ins are disabled (the API rejects them too).
@@ -2841,7 +2844,36 @@ export default function DayViewClient({ date }: { date: string }) {
               {peekBlock.status === "worked" && " · worked ✓"}
             </p>
             <div className="mt-3 flex flex-col gap-2">
-              {!isPastDay && (
+              {!isPastDay && studySession.status === "running" && studySession.blockId === peekBlock.id ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setPeekBlock(null);
+                      resumeSession();
+                      setOverlayOpen(true);
+                    }}
+                    className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
+                  >
+                    <Play className="h-4 w-4" /> {studySession.pausedAt ? "Resume paused session" : "Return to session"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const b = peekBlock;
+                      setPeekBlock(null);
+                      const minutes = Math.max(10, b.endMin - b.startMin);
+                      beginIntake(
+                        { minutes, originalMinutes: b.endMin - b.startMin, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })) },
+                        b.id,
+                      );
+                    }}
+                    className="flex items-center justify-center gap-1.5 rounded-full border py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
+                  >
+                    Start a new session
+                  </button>
+                </>
+              ) : !isPastDay && (
                 <button
                   onClick={() => {
                     const b = peekBlock;
