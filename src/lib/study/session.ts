@@ -11,6 +11,9 @@ export interface StudySegment {
   kind: "study" | "break";
   minutes: number;
   label: string; // what to work on / "Break"
+  /** Set on prayer breaks — the overlay renders the salah messaging and the
+   *  "I prayed" check-in instead of the normal break UI. */
+  prayer?: string;
 }
 
 export interface SessionPlanInput {
@@ -253,19 +256,61 @@ export function setOverlayOpen(open: boolean) {
  *  is, inserts a short break, and re-queues the remaining work right after.
  *  Vigilance research: brief diversions restore focus better than pushing through. */
 export function takeBreakNow(minutes = 5) {
-  if (state.status !== "running" || state.pausedAt) return;
+  insertBreakNow(minutes, "Quick break");
+}
+
+/** Split the current position and insert a break. Shared by manual breaks and
+ *  the forced prayer break (which is allowed even while paused — the window
+ *  doesn't wait). If the current segment is already a break it is *converted*
+ *  in place: label + prayer flag change and it is topped up to `minutes`. */
+function insertBreakNow(minutes: number, label: string, prayer?: string) {
+  if (state.status !== "running") return;
   const elapsedSec = runningElapsedSec();
   const p = segmentAt(state.segments, elapsedSec);
-  if (p.done || p.segment.kind !== "study") return;
+  if (p.done) return;
 
   const segs = [...state.segments];
   const usedMin = (p.segment.minutes * 60 - p.remainingSec) / 60;
+
+  if (p.segment.kind === "break") {
+    // Convert the running break into a prayer break, topped up to `minutes`
+    // of fresh time. Elapsed math is preserved — the window doesn't wait.
+    segs[p.index] = { ...p.segment, minutes: usedMin + minutes, label, prayer: prayer ?? p.segment.prayer };
+    state = { ...state, segments: segs };
+    if (state.pausedAt) resumeSession();
+    else emit();
+    return;
+  }
+
   const leftMin = p.segment.minutes - usedMin;
   const next: StudySegment[] = segs.slice(0, p.index);
   if (usedMin > 0.1) next.push({ ...p.segment, minutes: usedMin });
-  next.push({ kind: "break", minutes, label: "Quick break" });
+  next.push({ kind: "break", minutes, label, prayer });
   if (leftMin > 0.1) next.push({ ...p.segment, minutes: leftMin });
   state = { ...state, segments: [...next, ...segs.slice(p.index + 1)] };
+  if (state.pausedAt) resumeSession();
+  else emit();
+}
+
+/** Forced break when a prayer window is about to close — fires from the
+ *  overlay's tick when the salah is unmarked and <15 min remain. */
+export function prayerBreakNow(prayerName: string, minutes = 10) {
+  insertBreakNow(minutes, `Pray ${prayerName} — window closing`, prayerName);
+}
+
+/** Queue a prayer break right after the current segment — used when <30 min
+ *  remain and the plan has no break before the window ends. */
+export function insertPrayerBreakAfterCurrent(prayerName: string, minutes = 10) {
+  if (state.status !== "running") return;
+  const elapsedSec = runningElapsedSec();
+  const p = segmentAt(state.segments, elapsedSec);
+  if (p.done) return;
+  const segs = [...state.segments];
+  segs.splice(p.index + 1, 0, {
+    kind: "break", minutes,
+    label: `Pray ${prayerName} — window closing`, prayer: prayerName,
+  });
+  state = { ...state, segments: segs };
   emit();
 }
 
