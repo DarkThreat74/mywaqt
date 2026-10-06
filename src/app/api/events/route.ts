@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
-import { instantToWall, wallClockToUtc, dateStrInTimezone } from "@/lib/timezone";
+import { instantToWall, wallClockToUtc, dateStrInTimezone, validTimezone } from "@/lib/timezone";
 import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -167,18 +167,19 @@ export async function POST(request: NextRequest) {
   // replays correctly, and a retried POST dedupes instead of duplicating.
   const validClientId = clientId && isValidUUID(clientId) ? clientId : undefined;
 
-  if (!title?.trim()) {
+  if (typeof title !== "string" || !title.trim()) {
     return NextResponse.json({ error: "Title is required." }, { status: 400 });
   }
   if (title.length > 200) {
     return NextResponse.json({ error: "Title must be 200 characters or less." }, { status: 400 });
   }
-  // Details — optional, max 1000 chars, trimmed
-  const validDetails = details !== undefined ? details.trim().slice(0, 1000) || null : null;
-  if (!startAt) {
+  // Details — optional, max 1000 chars, trimmed. Guard the type: a numeric
+  // `details` in the JSON would throw on .trim() and 500 the request.
+  const validDetails = typeof details === "string" ? details.trim().slice(0, 1000) || null : null;
+  if (typeof startAt !== "string" || !startAt) {
     return NextResponse.json({ error: "Start time is required." }, { status: 400 });
   }
-  if (!endAt) {
+  if (typeof endAt !== "string" || !endAt) {
     return NextResponse.json({ error: "End time is required." }, { status: 400 });
   }
 
@@ -225,7 +226,7 @@ export async function POST(request: NextRequest) {
       .from(schema.prayerSettings)
       .where(eq(schema.prayerSettings.userId, session.userId))
       .limit(1);
-    const userTimezone = settings?.timezone || "UTC";
+    const userTimezone = validTimezone(settings?.timezone);
 
     // The event's local calendar date + wall-clock time in the user's timezone
     const startDateStr = dateStrInTimezone(startDate, userTimezone);
@@ -245,8 +246,8 @@ export async function POST(request: NextRequest) {
     // recurrenceDays: array of 0-6 (0=Sunday, 6=Saturday) in user's LOCAL timezone
     // If not provided, default to the local day of the start date
     const startDayOfWeek = new Date(startDateStr + "T00:00:00Z").getUTCDay();
-    const daysToRepeat = recurrenceDays && recurrenceDays.length > 0
-      ? [...new Set(recurrenceDays)].filter((d) => d >= 0 && d <= 6).sort((a, b) => a - b)
+    const daysToRepeat = Array.isArray(recurrenceDays) && recurrenceDays.length > 0
+      ? [...new Set(recurrenceDays)].filter((d) => Number.isInteger(d) && d >= 0 && d <= 6).sort((a, b) => a - b)
       : [startDayOfWeek];
 
     if (daysToRepeat.length === 0) {

@@ -63,7 +63,7 @@ export async function PATCH(
   }
 
   if (title !== undefined) {
-    if (!title.trim()) {
+    if (typeof title !== "string" || !title.trim()) {
       return NextResponse.json({ error: "Title cannot be empty." }, { status: 400 });
     }
     if (title.length > 200) {
@@ -73,7 +73,7 @@ export async function PATCH(
   }
 
   if (details !== undefined) {
-    updates.details = details !== null ? details.trim().slice(0, 1000) || null : null;
+    updates.details = typeof details === "string" ? details.trim().slice(0, 1000) || null : null;
   }
 
   if (startAt !== undefined) {
@@ -122,10 +122,15 @@ export async function PATCH(
     if (effectiveType !== "reminder" && effectiveEnd <= effectiveStart) {
       return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
     }
+    // Converting to a reminder can leave end < start (reminders skip the
+    // ordering check) — normalize to a minimal 1-minute span like POST does.
+    if (effectiveType === "reminder" && effectiveEnd <= effectiveStart) {
+      updates.endAt = new Date(effectiveStart.getTime() + 60 * 1000);
+    }
   }
 
   if (recurrenceRule !== undefined) {
-    updates.recurrenceRule = recurrenceRule?.trim() || null;
+    updates.recurrenceRule = typeof recurrenceRule === "string" ? recurrenceRule.trim() || null : null;
   }
 
   if (color !== undefined) {

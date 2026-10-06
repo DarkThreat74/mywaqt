@@ -4,7 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
-import { instantToWall, wallClockToUtc, dateStrInTimezone } from "@/lib/timezone";
+import { instantToWall, wallClockToUtc, dateStrInTimezone, validTimezone } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,7 @@ async function getUserTimezone(userId: string): Promise<string> {
     .from(schema.prayerSettings)
     .where(eq(schema.prayerSettings.userId, userId))
     .limit(1);
-  return settings?.timezone || "UTC";
+  return validTimezone(settings?.timezone);
 }
 
 // Start (00:00) of a YYYY-MM-DD calendar date in `tz`, as a UTC instant.
@@ -141,7 +141,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (title !== undefined) {
-    if (!title.trim()) {
+    if (typeof title !== "string" || !title.trim()) {
       return NextResponse.json({ error: "Title cannot be empty." }, { status: 400 });
     }
     if (title.length > 200) {
@@ -151,7 +151,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (details !== undefined) {
-    updates.details = details !== null ? details.trim().slice(0, 1000) || null : null;
+    updates.details = typeof details === "string" ? details.trim().slice(0, 1000) || null : null;
   }
 
   if (notify !== undefined) {

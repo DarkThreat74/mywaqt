@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
     ...cached,
     madhab: settings?.madhab || "hanafi",
     timezone: settings?.timezone || null,
-    locationSet: true,
+    locationSet,
     masjidName: settings?.masjidName || null,
     masjidIqamah: settings?.masjidIqamah || null,
     useIqamahReminders: settings?.useIqamahReminders || false,

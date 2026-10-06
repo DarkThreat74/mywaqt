@@ -3,6 +3,18 @@
 // time* (e.g. 9:00 AM in the user's timezone) even when DST shifts the UTC
 // offset by an hour.
 
+// Stored timezones come from user input — a bogus value throws inside every
+// Intl call below, so routes must funnel stored strings through this first.
+export function validTimezone(tz: string | null | undefined): string {
+  if (tz) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: tz });
+      return tz;
+    } catch { /* fall through */ }
+  }
+  return "UTC";
+}
+
 export interface WallClock {
   y: number;
   mo: number; // 1-12
