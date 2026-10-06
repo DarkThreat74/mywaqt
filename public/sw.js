@@ -20,7 +20,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v61";
+const CACHE_VERSION = "waqt-v62";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -818,7 +818,7 @@ self.addEventListener("fetch", (event) => {
             // added avoidable latency to every tab switch.
             event.waitUntil(
               (async () => {
-                const body = await response.blob();
+                const body = await response.clone().blob();
                 const headers = new Headers(response.headers);
                 headers.set("x-waqt-cached-at", String(Date.now()));
                 await pageCache.put(cacheKey, new Response(body, {
