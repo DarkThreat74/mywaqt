@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -18,7 +18,9 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("onboarding-progress", ip, 60, 15 * 60 * 1000)) {
+  // Generous but bounded: the debounced saver can legitimately fire ~1/sec
+  // during sustained typing — a tight cap would silently drop drafts.
+  if (!checkRateLimit("onboarding-progress", ip, 240, 15 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
@@ -42,7 +44,12 @@ export async function POST(request: NextRequest) {
   if (mi) set.middleInitial = mi;
   if (fn || ln) set.displayName = [fn, ln].filter(Boolean).join(" ");
 
-  await db.update(schema.users).set(set).where(eq(schema.users.id, session.userId));
+  // Incomplete rows only — a debounced write can land after /complete and
+  // must not roll onboardingStep (or the name) back to mid-flow state.
+  await db
+    .update(schema.users)
+    .set(set)
+    .where(and(eq(schema.users.id, session.userId), eq(schema.users.onboardingCompleted, false)));
   try { revalidateTag(`user-gate-${session.userId}`, "max"); } catch { /* non-critical */ }
   return NextResponse.json({ ok: true });
 }

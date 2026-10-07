@@ -259,6 +259,10 @@ function TourVisual({ kind }: { kind: TourVisualKind }) {
 const DRAFT_KEY = "waqt:onboarding-draft";
 
 export default function OnboardingWizard() {
+  // The resume step comes from ?s= — a client-only read. Rendering before
+  // mount would SSR "terms" then hydrate a different step (mismatch error),
+  // so the wizard paints nothing until it's running client-side.
+  const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState<Step>(initialStep);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -343,6 +347,9 @@ export default function OnboardingWizard() {
   const hydratedRef = useRef(false);
   const userIdRef = useRef<string | null>(null);
   useEffect(() => {
+    // Deferred — a synchronous setState in the effect body trips the
+    // cascading-render lint; a microtask still lands before user input.
+    Promise.resolve().then(() => setMounted(true));
     // Draft restore waits on /api/profile so a draft left by a *different*
     // account on this device is never applied (shared-device leak).
     const applyDraft = (knownUid: string | null) => {
@@ -353,24 +360,30 @@ export default function OnboardingWizard() {
         try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       }
       // Deferred — hydration setStates must not run synchronously in the effect.
+      // Every restore is a functional update that keeps the current value when
+      // the user already typed past the default, so a fast typist can't lose
+      // a field to the profile-fetch window.
       Promise.resolve().then(() => {
         const d = draft;
         if (d) {
-          if (typeof d.acceptedTerms === "boolean") setAcceptedTerms(d.acceptedTerms);
-          if (typeof d.firstName === "string") setFirstName(d.firstName);
-          if (typeof d.lastName === "string") setLastName(d.lastName);
-          if (typeof d.middleInitial === "string") setMiddleInitial(d.middleInitial);
-          if (d.theme === "light" || d.theme === "dark" || d.theme === "system") setTheme(d.theme);
-          if (d.gender === "male" || d.gender === "female") setGender(d.gender);
-          if (typeof d.haydTracking === "boolean") setHaydTracking(d.haydTracking);
-          if (typeof d.lat === "number") setLat(d.lat);
-          if (typeof d.lng === "number") setLng(d.lng);
-          if (typeof d.timezone === "string" && d.timezone) { setTimezone(d.timezone); if (typeof d.lat === "number") setLocationStatus("done"); }
-          if (typeof d.madhab === "string") setMadhab(d.madhab);
-          if (typeof d.earlyMid === "string") setEarlyMid(d.earlyMid);
-          if (typeof d.finalReminder === "string") setFinalReminder(d.finalReminder);
-          if (typeof d.otherReminders === "string") setOtherReminders(d.otherReminders);
-          if (typeof d.avatar === "string") setAvatar(d.avatar);
+          if (typeof d.acceptedTerms === "boolean") setAcceptedTerms((v) => v || d.acceptedTerms === true);
+          if (typeof d.firstName === "string") setFirstName((v) => v || (d.firstName as string));
+          if (typeof d.lastName === "string") setLastName((v) => v || (d.lastName as string));
+          if (typeof d.middleInitial === "string") setMiddleInitial((v) => v || (d.middleInitial as string));
+          if (d.theme === "light" || d.theme === "dark" || d.theme === "system") setTheme((v) => (v === "system" ? (d.theme as "light" | "dark" | "system") : v));
+          if (d.gender === "male" || d.gender === "female") setGender((v) => v ?? (d.gender as "male" | "female"));
+          if (typeof d.haydTracking === "boolean") setHaydTracking((v) => (v ? (d.haydTracking as boolean) : v));
+          if (typeof d.lat === "number") setLat((v) => v ?? (d.lat as number));
+          if (typeof d.lng === "number") setLng((v) => v ?? (d.lng as number));
+          if (typeof d.timezone === "string" && d.timezone) {
+            setTimezone((v) => v || (d.timezone as string));
+            if (typeof d.lat === "number") setLocationStatus((s) => (s === "idle" ? "done" : s));
+          }
+          if (typeof d.madhab === "string") setMadhab((v) => (v === "hanafi" ? (d.madhab as string) : v));
+          if (typeof d.earlyMid === "string") setEarlyMid((v) => (v === "push" ? (d.earlyMid as string) : v));
+          if (typeof d.finalReminder === "string") setFinalReminder((v) => (v === "push" ? (d.finalReminder as string) : v));
+          if (typeof d.otherReminders === "string") setOtherReminders((v) => (v === "push" ? (d.otherReminders as string) : v));
+          if (typeof d.avatar === "string") setAvatar((v) => v ?? (d.avatar as string));
         }
         hydratedRef.current = true;
       });
@@ -682,6 +695,10 @@ export default function OnboardingWizard() {
     ? ["terms", "name", "avatar", "gender", "hayd", "theme", "location", "madhab", "hifidh", "notifications", "install", "tour", "guide", "done"]
     : ["terms", "name", "avatar", "gender", "theme", "location", "madhab", "hifidh", "notifications", "install", "tour", "guide", "done"];
   const currentIdx = steps.indexOf(step);
+
+  if (!mounted) {
+    return <div className="min-h-dvh" style={{ backgroundColor: "var(--color-paper)" }} aria-hidden />;
+  }
 
   return (
     <div className="mx-auto flex w-full min-h-dvh max-w-lg flex-col justify-center overflow-x-hidden px-4 py-10 sm:px-6">
