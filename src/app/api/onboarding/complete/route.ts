@@ -30,6 +30,18 @@ export async function POST(request: NextRequest) {
     displayName?: string; firstName?: string; lastName?: string; middleInitial?: string;
   };
 
+  // Hard gate: prayer settings must exist — a crafted ?s=guide link can skip
+  // the wizard client-side, but completion without a location leaves the
+  // account with no prayer times at all.
+  const [settings] = await db
+    .select({ userId: schema.prayerSettings.userId })
+    .from(schema.prayerSettings)
+    .where(eq(schema.prayerSettings.userId, session.userId))
+    .limit(1);
+  if (!settings) {
+    return NextResponse.json({ error: "Finish the required setup steps first." }, { status: 409 });
+  }
+
   // Validate and sanitize display name if provided
   const trimmedName = typeof displayName === "string" ? displayName.trim() : "";
   const trimmedFirst = typeof firstName === "string" ? firstName.trim() : "";

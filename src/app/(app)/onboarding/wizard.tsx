@@ -355,7 +355,10 @@ export default function OnboardingWizard() {
     const applyDraft = (knownUid: string | null) => {
       let draft: Record<string, unknown> | null = null;
       try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "null"); } catch { /* corrupt */ }
-      if (draft && knownUid && typeof draft.uid === "string" && draft.uid !== knownUid) {
+      // Fail closed: a draft carrying a uid only applies to that account. A
+      // failed profile fetch (knownUid null) must not apply another user's
+      // draft on a shared device.
+      if (draft && typeof draft.uid === "string" && draft.uid !== knownUid) {
         draft = null;
         try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       }
@@ -709,8 +712,11 @@ export default function OnboardingWizard() {
             <button
               key={s}
               onClick={() => setStep(s)}
+              // Backward only — jumping ahead skips required saves (location,
+              // name) and could complete onboarding with nothing persisted.
+              disabled={i > currentIdx}
               aria-label={`Go to step ${i + 1}: ${s}`}
-              className="h-1.5 cursor-pointer rounded-full transition-[background-color] duration-300"
+              className="h-1.5 rounded-full transition-[background-color] duration-300 disabled:cursor-default"
               style={{
                 width: i === currentIdx ? 24 : 6,
                 backgroundColor: i <= currentIdx ? "var(--color-accent)" : "var(--color-paper-3)",

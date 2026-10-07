@@ -180,7 +180,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
           body: JSON.stringify({ id, status: "released", releaseReason: "other" }),
         }).catch(() => null);
       }
-      setCoverage((c) => ({ ...c, [hwId]: { planned: c[hwId]?.planned ?? 0, worked: 0 } }));
+      setCoverage((c) => ({ ...c, [hwId]: { ...c[hwId], planned: c[hwId]?.planned ?? 0, worked: 0, workedIds: [] } }));
       onChanged();
     } finally {
       setBusyAction(false);
