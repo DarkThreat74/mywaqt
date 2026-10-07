@@ -907,7 +907,7 @@ export default function StudySession() {
 
   return (
     <div className="fixed inset-0 z-[90] flex flex-col" style={{ backgroundColor: "var(--color-paper)" }} role="dialog" aria-modal="true" aria-label="Study session">
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-6 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:max-w-xl lg:max-w-2xl">
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-6 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:max-w-xl lg:max-w-none lg:px-14">
         {/* Header */}
         <div className="flex items-center justify-between">
           <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
@@ -939,98 +939,102 @@ export default function StudySession() {
           </button>
         )}
 
-        {/* Current segment — the clock sits inside a progress ring */}
-        <div className="flex flex-1 flex-col items-center justify-center text-center">
-          <p
-            className="text-[11px] font-semibold uppercase tracking-[0.2em]"
-            style={{ color: segAccent }}
-            aria-live="polite"
-          >
-            {progress.done ? "Session complete" : paused ? "Paused" : prayerName ? "Prayer break" : isBreak ? "Break — stretch, breathe" : "Stay with it"}
-          </p>
+        {/* Current segment — the clock sits inside a progress ring. On
+            desktop the hero splits: ring left, session text right, so the
+            layout fills the screen instead of a mobile column in the middle. */}
+        <div className="flex flex-1 flex-col items-center justify-center text-center lg:grid lg:grid-cols-2 lg:items-center lg:gap-16 lg:text-left">
+          <div className="flex flex-col items-center lg:items-end">
+            <p
+              className="text-[11px] font-semibold uppercase tracking-[0.2em] lg:self-center"
+              style={{ color: segAccent }}
+              aria-live="polite"
+            >
+              {progress.done ? "Session complete" : paused ? "Paused" : prayerName ? "Prayer break" : isBreak ? "Break — stretch, breathe" : "Stay with it"}
+            </p>
 
-          <div className="relative mt-4 flex items-center justify-center" aria-hidden>
-            <svg width="224" height="224" viewBox="0 0 224 224" className="-rotate-90">
-              <circle cx="112" cy="112" r="102" fill="none" stroke="var(--color-paper-3)" strokeWidth="5" />
-              <circle
-                cx="112" cy="112" r="102" fill="none"
-                stroke={paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : segAccent}
-                strokeWidth="5" strokeLinecap="round"
-                strokeDasharray={2 * Math.PI * 102}
-                strokeDashoffset={2 * Math.PI * 102 * (1 - pct / 100)}
-                style={{ transition: "stroke-dashoffset 1s linear, stroke 0.3s ease", opacity: paused ? 0.4 : 1 }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <p
-                className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
-                style={{ color: paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : isBreak ? "var(--color-success)" : "var(--color-ink)", transition: "color 0.4s ease" }}
-              >
-                {fmtClock(progress.remainingSec)}
-              </p>
-              <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-muted)" }}>
-                {progress.done ? "done" : `${fmtDur(Math.round(seg.minutes))} ${isBreak ? "break" : "block"}`}
-              </p>
+            <div className="relative mt-4 flex items-center justify-center lg:scale-110" aria-hidden>
+              <svg width="224" height="224" viewBox="0 0 224 224" className="-rotate-90">
+                <circle cx="112" cy="112" r="102" fill="none" stroke="var(--color-paper-3)" strokeWidth="5" />
+                <circle
+                  cx="112" cy="112" r="102" fill="none"
+                  stroke={paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : segAccent}
+                  strokeWidth="5" strokeLinecap="round"
+                  strokeDasharray={2 * Math.PI * 102}
+                  strokeDashoffset={2 * Math.PI * 102 * (1 - pct / 100)}
+                  style={{ transition: "stroke-dashoffset 1s linear, stroke 0.3s ease", opacity: paused ? 0.4 : 1 }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <p
+                  className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
+                  style={{ color: paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : isBreak ? "var(--color-success)" : "var(--color-ink)", transition: "color 0.4s ease" }}
+                >
+                  {fmtClock(progress.remainingSec)}
+                </p>
+                <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-muted)" }}>
+                  {progress.done ? "done" : `${fmtDur(Math.round(seg.minutes))} ${isBreak ? "break" : "block"}`}
+                </p>
+              </div>
             </div>
           </div>
 
-          {prayerName ? (
-            <p className="mt-4 max-w-[18rem] text-base font-bold uppercase tracking-wide" style={{ color: "var(--color-warmth)" }} role="alert">
-              {lied
-                ? "Why did you lie? Go pray right now — that's more important."
-                : `Get up and pray ${PRAYER_LABEL[prayerName] ?? prayerName} salah now`}
-            </p>
-          ) : (
-            <p className="mt-4 max-w-[16rem] text-base font-medium" style={{ color: "var(--color-ink-soft)" }}>
-              {progress.done ? "Nice work — go rest." : paused ? "Take the moment you need. I'll hold your place." : seg.label}
-            </p>
-          )}
-          {isBreak && progress.remainingSec <= 5 && progress.remainingSec > 0 && (
-            <p className="mt-1 text-sm font-semibold" style={{ color: "var(--color-success)" }} aria-live="assertive">
-              Back to it in {progress.remainingSec}…
-            </p>
-          )}
-          {/* Drift call-out — fired when you left the tab mid-segment */}
-          {driftNudge && !progress.done && (
-            <p className="mt-2 text-xs font-semibold" style={{ color: "var(--color-warmth)" }} role="status">
-              You drifted. Eyes back on the page.
-            </p>
-          )}
+          <div className="mt-4 flex flex-col items-center text-center lg:mt-0 lg:items-start lg:text-left">
+            {prayerName ? (
+              <p className="max-w-[18rem] text-base font-bold uppercase tracking-wide lg:max-w-none lg:text-lg" style={{ color: "var(--color-warmth)" }} role="alert">
+                {lied
+                  ? "Why did you lie? Go pray right now — that's more important."
+                  : `Get up and pray ${PRAYER_LABEL[prayerName] ?? prayerName} salah now`}
+              </p>
+            ) : (
+              <p className="max-w-[16rem] text-base font-medium lg:max-w-md lg:text-xl" style={{ color: "var(--color-ink-soft)" }}>
+                {progress.done ? "Nice work — go rest." : paused ? "Take the moment you need. I'll hold your place." : seg.label}
+              </p>
+            )}
+            {isBreak && progress.remainingSec <= 5 && progress.remainingSec > 0 && (
+              <p className="mt-1 text-sm font-semibold" style={{ color: "var(--color-success)" }} aria-live="assertive">
+                Back to it in {progress.remainingSec}…
+              </p>
+            )}
+            {/* Drift call-out — fired when you left the tab mid-segment */}
+            {driftNudge && !progress.done && (
+              <p className="mt-2 text-xs font-semibold" style={{ color: "var(--color-warmth)" }} role="status">
+                You drifted. Eyes back on the page.
+              </p>
+            )}
 
-          {/* Vox's coaching line — strict trainer voice, rotates per segment */}
-          {!progress.done && !paused && (
-            <p className="mt-3 text-[11px] font-medium italic" style={{ color: "var(--color-ink-muted)" }}>
-              {(isBreak ? COACH_BREAK : COACH_STUDY)[progress.index % (isBreak ? COACH_BREAK : COACH_STUDY).length]}
-            </p>
-          )}
+            {/* Vox's coaching line — strict trainer voice, rotates per segment */}
+            {!progress.done && !paused && (
+              <p className="mt-3 text-[11px] font-medium italic" style={{ color: "var(--color-ink-muted)" }}>
+                {(isBreak ? COACH_BREAK : COACH_STUDY)[progress.index % (isBreak ? COACH_BREAK : COACH_STUDY).length]}
+              </p>
+            )}
 
-          {/* Session timeline — every segment as a dash; done fills, current
-              pulses, upcoming stays hollow. Glanceable plan position. */}
-          {/* Today's banked focus — the running total that makes finishing
-              another block feel like growth, not just elapsed time. */}
-          {todayMin > 0 && (
-            <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
-              Today: {fmtDur(Math.round(todayMin))} focused
-            </p>
-          )}
+            {/* Today's banked focus — the running total that makes finishing
+                another block feel like growth, not just elapsed time. */}
+            {todayMin > 0 && (
+              <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                Today: {fmtDur(Math.round(todayMin))} focused
+              </p>
+            )}
 
-          <div className="mt-5 flex items-center justify-center gap-1" aria-hidden>
-            {state.segments.map((s, i) => (
-              <span
-                key={i}
-                className="h-1 rounded-full transition-all"
-                style={{
-                  width: i === progress.index ? 22 : Math.max(6, Math.min(14, s.minutes / 4)),
-                  backgroundColor:
-                    i < progress.index
-                      ? "var(--color-ink-muted)"
-                      : i === progress.index
-                        ? s.kind === "break" ? "var(--color-success)" : "var(--color-accent)"
-                        : "var(--color-paper-3)",
-                  opacity: i < progress.index ? 0.45 : i === progress.index ? 1 : 0.7,
-                }}
-              />
-            ))}
+            <div className="mt-5 flex items-center justify-center gap-1 lg:justify-start" aria-hidden>
+              {state.segments.map((s, i) => (
+                <span
+                  key={i}
+                  className="h-1 rounded-full transition-all"
+                  style={{
+                    width: i === progress.index ? 22 : Math.max(6, Math.min(14, s.minutes / 4)),
+                    backgroundColor:
+                      i < progress.index
+                        ? "var(--color-ink-muted)"
+                        : i === progress.index
+                          ? s.kind === "break" ? "var(--color-success)" : "var(--color-accent)"
+                          : "var(--color-paper-3)",
+                    opacity: i < progress.index ? 0.45 : i === progress.index ? 1 : 0.7,
+                  }}
+                />
+              ))}
+            </div>
           </div>
         </div>
 
@@ -1223,7 +1227,7 @@ export default function StudySession() {
         )}
 
         {/* Footer — pause/resume beside end-session */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 lg:mx-auto lg:w-full lg:max-w-md">
           {progress.done ? (
             <button
               onClick={() => { setAskFinish(true); setFinishStep("ask"); }}
