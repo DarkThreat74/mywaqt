@@ -58,11 +58,14 @@ export async function sendPrayerPush(
   if (subscription.platform === 'ios' || subscription.platform === 'android') {
     if (!subscription.token) return { delivered: false, expired: false };
 
-    const webPayload = JSON.parse(payload) as { title?: string; body?: string; data?: Record<string, unknown>; tag?: string };
+    const webPayload = JSON.parse(payload) as { title?: string; body?: string; url?: string; data?: Record<string, unknown>; tag?: string };
     const nativePayload: NativePushPayload = {
       title: webPayload.title ?? 'Waqt',
       body: webPayload.body ?? '',
-      data: webPayload.data,
+      // Senders put the deep-link at top level — native taps need it in data.
+      data: webPayload.url
+        ? { ...(webPayload.data ?? {}), url: webPayload.url }
+        : webPayload.data,
       tag: webPayload.tag ?? options?.topic,
     };
 

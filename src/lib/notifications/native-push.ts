@@ -202,7 +202,15 @@ async function sendFcm(token: string, payload: NativePushPayload): Promise<SendR
       notification: { sound: 'default', ...(payload.tag ? { tag: payload.tag } : {}) },
     },
   };
-  if (payload.data) message.data = payload.data;
+  if (payload.data) {
+    // FCM HTTP v1 requires data to be map<string,string> — non-string values
+    // (objects, numbers) cause a 400 INVALID_ARGUMENT and drop the push.
+    const data: Record<string, string> = {};
+    for (const [k, v] of Object.entries(payload.data)) {
+      data[k] = typeof v === 'string' ? v : JSON.stringify(v);
+    }
+    message.data = data;
+  }
 
   const resp = await fetch(
     `https://fcm.googleapis.com/v1/projects/${env.fcmProjectId}/messages:send`,
