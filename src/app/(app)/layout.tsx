@@ -29,6 +29,7 @@ import { SoundscapeProvider } from "@/components/soundscape-context";
 import StudySession from "@/components/study-session";
 import SidebarSalah from "@/components/sidebar-salah";
 import OnboardingGuard from "@/components/onboarding-guard";
+import ShellMode from "@/components/shell-mode";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
@@ -111,6 +112,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <AudioPlayerProvider>
     <SoundscapeProvider>
     <OnboardingGuard completed={gate.onboardingCompleted} step={gate.onboardingStep} />
+    <ShellMode />
     <div className="flex min-h-dvh w-full overflow-x-hidden" style={{ backgroundColor: "var(--color-paper)" }}>
       {/* ── Skip link for keyboard users (WCAG 2.4.1) ── */}
       <a href="#main-content" className="skip-link">
@@ -119,7 +121,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* ── Desktop sidebar ── */}
       <aside
-        className="fixed left-0 top-0 bottom-0 hidden w-56 flex-col border-r lg:flex"
+        className="app-chrome fixed left-0 top-0 bottom-0 hidden w-56 flex-col border-r lg:flex"
         style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
         aria-label="Primary navigation"
       >
@@ -147,10 +149,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* ── Main content area ── */}
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-56">
+      <div className="app-main flex min-w-0 flex-1 flex-col lg:pl-56">
         {/* Mobile top bar */}
         <header
-          className="sticky top-0 z-40 flex items-center justify-between border-b px-4 py-3 lg:hidden backdrop-blur-md"
+          className="app-chrome sticky top-0 z-40 flex items-center justify-between border-b px-4 py-3 lg:hidden backdrop-blur-md"
           style={{
             borderColor: "var(--color-paper-3)",
             backgroundColor: "color-mix(in oklab, var(--color-paper) 90%, transparent)",
@@ -175,7 +177,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* ── Mobile bottom nav ── */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t lg:hidden backdrop-blur-md"
+        className="app-chrome fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t lg:hidden backdrop-blur-md"
         style={{
           borderColor: "var(--color-paper-3)",
           backgroundColor: "color-mix(in oklab, var(--color-paper) 90%, transparent)",

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, Timer } from "lucide-react";
-import { SECTIONS } from "../guide/GuideClient";
+import { SECTIONS, Marked } from "../guide/GuideClient";
 
 interface QuizQuestion {
   question: string;
@@ -184,7 +184,7 @@ export function GuideGate({ onPass }: { onPass: () => void }) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4">
+    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4">
       {phase === "read" && (
         <>
           <div className="mb-3 text-center">
@@ -204,7 +204,7 @@ export function GuideGate({ onPass }: { onPass: () => void }) {
           <div
             ref={scrollRef}
             onScroll={checkScroll}
-            className="max-h-[52vh] overflow-y-auto rounded-2xl border p-4"
+            className="max-h-[62vh] overflow-y-auto rounded-2xl border p-5 sm:p-6"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
           >
             {SECTIONS.map((s) => (
@@ -212,19 +212,16 @@ export function GuideGate({ onPass }: { onPass: () => void }) {
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-accent)" }}>
                   {s.kicker}
                 </p>
-                <h2 className="mt-0.5 inline-block text-sm font-semibold" style={{ color: "var(--color-ink)", borderBottom: "2px solid var(--color-accent)", paddingBottom: 1 }}>
+                <h2 className="mt-0.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
                   {s.title}
                 </h2>
                 <ul className="mt-1.5 space-y-1.5">
                   {s.items.map((it) => (
                     <li key={it.heading} className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                      <span
-                        className="font-medium"
-                        style={{ color: "var(--color-ink)", borderBottom: "1px solid var(--color-warmth)", paddingBottom: 0 }}
-                      >
+                      <span className="font-medium" style={{ color: "var(--color-ink)" }}>
                         {it.heading}.
                       </span>{" "}
-                      {it.body}
+                      <Marked text={it.body} mark={it.tested} />
                     </li>
                   ))}
                 </ul>

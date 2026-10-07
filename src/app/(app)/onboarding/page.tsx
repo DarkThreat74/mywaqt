@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 
-import { MapPin, Bell, ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, User, Shield, Camera, Users, NotebookPen, BookOpen, Compass, CloudOff, type LucideIcon } from "lucide-react";
+import { MapPin, ArrowRight, ArrowLeft, Check, Loader2, User, Camera, CloudOff } from "lucide-react";
 import { readAvatarFile, presetAvatarDataUrl, AVATAR_PRESETS } from "@/lib/avatar";
 import { GuideGate } from "./guide-gate";
 
@@ -24,7 +24,6 @@ function initialStep(): Step {
 type TourVisualKind = "dots" | "league" | "planner" | "quran" | "tools" | "offline";
 
 interface TourSlide {
-  icon: LucideIcon;
   kicker: string;
   title: string;
   points: string[];
@@ -33,7 +32,6 @@ interface TourSlide {
 
 const TOUR_SLIDES: TourSlide[] = [
   {
-    icon: CheckCircle2,
     kicker: "The core",
     title: "Prayer comes first",
     visual: "dots",
@@ -44,7 +42,6 @@ const TOUR_SLIDES: TourSlide[] = [
     ],
   },
   {
-    icon: Users,
     kicker: "Together",
     title: "Friends & the League",
     visual: "league",
@@ -55,7 +52,6 @@ const TOUR_SLIDES: TourSlide[] = [
     ],
   },
   {
-    icon: NotebookPen,
     kicker: "Organize",
     title: "Planner",
     visual: "planner",
@@ -66,7 +62,6 @@ const TOUR_SLIDES: TourSlide[] = [
     ],
   },
   {
-    icon: BookOpen,
     kicker: "Play & learn",
     title: "Quran games",
     visual: "quran",
@@ -77,7 +72,6 @@ const TOUR_SLIDES: TourSlide[] = [
     ],
   },
   {
-    icon: Compass,
     kicker: "The toolkit",
     title: "Tools & more",
     visual: "tools",
@@ -88,7 +82,6 @@ const TOUR_SLIDES: TourSlide[] = [
     ],
   },
   {
-    icon: CloudOff,
     kicker: "Anywhere",
     title: "Install & offline",
     visual: "offline",
@@ -321,6 +314,12 @@ export default function OnboardingWizard() {
   const [lng, setLng] = useState<number | null>(null);
   const [timezone, setTimezone] = useState("");
   const [locationStatus, setLocationStatus] = useState<"idle" | "getting" | "done">("idle");
+  // Manual entry — geocoded place search for users who deny geolocation.
+  const [manualEntry, setManualEntry] = useState(false);
+  const [locQuery, setLocQuery] = useState("");
+  const [locResults, setLocResults] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
+  const [locSearching, setLocSearching] = useState(false);
+  const [locLabel, setLocLabel] = useState("");
 
   // Madhab state
   const [madhab, setMadhab] = useState<string>("hanafi");
@@ -402,12 +401,53 @@ export default function OnboardingWizard() {
     return () => window.removeEventListener("keydown", handler);
   }, [step]);
 
+  // Timezone from coordinates (accurate; falls back to the device tz).
+  async function resolveTimezone(latVal: number, lngVal: number): Promise<string> {
+    try {
+      const res = await fetch(`https://api.latlng.work/v1/timezone?lat=${latVal}&lng=${lngVal}`);
+      if (res.ok) {
+        const d = await res.json();
+        if (d.timezone) return d.timezone;
+      }
+    } catch { /* fall through */ }
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  }
+
+  // Debounced place search — OpenStreetMap Nominatim, light client-side use.
+  useEffect(() => {
+    if (!manualEntry || locQuery.trim().length < 3) return;
+    const t = setTimeout(async () => {
+      setLocSearching(true);
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(locQuery.trim())}`,
+        );
+        if (res.ok) setLocResults(await res.json());
+      } catch { /* leave results as-is */ }
+      setLocSearching(false);
+    }, 600);
+    return () => clearTimeout(t);
+  }, [manualEntry, locQuery]);
+
+  async function pickManualLocation(r: { display_name: string; lat: string; lon: string }) {
+    const latVal = parseFloat(r.lat);
+    const lngVal = parseFloat(r.lon);
+    if (!Number.isFinite(latVal) || !Number.isFinite(lngVal)) return;
+    setLocationStatus("getting");
+    setLat(latVal);
+    setLng(lngVal);
+    setLocLabel(r.display_name.split(",").slice(0, 2).join(","));
+    setTimezone(await resolveTimezone(latVal, lngVal));
+    setLocationStatus("done");
+  }
+
   function handleGetLocation() {
     setLocationStatus("getting");
     setError(null);
 
     if (!navigator.geolocation) {
-      setError("Geolocation is not supported by your browser.");
+      setError("Geolocation is not supported by your browser — enter your area below.");
+      setManualEntry(true);
       setLocationStatus("idle");
       return;
     }
@@ -418,27 +458,13 @@ export default function OnboardingWizard() {
         const lngVal = position.coords.longitude;
         setLat(latVal);
         setLng(lngVal);
-        // Look up timezone from coordinates for accuracy (handles VPN/misconfigured system tz)
-        try {
-          const tzRes = await fetch(
-            `https://api.latlng.work/v1/timezone?lat=${latVal}&lng=${lngVal}`,
-          );
-          if (tzRes.ok) {
-            const tzData = await tzRes.json();
-            if (tzData.timezone) {
-              setTimezone(tzData.timezone);
-              setLocationStatus("done");
-              return;
-            }
-          }
-        } catch {
-          // Fall back to browser timezone
-        }
-        setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+        setLocLabel("");
+        setTimezone(await resolveTimezone(latVal, lngVal));
         setLocationStatus("done");
       },
       (err) => {
         setError(err.message || "Failed to get location.");
+        setManualEntry(true);
         setLocationStatus("idle");
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
@@ -638,7 +664,7 @@ export default function OnboardingWizard() {
   const currentIdx = steps.indexOf(step);
 
   return (
-    <div className="mx-auto flex w-full min-h-[calc(100dvh-140px)] max-w-lg flex-col justify-center overflow-x-hidden px-4 py-8 sm:px-6">
+    <div className="mx-auto flex w-full min-h-dvh max-w-lg flex-col justify-center overflow-x-hidden px-4 py-10 sm:px-6">
       {/* Progress dots */}
       {step !== "done" && (
         <div className="mb-10 flex items-center justify-center gap-2">
@@ -674,12 +700,6 @@ export default function OnboardingWizard() {
               answers save automatically.
             </p>
           )}
-          <div
-            className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: "var(--color-accent-faint)" }}
-          >
-            <Shield className="h-7 w-7" style={{ color: "var(--color-accent)" }} />
-          </div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
             Before you begin
           </h1>
@@ -756,12 +776,6 @@ export default function OnboardingWizard() {
       {/* ── Step 1: Name — first/last(+middle) with collision escalation ── */}
       {step === "name" && (
         <div className="flex flex-col items-center text-center">
-          <div
-            className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: "var(--color-accent-faint)" }}
-          >
-            <User className="h-7 w-7" style={{ color: "var(--color-accent)" }} />
-          </div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
             What should we call you?
           </h1>
@@ -1046,12 +1060,6 @@ export default function OnboardingWizard() {
       {/* ── Step 3: Location ── */}
       {step === "location" && (
         <div className="flex flex-col items-center text-center">
-          <div
-            className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: "var(--color-accent-faint)" }}
-          >
-            <MapPin className="h-7 w-7" style={{ color: "var(--color-accent)" }} />
-          </div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
             Set your location
           </h1>
@@ -1061,14 +1069,72 @@ export default function OnboardingWizard() {
           </p>
 
           <div className="mt-8 w-full max-w-sm">
-            {locationStatus === "idle" && (
-              <button
-                onClick={handleGetLocation}
-                className="w-full rounded-full px-6 py-3.5 text-sm font-medium transition-opacity hover:opacity-90"
-                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
-              >
-                Get my location
-              </button>
+            {locationStatus === "idle" && !manualEntry && (
+              <>
+                <button
+                  onClick={handleGetLocation}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3.5 text-sm font-medium transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                >
+                  <MapPin className="h-4 w-4" />
+                  Get my location
+                </button>
+                <button
+                  onClick={() => setManualEntry(true)}
+                  className="mt-3 w-full text-sm font-medium transition-opacity hover:opacity-60"
+                  style={{ color: "var(--color-ink-muted)" }}
+                >
+                  Enter manually
+                </button>
+              </>
+            )}
+
+            {locationStatus === "idle" && manualEntry && (
+              <div className="text-left">
+                <input
+                  type="search"
+                  placeholder="City, area, or ZIP"
+                  value={locQuery}
+                  onChange={(e) => {
+                    setLocQuery(e.target.value);
+                    if (e.target.value.trim().length < 3) setLocResults([]);
+                  }}
+                  autoFocus
+                  className="w-full rounded-xl border px-4 py-3.5 text-base outline-none focus:border-[var(--color-accent)]"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 48 }}
+                />
+                {locSearching && (
+                  <p className="mt-2 flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching…
+                  </p>
+                )}
+                <ul className="mt-2 overflow-hidden rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
+                  {locResults.map((r, i) => (
+                    <li key={r.display_name} style={i > 0 ? { borderTop: "1px solid var(--color-paper-3)" } : undefined}>
+                      <button
+                        onClick={() => void pickManualLocation(r)}
+                        className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors hover:bg-[var(--color-paper-2)]"
+                        style={{ color: "var(--color-ink)" }}
+                      >
+                        <MapPin className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                        <span className="min-w-0 flex-1 truncate">{r.display_name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {!locSearching && locQuery.trim().length >= 3 && locResults.length === 0 && (
+                  <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                    No matches — try a nearby city or a different spelling.
+                  </p>
+                )}
+                <button
+                  onClick={() => { setManualEntry(false); setLocQuery(""); setLocResults([]); }}
+                  className="mt-3 text-sm font-medium transition-opacity hover:opacity-60"
+                  style={{ color: "var(--color-ink-muted)" }}
+                >
+                  Use my device location instead
+                </button>
+              </div>
             )}
 
             {locationStatus === "getting" && (
@@ -1084,8 +1150,10 @@ export default function OnboardingWizard() {
                   className="flex items-center gap-2 rounded-xl border px-4 py-3 text-sm"
                   style={{ borderColor: "var(--color-success)", backgroundColor: "var(--color-accent-faint)", color: "var(--color-ink)" }}
                 >
-                  <Check className="h-4 w-4" style={{ color: "var(--color-success)" }} />
-                  Location captured: {lat.toFixed(2)}, {lng.toFixed(2)}
+                  <Check className="h-4 w-4 shrink-0" style={{ color: "var(--color-success)" }} />
+                  <span className="min-w-0 truncate">
+                    {locLabel || `Location captured: ${lat.toFixed(2)}, ${lng.toFixed(2)}`}
+                  </span>
                 </div>
                 <button
                   onClick={saveLocation}
@@ -1099,31 +1167,12 @@ export default function OnboardingWizard() {
               </div>
             )}
           </div>
-
-          <button
-            onClick={() => {
-              setError("Location is required to fetch prayer times. Please capture your location to continue.");
-            }}
-            className="mt-6 text-sm font-medium transition-opacity hover:opacity-60"
-            style={{ color: "var(--color-ink-muted)" }}
-          >
-            Skip for now
-          </button>
         </div>
       )}
 
       {/* ── Step 3: Madhab ── */}
       {step === "madhab" && (
         <div className="flex flex-col items-center text-center">
-          <div
-            className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)" }}
-          >
-            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "var(--color-accent)" }}>
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-            </svg>
-          </div>
-
           <h2 className="mb-2 text-xl font-semibold" style={{ color: "var(--color-ink)" }}>
             Which school do you follow?
           </h2>
@@ -1243,12 +1292,6 @@ export default function OnboardingWizard() {
       {/* ── Step 4: Notifications ── */}
       {step === "notifications" && (
         <div className="flex flex-col items-center text-center">
-          <div
-            className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: "var(--color-accent-faint)" }}
-          >
-            <Bell className="h-7 w-7" style={{ color: "var(--color-accent)" }} />
-          </div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
             Notification preferences
           </h1>
@@ -1290,12 +1333,6 @@ export default function OnboardingWizard() {
       {/* ── Install — the app behaves like a native app from the home screen ── */}
       {step === "install" && (
         <div className="flex flex-col items-center text-center">
-          <div
-            className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: "var(--color-accent-faint)" }}
-          >
-            <CloudOff className="h-7 w-7" style={{ color: "var(--color-accent)" }} />
-          </div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
             Keep Waqt on your home screen
           </h1>
@@ -1334,7 +1371,6 @@ export default function OnboardingWizard() {
       {step === "tour" && (() => {
         const slide = TOUR_SLIDES[tourIdx];
         const last = tourIdx === TOUR_SLIDES.length - 1;
-        const Icon = slide.icon;
         return (
           <div
             className="flex flex-col items-center text-center"
@@ -1351,15 +1387,8 @@ export default function OnboardingWizard() {
               if (dx > 0 && tourIdx > 0) setTourIdx((i) => i - 1);
             }}
           >
-            {/* Icon medallion */}
-            <div
-              className="flex h-16 w-16 items-center justify-center rounded-2xl sm:h-[72px] sm:w-[72px]"
-              style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
-            >
-              <Icon className="h-7 w-7 sm:h-8 sm:w-8" aria-hidden />
-            </div>
             <p
-              className="mt-4 text-[11px] font-medium uppercase tracking-[0.2em]"
+              className="text-[11px] font-medium uppercase tracking-[0.2em]"
               style={{ color: "var(--color-ink-muted)" }}
             >
               {slide.kicker}

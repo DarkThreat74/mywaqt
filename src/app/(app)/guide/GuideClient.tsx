@@ -348,6 +348,23 @@ function FigPrivacy() {
 interface GuideItem {
   heading: string;
   body: string;
+  /** Substring of `body` the onboarding quiz tests — rendered underlined. */
+  tested?: string;
+}
+
+/** Renders body text, underlining the tested phrase (and only that phrase). */
+export function Marked({ text, mark }: { text: string; mark?: string }) {
+  if (!mark || !text.includes(mark)) return <>{text}</>;
+  const i = text.indexOf(mark);
+  return (
+    <>
+      {text.slice(0, i)}
+      <u className="decoration-2 underline-offset-[3px]" style={{ textDecorationColor: "var(--color-accent)" }}>
+        {mark}
+      </u>
+      {text.slice(i + mark.length)}
+    </>
+  );
 }
 
 interface GuideSection {
@@ -407,6 +424,7 @@ export const SECTIONS: GuideSection[] = [
       {
         heading: "Tap a circle to log",
         body: "On Prayer → Overview, each of today's prayers is a circle. Tap it to check in — note whether you prayed at the masjid and which sunnahs you did.",
+        tested: "Tap it to check in",
       },
       {
         heading: "Catch up on past days",
@@ -415,10 +433,12 @@ export const SECTIONS: GuideSection[] = [
       {
         heading: "Assumed prayed",
         body: "If you never mark a prayer and the day ends, it resolves as assumed prayed — no silent penalty. Only prayers you explicitly mark missed count against you.",
+        tested: "assumed prayed — no silent penalty",
       },
       {
         heading: "Hayd pause",
         body: "If hayd tracking is enabled in Settings, obligations pause automatically during your period and resume after — streaks stay intact.",
+        tested: "obligations pause",
       },
       {
         heading: "The sidebar countdown",
@@ -446,6 +466,7 @@ export const SECTIONS: GuideSection[] = [
       {
         heading: "Qadaa tracker",
         body: "Prayers marked missed add to your Qadaa count in Prayer → Stats. Log make-up prayers there to work the number down over time.",
+        tested: "Prayers marked missed add to your Qadaa count",
       },
       {
         heading: "Consistency heatmap",
@@ -481,6 +502,7 @@ export const SECTIONS: GuideSection[] = [
       {
         heading: "Nudges & duas",
         body: "While a friend's prayer window is open, tap the dot to nudge — capped per prayer so it stays kind. When they pray, they can send a dua back.",
+        tested: "While a friend's prayer window is open, tap the dot to nudge",
       },
       {
         heading: "Hide from the League",
@@ -504,6 +526,7 @@ export const SECTIONS: GuideSection[] = [
       {
         heading: "How ranking works",
         body: "Position is decided by this week's logged fard prayers. Since everyone aims for all five, ties break on confirmed sunnah muakkadah and witr — that's where the race actually happens.",
+        tested: "confirmed sunnah muakkadah and witr",
       },
       {
         heading: "Shared streaks",
@@ -694,6 +717,11 @@ export const SECTIONS: GuideSection[] = [
         heading: "Customize",
         body: "Settings → Navigation lets you hide tools you don't use, including Messages and the center button itself.",
       },
+      {
+        heading: "Re-open this guide",
+        body: "The full guide lives at Tools → Guide whenever you need a refresher — same book, same chapters.",
+        tested: "Tools → Guide",
+      },
     ],
   },
   {
@@ -715,6 +743,7 @@ export const SECTIONS: GuideSection[] = [
       {
         heading: "Offline writes",
         body: "Check-ins made offline queue silently and sync when you're back — a brief banner tells you. Nothing is lost.",
+        tested: "queue silently and sync when you're back",
       },
       {
         heading: "Your data stays yours",
@@ -773,50 +802,46 @@ export default function GuideClient() {
   }, []);
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
-      {/* Header */}
-      <header className="max-w-2xl">
-        <p
-          className="text-xs font-medium uppercase tracking-[0.2em]"
-          style={{ color: "var(--color-accent)" }}
-        >
-          Guide
-        </p>
+    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
+      {/* Title page — centered masthead like a book's opening leaf */}
+      <header className="flex flex-col items-center pb-10 pt-4 text-center sm:pb-14 sm:pt-8">
+        <div className="h-px w-16" style={{ backgroundColor: "var(--color-accent)" }} aria-hidden />
         <h1
-          className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl"
+          className="mt-6 text-4xl font-semibold tracking-tight sm:text-5xl"
           style={{ color: "var(--color-ink)" }}
         >
-          How Waqt works
+          The Waqt Guide
         </h1>
-        <p className="mt-3 text-sm leading-relaxed sm:text-base" style={{ color: "var(--color-ink-soft)" }}>
-          Prayers are the fixed anchors; everything else arranges around them. This is the
-          manual — twelve short chapters, each with a figure. Skim the plates or jump to
-          the chapter you need.
+        <p className="mt-4 max-w-md text-sm leading-relaxed sm:text-base" style={{ color: "var(--color-ink-soft)" }}>
+          Prayers are the fixed anchors; everything else arranges around them.
+          Twelve short chapters, each with a figure.
         </p>
+        <div className="mt-6 h-px w-16" style={{ backgroundColor: "var(--color-accent)" }} aria-hidden />
       </header>
 
-      {/* Mobile TOC — horizontal chips */}
-      <nav
-        aria-label="Guide sections"
-        className="sticky top-0 z-10 -mx-4 mt-6 overflow-x-auto px-4 py-3 backdrop-blur-md lg:hidden"
-        style={{ backgroundColor: "color-mix(in oklab, var(--color-paper) 85%, transparent)", scrollbarWidth: "none" }}
-      >
-        <div className="flex w-max gap-2">
+      {/* Contents — a real book TOC, two columns on larger screens */}
+      <nav aria-label="Table of contents" className="mx-auto max-w-2xl border-y py-6 sm:py-8" style={{ borderColor: "var(--color-paper-3)" }}>
+        <p className="mb-4 text-center text-[11px] font-medium uppercase tracking-[0.24em]" style={{ color: "var(--color-ink-muted)" }}>
+          Contents
+        </p>
+        <ol className="grid gap-x-10 gap-y-2 sm:grid-cols-2">
           {SECTIONS.map((s, i) => (
-            <a
-              key={s.id}
-              href={`#${s.id}`}
-              className="whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors"
-              style={{
-                borderColor: active === s.id ? "var(--color-accent)" : "var(--color-paper-3)",
-                backgroundColor: active === s.id ? "var(--color-accent-faint)" : "var(--color-paper)",
-                color: active === s.id ? "var(--color-accent)" : "var(--color-ink-soft)",
-              }}
-            >
-              {i + 1}. {s.title}
-            </a>
+            <li key={s.id}>
+              <a
+                href={`#${s.id}`}
+                className="group flex items-baseline gap-3 py-1.5 transition-opacity hover:opacity-70"
+              >
+                <span className="w-6 shrink-0 text-right text-xs tabular-nums" style={{ color: "var(--color-accent)" }}>
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+                  {s.title}
+                </span>
+                <span className="mx-1 flex-1 border-b border-dotted" style={{ borderColor: "var(--color-paper-3)" }} aria-hidden />
+              </a>
+            </li>
           ))}
-        </div>
+        </ol>
       </nav>
 
       <div className="mt-8 gap-10 lg:grid lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -930,7 +955,7 @@ export default function GuideClient() {
                         className="mt-1 text-sm leading-relaxed"
                         style={{ color: "var(--color-ink-soft)" }}
                       >
-                        {item.body}
+                        <Marked text={item.body} mark={item.tested} />
                       </dd>
                     </div>
                   </div>

@@ -190,6 +190,17 @@ main#main-content {
   }
 }
 
+/* Bare-shell routes (onboarding, guide): no app chrome, full viewport. */
+html[data-shell="bare"] .app-chrome {
+  display: none !important;
+}
+html[data-shell="bare"] .app-main {
+  padding-left: 0 !important;
+}
+html[data-shell="bare"] main#main-content {
+  padding-bottom: 0 !important;
+}
+
 /* Prevent 300ms tap delay on touch devices */
 button,
 a,
