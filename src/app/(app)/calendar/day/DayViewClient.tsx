@@ -1762,7 +1762,9 @@ export default function DayViewClient({ date }: { date: string }) {
             </div>
           )}
 
-          {/* Prayer time lines — colored line with label pill (z-10, behind events at z-20) */}
+          {/* Prayer time lines — colored line with label pill (z-30, ABOVE
+              events at z-20; the pill stays translucent so the event shows
+              through) */}
           {prayerTimes &&
             PRAYER_NAMES.map((prayer) => {
               const rawTime = prayerTimes[prayer.key];
@@ -1779,15 +1781,15 @@ export default function DayViewClient({ date }: { date: string }) {
               return (
                 <div
                   key={prayer.key}
-                  className="absolute z-10 flex items-center pr-1 pointer-events-none"
+                  className="absolute z-30 flex items-center pr-1 pointer-events-none"
                   style={{ top: top - 7, left: TIME_COL, right: 0 }}
                 >
                   <div className="h-px flex-1" style={{ backgroundColor: prayer.color, opacity: 0.3 }} />
                   <button
                     onClick={isClickable ? (e: React.MouseEvent) => { e.stopPropagation(); setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayerLabel(prayer.key, prayer.label) }); } : undefined}
-                    className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-transform sm:px-2 sm:text-[10px] pointer-events-auto"
+                    className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium backdrop-blur-[2px] transition-transform sm:px-2 sm:text-[10px] pointer-events-auto"
                     style={{
-                      backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 10%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))" : "var(--color-paper)",
+                      backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 12%, transparent)" : isExcused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : "color-mix(in oklab, var(--color-paper) 65%, transparent)",
                       color: prayer.color,
                       border: `1px solid ${isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : prayer.color}`,
                       cursor: isClickable ? "pointer" : "default",
@@ -1820,7 +1822,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 return (
                   <div
                     key={`nafl-${m.key}`}
-                    className="absolute z-10 flex items-center pr-1 pointer-events-none"
+                    className="absolute z-30 flex items-center pr-1 pointer-events-none"
                     style={{ top: top - 6, left: TIME_COL, right: 0 }}
                   >
                     <div
@@ -1859,14 +1861,14 @@ export default function DayViewClient({ date }: { date: string }) {
               return (
                 <div
                   key={i}
-                  className="absolute z-10 flex items-center pr-1 pointer-events-none"
+                  className="absolute z-30 flex items-center pr-1 pointer-events-none"
                   style={{ top: top - 7, left: TIME_COL, right: 0 }}
                 >
                   <div className="h-0.5 flex-1" style={{ backgroundColor: "var(--color-accent)", opacity: 0.35 }} />
                   <span
-                    className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold sm:px-2"
+                    className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur-[2px] sm:px-2"
                     style={{
-                      backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))",
+                      backgroundColor: "color-mix(in oklab, var(--color-paper) 65%, transparent)",
                       color: "var(--color-accent)",
                       border: "1px solid var(--color-accent)",
                     }}

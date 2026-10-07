@@ -66,9 +66,10 @@ export default function FloatingDock({ feedbackEnabled = false }: { feedbackEnab
       )}
 
       <div
-        className="fixed z-[60] flex items-center gap-0.5 rounded-full border p-1 shadow-lg backdrop-blur-md"
+        // Mobile leaves a lane for the + FAB (right-5 + w-12 ≈ 68px): the
+        // dock's right edge parks left of it instead of overlapping.
+        className="fixed z-[60] flex items-center gap-0.5 rounded-full border p-1 shadow-lg backdrop-blur-md right-[calc(env(safe-area-inset-right)+5.25rem)] lg:right-[calc(env(safe-area-inset-right)+0.75rem)]"
         style={{
-          right: "calc(env(safe-area-inset-right) + 0.75rem)",
           bottom: "calc(4rem + env(safe-area-inset-bottom) + 0.75rem)",
           borderColor: "var(--color-paper-3)",
           backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",

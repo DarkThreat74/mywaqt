@@ -117,7 +117,7 @@ export default function FeedbackWidget({ docked = false }: { docked?: boolean })
           ? "flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
           : "feedback-fab fixed z-40 flex items-center justify-center rounded-full border shadow-lg transition-colors"}
         style={docked
-          ? { width: 32, height: 32, color: "var(--color-ink-muted)" }
+          ? { width: 26, height: 26, color: "var(--color-ink-muted)" }
           : {
               width: 36,
               height: 36,
@@ -128,7 +128,7 @@ export default function FeedbackWidget({ docked = false }: { docked?: boolean })
               WebkitBackdropFilter: "blur(8px)",
             }}
       >
-        <MessageSquarePlus className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+        <MessageSquarePlus className={docked ? "h-3.5 w-3.5" : "h-4 w-4"} style={{ color: "var(--color-accent)" }} />
       </button>
 
       {/* Panel */}

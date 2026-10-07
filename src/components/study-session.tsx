@@ -178,7 +178,7 @@ export default function StudySession() {
   // ── Salah awareness ──
   // The open prayer window whose salah is still unmarked — banner + break
   // escalation all key off this. Refreshes every 60s while running.
-  const [salah, setSalah] = useState<{ name: string; date: string; endsAt: number } | null>(null);
+  const [salah, setSalah] = useState<{ name: string; date: string; startsAt: number; endsAt: number } | null>(null);
   // Guards so each escalation fires once per prayer window.
   const prayerFiredRef = useRef<string | null>(null);   // <15 min forced break
   const prayerQueuedRef = useRef<string | null>(null);  // <30 min inserted break
@@ -252,12 +252,12 @@ export default function StudySession() {
           return t.getTime() + dayOffset * 86400000;
         };
         const nowMs = Date.now();
-        let found: { name: string; endsAt: number } | null = null;
+        let found: { name: string; startsAt: number; endsAt: number } | null = null;
         for (const [p, endKey] of order) {
           const s = toTs(times[p]);
           const e = endKey === "fajr" ? toTs(times.fajr, 1) : toTs(times[endKey]);
           if (Number.isNaN(s) || Number.isNaN(e)) continue;
-          if (nowMs >= s && nowMs < e) { found = { name: p, endsAt: e }; break; }
+          if (nowMs >= s && nowMs < e) { found = { name: p, startsAt: s, endsAt: e }; break; }
         }
         if (!found) { setSalah(null); return; }
         if (markedPrayersRef.current.has(found.name)) { setSalah(null); return; }
@@ -407,9 +407,10 @@ export default function StudySession() {
   }, [progress, state.status]);
 
   // ── Salah escalation ──
-  // <15 min left, still unmarked → the session converts to a 10-min prayer
-  // break right now (even mid-study, even paused). <30 min with no break
-  // reaching before the window ends → force-insert a prayer break next.
+  // 15 min after the window OPENS, still unmarked → a 10-min prayer break is
+  // queued right after the current segment (early prayer beats late panic).
+  // Last resort stays: <15 min left → convert the session to a prayer break
+  // right now (even mid-study, even paused).
   useEffect(() => {
     if (!salah || state.status !== "running" || !progress) return;
     const remainMin = (salah.endsAt - now) / 60000;
@@ -420,16 +421,12 @@ export default function StudySession() {
       prayerBreakNow(salah.name, 10);
       return;
     }
-    if (remainMin <= 30 && prayerQueuedRef.current !== salah.name) {
-      // A break only counts if it STARTS before the window closes.
-      let secUntil = progress.remainingSec;
-      let covered = progress.segment.kind === "break";
-      if (!covered) {
-        for (let i = progress.index + 1; i < state.segments.length; i++) {
-          if (state.segments[i].kind === "break") { covered = secUntil / 60 <= remainMin; break; }
-          secUntil += state.segments[i].minutes * 60;
-        }
-      }
+    const graceMs = salah.startsAt + 15 * 60 * 1000;
+    if (now >= graceMs && prayerQueuedRef.current !== salah.name) {
+      // Already queued? A break flagged with this prayer counts as covered.
+      const covered =
+        state.segments.slice(progress.index).some((s) => s.prayer === salah.name) ||
+        (progress.segment.kind === "break" && progress.remainingSec / 60 <= remainMin);
       if (!covered) {
         prayerQueuedRef.current = salah.name;
         insertPrayerBreakAfterCurrent(salah.name, 10);

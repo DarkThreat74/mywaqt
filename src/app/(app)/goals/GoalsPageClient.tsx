@@ -6,9 +6,10 @@ import {
   Target,
   BookOpen,
   Repeat,
+  BrushCleaning,
   CheckCircle2,
 } from "lucide-react";
-import type { Goal, Homework, Class, Habit, HabitLog } from "@/lib/db/schema";
+import type { Goal, Homework, Class, Habit, HabitLog, Chore } from "@/lib/db/schema";
 import { getOfflineDB } from "@/lib/offline/db";
 import {
   syncGoalsToCache,
@@ -20,10 +21,11 @@ import {
 import GoalsTab, { type GoalHorizon } from "./tabs/GoalsTab";
 import HomeworkTab from "./tabs/HomeworkTab";
 import HabitsTab from "./tabs/HabitsTab";
+import ChoresTab from "./tabs/ChoresTab";
 import TodayTab from "./tabs/TodayTab";
 import DoneTab from "./tabs/DoneTab";
 
-export type TabId = "today" | "goals" | "homework" | "habits" | "done";
+export type TabId = "today" | "goals" | "homework" | "habits" | "chores" | "done";
 
 interface TabDef {
   id: TabId;
@@ -36,6 +38,7 @@ const TABS: TabDef[] = [
   { id: "goals", label: "Goals", icon: Target },
   { id: "homework", label: "Homework", icon: BookOpen },
   { id: "habits", label: "Habits", icon: Repeat },
+  { id: "chores", label: "Chores", icon: BrushCleaning },
   { id: "done", label: "Done", icon: CheckCircle2 },
 ];
 
@@ -66,12 +69,14 @@ export default function GoalsPageClient({
   initialClasses,
   initialHabits,
   initialHabitLogs,
+  initialChores,
 }: {
   initialGoals: Goal[];
   initialHomework: Homework[];
   initialClasses: Class[];
   initialHabits: Habit[];
   initialHabitLogs: HabitLog[];
+  initialChores: Chore[];
 }) {
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     if (typeof window !== "undefined") {
@@ -86,6 +91,7 @@ export default function GoalsPageClient({
   const [classes, setClasses] = useState<Class[]>(initialClasses);
   const [habits, setHabits] = useState<Habit[]>(initialHabits);
   const [habitLogs, setHabitLogs] = useState<HabitLog[]>(initialHabitLogs);
+  const [chores, setChores] = useState<Chore[]>(initialChores);
 
   // ── Update URL hash when tab changes ──
   useEffect(() => {
@@ -168,15 +174,16 @@ export default function GoalsPageClient({
 
   const refreshAll = useCallback(async () => {
     try {
-      const [goalsRes, hwRes, clsRes, habitsRes, logsRes] = await Promise.all([
+      const [goalsRes, hwRes, clsRes, habitsRes, logsRes, choresRes] = await Promise.all([
         fetch("/api/goals"), fetch("/api/homework"), fetch("/api/classes"),
-        fetch("/api/habits"), fetch("/api/habit-logs"),
+        fetch("/api/habits"), fetch("/api/habit-logs"), fetch("/api/chores"),
       ]);
       if (goalsRes.ok) { const d = await goalsRes.json(); if (d.goals) { setGoals(d.goals); syncGoalsToCache(d.goals); } }
       if (hwRes.ok) { const d = await hwRes.json(); if (Array.isArray(d)) { setHomework(d); syncHomeworkToCache(d); } }
       if (clsRes.ok) { const d = await clsRes.json(); if (Array.isArray(d)) { setClasses(d); syncClassesToCache(d); } }
       if (habitsRes.ok) { const d = await habitsRes.json(); if (Array.isArray(d)) { setHabits(d); syncHabitsToCache(d); } }
       if (logsRes.ok) { const d = await logsRes.json(); if (Array.isArray(d)) { setHabitLogs(d); syncHabitLogsToCache(d); } }
+      if (choresRes.ok) { const d = await choresRes.json(); if (Array.isArray(d)) setChores(d); }
     } catch {
       // offline — cached data still showing
     }
@@ -294,6 +301,9 @@ export default function GoalsPageClient({
         )}
         {activeTab === "habits" && (
           <HabitsTab habits={habits} setHabits={setHabits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} />
+        )}
+        {activeTab === "chores" && (
+          <ChoresTab chores={chores} setChores={setChores} />
         )}
         {activeTab === "done" && (
           <DoneTab goals={goals} homework={homework} setGoals={setGoals} setHomework={setHomework} />

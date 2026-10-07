@@ -968,6 +968,25 @@ export const habitLogs = pgTable('habit_logs', {
   userDateIdx: index('habit_logs_user_date_idx').on(table.userId, table.date),
 }));
 
+// ─── Chores (recurring household tasks with a weekly-ish deadline) ────
+// Tody-style dueness: (now − lastDoneAt) / frequencyDays. Not a habit counter
+// — a chore is due when enough time has passed since the last completion.
+export const chores = pgTable('chores', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  // How long it takes — used when planning it onto the calendar.
+  estimatedMinutes: integer('estimated_minutes').default(30).notNull(),
+  // How often it realistically needs doing (default: weekly).
+  frequencyDays: integer('frequency_days').default(7).notNull(),
+  lastDoneAt: timestamp('last_done_at', { withTimezone: true }),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('chores_user_id_idx').on(table.userId),
+}));
+
 // ─── Notes (quick brain dump / journal) ──────────────────────────────
 
 export const notes = pgTable('notes', {
@@ -1018,6 +1037,8 @@ export type Habit = typeof habits.$inferSelect;
 export type NewHabit = typeof habits.$inferInsert;
 export type HabitLog = typeof habitLogs.$inferSelect;
 export type NewHabitLog = typeof habitLogs.$inferInsert;
+export type Chore = typeof chores.$inferSelect;
+export type NewChore = typeof chores.$inferInsert;
 export type Note = typeof notes.$inferSelect;
 export type NewNote = typeof notes.$inferInsert;
 export type HaydPeriod = typeof haydPeriods.$inferSelect;
