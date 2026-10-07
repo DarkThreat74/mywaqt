@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   BookOpen,
   CalendarDays,
@@ -781,237 +781,276 @@ export const SECTIONS: GuideSection[] = [
 ];
 
 export default function GuideClient() {
-  const [active, setActive] = useState(SECTIONS[0].id);
-  const refs = useRef<Record<string, HTMLElement | null>>({});
+  const [idx, setIdx] = useState(0);
+  const [tocOpen, setTocOpen] = useState(false);
+  const s = SECTIONS[idx];
+  const last = idx === SECTIONS.length - 1;
 
-  // Scroll-spy: highlight the TOC entry for the section nearest the top.
+  // Page turns reset scroll; arrow keys turn pages like a real reader.
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) setActive(e.target.id);
-        }
-      },
-      { rootMargin: "-20% 0px -70% 0px" }
-    );
-    for (const s of SECTIONS) {
-      const el = refs.current[s.id];
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
+    window.scrollTo({ top: 0 });
+  }, [idx]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight") setIdx((i) => Math.min(i + 1, SECTIONS.length - 1));
+      if (e.key === "ArrowLeft") setIdx((i) => Math.max(i - 1, 0));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const chapterList = (
+    <ol className="space-y-0.5">
+      {SECTIONS.map((sec, i) => (
+        <li key={sec.id}>
+          <button
+            onClick={() => { setIdx(i); setTocOpen(false); }}
+            aria-current={i === idx ? "page" : undefined}
+            className="flex w-full items-baseline gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors"
+            style={{
+              backgroundColor: i === idx ? "var(--color-accent-faint)" : "transparent",
+              color: i === idx ? "var(--color-accent)" : "var(--color-ink-soft)",
+              fontWeight: i === idx ? 600 : 400,
+            }}
+          >
+            <span className="w-5 shrink-0 text-right text-[11px] tabular-nums" style={{ color: i === idx ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+              {i + 1}
+            </span>
+            <span className="min-w-0 truncate">{sec.title}</span>
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
-      {/* Title page — centered masthead like a book's opening leaf */}
-      <header className="flex flex-col items-center pb-10 pt-4 text-center sm:pb-14 sm:pt-8">
-        <div className="h-px w-16" style={{ backgroundColor: "var(--color-accent)" }} aria-hidden />
-        <h1
-          className="mt-6 text-4xl font-semibold tracking-tight sm:text-5xl"
-          style={{ color: "var(--color-ink)" }}
+    <div className="flex min-h-dvh w-full" style={{ backgroundColor: "var(--color-paper)" }}>
+      {/* ── Left rail: book title + chapter nav (desktop) ── */}
+      <aside
+        className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col overflow-y-auto border-r lg:flex"
+        style={{ borderColor: "var(--color-paper-3)" }}
+      >
+        <div className="px-6 pb-4 pt-8">
+          <p className="text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+            The Waqt Guide
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            {SECTIONS.length} chapters · the owner&rsquo;s manual
+          </p>
+        </div>
+        <nav aria-label="Chapters" className="flex-1 px-3 pb-8">
+          {chapterList}
+        </nav>
+      </aside>
+
+      {/* ── Center: the page itself ── */}
+      <main className="min-w-0 flex-1">
+        {/* Mobile top bar — chapter position + contents */}
+        <div
+          className="sticky top-0 z-20 flex items-center justify-between border-b px-4 py-2.5 backdrop-blur-md lg:hidden"
+          style={{
+            borderColor: "var(--color-paper-3)",
+            backgroundColor: "color-mix(in oklab, var(--color-paper) 90%, transparent)",
+          }}
         >
-          The Waqt Guide
-        </h1>
-        <p className="mt-4 max-w-md text-sm leading-relaxed sm:text-base" style={{ color: "var(--color-ink-soft)" }}>
-          Prayers are the fixed anchors; everything else arranges around them.
-          Twelve short chapters, each with a figure.
-        </p>
-        <div className="mt-6 h-px w-16" style={{ backgroundColor: "var(--color-accent)" }} aria-hidden />
-      </header>
+          <button
+            onClick={() => setTocOpen(true)}
+            className="flex items-center gap-2 text-sm font-medium"
+            style={{ color: "var(--color-ink)" }}
+          >
+            <BookOpen className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+            Contents
+          </button>
+          <span className="text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+            {idx + 1} / {SECTIONS.length}
+          </span>
+        </div>
 
-      {/* Contents — a real book TOC, two columns on larger screens */}
-      <nav aria-label="Table of contents" className="mx-auto max-w-2xl border-y py-6 sm:py-8" style={{ borderColor: "var(--color-paper-3)" }}>
-        <p className="mb-4 text-center text-[11px] font-medium uppercase tracking-[0.24em]" style={{ color: "var(--color-ink-muted)" }}>
-          Contents
-        </p>
-        <ol className="grid gap-x-10 gap-y-2 sm:grid-cols-2">
-          {SECTIONS.map((s, i) => (
-            <li key={s.id}>
-              <a
-                href={`#${s.id}`}
-                className="group flex items-baseline gap-3 py-1.5 transition-opacity hover:opacity-70"
-              >
-                <span className="w-6 shrink-0 text-right text-xs tabular-nums" style={{ color: "var(--color-accent)" }}>
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
-                  {s.title}
-                </span>
-                <span className="mx-1 flex-1 border-b border-dotted" style={{ borderColor: "var(--color-paper-3)" }} aria-hidden />
-              </a>
-            </li>
-          ))}
-        </ol>
-      </nav>
+        <article className="mx-auto w-full max-w-2xl px-5 pb-16 pt-8 sm:px-8 sm:pt-12">
+          {/* Chapter opening */}
+          <p className="text-[11px] font-medium uppercase tracking-[0.24em]" style={{ color: "var(--color-accent)" }}>
+            Chapter {idx + 1} · {s.kicker}
+          </p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl" style={{ color: "var(--color-ink)" }}>
+            {s.title}
+          </h2>
 
-      <div className="mt-8 gap-10 lg:grid lg:grid-cols-[220px_minmax(0,1fr)]">
-        {/* Desktop TOC — sticky rail */}
-        <aside className="hidden lg:block">
-          <nav aria-label="Guide sections" className="sticky top-8 space-y-0.5">
-            {SECTIONS.map((s, i) => (
-              <a
-                key={s.id}
-                href={`#${s.id}`}
-                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors"
-                style={{
-                  backgroundColor: active === s.id ? "var(--color-accent-faint)" : "transparent",
-                  color: active === s.id ? "var(--color-accent)" : "var(--color-ink-soft)",
-                  fontWeight: active === s.id ? 600 : 400,
-                }}
-              >
-                <span className="w-5 shrink-0 text-right text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                  {i + 1}
-                </span>
-                <span className="truncate">{s.title}</span>
-              </a>
-            ))}
-          </nav>
-        </aside>
-
-        {/* Chapters */}
-        <div className="space-y-12 sm:space-y-16">
-          {SECTIONS.map((s, i) => (
-            <section
-              key={s.id}
-              id={s.id}
-              ref={(el) => {
-                refs.current[s.id] = el;
-              }}
-              className="scroll-mt-24"
+          {/* Intro with drop cap — the book tell */}
+          <p className="mt-5 text-base leading-[1.8] sm:text-[17px]" style={{ color: "var(--color-ink-soft)" }}>
+            <span
+              className="float-left mr-2 mt-1 text-5xl font-semibold leading-[0.8]"
+              style={{ color: "var(--color-accent)" }}
+              aria-hidden
             >
-              {/* Chapter head — number, kicker, title */}
-              <div className="flex items-baseline gap-3">
-                <span
-                  className="text-2xl font-bold tabular-nums sm:text-3xl"
-                  style={{ color: "var(--color-accent)" }}
-                  aria-hidden
-                >
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <div className="min-w-0">
-                  <p
-                    className="text-[11px] font-medium uppercase tracking-[0.18em]"
-                    style={{ color: "var(--color-ink-muted)" }}
-                  >
-                    {s.kicker}
-                  </p>
-                  <h2
-                    className="mt-0.5 text-xl font-semibold tracking-tight sm:text-2xl"
-                    style={{ color: "var(--color-ink)" }}
-                  >
-                    {s.title}
-                  </h2>
-                </div>
-                <s.icon
-                  className="ml-auto h-5 w-5 shrink-0 sm:h-6 sm:w-6"
-                  style={{ color: "var(--color-ink-muted)" }}
-                  aria-hidden
-                />
-              </div>
+              {s.intro.charAt(0)}
+            </span>
+            {s.intro.slice(1)}
+          </p>
 
-              <p
-                className="mt-4 max-w-2xl text-sm leading-relaxed sm:text-[15px]"
-                style={{ color: "var(--color-ink-soft)" }}
-              >
-                {s.intro}
-              </p>
-
-              {/* Figure plate — framed, captioned, the textbook moment */}
-              <figure
-                className="mt-5 overflow-hidden rounded-2xl border"
-                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
-              >
-                <div className="px-4 pb-2 pt-4 sm:px-6">
-                  {s.figure.el}
-                </div>
-                <figcaption
-                  className="border-t px-4 py-2 text-center text-[11px] sm:px-6"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                >
-                  <span className="font-semibold" style={{ color: "var(--color-ink-soft)" }}>
-                    Fig. {i + 1}
-                  </span>
-                  {" — "}
-                  {s.figure.caption}
-                </figcaption>
-              </figure>
-
-              {/* Concepts — numbered textbook entries, one column on mobile */}
-              <dl className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2">
-                {s.items.map((item, j) => (
-                  <div key={item.heading} className="flex gap-3">
-                    <span
-                      className="mt-0.5 shrink-0 text-[11px] font-bold tabular-nums"
-                      style={{ color: "var(--color-accent)" }}
-                      aria-hidden
-                    >
-                      {i + 1}.{j + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <dt className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                        {item.heading}
-                      </dt>
-                      <dd
-                        className="mt-1 text-sm leading-relaxed"
-                        style={{ color: "var(--color-ink-soft)" }}
-                      >
-                        <Marked text={item.body} mark={item.tested} />
-                      </dd>
-                    </div>
-                  </div>
-                ))}
-              </dl>
-
-              {s.link && (
-                <Link
-                  href={s.link.href}
-                  className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium transition-opacity hover:opacity-70"
-                  style={{ color: "var(--color-accent)" }}
-                >
-                  {s.link.label}
-                  <span aria-hidden>→</span>
-                </Link>
-              )}
-
-              <div
-                className="mt-8 h-px sm:mt-10"
-                style={{ backgroundColor: "var(--color-paper-3)" }}
-                aria-hidden
-              />
-            </section>
-          ))}
-
-          {/* Footer note */}
-          <div
-            className="rounded-2xl border px-5 py-5 sm:px-6"
+          {/* Figure plate — the textbook moment, given room */}
+          <figure
+            className="mt-8 overflow-hidden rounded-2xl border"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
           >
-            <div className="flex items-start gap-3">
-              <Sparkles
-                className="mt-0.5 h-5 w-5 shrink-0"
-                style={{ color: "var(--color-warmth)" }}
-                aria-hidden
-              />
-              <div>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                  Still stuck?
-                </p>
-                <p className="mt-1 text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-                  Check the{" "}
-                  <Link href="/support" className="font-medium underline underline-offset-2" style={{ color: "var(--color-accent)" }}>
-                    support page
-                  </Link>{" "}
-                  or{" "}
-                  <Link href="/settings" className="font-medium underline underline-offset-2" style={{ color: "var(--color-accent)" }}>
-                    Settings
-                  </Link>{" "}
-                  for account, privacy, and notification controls. <Moon className="inline h-3.5 w-3.5 -translate-y-px" aria-hidden />
-                </p>
+            <div className="px-5 pb-3 pt-6 sm:px-8 sm:pt-8">
+              {s.figure.el}
+            </div>
+            <figcaption
+              className="border-t px-5 py-2.5 text-center text-xs sm:px-8"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+            >
+              <span className="font-semibold" style={{ color: "var(--color-ink-soft)" }}>
+                Fig. {idx + 1}
+              </span>
+              {" — "}
+              {s.figure.caption}
+            </figcaption>
+          </figure>
+
+          {/* Concepts — numbered textbook entries, single reading column */}
+          <dl className="mt-8 space-y-6">
+            {s.items.map((item, j) => (
+              <div key={item.heading} id={`${s.id}-${j}`} className="flex scroll-mt-20 gap-3.5">
+                <span
+                  className="mt-1 shrink-0 text-xs font-bold tabular-nums"
+                  style={{ color: "var(--color-accent)" }}
+                  aria-hidden
+                >
+                  {idx + 1}.{j + 1}
+                </span>
+                <div className="min-w-0">
+                  <dt className="text-[15px] font-semibold" style={{ color: "var(--color-ink)" }}>
+                    {item.heading}
+                  </dt>
+                  <dd className="mt-1.5 text-[15px] leading-[1.75]" style={{ color: "var(--color-ink-soft)" }}>
+                    <Marked text={item.body} mark={item.tested} />
+                  </dd>
+                </div>
+              </div>
+            ))}
+          </dl>
+
+          {s.link && (
+            <Link
+              href={s.link.href}
+              className="mt-7 inline-flex items-center gap-1.5 text-sm font-medium transition-opacity hover:opacity-70"
+              style={{ color: "var(--color-accent)" }}
+            >
+              {s.link.label}
+              <span aria-hidden>→</span>
+            </Link>
+          )}
+
+          {/* Page turn */}
+          <div
+            className="mt-12 flex items-center justify-between gap-3 border-t pt-6"
+            style={{ borderColor: "var(--color-paper-3)" }}
+          >
+            {idx > 0 ? (
+              <button
+                onClick={() => setIdx(idx - 1)}
+                className="flex min-w-0 items-center gap-2 text-sm font-medium transition-opacity hover:opacity-60"
+                style={{ color: "var(--color-ink-soft)" }}
+              >
+                <span aria-hidden>←</span>
+                <span className="min-w-0 truncate">{SECTIONS[idx - 1].title}</span>
+              </button>
+            ) : (
+              <span />
+            )}
+            {!last ? (
+              <button
+                onClick={() => setIdx(idx + 1)}
+                className="flex min-w-0 items-center gap-2 text-sm font-medium transition-opacity hover:opacity-60"
+                style={{ color: "var(--color-ink-soft)" }}
+              >
+                <span className="min-w-0 truncate">{SECTIONS[idx + 1].title}</span>
+                <span aria-hidden>→</span>
+              </button>
+            ) : (
+              <span />
+            )}
+          </div>
+
+          {/* Colophon */}
+          {last && (
+            <div
+              className="mt-8 rounded-2xl border px-5 py-5 sm:px-6"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+            >
+              <div className="flex items-start gap-3">
+                <Sparkles className="mt-0.5 h-5 w-5 shrink-0" style={{ color: "var(--color-warmth)" }} aria-hidden />
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                    Still stuck?
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+                    Check the{" "}
+                    <Link href="/support" className="font-medium underline underline-offset-2" style={{ color: "var(--color-accent)" }}>
+                      support page
+                    </Link>{" "}
+                    or{" "}
+                    <Link href="/settings" className="font-medium underline underline-offset-2" style={{ color: "var(--color-accent)" }}>
+                      Settings
+                    </Link>{" "}
+                    for account, privacy, and notification controls. <Moon className="inline h-3.5 w-3.5 -translate-y-px" aria-hidden />
+                  </p>
+                </div>
               </div>
             </div>
+          )}
+        </article>
+      </main>
+
+      {/* ── Right rail: on-page outline (wide desktop) ── */}
+      <aside
+        className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-l xl:flex"
+        style={{ borderColor: "var(--color-paper-3)" }}
+      >
+        <nav aria-label="In this chapter" className="px-5 pb-8 pt-8">
+          <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-muted)" }}>
+            In this chapter
+          </p>
+          <ul className="mt-3 space-y-1.5">
+            {s.items.map((item, j) => (
+              <li key={item.heading}>
+                <a
+                  href={`#${s.id}-${j}`}
+                  className="flex items-baseline gap-2 text-[13px] leading-snug transition-opacity hover:opacity-60"
+                  style={{ color: "var(--color-ink-soft)" }}
+                >
+                  <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                    {idx + 1}.{j + 1}
+                  </span>
+                  {item.heading}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </aside>
+
+      {/* ── Mobile contents sheet ── */}
+      {tocOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Table of contents">
+          <button
+            aria-label="Close contents"
+            onClick={() => setTocOpen(false)}
+            className="absolute inset-0"
+            style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }}
+          />
+          <div
+            className="absolute bottom-0 left-0 right-0 max-h-[75dvh] overflow-y-auto rounded-t-2xl border-t px-4 pb-8 pt-5"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden />
+            <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-[0.24em]" style={{ color: "var(--color-ink-muted)" }}>
+              Contents
+            </p>
+            {chapterList}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
