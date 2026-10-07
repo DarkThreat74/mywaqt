@@ -102,9 +102,11 @@ export function updateEventInCache(event: EventLike): void {
     const dateKey = eventDateKey(new Date(event.startAt));
     // First, check if the event already exists with a different _dateKey.
     // If so, delete the old entry to avoid stale ghost events on the old date.
-    db.events.get(event.id).then((existing) => {
+    db.events.get(event.id).then(async (existing) => {
       if (existing && existing._dateKey !== dateKey) {
-        db.events.delete(event.id).catch(() => {});
+        // Must settle before the put — an unordered delete racing the write
+        // can remove the entry we just wrote.
+        await db.events.delete(event.id).catch(() => {});
       }
       db.events.put({
         id: event.id,
@@ -157,7 +159,10 @@ export function syncPrayerLogsToCache(date: string, logs: PrayerLogLike[]): void
     db.prayerLogs.where("date").equals(date).delete().then(() =>
       db.prayerLogs.bulkPut(
         logs.map((l) => ({
-          id: l.id || `${date}_${l.prayerName}`,
+          // Composite key — NOT the server id — so a synced row and an
+          // optimistic offline check-in for the same prayer share one entry
+          // instead of drifting into two.
+          id: `${date}_${l.prayerName}`,
           userId: "",
           date,
           prayerName: l.prayerName,

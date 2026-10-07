@@ -328,23 +328,21 @@ export async function PATCH(request: NextRequest) {
     // Update each event individually: same wall-clock time on its own local
     // calendar date — DST-safe, and it also repairs previously drifted
     // occurrences (a series saved at 12pm pre-fix may have drifted to 11am).
+    // Chunked parallel: 365 sequential round-trips would blow the function
+    // time limit on a max-length series.
     let updatedCount = 0;
-    for (const ev of allEvents) {
-      const w = instantToWall(ev.startAt, userTz);
-      const newStart = newStartWall
-        ? wallClockToUtc(w.y, w.mo, w.d, newStartWall.h, newStartWall.mi, newStartWall.s, userTz)
-        : ev.startAt;
-      const duration = newDurationMs ?? (ev.endAt.getTime() - ev.startAt.getTime());
-      const newEnd = new Date(newStart.getTime() + duration);
-
-      await db.update(schema.events)
-        .set({
-          ...updates,
-          startAt: newStart,
-          endAt: newEnd,
-        })
-        .where(and(eq(schema.events.id, ev.id), eq(schema.events.userId, session.userId)));
-      updatedCount++;
+    for (let i = 0; i < allEvents.length; i += 25) {
+      await Promise.all(allEvents.slice(i, i + 25).map((ev) => {
+        const w = instantToWall(ev.startAt, userTz);
+        const newStart = newStartWall
+          ? wallClockToUtc(w.y, w.mo, w.d, newStartWall.h, newStartWall.mi, newStartWall.s, userTz)
+          : ev.startAt;
+        const duration = newDurationMs ?? (ev.endAt.getTime() - ev.startAt.getTime());
+        return db.update(schema.events)
+          .set({ ...updates, startAt: newStart, endAt: new Date(newStart.getTime() + duration) })
+          .where(and(eq(schema.events.id, ev.id), eq(schema.events.userId, session.userId)));
+      }));
+      updatedCount += Math.min(25, allEvents.length - i);
     }
 
     return NextResponse.json({ updated: updatedCount, extended: extendedBy || undefined });
