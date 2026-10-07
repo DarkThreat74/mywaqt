@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { LogOut } from "lucide-react";
 
 /**
@@ -9,7 +10,16 @@ import { LogOut } from "lucide-react";
  * causes React error #441 ("Event handlers cannot be passed to Client Component props").
  */
 export default function LogoutButton() {
+  // Two-tap confirm — first tap arms it, second signs out. Auto-disarms.
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(false), 3000);
+    return () => clearTimeout(t);
+  }, [confirming]);
+
   const handleLogout = async () => {
+    if (!confirming) { setConfirming(true); return; }
     try {
       // Unsubscribe push before logout
       const reg = await navigator.serviceWorker?.getRegistration();
@@ -46,8 +56,8 @@ export default function LogoutButton() {
       className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
       style={{ color: "var(--color-ink-soft)" }}
     >
-      <LogOut className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
-      Log out
+      <LogOut className="h-4 w-4" style={{ color: confirming ? "var(--color-error)" : "var(--color-ink-muted)" }} />
+      {confirming ? "Tap again to sign out" : "Log out"}
     </button>
   );
 }

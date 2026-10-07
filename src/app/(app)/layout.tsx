@@ -201,19 +201,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <SyncStatus />
       <NotificationScheduler />
       <DeepLinkHandler />
-      <PendingInvite />
-      <NotificationTray />
-      <DuaToast />
-      <FunFactPopup />
-      <BirthdayAlerter />
-      {/* Unified floating dock — study timer, sounds, talks, feedback segments */}
-      <FloatingDock feedbackEnabled={await feedbackEnabledP} />
+      {/* Floating UI — hidden on bare-shell routes (onboarding, guide) */}
+      <div className="app-chrome contents">
+        <PendingInvite />
+        <NotificationTray />
+        <DuaToast />
+        <FunFactPopup />
+        <BirthdayAlerter />
+        {/* Unified floating dock — study timer, sounds, talks, feedback segments */}
+        <FloatingDock feedbackEnabled={await feedbackEnabledP} />
 
-      {/* Global audio player — survives route changes for background playback */}
-      <GlobalAudioPlayer />
+        {/* Global audio player — survives route changes for background playback */}
+        <GlobalAudioPlayer />
 
-      {/* Vox study session — overlay + floating bubble, survives navigation */}
-      <StudySession />
+        {/* Vox study session — overlay + floating bubble, survives navigation */}
+        <StudySession />
+      </div>
     </div>
     </SoundscapeProvider>
     </AudioPlayerProvider>

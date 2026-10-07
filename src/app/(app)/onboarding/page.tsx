@@ -669,9 +669,11 @@ export default function OnboardingWizard() {
       {step !== "done" && (
         <div className="mb-10 flex items-center justify-center gap-2">
           {steps.slice(0, -1).map((s, i) => (
-            <div
+            <button
               key={s}
-              className="h-1.5 rounded-full transition-[background-color] duration-300"
+              onClick={() => setStep(s)}
+              aria-label={`Go to step ${i + 1}: ${s}`}
+              className="h-1.5 cursor-pointer rounded-full transition-[background-color] duration-300"
               style={{
                 width: i === currentIdx ? 24 : 6,
                 backgroundColor: i <= currentIdx ? "var(--color-accent)" : "var(--color-paper-3)",
