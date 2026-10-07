@@ -2,12 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { BarChart3, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { todayInTimezone } from "@/lib/prayer/checkin";
-import { getDiscipline } from "@/lib/study/session";
-import { fmtDur } from "@/lib/blocks/gaps";
-import StudyStatsSheet, { weekMinutes } from "@/components/study-stats-sheet";
 
 /**
  * Client-side date header for the day calendar.
@@ -30,10 +27,6 @@ export default function DayDateHeader({ date }: { date: string }) {
   // Locale-dependent strings — computed AFTER mount to avoid hydration mismatch
   const [formattedDate, setFormattedDate] = useState<string>("");
   const [hijriDate, setHijriDate] = useState<string | null>(null);
-  // "2h 12m this wk" — local history only; the stats sheet merges the server
-  // copy when it opens, so a cross-device gap here is cosmetic.
-  const [weekMin, setWeekMin] = useState(0);
-  const [statsOpen, setStatsOpen] = useState(false);
 
   useEffect(() => {
     const cached = getCachedPrayerSettings();
@@ -68,9 +61,6 @@ export default function DayDateHeader({ date }: { date: string }) {
         setHijriDate(null);
       }
 
-      try {
-        setWeekMin(weekMinutes(getDiscipline().history));
-      } catch { /* zero-state */ }
     });
   }, [date]);
 
@@ -159,20 +149,6 @@ export default function DayDateHeader({ date }: { date: string }) {
                 {hijriDate}
               </p>
             )}
-            {/* Week's focused time + entry point to the full stats sheet */}
-            {weekMin > 0 && (
-              <p className="mt-0.5 flex items-center justify-center gap-1.5 text-[11px] leading-tight tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                <span style={{ color: "var(--color-accent)" }}>{fmtDur(weekMin)}</span> studied this wk
-                <button
-                  onClick={() => setStatsOpen(true)}
-                  className="rounded-full border px-2 py-px text-[10px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                >
-                  <BarChart3 className="mr-0.5 inline h-2.5 w-2.5 -translate-y-px" />
-                  Stats
-                </button>
-              </p>
-            )}
             {/* View toggle — own centered row on mobile */}
             <div className="mt-0.5 flex justify-center sm:hidden">{viewToggle}</div>
           </div>
@@ -180,8 +156,6 @@ export default function DayDateHeader({ date }: { date: string }) {
           {/* Day/Month/List toggle — desktop sits beside the date */}
           <div className="hidden sm:flex">{viewToggle}</div>
         </div>
-
-        {statsOpen && <StudyStatsSheet onClose={() => setStatsOpen(false)} />}
 
         {/* Next day */}
         <Link

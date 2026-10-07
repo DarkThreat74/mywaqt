@@ -42,6 +42,11 @@ export default function FloatingDock({ feedbackEnabled = false }: { feedbackEnab
   const showSounds = !!soundscape.active && pathname !== "/study";
   const showTalks = !!player.currentTrack && player.view === "collapsed";
 
+  // The + FAB only exists on the day calendar. When it's there the dock
+  // stacks above it in the same lane; on other tabs the dock takes the
+  // FAB's spot at the bottom-right.
+  const fabPresent = pathname.startsWith("/calendar/day");
+
   if (!studySeg && !showSounds && !showTalks && !feedbackEnabled) return null;
 
   const seg = "flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]";
@@ -66,11 +71,14 @@ export default function FloatingDock({ feedbackEnabled = false }: { feedbackEnab
       )}
 
       <div
-        // Mobile leaves a lane for the + FAB (right-5 + w-12 ≈ 68px): the
-        // dock's right edge parks left of it instead of overlapping.
-        className="fixed z-[60] flex items-center gap-0.5 rounded-full border p-1 shadow-lg backdrop-blur-md right-[calc(env(safe-area-inset-right)+5.25rem)] lg:right-[calc(env(safe-area-inset-right)+0.75rem)]"
+        // FAB lane: right-5 (1.25rem). On the day view the FAB occupies
+        // bottom-20..bottom-20+3rem, so the dock stacks just above it;
+        // elsewhere the dock drops into the FAB's own spot.
+        className="fixed z-[60] flex items-center gap-0.5 rounded-full border p-1 shadow-lg backdrop-blur-md right-[calc(env(safe-area-inset-right)+1.25rem)] lg:right-[calc(env(safe-area-inset-right)+0.75rem)]"
         style={{
-          bottom: "calc(4rem + env(safe-area-inset-bottom) + 0.75rem)",
+          bottom: fabPresent
+            ? "calc(8.5rem + env(safe-area-inset-bottom))"
+            : "calc(5rem + env(safe-area-inset-bottom))",
           borderColor: "var(--color-paper-3)",
           backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
         }}

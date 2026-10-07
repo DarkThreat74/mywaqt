@@ -73,6 +73,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "You can't add yourself." }, { status: 400 });
   }
 
+  // ── Activation gate (both directions) — friends are opt-in. A user is
+  // active when prayer_settings.friends_active is set OR they already have a
+  // friendship row (existing users grandfathered, and the flag flips lazily). ──
+  const [mySettings, myFriendRow, friendSettings, friendRow] = await Promise.all([
+    db.select({ friendsActive: schema.prayerSettings.friendsActive })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, session.userId)).limit(1),
+    db.select({ id: schema.prayerFriends.id })
+      .from(schema.prayerFriends)
+      .where(or(eq(schema.prayerFriends.userId, session.userId), eq(schema.prayerFriends.friendId, session.userId))).limit(1),
+    db.select({ friendsActive: schema.prayerSettings.friendsActive })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, friendUser.id)).limit(1),
+    db.select({ id: schema.prayerFriends.id })
+      .from(schema.prayerFriends)
+      .where(or(eq(schema.prayerFriends.userId, friendUser.id), eq(schema.prayerFriends.friendId, friendUser.id))).limit(1),
+  ]);
+
+  if (!(mySettings[0]?.friendsActive ?? false) && myFriendRow.length === 0) {
+    return NextResponse.json({ error: "Activate friends in the Friends tab first." }, { status: 403 });
+  }
+  if (!(friendSettings[0]?.friendsActive ?? false) && friendRow.length === 0) {
+    return NextResponse.json({ error: "They haven't activated friends yet." }, { status: 403 });
+  }
+
   // ── Block check: either side may have blocked the other ──
   const [block] = await db
     .select({ id: schema.prayerBlocks.id })

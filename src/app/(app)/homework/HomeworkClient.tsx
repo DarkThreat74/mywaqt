@@ -174,7 +174,7 @@ export default function HomeworkClient({
   // Cushion warnings (per homework id → shortfall minutes)
   const [cushions, setCushions] = useState<Record<string, number>>({});
   // Per-homework planned block counts (study-block coverage)
-  const [blockSummary, setBlockSummary] = useState<Record<string, { planned: number; worked: number; nextDate?: string }>>({});
+  const [blockSummary, setBlockSummary] = useState<Record<string, { planned: number; worked: number; passed?: number; nextDate?: string }>>({});
   useEffect(() => {
     let cancelled = false;
     const now = new Date();
@@ -991,15 +991,15 @@ export default function HomeworkClient({
               const cov = blockSummary[hw.id];
               const soon = daysUntilDate(hw.dueDate) <= 7;
               if (cov && cov.planned > 0) {
-                // Same badge as the planner sheet — "planned for Th" from the
-                // nearest upcoming block's weekday.
+                // Same badge + colors as the planner sheet — gray "planned for
+                // Th" from the nearest upcoming block's weekday.
                 const dayAbbr = cov.nextDate
                   ? (() => { const [y, m, dd] = cov.nextDate!.split("-").map(Number); return ["Su","Mo","Tu","We","Th","Fr","Sa"][new Date(y, m - 1, dd).getDay()]; })()
                   : null;
                 return (
                   <span
                     className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
-                    style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                    style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
                     title={`${cov.planned} study block${cov.planned === 1 ? "" : "s"} planned${cov.worked ? ` · ${cov.worked} worked` : ""}`}
                   >
                     {dayAbbr ? `planned for ${dayAbbr}` : `${cov.planned} block${cov.planned === 1 ? "" : "s"}`}
@@ -1017,11 +1017,22 @@ export default function HomeworkClient({
                   </span>
                 );
               }
+              if (cov && (cov.passed ?? 0) > 0) {
+                return (
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                    title="Its planned blocks are in the past"
+                  >
+                    passed
+                  </span>
+                );
+              }
               if (soon) {
                 return (
                   <span
                     className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
-                    style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}
+                    style={{ backgroundColor: "color-mix(in oklab, var(--color-error) 10%, var(--color-paper))", color: "var(--color-error)" }}
                     title="No study time claimed for this yet"
                   >
                     no plan

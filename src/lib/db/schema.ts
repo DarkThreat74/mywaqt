@@ -124,6 +124,9 @@ export const prayerFriends = pgTable(
     // Owner-set label — "how I know them" (save Mahmud as "Muhammad").
     // Shown instead of their real name in the friends list only.
     nickname: text('nickname'),
+    // Owner hides this friend from the weekly leaderboard — stays a friend,
+    // still messageable, just un-ranked.
+    hiddenFromLeague: boolean('hidden_from_league').default(false).notNull(),
   },
   (table) => [
     uniqueIndex('prayer_friends_user_friend_idx').on(table.userId, table.friendId),
@@ -381,6 +384,9 @@ export const prayerSettings = pgTable('prayer_settings', {
   friendsSeeSunnah: boolean('friends_see_sunnah').default(false).notNull(),
   friendsSeeMasjidPct: boolean('friends_see_masjid_pct').default(true).notNull(),
   friendsSearchable: boolean('friends_searchable').default(true).notNull(),
+  // Friends are opt-in: until activated, nobody can add you and you can't
+  // add anyone. Users with an existing friendship are implicitly activated.
+  friendsActive: boolean('friends_active').default(false).notNull(),
   // Opt-in: push me when an accepted friend completes all 5 prayers today
   friendsNotifyComplete: boolean('friends_notify_complete').default(false).notNull(),
   // 'male' | 'female' — captured in onboarding; gates hayd tracking

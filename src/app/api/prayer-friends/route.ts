@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
     .select({
       friendId: schema.prayerFriends.friendId,
       nickname: schema.prayerFriends.nickname,
+      hiddenFromLeague: schema.prayerFriends.hiddenFromLeague,
     })
     .from(schema.prayerFriends)
     .where(
@@ -293,6 +294,10 @@ export async function GET(request: NextRequest) {
   const nicknameByFriend = new Map(
     friendships.map((f) => [f.friendId, f.nickname?.trim() || null]),
   );
+  // Viewer-side league hiding — the friend stays a friend everywhere else.
+  const hiddenByFriend = new Map(
+    friendships.map((f) => [f.friendId, f.hiddenFromLeague]),
+  );
 
   const friends: Array<{
     id: string;
@@ -300,11 +305,13 @@ export async function GET(request: NextRequest) {
     lastName: string | null;
     middleInitial: string | null;
     nickname: string | null;
+    hiddenFromLeague: boolean;
     displayName: string | null;
     shownName: string;
     avatarUrl: string | null;
     streak: number | null;
     weekCompleteDays: number | null;
+    totalCompleteDays: number | null;
     totalPrayed: number | null;
     masjidPct: number | null;
     thisWeekPrayed: number | null;
@@ -357,15 +364,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Complete days this week — excused counts (it never breaks a streak),
+    // Complete days — excused counts (it never breaks a streak),
     // but isn't included in the "prayed" totals above.
     let weekCompleteDays = 0;
+    let totalCompleteDays = 0;
     for (const [dateStr, logs] of logsByDate) {
-      if (dateStr < weekStartStr || dateStr > todayStr) continue;
       const prayedCount = logs.filter(
         (l) => l.status === "prayed" || l.status === "assumed_prayed" || l.status === "excused",
       ).length;
-      if (prayedCount === 5) weekCompleteDays++;
+      if (prayedCount === 5) {
+        totalCompleteDays++;
+        if (dateStr >= weekStartStr && dateStr <= todayStr) weekCompleteDays++;
+      }
     }
 
     const streak = calculateStreak(logsByDate, todayStr);
@@ -383,11 +393,13 @@ export async function GET(request: NextRequest) {
       lastName: friendUser.lastName,
       middleInitial: friendUser.middleInitial,
       nickname: nicknameByFriend.get(friendUser.id) ?? null,
+      hiddenFromLeague: hiddenByFriend.get(friendUser.id) ?? false,
       shownName: "", // resolved in the collision pass below
       displayName: friendUser.displayName,
       avatarUrl: friendUser.avatarUrl,
       streak: settings.friendsSeeStreak ? streak : null,
       weekCompleteDays: settings.friendsSeeStreak ? weekCompleteDays : null,
+      totalCompleteDays: settings.friendsSeeStreak ? totalCompleteDays : null,
       totalPrayed: settings.friendsSeeStreak ? totalPrayed : null,
       masjidPct: settings.friendsSeeMasjidPct
         ? (weekPrayed > 0 ? Math.round((weekMasjid / weekPrayed) * 100) : 0)

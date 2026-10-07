@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil } from "lucide-react";
+import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye, EyeOff } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -76,6 +76,7 @@ interface Friend {
   /** Server-resolved label: nickname → first → collision-suffixed name. */
   shownName?: string;
   nickname?: string | null;
+  hiddenFromLeague?: boolean;
   displayName: string | null;
   avatarUrl?: string | null;
   streak: number | null;
@@ -249,6 +250,35 @@ export default function PrayerDashboard() {
   // Nickname editing — id of the friend whose field is open.
   const [nickEditing, setNickEditing] = useState<string | null>(null);
   const [nickValue, setNickValue] = useState("");
+  // Friends opt-in gate — null until the activate endpoint answers.
+  const [friendsActive, setFriendsActive] = useState<boolean | null>(null);
+  const [activating, setActivating] = useState(false);
+  const [hiddenOpen, setHiddenOpen] = useState(false);
+
+  async function activateFriends() {
+    if (activating) return;
+    setActivating(true);
+    try {
+      const res = await fetch("/api/prayer-friends/activate", { method: "POST" });
+      if (res.ok) {
+        setFriendsActive(true);
+        invalidateApiCache("/api/prayer-friends");
+      }
+    } catch { /* offline */ }
+    setActivating(false);
+  }
+
+  async function toggleLeagueHide(friendId: string, hidden: boolean) {
+    // Optimistic — the eye flips instantly; server reconciles.
+    setFriends((prev) => prev.map((f) => (f.id === friendId ? { ...f, hiddenFromLeague: hidden } : f)));
+    const res = await fetch("/api/prayer-friends/nickname", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ friendId, hiddenFromLeague: hidden }),
+    }).catch(() => null);
+    if (res?.ok) invalidateApiCache("/api/prayer-friends");
+    else setFriends((prev) => prev.map((f) => (f.id === friendId ? { ...f, hiddenFromLeague: !hidden } : f)));
+  }
 
   async function saveNickname(friendId: string) {
     const res = await fetch("/api/prayer-friends/nickname", {
@@ -489,7 +519,7 @@ export default function PrayerDashboard() {
 
       // ── Step 2: Fetch from API in background ──
       try {
-        const [analyticsRes, friendsRes, codeRes, qadaaRes, logsRes, sunnahRes, timesRes, pendingRes, outgoingRes, visibilityRes, profileRes, haydRes] = await Promise.all([
+        const [analyticsRes, friendsRes, codeRes, qadaaRes, logsRes, sunnahRes, timesRes, pendingRes, outgoingRes, visibilityRes, profileRes, haydRes, activateRes] = await Promise.all([
           fetch(`/api/prayer-log/analytics?range=${statsRange}`).catch(() => null),
           fetch("/api/prayer-friends").catch(() => null),
           fetch("/api/prayer-friends/my-code").catch(() => null),
@@ -502,6 +532,7 @@ export default function PrayerDashboard() {
           fetch("/api/settings/prayer-settings").catch(() => null),
           fetch("/api/profile").catch(() => null),
           fetch("/api/hayd").catch(() => null),
+          fetch("/api/prayer-friends/activate").catch(() => null),
         ]);
 
         if (cancelled) return;
@@ -534,6 +565,10 @@ export default function PrayerDashboard() {
         if (profileRes?.ok) {
           const data = await profileRes.json().catch(() => null);
           if (data?.avatarUrl) setMyAvatar(data.avatarUrl);
+        }
+        if (activateRes?.ok) {
+          const data = await activateRes.json().catch(() => null);
+          if (data && typeof data.active === "boolean") setFriendsActive(data.active);
         }
         if (visibilityRes?.ok) {
           const data = await visibilityRes.json().catch(() => null);
@@ -2275,7 +2310,26 @@ export default function PrayerDashboard() {
             </p>
           </div>
           <div className="px-4 py-4 sm:px-5">
-            {friendsView === "add" && (<>
+            {/* Friends is opt-in — until activated nobody can add you and
+                you can't add anyone. One tap turns the whole tab on. */}
+            {friendsActive === false && (
+              <div className="rounded-xl border p-5 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                <Users className="mx-auto mb-2 h-6 w-6" style={{ color: "var(--color-accent)" }} />
+                <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Friends is off</p>
+                <p className="mx-auto mt-1 max-w-xs text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                  Activate to let people add you, join the league, and compete on streaks. You control exactly what friends see.
+                </p>
+                <button
+                  onClick={() => void activateFriends()}
+                  disabled={activating}
+                  className="mt-4 w-full max-w-xs rounded-xl px-4 py-2.5 text-sm font-semibold transition-opacity disabled:opacity-60"
+                  style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
+                >
+                  {activating ? "Activating…" : "Activate friends"}
+                </button>
+              </div>
+            )}
+            {friendsActive !== false && friendsView === "add" && (<>
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
               <div className="flex-1">
                 <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
@@ -2547,7 +2601,7 @@ export default function PrayerDashboard() {
             )}
             </>)}
 
-            {friendsView === "mine" && (<>
+            {friendsActive !== false && friendsView === "mine" && (<>
             {friends.length === 0 ? (
               <div className="rounded-lg border border-dashed py-6 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
                 <Users className="mx-auto mb-2 h-6 w-6" style={{ color: "var(--color-ink-muted)" }} />
@@ -2589,179 +2643,267 @@ export default function PrayerDashboard() {
                     ))}
                   </div>
                 </div>
-                <div
-                  className="flex items-center gap-3 rounded-xl border p-3"
-                  style={{
-                    borderColor: "var(--color-accent)",
-                    backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)",
-                  }}
-                >
-                  {myAvatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
-                    <img src={myAvatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" style={{ outline: "1px solid var(--color-paper-3)" }} />
-                  ) : (
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
-                      You
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>You</div>
-                    <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                      {myWeekPrayed} this week · {myComplete} complete days
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="flex items-center gap-1 text-lg font-bold tabular-nums" style={{ color: "var(--color-accent)" }}>
-                      <Flame className="h-4 w-4" /> {myStreak}
-                    </div>
-                    <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>day streak</div>
-                  </div>
-                </div>
-
-                {[...friends]
-                  .sort((a, b) => raceSort === "week"
-                    ? (b.thisWeekPrayed ?? -1) - (a.thisWeekPrayed ?? -1) || (b.streak ?? -1) - (a.streak ?? -1)
-                    : (b.streak ?? -1) - (a.streak ?? -1) || (b.thisWeekPrayed ?? -1) - (a.thisWeekPrayed ?? -1))
-                  .map((friend, idx) => {
-                  const streakVal = friend.streak ?? null;
-                  const imWinning = streakVal !== null && myStreak >= streakVal;
-                  const streakLabel = streakVal !== null ? streakVal : "—";
-                  const subStats: string[] = [];
-                  if (friend.thisWeekPrayed !== null) subStats.push(`${friend.thisWeekPrayed} this week`);
-                  if (friend.weekCompleteDays !== null) subStats.push(`${friend.weekCompleteDays} complete`);
-                  if (friend.masjidPct !== null) subStats.push(`${friend.masjidPct}% masjid`);
-                  return (
-                    <div
-                      key={friend.id}
-                      className="relative rounded-xl border p-3"
-                      style={{ borderColor: "var(--color-paper-3)" }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="relative shrink-0">
-                          {friend.avatarUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
-                            <img
-                              src={friend.avatarUrl}
-                              alt=""
-                              className="h-9 w-9 rounded-full object-cover"
-                              style={{ outline: "1px solid var(--color-paper-3)" }}
-                            />
-                          ) : (
-                            <div
-                              className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold"
-                              style={{
-                                backgroundColor: idx === 0 ? "color-mix(in oklab, var(--color-warmth) 20%, transparent)" : "var(--color-paper-2)",
-                                color: idx === 0 ? "var(--color-warmth)" : "var(--color-ink-muted)",
-                              }}
-                            >
-                              {(friend.shownName || friend.firstName || friend.displayName || "?").charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <span
-                            className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold"
-                            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
-                          >
-                            {idx + 1}
-                          </span>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                            <span className="truncate">{friend.shownName || friend.firstName || friend.displayName || "Friend"}</span>
-                            <button
-                              onClick={() => { setNickEditing(friend.id); setNickValue(friend.nickname ?? ""); }}
-                              className="shrink-0 rounded p-0.5 transition-opacity hover:opacity-70"
-                              style={{ color: "var(--color-ink-muted)" }}
-                              aria-label={`Set a nickname for ${friend.shownName || "friend"}`}
-                              title="Set nickname — only you see it"
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </button>
-                          </div>
-                          {friend.nickname && (
-                            <div className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                              {friend.firstName || friend.displayName}
-                            </div>
-                          )}
-                          {nickEditing === friend.id && (
-                            <div className="mt-1 flex items-center gap-1.5">
-                              <input
-                                autoFocus
-                                value={nickValue}
-                                onChange={(e) => setNickValue(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === "Enter") void saveNickname(friend.id); if (e.key === "Escape") setNickEditing(null); }}
-                                placeholder="Nickname — only you see it"
-                                maxLength={40}
-                                className="min-w-0 flex-1 rounded-md border px-2 py-1 text-xs outline-none focus:border-[var(--color-accent)]"
-                                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                {/* One leaderboard — "You" races in the same card shape as
+                    everyone else. Hidden friends drop out of the race into
+                    the collapsed footer below. */}
+                {(() => {
+                  const visible = friends.filter((f) => !f.hiddenFromLeague);
+                  const hidden = friends.filter((f) => f.hiddenFromLeague);
+                  type Row = { key: string; me?: boolean; friend?: Friend; week: number; streak: number };
+                  const rows: Row[] = [
+                    { key: "me", me: true, week: myWeekPrayed, streak: myStreak },
+                    ...visible.map((f) => ({ key: f.id, friend: f, week: f.thisWeekPrayed ?? -1, streak: f.streak ?? -1 })),
+                  ];
+                  rows.sort((a, b) => raceSort === "week"
+                    ? b.week - a.week || b.streak - a.streak
+                    : b.streak - a.streak || b.week - a.week);
+                  const renderFriend = (friend: Friend, idx: number) => {
+                    const streakVal = friend.streak ?? null;
+                    const imWinning = streakVal !== null && myStreak >= streakVal;
+                    const streakLabel = streakVal !== null ? streakVal : "—";
+                    const subStats: string[] = [];
+                    if (friend.thisWeekPrayed !== null) subStats.push(`${friend.thisWeekPrayed} this week`);
+                    if (friend.weekCompleteDays !== null) subStats.push(`${friend.weekCompleteDays} complete`);
+                    if (friend.masjidPct !== null) subStats.push(`${friend.masjidPct}% masjid`);
+                    return (
+                      <div
+                        key={friend.id}
+                        className="relative rounded-xl border p-3"
+                        style={{ borderColor: "var(--color-paper-3)" }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="relative shrink-0">
+                            {friend.avatarUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
+                              <img
+                                src={friend.avatarUrl}
+                                alt=""
+                                className="h-9 w-9 rounded-full object-cover"
+                                style={{ outline: "1px solid var(--color-paper-3)" }}
                               />
-                              <button
-                                onClick={() => void saveNickname(friend.id)}
-                                className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium"
-                                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                            ) : (
+                              <div
+                                className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold"
+                                style={{
+                                  backgroundColor: idx === 0 ? "color-mix(in oklab, var(--color-warmth) 20%, transparent)" : "var(--color-paper-2)",
+                                  color: idx === 0 ? "var(--color-warmth)" : "var(--color-ink-muted)",
+                                }}
                               >
-                                Save
+                                {(friend.shownName || friend.firstName || friend.displayName || "?").charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <span
+                              className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold"
+                              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                            >
+                              {idx + 1}
+                            </span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                              <span className="truncate">{friend.shownName || friend.firstName || friend.displayName || "Friend"}</span>
+                              <button
+                                onClick={() => { setNickEditing(friend.id); setNickValue(friend.nickname ?? ""); }}
+                                className="shrink-0 rounded p-0.5 transition-opacity hover:opacity-70"
+                                style={{ color: "var(--color-ink-muted)" }}
+                                aria-label={`Set a nickname for ${friend.shownName || "friend"}`}
+                                title="Set nickname — only you see it"
+                              >
+                                <Pencil className="h-3 w-3" />
                               </button>
                             </div>
-                          )}
-                          <div className="truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                            {subStats.length > 0 ? subStats.join(" · ") : "Stats private"}
+                            {friend.nickname && (
+                              <div className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                                {friend.firstName || friend.displayName}
+                              </div>
+                            )}
+                            {nickEditing === friend.id && (
+                              <div className="mt-1 flex items-center gap-1.5">
+                                <input
+                                  autoFocus
+                                  value={nickValue}
+                                  onChange={(e) => setNickValue(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") void saveNickname(friend.id); if (e.key === "Escape") setNickEditing(null); }}
+                                  placeholder="Nickname — only you see it"
+                                  maxLength={40}
+                                  className="min-w-0 flex-1 rounded-md border px-2 py-1 text-xs outline-none focus:border-[var(--color-accent)]"
+                                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                                />
+                                <button
+                                  onClick={() => void saveNickname(friend.id)}
+                                  className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium"
+                                  style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                                >
+                                  Save
+                                </button>
+                              </div>
+                            )}
+                            <div className="truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                              {subStats.length > 0 ? subStats.join(" · ") : "Stats private"}
+                            </div>
+                            {friend.sharedStreak && friend.sharedStreak.streak > 0 && (
+                              <div className="mt-0.5 flex items-center gap-1 text-[11px] font-medium" style={{ color: "var(--color-accent)" }}>
+                                <Link2 className="h-3 w-3" />
+                                {friend.sharedStreak.streak}-day chain together
+                                {friend.sharedStreak.bestStreak > friend.sharedStreak.streak && (
+                                  <span style={{ color: "var(--color-ink-muted)" }}>(best {friend.sharedStreak.bestStreak})</span>
+                                )}
+                              </div>
+                            )}
                           </div>
-                          {friend.sharedStreak && friend.sharedStreak.streak > 0 && (
-                            <div className="mt-0.5 flex items-center gap-1 text-[11px] font-medium" style={{ color: "var(--color-accent)" }}>
-                              <Link2 className="h-3 w-3" />
-                              {friend.sharedStreak.streak}-day chain together
-                              {friend.sharedStreak.bestStreak > friend.sharedStreak.streak && (
-                                <span style={{ color: "var(--color-ink-muted)" }}>(best {friend.sharedStreak.bestStreak})</span>
-                              )}
+                          <button
+                            onClick={() => void toggleLeagueHide(friend.id, !friend.hiddenFromLeague)}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
+                            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                            aria-label={friend.hiddenFromLeague ? "Show in leaderboard" : "Hide from leaderboard"}
+                            title={friend.hiddenFromLeague ? "Show in leaderboard" : "Hide from leaderboard"}
+                          >
+                            {friend.hiddenFromLeague ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                          <Link
+                            href={`/messages/${friend.id}`}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
+                            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                            aria-label={`Message ${friend.shownName || friend.firstName || friend.displayName || "friend"}`}
+                            title="Message"
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                          </Link>
+                          <Link
+                            href={`/profile/${friend.id}`}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
+                            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                            aria-label={`View ${friend.shownName || friend.firstName || friend.displayName || "friend"}'s profile`}
+                            title="View profile"
+                          >
+                            <User className="h-3.5 w-3.5" />
+                          </Link>
+                          <div className="text-right">
+                            <div className="flex items-center gap-1 text-lg font-bold tabular-nums" style={{ color: imWinning ? "var(--color-ink-soft)" : "var(--color-warmth)" }}>
+                              <Flame className="h-4 w-4" /> {streakLabel}
+                            </div>
+                            <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>day streak</div>
+                          </div>
+                        </div>
+                        {/* Today's prayers — tap an open dot to send a reminder */}
+                        <div className="mt-2.5 flex items-center justify-center gap-2 border-t pt-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                          <PrayerDots
+                            name={friend.shownName || friend.firstName || friend.displayName || "Friend"}
+                            isMe={false}
+                            todayLogs={friend.todayLogs}
+                            todaySunnahs={friend.todaySunnahs}
+                            sunnahDefs={getSunnahsForMadhab(madhab)}
+                            prayerTimes={friend.times ?? null}
+                            currentTime={currentTime}
+                            todayVisible={friend.todayVisible}
+                            remindedAt={friend.remindedAt}
+                            reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
+                            onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
+                            timezone={friend.timezone}
+                            compact
+                          />
+                        </div>
+                      </div>
+                    );
+                  };
+                  return (
+                    <>
+                      {rows.map((row, idx) => {
+                        if (row.me) {
+                          return (
+                            <div
+                              key="me"
+                              className="relative rounded-xl border p-3"
+                              style={{
+                                borderColor: "var(--color-accent)",
+                                backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)",
+                              }}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="relative shrink-0">
+                                  {myAvatar ? (
+                                    // eslint-disable-next-line @next/next/no-img-element -- data URL avatar
+                                    <img src={myAvatar} alt="" className="h-9 w-9 rounded-full object-cover" style={{ outline: "1px solid var(--color-paper-3)" }} />
+                                  ) : (
+                                    <div className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
+                                      {myAvatar ? "" : "Y"}
+                                    </div>
+                                  )}
+                                  <span
+                                    className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold"
+                                    style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                                  >
+                                    {idx + 1}
+                                  </span>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>You</div>
+                                  <div className="truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                                    {myWeekPrayed} this week · {myComplete} complete days
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="flex items-center gap-1 text-lg font-bold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                                    <Flame className="h-4 w-4" /> {myStreak}
+                                  </div>
+                                  <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>day streak</div>
+                                </div>
+                              </div>
+                              {/* Same dots row — tapping an open salah logs it */}
+                              <div className="mt-2.5 flex items-center justify-center gap-2 border-t pt-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                                <PrayerDots
+                                  name="You"
+                                  isMe
+                                  todayLogs={todayLogs}
+                                  todaySunnahs={todaySunnahs}
+                                  sunnahDefs={getSunnahsForMadhab(madhab)}
+                                  prayerTimes={prayerTimes}
+                                  currentTime={currentTime}
+                                  todayVisible
+                                  onCheckIn={(prayer) => setCheckinPrayer(prayer)}
+                                  timezone={userTimezone}
+                                  compact
+                                />
+                              </div>
+                            </div>
+                          );
+                        }
+                        return renderFriend(row.friend!, idx);
+                      })}
+                      {hidden.length > 0 && (
+                        <div className="rounded-xl border border-dashed" style={{ borderColor: "var(--color-paper-3)" }}>
+                          <button
+                            onClick={() => setHiddenOpen((o) => !o)}
+                            className="flex w-full items-center justify-between px-3 py-2 text-[11px] font-medium"
+                            style={{ color: "var(--color-ink-muted)" }}
+                            aria-expanded={hiddenOpen}
+                          >
+                            {hidden.length} hidden from the leaderboard
+                            <ChevronDown className="h-3.5 w-3.5 transition-transform" style={{ transform: hiddenOpen ? "rotate(180deg)" : undefined }} />
+                          </button>
+                          {hiddenOpen && (
+                            <div className="space-y-1.5 border-t px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                              {hidden.map((f) => (
+                                <div key={f.id} className="flex items-center gap-2">
+                                  <span className="min-w-0 flex-1 truncate text-xs" style={{ color: "var(--color-ink-soft)" }}>
+                                    {f.shownName || f.firstName || f.displayName || "Friend"}
+                                  </span>
+                                  <button
+                                    onClick={() => void toggleLeagueHide(f.id, false)}
+                                    className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium"
+                                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                                  >
+                                    <Eye className="h-3 w-3" /> Show
+                                  </button>
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>
-                        <Link
-                          href={`/messages/${friend.id}`}
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
-                          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                          aria-label={`Message ${friend.shownName || friend.firstName || friend.displayName || "friend"}`}
-                          title="Message"
-                        >
-                          <MessageCircle className="h-3.5 w-3.5" />
-                        </Link>
-                        <Link
-                          href={`/profile/${friend.id}`}
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
-                          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                          aria-label={`View ${friend.shownName || friend.firstName || friend.displayName || "friend"}'s profile`}
-                          title="View profile"
-                        >
-                          <User className="h-3.5 w-3.5" />
-                        </Link>
-                        <div className="text-right">
-                          <div className="flex items-center gap-1 text-lg font-bold tabular-nums" style={{ color: imWinning ? "var(--color-ink-soft)" : "var(--color-warmth)" }}>
-                            <Flame className="h-4 w-4" /> {streakLabel}
-                          </div>
-                          <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>day streak</div>
-                        </div>
-                      </div>
-                      {/* Today's prayers — tap an open dot to send a reminder */}
-                      <div className="mt-2.5 flex items-center justify-center gap-2 border-t pt-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
-                        <PrayerDots
-                          name={friend.shownName || friend.firstName || friend.displayName || "Friend"}
-                          isMe={false}
-                          todayLogs={friend.todayLogs}
-                          todaySunnahs={friend.todaySunnahs}
-                          sunnahDefs={getSunnahsForMadhab(madhab)}
-                          prayerTimes={friend.times ?? null}
-                          currentTime={currentTime}
-                          todayVisible={friend.todayVisible}
-                          remindedAt={friend.remindedAt}
-                          reminding={new Set([...reminding].filter((k) => k.startsWith(`${friend.id}:`)).map((k) => k.split(":")[1]))}
-                          onRemind={(prayer) => handleRemindFriend(friend.id, prayer)}
-                          timezone={friend.timezone}
-                          compact
-                        />
-                      </div>
-                    </div>
+                      )}
+                    </>
                   );
-                })}
+                })()}
               </div>
             )}
 

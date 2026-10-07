@@ -6,7 +6,7 @@ import type { Class, Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
 import { formatDueBadge } from "@/lib/homework/due-format";
 import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/study/session";
-import { entryMinutes } from "@/components/study-stats-sheet";
+import StudyStatsSheet, { entryMinutes, weekMinutes } from "@/components/study-stats-sheet";
 
 export interface BlockWithAssignments extends StudyBlock {
   assignments: {
@@ -72,6 +72,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
 
 
   // Composer state — null when nothing is being drafted
+  const [statsOpen, setStatsOpen] = useState(false);
   const [gapSel, setGapSel] = useState<Interval | null>(null);
   const [startStr, setStartStr] = useState("");
   const [endStr, setEndStr] = useState("");
@@ -123,6 +124,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   // history can't change underneath it. Server history merges in async so
   // stats reflect sessions done on other devices.
   const [history, setHistory] = useState<SessionEntry[]>(() => getDiscipline().history);
+
   /** Total focused minutes per homeworkId — the ≥10m threshold that turns a
    *  worked block into a real "studied" tag. Sessions logged against a block
    *  (blockId) count even when the entry has no subject rows — a 2h session
@@ -142,6 +144,29 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     }
     return m;
   }, [history, plannedCounts]);
+
+  // Plan-status per assignment, shared by the deadlines list and the
+  // gap-picker. Colors: studied green, passed blue, no-plan light red,
+  // planned gray — same mapping the homework tab uses.
+  const statusByHw = useMemo(() => {
+    const m = new Map<string, { kind: "studied" | "planned" | "passed" | "none"; label: string }>();
+    for (const h of hw) {
+      const cov = plannedCounts.get(h.id);
+      const n = cov?.planned ?? 0;
+      const w = cov?.worked ?? 0;
+      const p = cov?.passed ?? 0;
+      const linkedMin = studiedMin.get(h.id);
+      const studied = w > 0 && (linkedMin === undefined || linkedMin >= 10);
+      const dayAbbr = cov?.nextDate
+        ? (() => { const [y, mo, dd] = cov.nextDate!.split("-").map(Number); return ["Su","Mo","Tu","We","Th","Fr","Sa"][new Date(y, mo - 1, dd).getDay()]; })()
+        : null;
+      if (n === 0 && w > 0 && studied) m.set(h.id, { kind: "studied", label: "studied" });
+      else if (n > 0) m.set(h.id, { kind: "planned", label: dayAbbr ? `planned for ${dayAbbr}` : `${n} block${n === 1 ? "" : "s"}` });
+      else if (w > 0 || p > 0) m.set(h.id, { kind: "passed", label: "passed" });
+      else m.set(h.id, { kind: "none", label: "no plan" });
+    }
+    return m;
+  }, [hw, plannedCounts, studiedMin]);
 
   /** Remove the "studied" tag — releases the worked block(s) behind it so the
    *  assignment drops back to "no plan". Local history is untouched. */
@@ -416,6 +441,18 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
             <p className="whitespace-nowrap text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
               {composing ? (editingBlock ? "Edit block" : "New block") : `Plan ${isToday ? "today" : date}`}
             </p>
+            {!composing && (
+              <span className="flex items-center gap-1.5 text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                {(() => { const w = weekMinutes(history); return w > 0 ? <><span style={{ color: "var(--color-accent)" }}>{fmtDur(w)}</span> this wk</> : null; })()}
+                <button
+                  onClick={() => setStatsOpen(true)}
+                  className="rounded-full border px-2 py-px text-[10px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                >
+                  Stats
+                </button>
+              </span>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {!composing && !draft && !isPast && onPickOnCalendar && (
@@ -533,6 +570,21 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                             );
                           })()}
                         </span>
+                        {/* Plan-status dot — same colors as the deadlines list
+                            so "already planned" is visible before picking. */}
+                        {(() => {
+                          const st = statusByHw.get(h.id) ?? { kind: "none" as const, label: "no plan" };
+                          const color = st.kind === "studied" ? "var(--color-success)"
+                            : st.kind === "passed" ? "var(--color-accent)"
+                            : st.kind === "none" ? "var(--color-error)"
+                            : "var(--color-ink-muted)";
+                          return (
+                            <span className="flex shrink-0 items-center gap-1" title={st.label}>
+                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                              <span className="hidden text-[10px] font-medium sm:inline" style={{ color }}>{st.label}</span>
+                            </span>
+                          );
+                        })()}
                       </button>
                     );
                   })}
@@ -768,22 +820,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                 ) : (
                   <div className="flex flex-col">
                     {hw.map((h) => {
-                      const cov = plannedCounts.get(h.id);
-                      const n = cov?.planned ?? 0;
-                      const w = cov?.worked ?? 0;
-                      const p = cov?.passed ?? 0;
-                      // "studied" only counts when a real session put ≥10
-                      // minutes into this assignment — but a worked block with
-                      // no linked session entries at all (logged before hw
-                      // tracking existed, or on another device pre-sync) earns
-                      // it too; a recorded <10m session stays "passed".
-                      const linkedMin = studiedMin.get(h.id);
-                      const studied = w > 0 && (linkedMin === undefined || linkedMin >= 10);
-                      // "planned for Th" — the nearest upcoming block's day,
-                      // parsed as a local date so UTC-midnight doesn't shift it.
-                      const dayAbbr = cov?.nextDate
-                        ? (() => { const [y, m, dd] = cov.nextDate!.split("-").map(Number); return ["Su","Mo","Tu","We","Th","Fr","Sa"][new Date(y, m - 1, dd).getDay()]; })()
-                        : null;
+                      const st = statusByHw.get(h.id) ?? { kind: "none" as const, label: "no plan" };
                       return (
                         <div key={h.id} className="flex items-center gap-2 border-b py-2 last:border-0" style={{ borderColor: "var(--color-paper-3)" }}>
                           <span className="min-w-0 flex-1 text-sm leading-snug" style={{ color: "var(--color-ink)" }}>
@@ -805,7 +842,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                               );
                             })()}
                           </span>
-                          {n === 0 && w > 0 && studied ? (
+                          {st.kind === "studied" ? (
                             /* "studied" is a real tag the user can remove —
                                releases the worked block(s) and reverts the
                                chip to "no plan". */
@@ -822,14 +859,14 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                             <span
                               className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
                               style={
-                                n > 0
-                                  ? { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }
-                                  : { backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }
+                                st.kind === "planned"
+                                  ? { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }
+                                  : st.kind === "passed"
+                                    ? { backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }
+                                    : { backgroundColor: "color-mix(in oklab, var(--color-error) 10%, var(--color-paper))", color: "var(--color-error)" }
                               }
                             >
-                              {n > 0
-                                ? (dayAbbr ? `planned for ${dayAbbr}` : `${n} block${n === 1 ? "" : "s"}`)
-                                : w > 0 || p > 0 ? "passed" : "no plan"}
+                              {st.label}
                             </span>
                           )}
                         </div>
@@ -842,6 +879,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
           )}
         </div>
       </div>
+      {statsOpen && <StudyStatsSheet onClose={() => setStatsOpen(false)} />}
     </div>
   );
 }

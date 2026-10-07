@@ -8,9 +8,10 @@ import { isValidUUID } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 /**
- * POST { friendId, nickname } — the owner-side label for a friend ("save
- * Mahmud as Muhammad"). Lives on the friendship row: private to the viewer,
- * never shown to the friend. Empty string clears it.
+ * POST { friendId, nickname?, hiddenFromLeague? } — owner-side prefs on a
+ * friendship row. `nickname` is "how I saved them" (private label); the
+ * `hiddenFromLeague` flag drops them from the weekly leaderboard without
+ * unfriending. Both are viewer-private — never shown to the friend.
  */
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -23,16 +24,31 @@ export async function POST(request: NextRequest) {
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid request." }, { status: 400 }); }
-  const { friendId, nickname } = body as { friendId?: string; nickname?: string };
+  const { friendId, nickname, hiddenFromLeague } = body as {
+    friendId?: string;
+    nickname?: string;
+    hiddenFromLeague?: boolean;
+  };
 
   if (typeof friendId !== "string" || !isValidUUID(friendId)) {
     return NextResponse.json({ error: "Invalid friend." }, { status: 400 });
   }
-  const trimmed = typeof nickname === "string" ? nickname.trim().slice(0, 40) : "";
+  if (nickname === undefined && hiddenFromLeague === undefined) {
+    return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
+  }
+
+  const updates: { nickname?: string | null; hiddenFromLeague?: boolean } = {};
+  if (nickname !== undefined) {
+    const trimmed = typeof nickname === "string" ? nickname.trim().slice(0, 40) : "";
+    updates.nickname = trimmed || null;
+  }
+  if (hiddenFromLeague !== undefined) {
+    updates.hiddenFromLeague = Boolean(hiddenFromLeague);
+  }
 
   const updated = await db
     .update(schema.prayerFriends)
-    .set({ nickname: trimmed || null })
+    .set(updates)
     .where(and(
       eq(schema.prayerFriends.userId, session.userId),
       eq(schema.prayerFriends.friendId, friendId),
@@ -43,5 +59,5 @@ export async function POST(request: NextRequest) {
   if (updated.length === 0) {
     return NextResponse.json({ error: "Friendship not found." }, { status: 404 });
   }
-  return NextResponse.json({ ok: true, nickname: trimmed || null });
+  return NextResponse.json({ ok: true, ...updates });
 }
