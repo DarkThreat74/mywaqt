@@ -1279,6 +1279,9 @@ function IntakeSheet() {
     setEsts(assignments?.map((a) => a.estimatedMinutes) ?? []);
   }
   const [method, setMethod] = useState<StudyMethod>("auto");
+  // Textbook pacing — pages to cover × minutes per page (adjustable).
+  const [pages, setPages] = useState(20);
+  const [minPerPage, setMinPerPage] = useState(3);
   // Manual order — touched when the user moves a row; sent as `ordered` so
   // Vox respects their arrangement instead of sorting hardest-first.
   const [order, setOrder] = useState<number[] | null>(null);
@@ -1314,6 +1317,7 @@ function IntakeSheet() {
     { id: "ultradian",  label: "Ultradian",    hint: "90·20 single blocks", best: "one big piece of work" },
     { id: "interleave", label: "Interleaved",  hint: "rotate ~20 min",  best: "several subjects at once" },
     { id: "flowtime",   label: "Flowtime",     hint: "work till you fade", best: "when you're already in flow" },
+    { id: "textbook",   label: "Textbook",     hint: "paced page turns",   best: "reading a chapter page by page" },
   ];
 
   return (
@@ -1430,6 +1434,43 @@ function IntakeSheet() {
               </button>
             ))}
           </div>
+
+          {/* Textbook pacing — one timer segment per page; the pace is the
+              thing being tuned (dense pages slower, review pages faster). */}
+          {method === "textbook" && (
+            <div className="mt-2 rounded-xl border px-3 py-2.5" style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)" }}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Pages to cover</span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setPages((p) => Math.max(1, p - 5))} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Fewer pages">
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>{pages}</span>
+                  <button onClick={() => setPages((p) => Math.min(400, p + 5))} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="More pages">
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <span className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Minutes per page</span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setMinPerPage((m) => Math.max(2, m - 1))} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Faster pace">
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>{minPerPage}m</span>
+                  <button onClick={() => setMinPerPage((m) => Math.min(10, m + 1))} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Slower pace">
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <p className="mt-2 text-[10px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>
+                ≈ {fmtDur(pages * minPerPage)} of reading
+                {pages * minPerPage > state.minutes
+                  ? ` — more than this ${fmtDur(state.minutes)} block; I'll stop at the last page that fits.`
+                  : ` — fits inside your ${fmtDur(state.minutes)} block; leftover time becomes review.`}
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="border-t px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]" style={{ borderColor: "var(--color-paper-3)" }}>
@@ -1440,11 +1481,14 @@ function IntakeSheet() {
                 originalMinutes: state.originalMinutes,
                 method,
                 ordered: order !== null,
+                pagePace: method === "textbook" ? { pages, minPerPage } : undefined,
                 // No time set → the user didn't commit to it — skip it in the
-                // plan rather than inventing a chunk for it.
+                // plan rather than inventing a chunk for it. homeworkId rides
+                // along so the server can enrich with per-assignment history
+                // and the recap can attach minutes to the real homework row.
                 assignments: idx
-                  .map((i) => ({ title: state.assignments[i].title, estimatedMinutes: ests[i] }))
-                  .filter((a) => a.estimatedMinutes !== null),
+                  .map((i) => ({ title: state.assignments[i].title, estimatedMinutes: ests[i], homeworkId: state.assignments[i].homeworkId }))
+                  .filter((a) => a.estimatedMinutes !== null || method === "textbook"),
               },
               state.blockId,
             )}

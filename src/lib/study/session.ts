@@ -25,9 +25,12 @@ export interface SessionPlanInput {
   /** User manually arranged the assignment order — keep it instead of
    *  sorting hardest-first. */
   ordered?: boolean;
+  /** Textbook mode — paced page turns: N pages at M minutes each. Planned
+   *  deterministically on-device (an LLM can't hold a per-page clock). */
+  pagePace?: { pages: number; minPerPage: number };
 }
 
-export type StudyMethod = "auto" | "pomodoro" | "sprint" | "deep" | "ultradian" | "interleave" | "flowtime";
+export type StudyMethod = "auto" | "pomodoro" | "sprint" | "deep" | "ultradian" | "interleave" | "flowtime" | "textbook";
 
 export type SessionState =
   | { status: "idle" }
@@ -104,10 +107,46 @@ export function beginIntake(input: Omit<SessionPlanInput, "method">, blockId?: s
   emit();
 }
 
+/** Textbook pacing — one study segment per page plus a short eyes-off break
+ *  every 5 pages. Leftover block time becomes a review/finish segment. */
+function textbookPlan(minutes: number, pace: { pages: number; minPerPage: number }, title: string): StudySegment[] {
+  const per = Math.min(10, Math.max(2, Math.round(pace.minPerPage)));
+  const pages = Math.min(400, Math.max(1, Math.round(pace.pages)));
+  const segs: StudySegment[] = [];
+  let remaining = minutes;
+  let page = 0;
+  while (page < pages && remaining >= per) {
+    page++;
+    segs.push({ kind: "study", minutes: per, label: `${title} — page ${page}` });
+    remaining -= per;
+    if (page < pages && page % 5 === 0 && remaining >= 8) {
+      segs.push({ kind: "break", minutes: 3, label: "Rest your eyes" });
+      remaining -= 3;
+    }
+  }
+  if (remaining >= 5) {
+    segs.push({
+      kind: "study",
+      minutes: remaining,
+      label: page >= pages ? `Review ${title}` : `${title} — keep going`,
+    });
+  }
+  return segs;
+}
+
 /** Ask Vox for a plan; lands in 'planned' (preview) state. */
 export async function planSession(input: SessionPlanInput, blockId?: string) {
   state = { status: "planning" };
   emit();
+  // Textbook pacing is deterministic — planned on-device, no round-trip.
+  if (input.method === "textbook" && input.pagePace) {
+    const segments = textbookPlan(input.minutes, input.pagePace, input.assignments[0]?.title || "Textbook");
+    state = segments.length > 0
+      ? { status: "planned", segments, titles: input.assignments.map((a) => a.title), blockId, planInput: input }
+      : { status: "idle" };
+    emit();
+    return;
+  }
   try {
     // Study profile — aggregate habits so the planner can adapt: preferred
     // method, how often breaks get taken, how often the user jumps between
