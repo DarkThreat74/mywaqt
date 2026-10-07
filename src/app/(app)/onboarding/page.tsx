@@ -262,10 +262,15 @@ function TourVisual({ kind }: { kind: TourVisualKind }) {
   );
 }
 
+const DRAFT_KEY = "waqt:onboarding-draft";
+
 export default function OnboardingWizard() {
   const [step, setStep] = useState<Step>(initialStep);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Legacy users (account older than a day but onboarding flag unset) get a
+  // "we know you" banner instead of the new-user framing.
+  const [legacyUser, setLegacyUser] = useState(false);
   // router removed — using window.location.href for reliable hard navigation
 
   // Persist the wizard position so logout/device-change resumes mid-flow.
@@ -328,6 +333,62 @@ export default function OnboardingWizard() {
   // Feature tour slide index
   const [tourIdx, setTourIdx] = useState(0);
   const tourTouchX = useRef<number | null>(null);
+
+  // ── Draft persistence — every field the user has touched so far rides in
+  // localStorage. Reload, sign-out, device sleep mid-flow: the wizard comes
+  // back with everything filled in. Cleared on completion.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    let draft: Record<string, unknown> | null = null;
+    try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "null"); } catch { /* corrupt */ }
+    // Deferred — hydration setStates must not run synchronously in the effect.
+    Promise.resolve().then(() => {
+      const d = draft;
+      if (d) {
+        if (typeof d.acceptedTerms === "boolean") setAcceptedTerms(d.acceptedTerms);
+        if (typeof d.firstName === "string") setFirstName(d.firstName);
+        if (typeof d.lastName === "string") setLastName(d.lastName);
+        if (typeof d.middleInitial === "string") setMiddleInitial(d.middleInitial);
+        if (d.theme === "light" || d.theme === "dark" || d.theme === "system") setTheme(d.theme);
+        if (d.gender === "male" || d.gender === "female") setGender(d.gender);
+        if (typeof d.haydTracking === "boolean") setHaydTracking(d.haydTracking);
+        if (typeof d.lat === "number") setLat(d.lat);
+        if (typeof d.lng === "number") setLng(d.lng);
+        if (typeof d.timezone === "string" && d.timezone) { setTimezone(d.timezone); if (typeof d.lat === "number") setLocationStatus("done"); }
+        if (typeof d.madhab === "string") setMadhab(d.madhab);
+        if (typeof d.earlyMid === "string") setEarlyMid(d.earlyMid);
+        if (typeof d.finalReminder === "string") setFinalReminder(d.finalReminder);
+        if (typeof d.otherReminders === "string") setOtherReminders(d.otherReminders);
+        if (typeof d.avatar === "string") setAvatar(d.avatar);
+      }
+      hydratedRef.current = true;
+    });
+    fetch("/api/profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.joinedAt && Date.now() - new Date(d.joinedAt).getTime() > 24 * 60 * 60 * 1000) {
+          setLegacyUser(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!hydratedRef.current || step === "done") return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        acceptedTerms, firstName, lastName, middleInitial, theme, gender,
+        haydTracking, lat, lng, timezone, madhab, earlyMid, finalReminder,
+        otherReminders, avatar,
+      }));
+    } catch { /* storage full (big avatar) — draft just stops updating */ }
+  }, [step, acceptedTerms, firstName, lastName, middleInitial, theme, gender, haydTracking, lat, lng, timezone, madhab, earlyMid, finalReminder, otherReminders, avatar]);
+
+  useEffect(() => {
+    if (step === "done") {
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* non-critical */ }
+    }
+  }, [step]);
 
   // Arrow-key navigation while the tour step is shown
   useEffect(() => {
@@ -603,6 +664,16 @@ export default function OnboardingWizard() {
       {/* ── Step 0: Terms acceptance ── */}
       {step === "terms" && (
         <div className="flex flex-col items-center text-center">
+          {legacyUser && (
+            <p
+              className="mb-6 w-full max-w-sm rounded-xl border px-4 py-3 text-left text-xs leading-relaxed"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }}
+            >
+              We know you&apos;re already a Waqt user — our updated policy asks every
+              account to complete setup once. Takes about 3 minutes, and your
+              answers save automatically.
+            </p>
+          )}
           <div
             className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
             style={{ backgroundColor: "var(--color-accent-faint)" }}
