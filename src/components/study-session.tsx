@@ -145,9 +145,16 @@ function subjectMins(recap: { rows: { kind: string; label: string; min: number }
   for (const r of recap.rows) {
     if (r.kind !== "study") continue;
     const clean = r.label.replace(/( \(finish\))+$/, "");
-    const hwId = hw?.[r.label] ?? hw?.[clean];
+    let hwId = hw?.[r.label] ?? hw?.[clean];
+    let label = clean;
+    if (!hwId && hw) {
+      // Derived labels — "Title — page N", "Title — keep going", "Review Title" —
+      // never equal the assignment title, so exact lookup misses them.
+      const title = Object.keys(hw).find((t) => clean === `Review ${t}` || clean.startsWith(`${t} —`));
+      if (title) { hwId = hw[title]; label = title; }
+    }
     const k = hwId ?? r.label;
-    const cur = m.get(k) ?? { label: clean, min: 0, hw: hwId };
+    const cur = m.get(k) ?? { label, min: 0, hw: hwId };
     cur.min += r.min;
     m.set(k, cur);
   }

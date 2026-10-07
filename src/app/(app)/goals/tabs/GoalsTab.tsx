@@ -379,7 +379,18 @@ export default function GoalsTab({
               setEditTags={setEditTags}
               editSessionsTarget={editSessionsTarget}
               setEditSessionsTarget={setEditSessionsTarget}
-              sessionsDone={goal.homeworkId ? (sessionsByHw.get(goal.homeworkId) ?? 0) : 0}
+              sessionsDone={
+                goal.homeworkId
+                  ? (sessionsByHw.get(goal.homeworkId) ?? 0) +
+                    // Sessions recorded before hw-tagging reached their subjects
+                    // still carry the shadow homework's title in the label.
+                    history.filter((e) =>
+                      e.finished &&
+                      !e.subjects?.some((s) => s.hw) &&
+                      e.subjects?.some((s) => s.label.startsWith(`Study for: ${goal.title}`) || s.label === `Review Study for: ${goal.title}`)
+                    ).length
+                  : 0
+              }
               onUpdate={updateGoal}
               onDelete={deleteGoal}
             />
