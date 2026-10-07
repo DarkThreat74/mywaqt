@@ -23,10 +23,10 @@ interface Dueness {
   tone: "fresh" | "soon" | "due" | "overdue";
 }
 
-function dueness(c: Chore): Dueness {
+function dueness(c: Chore, nowMs: number): Dueness {
   const freqMs = c.frequencyDays * 86400000;
   if (!c.lastDoneAt) return { pct: 1, label: "never done", tone: "due" };
-  const elapsed = Date.now() - new Date(c.lastDoneAt).getTime();
+  const elapsed = nowMs - new Date(c.lastDoneAt).getTime();
   const pct = elapsed / freqMs;
   const left = Math.ceil((freqMs - elapsed) / 86400000);
   const over = Math.floor((elapsed - freqMs) / 86400000);
@@ -61,10 +61,12 @@ export default function ChoresTab({
   const [planning, setPlanning] = useState<Chore | null>(null);
   const [planDate, setPlanDate] = useState("");
   const [planTime, setPlanTime] = useState("");
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [mountNow] = useState(() => Date.now());
 
   const sorted = useMemo(
-    () => [...chores].sort((a, b) => dueness(b).pct - dueness(a).pct),
-    [chores],
+    () => [...chores].sort((a, b) => dueness(b, mountNow).pct - dueness(a, mountNow).pct),
+    [chores, mountNow],
   );
 
   async function addChore() {
@@ -85,6 +87,7 @@ export default function ChoresTab({
       if (res.ok && data) {
         setChores((prev) => [...prev, data]);
         setTitle(""); setEstMin("30"); setFreqDays("7"); setShowAdd(false);
+        invalidateApiCache("/api/chores");
       } else {
         setError(data?.error || "Could not save chore");
       }
@@ -117,6 +120,7 @@ export default function ChoresTab({
     try {
       const res = await fetch(`/api/chores?id=${c.id}`, { method: "DELETE" });
       if (!res.ok && res.status !== 202) setChores((prev) => [...prev, c]);
+      else invalidateApiCache("/api/chores");
     } catch {
       setChores((prev) => [...prev, c]);
     }
@@ -128,8 +132,9 @@ export default function ChoresTab({
     setSaving(true);
     try {
       const start = new Date(`${planDate}T${planTime}:00`);
+      if (isNaN(start.getTime())) { setPlanError("Pick a valid date and time"); setSaving(false); return; }
       const end = new Date(start.getTime() + planning.estimatedMinutes * 60000);
-      await fetch("/api/events", {
+      const res = await fetch("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -140,6 +145,12 @@ export default function ChoresTab({
           clientId: crypto.randomUUID(),
         }),
       }).catch(() => null);
+      if (res && !res.ok && res.status !== 202) {
+        setPlanError("Couldn't add it to the calendar — try again");
+        return;
+      }
+      invalidateApiCache("/api/events");
+      setPlanError(null);
       setPlanning(null);
     } finally {
       setSaving(false);
@@ -215,7 +226,7 @@ export default function ChoresTab({
       ) : (
         <div className="flex flex-col gap-2">
           {sorted.map((c) => {
-            const d = dueness(c);
+            const d = dueness(c, mountNow);
             const color = TONE_COLOR[d.tone];
             return (
               <div
@@ -321,6 +332,7 @@ export default function ChoresTab({
                 aria-label="Start time"
               />
             </div>
+            {planError && <p className="mt-2 text-xs" style={{ color: "var(--color-error)" }}>{planError}</p>}
             <button
               onClick={() => void planChore()}
               disabled={saving || !planDate || !planTime}

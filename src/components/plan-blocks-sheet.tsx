@@ -150,7 +150,9 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
       if (c.planned > 0 || c.worked > 0 || (c.passed ?? 0) > 0) map.set(id, { ...c });
     }
     for (const b of blocks) {
-      const ended = isToday && b.endMin <= nowMin;
+      // A block is "ended" if the whole day is behind us or its window
+      // already closed today — either way it can't be upcoming coverage.
+      const ended = isPast || (isToday && b.endMin <= nowMin);
       for (const a of b.assignments) {
         const e = map.get(a.homeworkId) ?? { planned: 0, worked: 0 };
         if (b.status === "planned" && ended) e.passed = (e.passed ?? 0) + 1;
@@ -162,7 +164,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
       }
     }
     return map;
-  }, [blocks, coverage, isToday, nowMin]);
+  }, [blocks, coverage, isToday, isPast, nowMin]);
 
   const classMap = useMemo(() => {
     const m = new Map<string, Class>();

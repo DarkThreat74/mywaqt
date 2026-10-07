@@ -47,6 +47,7 @@ export default function SidebarSalah() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
         const d = new Date();
         const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -75,7 +76,9 @@ export default function SidebarSalah() {
     }
     void load();
     const t = setInterval(load, 60_000);
-    return () => { cancelled = true; clearInterval(t); };
+    const onVis = () => { if (!document.hidden) void load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { cancelled = true; clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
   // Recompute the line on every 30s tick from the loaded times.

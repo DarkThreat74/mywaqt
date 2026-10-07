@@ -215,7 +215,7 @@ export function resumeSession() {
 
 /** "I only have 10/15/20 minutes" — a single-segment sprint that skips
  *  planning entirely. Labelled by the first assignment when present. */
-export function startSprint(minutes: number, label = "Focus sprint", blockId?: string) {
+export function startSprint(minutes: number, label = "Focus sprint", blockId?: string, hw?: Record<string, string>) {
   state = {
     status: "running",
     segments: [{ kind: "study", minutes, label }],
@@ -227,6 +227,7 @@ export function startSprint(minutes: number, label = "Focus sprint", blockId?: s
     method: "sprint",
     switches: 0,
     blockId,
+    hw,
   };
   emit();
 }

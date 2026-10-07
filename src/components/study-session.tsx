@@ -306,7 +306,11 @@ export default function StudySession() {
     const recap = buildRecap(run, label, false, 0);
     const disc = recordOutcome(false, {
       date: localDateStr(),
-      minutes: Math.max(1, Math.round((Date.now() - run.startedAt - run.pausedMs) / 60000)),
+      // pausedMs alone misses a live pause — include the open pausedAt span
+      // so an abandoned-while-paused session doesn't over-count elapsed time.
+      minutes: Math.max(1, Math.round(
+        (Date.now() - run.startedAt - run.pausedMs - (run.pausedAt ? Date.now() - run.pausedAt : 0)) / 60000,
+      )),
       label,
       reason: "ended without finishing",
       method: run.method,
@@ -317,6 +321,15 @@ export default function StudySession() {
       blockId: run.blockId,
     });
     setSummary({ ...recap, streak: disc.streak });
+    // A session that actually got focus minutes counts as working the block
+    // even without a clean finish — otherwise it wrongly shows "passed".
+    if (run.blockId && recap.focusMin > 0) {
+      void fetch("/api/blocks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: run.blockId, status: "worked" }),
+      }).catch(() => { /* cosmetic */ });
+    }
   }, [state]);
 
   useEffect(() => { hydrateSession(); }, []);
@@ -504,7 +517,9 @@ export default function StudySession() {
     });
     if (recap) setSummary({ ...recap, streak: nextDiscipline.streak });
     const bid = runningBlockId();
-    if (finished && bid) {
+    // Worked = real focus happened, not just a clean finish — an early end
+    // with real minutes still counts toward the "studied" badge.
+    if (bid && (recap?.focusMin ?? 0) > 0) {
       void fetch("/api/blocks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1373,7 +1388,15 @@ function IntakeSheet() {
                       body: JSON.stringify({ id: state.blockId, status: "worked" }),
                     }).catch(() => { /* cosmetic — planner badge only */ });
                   }
-                  startSprint(m, state.assignments[idx[0]]?.title ?? "Focus sprint", state.blockId);
+                  const a = state.assignments[idx[0]];
+                  startSprint(
+                    m,
+                    a?.title ?? "Focus sprint",
+                    state.blockId,
+                    // Attach the homeworkId so sprint minutes count toward the
+                    // "studied" badge and per-exam history, not just the label.
+                    a?.homeworkId ? { [a.title]: a.homeworkId } : undefined,
+                  );
                 }}
                 className="flex items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 44 }}

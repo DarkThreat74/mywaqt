@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -113,8 +114,8 @@ export async function PATCH(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
-    if (typeof body.id !== "string" || !body.id) {
-      return NextResponse.json({ error: "Chore ID is required" }, { status: 400 });
+    if (typeof body.id !== "string" || !isValidUUID(body.id)) {
+      return NextResponse.json({ error: "Valid chore ID is required" }, { status: 400 });
     }
 
     const [existing] = await db
@@ -181,8 +182,8 @@ export async function DELETE(request: NextRequest) {
 
     const url = new URL(request.url);
     const id = url.searchParams.get("id");
-    if (!id) {
-      return NextResponse.json({ error: "Chore ID is required" }, { status: 400 });
+    if (!id || !isValidUUID(id)) {
+      return NextResponse.json({ error: "Valid chore ID is required" }, { status: 400 });
     }
 
     const [deleted] = await db
