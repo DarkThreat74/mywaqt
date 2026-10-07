@@ -63,6 +63,8 @@ export interface HomeworkItem {
   notified1dAt?: string | null;
   notifiedMorningAt?: string | null;
   completedAt: Date | null;
+  /** Letter outcome for assessments — 'A' | 'B' | 'C' | 'fail'. */
+  grade?: string | null;
 }
 
 interface ClassItem {
@@ -132,6 +134,8 @@ export default function HomeworkClient({
   const [savingEditClass, setSavingEditClass] = useState(false);
   const [deleteHwConfirm, setDeleteHwConfirm] = useState<HomeworkItem | null>(null);
   const [completeConfirm, setCompleteConfirm] = useState<HomeworkItem | null>(null);
+  // Grade prompt — completed test/quiz/exam opens this to record the outcome.
+  const [gradeFor, setGradeFor] = useState<HomeworkItem | null>(null);
   const [showClasses, setShowClasses] = useState(false);
 
   // Propagate homework state changes to parent (so Today tab stays in sync).
@@ -540,14 +544,43 @@ export default function HomeworkClient({
     setImportMsg(`Found ${entries.length} item${entries.length === 1 ? "" : "s"} — review then tap Import`);
   }
 
-  async function handleToggleComplete(hw: HomeworkItem) {
+  /** Kinds whose completion asks for a grade outcome. */
+  const GRADED_KINDS = ["test", "quiz", "exam"];
+
+  /** Persist (or clear) the letter grade on an assessment — offline-safe via
+   *  the same 202/optimistic pattern as completion. */
+  async function saveGrade(hw: HomeworkItem, grade: string | null) {
+    const updatedHw: HomeworkItem = { ...hw, grade };
+    setHomework((prev) => prev.map((h) => (h.id === hw.id ? updatedHw : h)));
+    upsertHomeworkToCache(updatedHw);
+    try {
+      const res = await fetch(`/api/homework/${hw.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grade }),
+      });
+      if (!res.ok && res.status !== 202) {
+        setHomework((prev) => prev.map((h) => (h.id === hw.id ? hw : h)));
+        upsertHomeworkToCache(hw);
+        return;
+      }
+      invalidateApiCache("/api/homework");
+    } catch { /* offline — optimistic stands */ }
+  }
+
+  async function handleToggleComplete(hw: HomeworkItem, grade?: string | null) {
     const newStatus: "pending" | "completed" = hw.status === "completed" ? "pending" : "completed";
-    const updatedHw: HomeworkItem = { ...hw, status: newStatus, completedAt: newStatus === "completed" ? new Date() : null };
+    const updatedHw: HomeworkItem = {
+      ...hw, status: newStatus,
+      completedAt: newStatus === "completed" ? new Date() : null,
+      grade: grade !== undefined ? grade : hw.grade,
+    };
     // Optimistic update + cache write — keep even if offline
     setHomework((prev) => prev.map((h) => (h.id === hw.id ? updatedHw : h)));
     upsertHomeworkToCache(updatedHw);
     try {
       const payload: Record<string, unknown> = { status: newStatus };
+      if (grade !== undefined) payload.grade = grade;
       // Un-completing restores the planned study session — resend the
       // instants so the server recreates the calendar event it deleted.
       if (newStatus === "pending" && hw.plannedDate && hw.plannedStartTime) {
@@ -984,7 +1017,7 @@ export default function HomeworkClient({
                     style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}
                     title="No study time claimed for this yet"
                   >
-                    unplanned
+                    no plan
                   </span>
                 );
               }
@@ -997,6 +1030,22 @@ export default function HomeworkClient({
               >
                 {KIND_LABELS[hw.kind]}
               </span>
+            )}
+            {GRADED_KINDS.includes(hw.kind) && hw.status === "completed" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setGradeFor(hw); }}
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold transition-opacity hover:opacity-70"
+                style={
+                  hw.grade
+                    ? hw.grade === "fail"
+                      ? { backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }
+                      : { backgroundColor: "color-mix(in oklab, var(--color-success) 12%, var(--color-paper))", color: "var(--color-success)" }
+                    : { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }
+                }
+                title="Tap to change the grade"
+              >
+                {hw.grade ? (hw.grade === "fail" ? "failed" : `grade ${hw.grade}`) : "+ grade"}
+              </button>
             )}
             {hw.priority === "high" && hw.status === "pending" && (
               <span
@@ -1968,30 +2017,131 @@ export default function HomeworkClient({
                 )}
               </div>
 
-              <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                Mark it done? It moves to Done — you can undo it anytime.
-              </p>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setCompleteConfirm(null)}
-                  className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
-                >
-                  Not yet
-                </button>
-                <button
-                  onClick={() => { handleToggleComplete(completeConfirm); setCompleteConfirm(null); }}
-                  className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90"
-                  style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)", minHeight: 44 }}
-                >
-                  Done
-                </button>
-              </div>
+              {GRADED_KINDS.includes(completeConfirm.kind) ? (
+                <>
+                  {/* Assessments record an outcome — feeds the planner's
+                      estimate calibration. Skippable; editable later. */}
+                  <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                    Mark it done — how&apos;d it go?
+                  </p>
+                  <div className="mb-3 grid grid-cols-4 gap-1.5">
+                    {(["A", "B", "C", "fail"] as const).map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => { handleToggleComplete(completeConfirm, g); setCompleteConfirm(null); }}
+                        className="rounded-lg border py-2.5 text-sm font-bold transition-colors hover:bg-[var(--color-paper-2)]"
+                        style={{
+                          borderColor: g === "fail" ? "var(--color-warmth)" : "var(--color-paper-3)",
+                          color: g === "fail" ? "var(--color-warmth)" : "var(--color-ink)",
+                          minHeight: 44,
+                        }}
+                      >
+                        {g === "fail" ? "Fail" : g}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setCompleteConfirm(null)}
+                      className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
+                    >
+                      Not yet
+                    </button>
+                    <button
+                      onClick={() => { handleToggleComplete(completeConfirm); setCompleteConfirm(null); }}
+                      className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90"
+                      style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)", minHeight: 44 }}
+                    >
+                      Done — skip grade
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                    Mark it done? It moves to Done — you can undo it anytime.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setCompleteConfirm(null)}
+                      className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
+                    >
+                      Not yet
+                    </button>
+                    <button
+                      onClick={() => { handleToggleComplete(completeConfirm); setCompleteConfirm(null); }}
+                      className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90"
+                      style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)", minHeight: 44 }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         );
       })()}
+
+      {/* ── Grade edit — change or clear the recorded outcome ── */}
+      {gradeFor && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
+          onClick={() => setGradeFor(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit grade"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border p-5"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <h3 className="text-sm font-semibold leading-snug" style={{ color: "var(--color-ink)" }}>
+                {gradeFor.title}
+              </h3>
+              <button
+                onClick={() => setGradeFor(null)}
+                className="min-h-11 min-w-11 -m-2 rounded-lg p-2 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-ink-muted)" }}
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>What grade did it get?</p>
+            <div className="grid grid-cols-4 gap-1.5">
+              {(["A", "B", "C", "fail"] as const).map((g) => (
+                <button
+                  key={g}
+                  onClick={() => { void saveGrade(gradeFor, g); setGradeFor(null); }}
+                  className="rounded-lg border py-2.5 text-sm font-bold transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{
+                    borderColor: gradeFor.grade === g ? "var(--color-accent)" : g === "fail" ? "var(--color-warmth)" : "var(--color-paper-3)",
+                    color: g === "fail" ? "var(--color-warmth)" : "var(--color-ink)",
+                    minHeight: 44,
+                  }}
+                >
+                  {g === "fail" ? "Fail" : g}
+                </button>
+              ))}
+            </div>
+            {gradeFor.grade && (
+              <button
+                onClick={() => { void saveGrade(gradeFor, null); setGradeFor(null); }}
+                className="mt-3 w-full rounded-lg px-4 py-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-ink-muted)" }}
+              >
+                Remove grade
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

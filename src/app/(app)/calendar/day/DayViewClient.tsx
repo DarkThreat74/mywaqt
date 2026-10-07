@@ -2867,7 +2867,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       setPeekBlock(null);
                       const minutes = Math.max(10, b.endMin - b.startMin);
                       beginIntake(
-                        { minutes, originalMinutes: b.endMin - b.startMin, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })) },
+                        { minutes, originalMinutes: b.endMin - b.startMin, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null, homeworkId: a.homeworkId })) },
                         b.id,
                       );
                     }}
@@ -2927,7 +2927,7 @@ export default function DayViewClient({ date }: { date: string }) {
                               body: JSON.stringify({ id: b.id, startMin: s, endMin: e }),
                             }).then(() => void refreshBlocks()).catch(() => {});
                             beginIntake(
-                              { minutes: dur, originalMinutes: dur, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })) },
+                              { minutes: dur, originalMinutes: dur, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null, homeworkId: a.homeworkId })) },
                               b.id,
                             );
                           }}
@@ -3002,7 +3002,7 @@ export default function DayViewClient({ date }: { date: string }) {
                     }
                     const minutes = Math.max(10, b.endMin - start);
                     beginIntake(
-                      { minutes, originalMinutes: b.endMin - b.startMin, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })) },
+                      { minutes, originalMinutes: b.endMin - b.startMin, assignments: b.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null, homeworkId: a.homeworkId })) },
                       b.id,
                     );
                   }}

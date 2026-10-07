@@ -28,6 +28,7 @@ import UserStamp from "@/components/user-stamp";
 import ThemeGuard from "@/components/theme-guard";
 import { SoundscapeProvider } from "@/components/soundscape-context";
 import StudySession from "@/components/study-session";
+import SidebarSalah from "@/components/sidebar-salah";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
@@ -118,8 +119,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <MessagesNavItem />
         </nav>
 
-        {/* Tools + Logout — pinned to bottom */}
+        {/* Tools + Logout — pinned to bottom; salah status rides on top */}
         <div className="px-3 pb-6">
+          <SidebarSalah />
           <div className="flex items-center gap-1">
             <div className="min-w-0 flex-1"><ToolsMenu variant="sidebar" /></div>
             <NotificationBell />

@@ -20,7 +20,7 @@ export interface SessionPlanInput {
   minutes: number; // usable minutes (remaining in the block, capped)
   /** Full scheduled length — when minutes < this, the session started late. */
   originalMinutes?: number;
-  assignments: { title: string; estimatedMinutes?: number | null }[];
+  assignments: { title: string; estimatedMinutes?: number | null; homeworkId?: string }[];
   method?: StudyMethod;
   /** User manually arranged the assignment order — keep it instead of
    *  sorting hardest-first. */
@@ -31,7 +31,7 @@ export type StudyMethod = "auto" | "pomodoro" | "sprint" | "deep" | "ultradian" 
 
 export type SessionState =
   | { status: "idle" }
-  | { status: "intake"; minutes: number; originalMinutes?: number; assignments: { title: string; estimatedMinutes: number | null }[]; blockId?: string }
+  | { status: "intake"; minutes: number; originalMinutes?: number; assignments: { title: string; estimatedMinutes: number | null; homeworkId?: string }[]; blockId?: string }
   | { status: "planning" }
   | { status: "planned"; segments: StudySegment[]; titles: string[]; blockId?: string;
       /** What was asked for — kept so the preview can re-plan or go back to
@@ -39,7 +39,10 @@ export type SessionState =
       planInput: SessionPlanInput }
   | { status: "running"; segments: StudySegment[]; titles: string[]; startedAt: number; overlayOpen: boolean; blockId?: string;
       /** Wall-clock pause support — elapsed time excludes paused periods. */
-      pausedAt: number | null; pausedMs: number };
+      pausedAt: number | null; pausedMs: number;
+      /** Method chosen at intake + how many times "switch it up" fired — the
+       *  habits stats read these off the session history. */
+      method?: StudyMethod; switches?: number };
 
 const KEY = "waqt-study-session";
 
@@ -71,7 +74,7 @@ export function hydrateSession() {
     if (!raw) return;
     const parsed = JSON.parse(raw) as SessionState;
     if (parsed.status === "running" && Array.isArray(parsed.segments) && typeof parsed.startedAt === "number") {
-      state = { ...parsed, overlayOpen: false, pausedAt: parsed.pausedAt ?? null, pausedMs: parsed.pausedMs ?? 0 };
+      state = { ...parsed, overlayOpen: false, pausedAt: parsed.pausedAt ?? null, pausedMs: parsed.pausedMs ?? 0, switches: parsed.switches ?? 0 };
       emit();
     } else if (parsed.status === "planned" && Array.isArray(parsed.segments)) {
       state = parsed;
@@ -91,6 +94,7 @@ export function beginIntake(input: Omit<SessionPlanInput, "method">, blockId?: s
     assignments: input.assignments.map((a) => ({
       title: a.title,
       estimatedMinutes: a.estimatedMinutes ?? null,
+      homeworkId: a.homeworkId,
     })),
     blockId,
   };
@@ -102,10 +106,22 @@ export async function planSession(input: SessionPlanInput, blockId?: string) {
   state = { status: "planning" };
   emit();
   try {
+    // Study profile — aggregate habits so the planner can adapt: preferred
+    // method, how often breaks get taken, how often the user jumps between
+    // assignments. Computed locally; stays private to this device+account.
+    const history = getDiscipline().history;
+    const sessions = history.length;
+    const profile = sessions === 0 ? undefined : {
+      sessions,
+      avgBreaks: history.reduce((s, e) => s + (e.breaks ?? 0), 0) / sessions,
+      avgSwitches: history.reduce((s, e) => s + (e.switches ?? 0), 0) / sessions,
+      finishRate: history.filter((e) => e.finished).length / sessions,
+      prefMethod: topKey(history.map((e) => e.method).filter(Boolean) as string[]),
+    };
     const res = await fetch("/api/study-plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, profile }),
       signal: AbortSignal.timeout(45_000),
     });
     const data = await res.json().catch(() => null);
@@ -147,6 +163,8 @@ export function confirmSession() {
     overlayOpen: true,
     pausedAt: null,
     pausedMs: 0,
+    method: state.planInput.method,
+    switches: 0,
     blockId: state.blockId,
   };
   emit();
@@ -160,6 +178,12 @@ export function discardPlan() {
 export function endSession() {
   state = { status: "idle" };
   emit();
+}
+
+function topKey(arr: string[]): string | undefined {
+  const m = new Map<string, number>();
+  for (const k of arr) m.set(k, (m.get(k) ?? 0) + 1);
+  return [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 }
 
 /** True elapsed seconds excluding paused time — the only clock math callers
@@ -194,6 +218,8 @@ export function startSprint(minutes: number, label = "Focus sprint", blockId?: s
     overlayOpen: true,
     pausedAt: null,
     pausedMs: 0,
+    method: "sprint",
+    switches: 0,
     blockId,
   };
   emit();
@@ -202,7 +228,15 @@ export function startSprint(minutes: number, label = "Focus sprint", blockId?: s
 // ─── Focus discipline record — the consequence layer ───
 // A completed session grows the streak; ending early (not finished) or
 // abandoning resets it. Persisted locally, surfaced in the intake sheet.
-export interface SessionEntry { date: string; minutes: number; finished: boolean; label: string; reason?: string }
+export interface SessionEntry {
+  date: string; minutes: number; finished: boolean; label: string; reason?: string;
+  /** Study habits telemetry — feeds the planner's stats section. */
+  method?: string;
+  /** Break segments actually used (0.5m+), focus minutes, mid-session switches. */
+  breaks?: number; focusMin?: number; switches?: number;
+  /** Per-assignment minutes — feeds "time per subject" stats. */
+  subjects?: { label: string; min: number }[];
+}
 export interface Discipline { streak: number; completed: number; abandoned: number; history: SessionEntry[] }
 
 const DISC_KEY = "waqt-vox-discipline";
@@ -220,7 +254,7 @@ export function getDiscipline(): Discipline {
 export function recordOutcome(finished: boolean, entry?: Omit<SessionEntry, "finished">): Discipline {
   const d = getDiscipline();
   const history = entry
-    ? [{ ...entry, finished }, ...d.history].slice(0, 60)
+    ? [{ ...entry, finished }, ...d.history].slice(0, 400)
     : d.history;
   const next = finished
     ? { streak: d.streak + 1, completed: d.completed + 1, abandoned: d.abandoned, history }
@@ -368,7 +402,7 @@ export function switchFocus() {
     after.splice(lastStudy + 1, 0, { ...p.segment, minutes: leftMin, label: `${label} (finish)` });
   }
   next.push(...after);
-  state = { ...state, segments: next };
+  state = { ...state, segments: next, switches: (state.switches ?? 0) + 1 };
   emit();
 }
 

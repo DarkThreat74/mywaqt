@@ -43,6 +43,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       plannedStartAt?: string | null;
       plannedEndAt?: string | null;
       estimatedMinutes?: number | null;
+      grade?: string | null;
       subtasks?: Array<{ id?: string; title: string; done?: boolean }>;
     };
     try {
@@ -135,6 +136,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
       if (body.plannedStartTime !== undefined) updates.plannedStartTime = body.plannedStartTime ? body.plannedStartTime.slice(0, 8) : null;
       if (body.plannedEndTime !== undefined) updates.plannedEndTime = body.plannedEndTime ? body.plannedEndTime.slice(0, 8) : null;
+    }
+    // Grade for assessments — 'A' | 'B' | 'C' | 'fail', or null to clear.
+    if (body.grade !== undefined) {
+      if (body.grade !== null && !["A", "B", "C", "fail"].includes(body.grade)) {
+        return NextResponse.json({ error: "Invalid grade" }, { status: 400 });
+      }
+      updates.grade = body.grade;
     }
     if (body.estimatedMinutes !== undefined) {
       if (body.estimatedMinutes !== null && (typeof body.estimatedMinutes !== "number" || body.estimatedMinutes <= 0 || body.estimatedMinutes > 24 * 60)) {

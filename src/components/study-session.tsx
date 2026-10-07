@@ -136,6 +136,15 @@ function buildRecap(run: RunState, label: string, finished: boolean, streak: num
   };
 }
 
+/** Aggregate study-segment minutes by label — "time per subject" stats. */
+function subjectMins(recap: { rows: { kind: string; label: string; min: number }[] }) {
+  const m = new Map<string, number>();
+  for (const r of recap.rows) {
+    if (r.kind === "study") m.set(r.label, (m.get(r.label) ?? 0) + r.min);
+  }
+  return [...m.entries()].map(([label, min]) => ({ label, min: Math.round(min) })).filter((s) => s.min > 0);
+}
+
 export default function StudySession() {
   const state = useSyncExternalStore(subscribeSession, getSession, () => ({ status: "idle" }) as ReturnType<typeof getSession>);
   const [now, setNow] = useState(() => Date.now());
@@ -285,13 +294,19 @@ export default function StudySession() {
     if (!run) return;
     if (finishHandledRef.current) { finishHandledRef.current = false; return; }
     const label = run.segments.find((s) => s.kind === "study")?.label ?? "Focus session";
+    const recap = buildRecap(run, label, false, 0);
     const disc = recordOutcome(false, {
       date: localDateStr(),
       minutes: Math.max(1, Math.round((Date.now() - run.startedAt - run.pausedMs) / 60000)),
       label,
       reason: "ended without finishing",
+      method: run.method,
+      breaks: recap.breaks,
+      focusMin: recap.focusMin,
+      switches: run.switches ?? 0,
+      subjects: subjectMins(recap),
     });
-    setSummary(buildRecap(run, label, false, disc.streak));
+    setSummary({ ...recap, streak: disc.streak });
   }, [state]);
 
   useEffect(() => { hydrateSession(); }, []);
@@ -464,18 +479,22 @@ export default function StudySession() {
       : "Focus session";
     // Local date, not UTC — an evening session in a negative-offset timezone
     // must log to today, not tomorrow.
-    const d = new Date();
+    // Recap numbers — walk the plan against the elapsed clock so focus time
+    // counts only study segments and only up to where the session ended.
+    const recap = state.status === "running" ? buildRecap(state, label, finished, 0) : null;
     const nextDiscipline = recordOutcome(finished, {
-      date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+      date: localDateStr(),
       minutes: Math.max(1, Math.round(sessionElapsed(Date.now()) / 60)),
       label,
       reason: reason ?? undefined,
+      // Habits telemetry for the stats section.
+      method: state.status === "running" ? state.method : undefined,
+      breaks: recap?.breaks,
+      focusMin: recap?.focusMin,
+      switches: state.status === "running" ? state.switches ?? 0 : undefined,
+      subjects: recap ? subjectMins(recap) : undefined,
     });
-    // Recap numbers — walk the plan against the elapsed clock so focus time
-    // counts only study segments and only up to where the session ended.
-    if (state.status === "running") {
-      setSummary(buildRecap(state, label, finished, nextDiscipline.streak));
-    }
+    if (recap) setSummary({ ...recap, streak: nextDiscipline.streak });
     const bid = runningBlockId();
     if (finished && bid) {
       void fetch("/api/blocks", {
@@ -1338,7 +1357,16 @@ function IntakeSheet() {
             {[10, 15, 20].map((m) => (
               <button
                 key={m}
-                onClick={() => startSprint(m, state.assignments[idx[0]]?.title ?? "Focus sprint", state.blockId)}
+                onClick={() => {
+                  if (state.blockId) {
+                    void fetch("/api/blocks", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ id: state.blockId, status: "worked" }),
+                    }).catch(() => { /* cosmetic — planner badge only */ });
+                  }
+                  startSprint(m, state.assignments[idx[0]]?.title ?? "Focus sprint", state.blockId);
+                }}
                 className="flex items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)", minHeight: 44 }}
               >

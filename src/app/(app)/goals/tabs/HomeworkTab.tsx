@@ -42,6 +42,7 @@ export default function HomeworkTab({
         notified1dAt: h.notified1dAt ? new Date(h.notified1dAt) : null,
         notifiedMorningAt: h.notifiedMorningAt ? new Date(h.notifiedMorningAt) : null,
         completedAt: h.completedAt,
+        grade: h.grade ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
       }))
@@ -70,6 +71,7 @@ export default function HomeworkTab({
         notified1dAt: h.notified1dAt ? h.notified1dAt.toISOString() : null,
         notifiedMorningAt: h.notifiedMorningAt ? h.notifiedMorningAt.toISOString() : null,
         completedAt: h.completedAt,
+        grade: h.grade,
       }))}
       initialClasses={classes.map((c) => ({
         id: c.id,

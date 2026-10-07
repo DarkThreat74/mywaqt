@@ -53,6 +53,9 @@ async function withAssignments<T extends { id: string }>(userId: string, rows: T
       dueDate: schema.homeworks.dueDate,
       hwStatus: schema.homeworks.status,
       estimatedMinutes: schema.homeworks.estimatedMinutes,
+      classId: schema.homeworks.classId,
+      kind: schema.homeworks.kind,
+      grade: schema.homeworks.grade,
     })
     .from(schema.blockAssignments)
     .innerJoin(schema.homeworks, eq(schema.homeworks.id, schema.blockAssignments.homeworkId))
@@ -90,6 +93,9 @@ export async function GET(request: NextRequest) {
           // Earliest upcoming planned block — powers the "planned for Thu"
           // badge in the planner so the chip says WHEN, not just how many.
           nextDate: sql<string | null>`min(${schema.studyBlocks.blockDate}) filter (where ${schema.studyBlocks.status} = 'planned')`,
+          // Ids of the worked blocks — the "remove studied tag" action flips
+          // these back to released so the chip resets to "no plan".
+          workedIds: sql<string[]>`array_agg(${schema.studyBlocks.id}) filter (where ${schema.studyBlocks.status} = 'worked')`,
         })
         .from(schema.blockAssignments)
         .innerJoin(schema.studyBlocks, eq(schema.studyBlocks.id, schema.blockAssignments.blockId))
@@ -99,8 +105,8 @@ export async function GET(request: NextRequest) {
           eq(schema.homeworks.status, "pending"),
         ))
         .groupBy(schema.blockAssignments.homeworkId);
-      const summary: Record<string, { planned: number; worked: number; nextDate?: string }> = {};
-      for (const r of rows) summary[r.homeworkId] = { planned: r.planned, worked: r.worked, nextDate: r.nextDate ?? undefined };
+      const summary: Record<string, { planned: number; worked: number; nextDate?: string; workedIds?: string[] }> = {};
+      for (const r of rows) summary[r.homeworkId] = { planned: r.planned, worked: r.worked, nextDate: r.nextDate ?? undefined, workedIds: r.workedIds ?? undefined };
       return NextResponse.json({ summary });
     }
 

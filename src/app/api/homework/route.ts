@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
       notified1dAt: schema.homeworks.notified1dAt,
       notifiedMorningAt: schema.homeworks.notifiedMorningAt,
       completedAt: schema.homeworks.completedAt,
+      grade: schema.homeworks.grade,
     };
 
     // Attach subtasks to a result set in one batched query (no N+1)

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { env } from "@/lib/env";
+import { db, schema } from "@/lib/db/client";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +11,24 @@ interface Segment {
   kind: "study" | "break";
   minutes: number;
   label: string;
+}
+
+interface Assignment {
+  title: string;
+  estimatedMinutes: number | null;
+  homeworkId?: string;
+  /** Server-filled from the user's own rows — never trusted from the body. */
+  kind?: string;
+  grade?: string | null;
+  studiedMin?: number;
+}
+
+interface StudyProfile {
+  sessions?: number;
+  avgBreaks?: number;
+  avgSwitches?: number;
+  finishRate?: number;
+  prefMethod?: string;
 }
 
 /**
@@ -25,21 +45,61 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  let body: { minutes?: number; method?: string; ordered?: boolean; assignments?: { title?: string; estimatedMinutes?: number | null }[] };
+  let body: {
+    minutes?: number; method?: string; ordered?: boolean;
+    assignments?: { title?: string; estimatedMinutes?: number | null; homeworkId?: string }[];
+    profile?: { sessions?: number; avgBreaks?: number; avgSwitches?: number; finishRate?: number; prefMethod?: string };
+  };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const minutes = Math.min(480, Math.max(10, Math.floor(body.minutes ?? 0)));
   const assignments = (Array.isArray(body.assignments) ? body.assignments : [])
     .slice(0, 10)
-    .map((a) => ({
+    .map((a): Assignment => ({
       title: String(a.title ?? "").slice(0, 120) || "Study",
       estimatedMinutes: typeof a.estimatedMinutes === "number" ? Math.min(480, Math.max(0, a.estimatedMinutes)) : null,
+      homeworkId: typeof a.homeworkId === "string" && UUID_RE.test(a.homeworkId) ? a.homeworkId : undefined,
     }));
   if (assignments.length === 0) assignments.push({ title: "Study", estimatedMinutes: null });
+
+  // ── Per-assignment history: kind, grade outcome, and how many minutes of
+  // real study this item has already absorbed (worked blocks). This is what
+  // makes the plan smart — an exam the user prepped 2h for and failed needs a
+  // different shape than one that earned an A after 30m. Scoped to the user.
+  const ids = assignments.map((a) => a.homeworkId).filter(Boolean) as string[];
+  if (ids.length > 0) {
+    const hist = await db
+      .select({
+        homeworkId: schema.blockAssignments.homeworkId,
+        kind: schema.homeworks.kind,
+        grade: schema.homeworks.grade,
+        workedMin: sql<number>`coalesce(sum((${schema.studyBlocks.endMin} - ${schema.studyBlocks.startMin})) filter (where ${schema.studyBlocks.status} = 'worked'), 0)::int`,
+      })
+      .from(schema.blockAssignments)
+      .innerJoin(schema.studyBlocks, eq(schema.studyBlocks.id, schema.blockAssignments.blockId))
+      .innerJoin(schema.homeworks, eq(schema.homeworks.id, schema.blockAssignments.homeworkId))
+      .where(and(eq(schema.studyBlocks.userId, session.userId), inArray(schema.blockAssignments.homeworkId, ids)))
+      .groupBy(schema.blockAssignments.homeworkId, schema.homeworks.kind, schema.homeworks.grade)
+      .catch(() => []);
+    const byId = new Map(hist.map((h) => [h.homeworkId, h]));
+    for (const a of assignments) {
+      const h = a.homeworkId ? byId.get(a.homeworkId) : undefined;
+      if (!h) continue;
+      a.kind = h.kind;
+      a.grade = h.grade;
+      a.studiedMin = h.workedMin;
+      // Under-studied assessments need room to breathe — lift the estimate
+      // to at least what's actually been logged so segments aren't starved.
+      if (h.workedMin > 0 && (!a.estimatedMinutes || h.workedMin > a.estimatedMinutes)) {
+        a.estimatedMinutes = Math.min(240, h.workedMin);
+      }
+    }
+  }
   // Hardest first while focus is fresh — unless the user manually ordered the
   // list, in which case their arrangement is intentional and stays.
   if (body.ordered !== true) {
@@ -47,11 +107,27 @@ export async function POST(request: NextRequest) {
   }
 
   const METHODS = ["pomodoro", "sprint", "deep", "ultradian", "interleave", "flowtime"] as const;
-  const method = (METHODS as readonly string[]).includes(body.method ?? "")
+  let method = (METHODS as readonly string[]).includes(body.method ?? "")
     ? (body.method as Method)
     : "auto";
 
-  const segments = await planWithVox(minutes, assignments, method, body.ordered === true) ?? fallbackPlan(minutes, assignments, method);
+  // Sanitize the client-computed habit profile (numbers only, clamped).
+  const p = body.profile;
+  const num = (v: unknown, max: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(0, v)) : undefined);
+  const profile: StudyProfile | undefined = p ? {
+    sessions: num(p.sessions, 10000),
+    avgBreaks: num(p.avgBreaks, 50),
+    avgSwitches: num(p.avgSwitches, 50),
+    finishRate: num(p.finishRate, 1),
+    prefMethod: typeof p.prefMethod === "string" && (METHODS as readonly string[]).includes(p.prefMethod) ? p.prefMethod : undefined,
+  } : undefined;
+
+  // "Auto" defers to the method the student actually reaches for.
+  if (method === "auto" && profile?.prefMethod) method = profile.prefMethod as Method;
+
+  const segments =
+    await planWithVox(minutes, assignments, method, body.ordered === true, profile) ??
+    fallbackPlan(minutes, assignments, method, profile);
   return NextResponse.json({ segments });
 }
 
@@ -71,15 +147,28 @@ const METHOD_HINTS: Record<Method, string> = {
 
 async function planWithVox(
   minutes: number,
-  assignments: { title: string; estimatedMinutes: number | null }[],
+  assignments: Assignment[],
   method: Method,
   ordered: boolean,
+  profile?: StudyProfile,
 ): Promise<Segment[] | null> {
   if (!env.openrouterApiKey) return null;
 
   const list = assignments
-    .map((a) => `- ${a.title}${a.estimatedMinutes ? ` (~${a.estimatedMinutes} min estimated)` : ""}`)
+    .map((a) => {
+      const bits: string[] = [];
+      if (a.estimatedMinutes) bits.push(`~${a.estimatedMinutes} min estimated`);
+      if (a.kind && a.kind !== "homework") bits.push(a.kind);
+      if (a.studiedMin) bits.push(`already studied ${a.studiedMin}m`);
+      if (a.grade) bits.push(`last grade: ${a.grade === "fail" ? "failed" : a.grade}`);
+      return `- ${a.title}${bits.length ? ` (${bits.join(", ")})` : ""}`;
+    })
     .join("\n");
+
+  const habitLine = profile?.sessions
+    ? `Student habits (from ${profile.sessions} logged sessions): finishes ${Math.round((profile.finishRate ?? 0) * 100)}% of sessions, takes ~${(profile.avgBreaks ?? 0).toFixed(1)} breaks and switches assignments ~${(profile.avgSwitches ?? 0).toFixed(1)} times per session. ` +
+      "Adjust: frequent switching → shorter segments per subject and rotate them; many breaks → schedule generous breaks rather than starving them; low finish rate → keep segments short. "
+    : "";
 
   try {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -101,6 +190,8 @@ async function planWithVox(
               (ordered
                 ? "The assignment order below is deliberate — the student arranged it themselves; respect it exactly. "
                 : "Start with the most demanding subject while focus is fresh. ") +
+              habitLine +
+              "An item marked 'failed' or graded C needs review-style spacing — shorter segments, revisit it once more near the end. " +
               "The sum of all segment minutes must exactly equal the total minutes given. " +
               "If an assignment has an estimate, prefer a segment near that size — the estimate is what the student believes the work takes. " +
               "Labels must be short imperative phrases naming the subject (e.g. 'Chem lab — outline the procedure'). " +
@@ -144,8 +235,9 @@ async function planWithVox(
 
 function fallbackPlan(
   minutes: number,
-  assignments: { title: string; estimatedMinutes: number | null }[],
+  assignments: Assignment[],
   method: Method = "auto",
+  profile?: StudyProfile,
 ): Segment[] {
   // Method shapes the default chunk + break lengths; a smaller estimate
   // always wins when it fits inside what's left.
@@ -159,22 +251,36 @@ function fallbackPlan(
     flowtime:   { study: 60, breakLen: 15, maxStudy: 90 },
   }[method];
 
+  // Habit adaptation — heavy switchers get shorter chunks, break-takers get
+  // the breaks they're going to take anyway (planned, not stolen).
+  const studyLen = profile && (profile.avgSwitches ?? 0) >= 1.5
+    ? Math.max(10, Math.round(shape.study * 0.7))
+    : shape.study;
+  const breakLen = profile && (profile.avgBreaks ?? 0) >= 2
+    ? shape.breakLen + 3
+    : shape.breakLen;
+  // A failed/barely-passed assessment gets interleave-style rotation.
+  const struggling = assignments.filter((a) => a.grade === "fail" || a.grade === "C");
+  const rotate = struggling.length > 0 && struggling.length < assignments.length;
+
   const segments: Segment[] = [];
   let remaining = minutes;
   let i = 0;
   let studyCount = 0;
   while (remaining > 0 && i < 40) {
-    const a = assignments[i % assignments.length];
+    // Rotate struggling items first so review lands while fresh.
+    const pool = rotate ? [...struggling, ...assignments.filter((a) => !struggling.includes(a))] : assignments;
+    const a = pool[i % pool.length];
     const target = a.estimatedMinutes && a.estimatedMinutes <= remaining
       ? Math.min(a.estimatedMinutes, shape.maxStudy)
-      : shape.study;
+      : studyLen;
     const chunk = Math.min(target, remaining);
     segments.push({ kind: "study", minutes: chunk, label: a.title });
     remaining -= chunk;
     studyCount++;
     if (remaining >= 10) {
       // Pomodoro rhythm earns a longer break every third study segment.
-      const brkLen = method === "pomodoro" && studyCount % 3 === 0 ? 15 : shape.breakLen;
+      const brkLen = method === "pomodoro" && studyCount % 3 === 0 ? 15 : breakLen;
       const brk = Math.min(brkLen, remaining);
       segments.push({ kind: "break", minutes: brk, label: "Break" });
       remaining -= brk;

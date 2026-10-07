@@ -891,6 +891,9 @@ export const homeworks = pgTable('homeworks', {
   plannedStartTime: time('planned_start_time'),
   plannedEndTime: time('planned_end_time'),
   estimatedMinutes: integer('estimated_minutes'),
+  // Letter outcome for assessments (test/quiz/exam) — 'A' | 'B' | 'C' | 'fail'.
+  // Feeds the study planner's estimate adjustment.
+  grade: text('grade'),
   plannedEventId: uuid('planned_event_id').references(() => events.id, { onDelete: 'set null' }),
   // Deadline reminder stages — set once each stage push is sent (cron)
   notified3dAt: timestamp('notified_3d_at', { withTimezone: true }),

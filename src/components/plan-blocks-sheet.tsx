@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, Eye, EyeOff, Loader2, Pencil, Sparkles, X } from "lucide-react";
+import { BarChart3, Check, ChevronLeft, Eye, EyeOff, Loader2, Pencil, Sparkles, X } from "lucide-react";
 import type { Class, Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
 import { formatDueBadge } from "@/lib/homework/due-format";
+import { getDiscipline, type SessionEntry } from "@/lib/study/session";
 
 export interface BlockWithAssignments extends StudyBlock {
   assignments: {
@@ -53,16 +54,67 @@ function timeInputToMin(s: string): number | null {
   return v >= 0 && v <= 1440 ? v : null;
 }
 
+// ─── Study stats — computed from the local session history (no server round
+// trip, works offline, survives across the whole device) ───
+type StatsRange = "month" | "year" | "all";
+
+function rangeStart(range: StatsRange, now: Date): Date | null {
+  if (range === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
+  if (range === "year") return new Date(now.getFullYear(), 0, 1);
+  return null;
+}
+
+function entryMinutes(e: SessionEntry): number {
+  // Locked-in minutes are the honest study number; fall back to elapsed for
+  // history entries written before the habit fields existed.
+  return e.focusMin ?? e.minutes;
+}
+
+function studyStats(history: SessionEntry[], range: StatsRange) {
+  const from = rangeStart(range, new Date());
+  const rows = history.filter((e) => !from || new Date(`${e.date}T12:00:00`) >= from);
+  const totalMin = rows.reduce((s, e) => s + entryMinutes(e), 0);
+  const finished = rows.filter((e) => e.finished).length;
+  const methods = new Map<string, number>();
+  const subjects = new Map<string, number>();
+  let breaks = 0, switches = 0;
+  for (const e of rows) {
+    if (e.method) methods.set(e.method, (methods.get(e.method) ?? 0) + 1);
+    breaks += e.breaks ?? 0;
+    switches += e.switches ?? 0;
+    for (const s of e.subjects ?? []) subjects.set(s.label, (subjects.get(s.label) ?? 0) + s.min);
+  }
+  const top = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]);
+  return {
+    totalMin, sessions: rows.length, finished,
+    methods: top(methods), subjects: top(subjects),
+    avgBreaks: rows.length ? breaks / rows.length : 0,
+    avgSwitches: rows.length ? switches / rows.length : 0,
+  };
+}
+
+/** Minutes studied this calendar week (Mon–Sun) — shown by the sheet's date. */
+function weekMinutes(history: SessionEntry[]): number {
+  const now = new Date();
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  return history
+    .filter((e) => new Date(`${e.date}T12:00:00`) >= monday)
+    .reduce((s, e) => s + entryMinutes(e), 0);
+}
+
 export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose, onPickOnCalendar, initialGap, initialBlock, dayStart, dayEnd }: Props) {
   const [hw, setHw] = useState<Homework[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   // Per-assignment coverage across ALL blocks (not just this day's) —
   // summary counts planned blocks anywhere in the future.
-  const [coverage, setCoverage] = useState<Record<string, { planned: number; worked: number; nextDate?: string }>>({});
+  const [coverage, setCoverage] = useState<Record<string, { planned: number; worked: number; nextDate?: string; workedIds?: string[] }>>({});
   const [unworked, setUnworked] = useState<BlockWithAssignments[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState(false);
+  // Study stats — local session history, no fetch needed.
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [statsRange, setStatsRange] = useState<StatsRange>("month");
 
   // Composer state — null when nothing is being drafted
   const [gapSel, setGapSel] = useState<Interval | null>(null);
@@ -82,12 +134,12 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   }, [busy, blocks, dayStart, dayEnd]);
 
   const plannedCounts = useMemo(() => {
-    const map = new Map<string, { planned: number; worked: number; nextDate?: string }>();
+    const map = new Map<string, { planned: number; worked: number; nextDate?: string; workedIds?: string[] }>();
     // Coverage summary spans every planned block on any day — the prop only
     // carries the viewed date, so without this an assignment planned on
     // another day looked unplanned.
     for (const [id, c] of Object.entries(coverage)) {
-      if (c.planned > 0 || c.worked > 0) map.set(id, { planned: c.planned, worked: c.worked, nextDate: c.nextDate });
+      if (c.planned > 0 || c.worked > 0) map.set(id, { planned: c.planned, worked: c.worked, nextDate: c.nextDate, workedIds: c.workedIds });
     }
     for (const b of blocks) {
       for (const a of b.assignments) {
@@ -107,6 +159,32 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     for (const c of classes) m.set(c.id, c);
     return m;
   }, [classes]);
+
+  // Read once per mount — the sheet is closed while sessions run, so the
+  // history can't change underneath it.
+  const history = useMemo(() => getDiscipline().history, []);
+  const weekMin = useMemo(() => weekMinutes(history), [history]);
+  const stats = useMemo(() => studyStats(history, statsRange), [history, statsRange]);
+
+  /** Remove the "studied" tag — releases the worked block(s) behind it so the
+   *  assignment drops back to "no plan". Local history is untouched. */
+  async function removeStudied(hwId: string) {
+    const ids = plannedCounts.get(hwId)?.workedIds ?? [];
+    setBusyAction(true);
+    try {
+      for (const id of ids) {
+        await fetch("/api/blocks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, status: "released", releaseReason: "other" }),
+        }).catch(() => null);
+      }
+      setCoverage((c) => ({ ...c, [hwId]: { planned: c[hwId]?.planned ?? 0, worked: 0 } }));
+      onChanged();
+    } finally {
+      setBusyAction(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -355,9 +433,29 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
             )}
             <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
               {composing ? (editingBlock ? "Edit block" : "New block") : `Plan ${isToday ? "today" : date}`}
+              {!composing && weekMin > 0 && (
+                <span className="ml-2 text-[11px] font-medium tabular-nums" style={{ color: "var(--color-accent)" }}>
+                  · {fmtDur(weekMin)} this wk
+                </span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-1">
+            {!composing && !draft && (
+              <button
+                onClick={() => setStatsOpen((v) => !v)}
+                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-85"
+                style={{
+                  backgroundColor: statsOpen ? "var(--color-accent-faint)" : "var(--color-paper-3)",
+                  color: statsOpen ? "var(--color-accent)" : "var(--color-ink)",
+                }}
+                aria-label="Study stats"
+                aria-expanded={statsOpen}
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+                Stats
+              </button>
+            )}
             {!composing && !draft && !isPast && onPickOnCalendar && (
               <button
                 onClick={onPickOnCalendar}
@@ -533,6 +631,81 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                   {" · "}
                   {hw.filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0)).length} deadline{hw.filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0)).length === 1 ? "" : "s"} need{hw.filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0)).length === 1 ? "s" : ""} time
                 </p>
+              )}
+
+              {/* Study stats — habits broken down by month / year / all time.
+                  Local history only; finishes on this device are what count. */}
+              {statsOpen && (
+                <section
+                  className="rounded-xl border p-3"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+                >
+                  <div className="mb-3 flex items-center gap-1">
+                    {(["month", "year", "all"] as const).map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setStatsRange(r)}
+                        className="rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
+                        style={{
+                          backgroundColor: statsRange === r ? "var(--color-ink)" : "transparent",
+                          color: statsRange === r ? "var(--color-paper)" : "var(--color-ink-muted)",
+                        }}
+                      >
+                        {r === "month" ? "Month" : r === "year" ? "Year" : "All time"}
+                      </button>
+                    ))}
+                  </div>
+                  {stats.sessions === 0 ? (
+                    <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>No sessions logged yet.</p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        {[
+                          { v: fmtDur(stats.totalMin), l: "studied" },
+                          { v: String(stats.sessions), l: "sessions" },
+                          { v: `${Math.round((stats.finished / stats.sessions) * 100)}%`, l: "finished" },
+                        ].map((s) => (
+                          <div key={s.l} className="rounded-lg border px-2 py-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                            <p className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{s.v}</p>
+                            <p className="text-[10px] font-medium" style={{ color: "var(--color-ink-muted)" }}>{s.l}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-3 text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                        avg {stats.avgBreaks.toFixed(1)} breaks · {stats.avgSwitches.toFixed(1)} switches per session
+                      </p>
+                      {stats.methods.length > 0 && (
+                        <>
+                          <p className="mt-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                            How you study
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {stats.methods.map(([m, n]) => (
+                              <span key={m} className="rounded-full border px-2 py-0.5 text-[10px] font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
+                                {m === "auto" ? "auto" : m} ×{n}
+                              </span>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {stats.subjects.length > 0 && (
+                        <>
+                          <p className="mt-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                            Time per subject
+                          </p>
+                          <div className="flex flex-col gap-1">
+                            {stats.subjects.slice(0, 8).map(([label, min]) => (
+                              <div key={label} className="flex items-baseline gap-2 text-xs">
+                                <span className="min-w-0 flex-1 truncate" style={{ color: "var(--color-ink)" }}>{label}</span>
+                                <span className="shrink-0 tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{fmtDur(min)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </section>
               )}
 
               {/* Draft preview — "Draft for me" proposes, nothing is saved until confirmed */}
@@ -732,18 +905,31 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                               );
                             })()}
                           </span>
-                          <span
-                            className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                            style={
-                              n > 0
-                                ? { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }
-                                : w > 0
-                                  ? { backgroundColor: "color-mix(in oklab, var(--color-success) 12%, var(--color-paper))", color: "var(--color-success)" }
+                          {w > 0 && n === 0 ? (
+                            /* "studied" is a real tag the user can remove —
+                               releases the worked block(s) and reverts the
+                               chip to "no plan". */
+                            <button
+                              onClick={() => void removeStudied(h.id)}
+                              disabled={busyAction}
+                              title="Tap to remove the studied tag"
+                              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold transition-opacity hover:opacity-70 disabled:opacity-50"
+                              style={{ backgroundColor: "color-mix(in oklab, var(--color-success) 12%, var(--color-paper))", color: "var(--color-success)" }}
+                            >
+                              studied ✕
+                            </button>
+                          ) : (
+                            <span
+                              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                              style={
+                                n > 0
+                                  ? { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }
                                   : { backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }
-                            }
-                          >
-                            {n > 0 ? (dayAbbr ? `planned for ${dayAbbr}` : `${n} block${n === 1 ? "" : "s"}`) : w > 0 ? "studied" : "unplanned"}
-                          </span>
+                              }
+                            >
+                              {n > 0 ? (dayAbbr ? `planned for ${dayAbbr}` : `${n} block${n === 1 ? "" : "s"}`) : "no plan"}
+                            </span>
+                          )}
                         </div>
                       );
                     })}

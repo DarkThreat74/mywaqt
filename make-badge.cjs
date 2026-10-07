@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // Generates public/icon-badge.png — a 96x96 transparent PNG used as the
 // Android status-bar notification badge. Status-bar icons are alpha-masked:
 // any opaque pixel renders as a white silhouette, so the app icon (an opaque
