@@ -25,11 +25,16 @@ export async function POST(request: NextRequest) {
     body = {};
   }
 
-  const { displayName } = body as { displayName?: string };
+  const { displayName, firstName, lastName, middleInitial } = body as {
+    displayName?: string; firstName?: string; lastName?: string; middleInitial?: string;
+  };
 
   // Validate and sanitize display name if provided
   const trimmedName = typeof displayName === "string" ? displayName.trim() : "";
-  if (trimmedName && trimmedName.length > 50) {
+  const trimmedFirst = typeof firstName === "string" ? firstName.trim() : "";
+  const trimmedLast = typeof lastName === "string" ? lastName.trim() : "";
+  const trimmedMiddle = typeof middleInitial === "string" ? middleInitial.trim().slice(0, 1) : "";
+  if (trimmedName.length > 50 || trimmedFirst.length > 50 || trimmedLast.length > 50) {
     return NextResponse.json({ error: "Name must be 50 characters or less." }, { status: 400 });
   }
 
@@ -37,9 +42,13 @@ export async function POST(request: NextRequest) {
     .update(schema.users)
     .set({
       onboardingCompleted: true,
+      onboardingStep: "done",
       // Keep the legacy first_name column in sync — every display path
       // reads firstName || displayName, so a stale first name shadows this.
-      ...(trimmedName ? { displayName: trimmedName, firstName: trimmedName } : {}),
+      ...(trimmedName ? { displayName: trimmedName } : {}),
+      ...(trimmedFirst ? { firstName: trimmedFirst } : trimmedName ? { firstName: trimmedName } : {}),
+      ...(trimmedLast ? { lastName: trimmedLast } : {}),
+      ...(trimmedMiddle ? { middleInitial: trimmedMiddle } : {}),
     })
     .where(eq(schema.users.id, session.userId));
 

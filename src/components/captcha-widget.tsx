@@ -119,6 +119,11 @@ export const CaptchaWidget = forwardRef<CaptchaHandle, CaptchaWidgetProps>(
     // Fallback: playcaptcha (claw machine)
     return (
       <div className="waqt-captcha-wrap flex flex-col items-center gap-3 w-full">
+        {/* Plain-language instructions — the widget's own hint is tiny and
+            easy to miss, and "Drop" works from wherever the claw is. */}
+        <p className="text-center text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)", maxWidth: 300 }}>
+          Slide the joystick to line the claw up over the glowing toy, then tap the big red button to drop.
+        </p>
         <ClawCaptcha
           target={targetToy}
           onVerify={() => {
@@ -156,6 +161,34 @@ export const CaptchaWidget = forwardRef<CaptchaHandle, CaptchaWidgetProps>(
             width: 100%;
             max-width: 240px;
             margin-bottom: 14px;
+          }
+
+          /* ── Thumb-friendly controls — the stock joystick is small and the
+             drop button doesn't read as THE button. Enlarge both and give the
+             in-widget hint real contrast. ── */
+          .waqt-captcha-wrap .cc-joy {
+            min-width: 88px;
+            min-height: 88px;
+          }
+          .waqt-captcha-wrap .cc-joy-base {
+            width: 72px;
+            height: 72px;
+          }
+          .waqt-captcha-wrap .cc-joy-ball {
+            width: 40px;
+            height: 40px;
+          }
+          .waqt-captcha-wrap .cc-action {
+            min-height: 48px;
+            min-width: 96px;
+            font-size: 0.9375rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+          }
+          .waqt-captcha-wrap .clawcap-hint {
+            font-size: 0.8125rem;
+            color: var(--color-ink-soft);
+            margin-top: 10px;
           }
 
           /* ── 375px and below (iPhone SE, small phones) ── */

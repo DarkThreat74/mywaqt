@@ -64,6 +64,12 @@ export const users = pgTable('users', {
   displayName: text('display_name'),
   // First name — used in prayer friends dashboard
   firstName: text('first_name'),
+  // Last name + middle initial — friends-view disambiguation (Muhammad A. /
+  // Muhammad A.K. when first names collide); never shown to strangers.
+  lastName: text('last_name'),
+  middleInitial: text('middle_initial'),
+  // Wizard position — lets onboarding resume after logout/device change.
+  onboardingStep: text('onboarding_step'),
   phone: text('phone'),
   phoneVerified: boolean('phone_verified').default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -115,6 +121,9 @@ export const prayerFriends = pgTable(
     respondedAt: timestamp('responded_at', { withTimezone: true }),
     // Recipient chose "later" — toast resurfaces once this passes
     dismissedUntil: timestamp('dismissed_until', { withTimezone: true }),
+    // Owner-set label — "how I know them" (save Mahmud as "Muhammad").
+    // Shown instead of their real name in the friends list only.
+    nickname: text('nickname'),
   },
   (table) => [
     uniqueIndex('prayer_friends_user_friend_idx').on(table.userId, table.friendId),
@@ -823,6 +832,15 @@ export const goals = pgTable('goals', {
   // line: expected progress vs actual progress over elapsed time.
   progressCurrent: integer('progress_current').default(0).notNull(),
   progressTarget: integer('progress_target'),
+  // Freeform tags; the "test" tag pairs with sessionsTarget — the goal counts
+  // study sessions planned from the Plan sheet ("1/200 sessions").
+  tags: text('tags').array(),
+  sessionsTarget: integer('sessions_target'),
+  // Edit-mode eye — hides the goal from the Today tab, not the goals list.
+  hiddenFromToday: boolean('hidden_from_today').default(false).notNull(),
+  // Shadow homework row for "test"-tagged goals — planning and session
+  // counting reuse the homework machinery untouched.
+  homeworkId: uuid('homework_id'),
   sortOrder: integer('sort_order').default(0).notNull(),
   color: text('color'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -977,8 +995,11 @@ export const chores = pgTable('chores', {
   title: text('title').notNull(),
   // How long it takes — used when planning it onto the calendar.
   estimatedMinutes: integer('estimated_minutes').default(30).notNull(),
-  // How often it realistically needs doing (default: weekly).
+  // How often it realistically needs doing (default: weekly). When `weekdays`
+  // is set, the chore is tied to specific days of the week (0=Sun … 6=Sat)
+  // and frequencyDays is ignored — trash every Thursday, not "every 7 days".
   frequencyDays: integer('frequency_days').default(7).notNull(),
+  weekdays: integer('weekdays').array(),
   lastDoneAt: timestamp('last_done_at', { withTimezone: true }),
   sortOrder: integer('sort_order').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

@@ -195,7 +195,8 @@ export default function TodayTab({
     () => goals
       .filter((g) =>
         ((g.goalType || "month") === "week" || (g.goalType || "month") === "month") &&
-        (g.status === "active" || animatingOut.has(g.id)),
+        (g.status === "active" || animatingOut.has(g.id)) &&
+        !g.hiddenFromToday,
       )
       .sort(compareGoals),
     [goals, animatingOut],
@@ -206,7 +207,8 @@ export default function TodayTab({
     () => goals
       .filter((g) =>
         g.goalType === "year" &&
-        (g.status === "active" || animatingOut.has(g.id)),
+        (g.status === "active" || animatingOut.has(g.id)) &&
+        !g.hiddenFromToday,
       )
       .sort(compareGoals),
     [goals, animatingOut],
@@ -216,7 +218,7 @@ export default function TodayTab({
   // Dated milestones surface as countdowns; undated aspirations list below them.
   const milestones = useMemo(
     () => goals
-      .filter((g) => g.goalType === "all_time" && g.status === "active")
+      .filter((g) => g.goalType === "all_time" && g.status === "active" && !g.hiddenFromToday)
       .sort((a, b) => {
         if (a.targetDate && b.targetDate) return a.targetDate.localeCompare(b.targetDate);
         if (a.targetDate) return -1;
@@ -709,7 +711,7 @@ export default function TodayTab({
           icon={<Flag className="h-4 w-4" />}
           title="Life milestones"
           count={milestones.length}
-          onMore={() => onNavigate("goals")}
+          onMore={() => onNavigate("goals:all_time")}
         >
           <div className="flex flex-col gap-1">
             {milestones.map((g) => {
@@ -749,7 +751,7 @@ export default function TodayTab({
         icon={<Telescope className="h-4 w-4" />}
         title="Goals — this year"
         count={longTermGoals.length}
-        onMore={() => onNavigate("goals")}
+        onMore={() => onNavigate("goals:year")}
         initialLimit={3}
         items={longTermGoals}
         renderItem={(g) => {

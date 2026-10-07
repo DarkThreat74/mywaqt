@@ -17,13 +17,67 @@ function fmtDays(n: number) {
   return `${n} day${n === 1 ? "" : "s"}`;
 }
 
+const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"]; // index = JS getDay()
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const FREQ_PRESETS = [
+  { label: "Daily", days: 1 },
+  { label: "Weekly", days: 7 },
+  { label: "Biweekly", days: 14 },
+  { label: "Monthly", days: 30 },
+];
+
+function scheduleLabel(c: Chore): string {
+  if (c.weekdays && c.weekdays.length > 0) {
+    return c.weekdays.length === 7 ? "every day" : c.weekdays.map((d) => DAY_NAMES[d]).join(" · ");
+  }
+  const preset = FREQ_PRESETS.find((p) => p.days === c.frequencyDays);
+  return preset ? preset.label.toLowerCase() : `every ${fmtDays(c.frequencyDays)}`;
+}
+
 interface Dueness {
   pct: number;          // 0..∞ — 1.0 means the interval elapsed
   label: string;
   tone: "fresh" | "soon" | "due" | "overdue";
 }
 
+/** Days since the most recent scheduled weekday occurrence (0 = today). */
+function daysSinceLastScheduledDay(weekdays: number[], todayDow: number): number {
+  for (let back = 0; back < 7; back++) {
+    if (weekdays.includes((todayDow - back + 7) % 7)) return back;
+  }
+  return 7;
+}
+
+/** Days until the next scheduled weekday occurrence (0 = today). */
+function daysUntilNextScheduledDay(weekdays: number[], todayDow: number): number {
+  for (let fwd = 0; fwd < 7; fwd++) {
+    if (weekdays.includes((todayDow + fwd) % 7)) return fwd;
+  }
+  return 7;
+}
+
 function dueness(c: Chore, nowMs: number): Dueness {
+  // ── Weekday schedule mode ──
+  if (c.weekdays && c.weekdays.length > 0) {
+    const now = new Date(nowMs);
+    const todayDow = now.getDay();
+    const since = daysSinceLastScheduledDay(c.weekdays, todayDow);
+    const lastDone = c.lastDoneAt ? new Date(c.lastDoneAt).getTime() : null;
+    // The most recent scheduled day's start-of-day
+    const schedDayStart = new Date(now);
+    schedDayStart.setDate(now.getDate() - since);
+    schedDayStart.setHours(0, 0, 0, 0);
+    const doneForThisOccurrence = lastDone !== null && lastDone >= schedDayStart.getTime();
+
+    if (doneForThisOccurrence) {
+      const until = daysUntilNextScheduledDay(c.weekdays, todayDow);
+      return { pct: 0, label: until === 0 ? "done today" : `done — next ${DAY_NAMES[c.weekdays[(todayDow + until) % 7] ?? todayDow] || DAY_NAMES[(todayDow + until) % 7]}`, tone: "fresh" };
+    }
+    if (since === 0) return { pct: 1, label: "due today", tone: "due" };
+    return { pct: 1 + since / 7, label: `missed ${DAY_NAMES[(todayDow - since + 7) % 7]}`, tone: "overdue" };
+  }
+
+  // ── Interval mode ──
   const freqMs = c.frequencyDays * 86400000;
   if (!c.lastDoneAt) return { pct: 1, label: "never done", tone: "due" };
   const elapsed = nowMs - new Date(c.lastDoneAt).getTime();
@@ -55,6 +109,9 @@ export default function ChoresTab({
   const [title, setTitle] = useState("");
   const [estMin, setEstMin] = useState("30");
   const [freqDays, setFreqDays] = useState("7");
+  // "interval" = every N days since last done · "days" = on picked weekdays
+  const [schedMode, setSchedMode] = useState<"interval" | "days">("interval");
+  const [weekdaySel, setWeekdaySel] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Plan-it popover state — date + start time for the calendar event.
@@ -81,12 +138,13 @@ export default function ChoresTab({
           title: title.trim(),
           estimatedMinutes: Math.max(5, parseInt(estMin) || 30),
           frequencyDays: Math.max(1, parseInt(freqDays) || 7),
+          weekdays: schedMode === "days" ? weekdaySel : null,
         }),
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data) {
         setChores((prev) => [...prev, data]);
-        setTitle(""); setEstMin("30"); setFreqDays("7"); setShowAdd(false);
+        setTitle(""); setEstMin("30"); setFreqDays("7"); setSchedMode("interval"); setWeekdaySel([]); setShowAdd(false);
         invalidateApiCache("/api/chores");
       } else {
         setError(data?.error || "Could not save chore");
@@ -161,7 +219,7 @@ export default function ChoresTab({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-          Chores recur on an interval — they&apos;re due when it&apos;s been long enough, not on a fixed day.
+          Recurring tasks — on an interval or on set days. Plan drops one on the calendar.
         </p>
         <button
           onClick={() => setShowAdd((v) => !v)}
@@ -183,17 +241,86 @@ export default function ChoresTab({
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
             autoFocus
           />
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>Repeats:</span>
+            {schedMode === "days" ? (
+              <button
+                onClick={() => setSchedMode("interval")}
+                className="rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+              >
+                On set days
+              </button>
+            ) : (
+              <>
+                {FREQ_PRESETS.map((p) => {
+                  const active = String(p.days) === freqDays;
+                  return (
+                    <button
+                      key={p.days}
+                      onClick={() => { setFreqDays(String(p.days)); setSchedMode("interval"); }}
+                      className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+                      style={
+                        active
+                          ? { borderColor: "var(--color-ink)", backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }
+                          : { borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }
+                      }
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+                <span className="flex items-center gap-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                  every
+                  <input
+                    value={freqDays}
+                    onChange={(e) => setFreqDays(e.target.value.replace(/\D/g, ""))}
+                    inputMode="numeric"
+                    className="w-12 rounded-lg border px-1.5 py-1 text-center text-xs"
+                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                    aria-label="Repeat every N days"
+                  />
+                  d
+                </span>
+              </>
+            )}
+            <button
+              onClick={() => setSchedMode(schedMode === "days" ? "interval" : "days")}
+              className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+              style={
+                schedMode === "days"
+                  ? { borderColor: "var(--color-ink)", color: "var(--color-ink-muted)" }
+                  : { borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }
+              }
+            >
+              {schedMode === "days" ? "← interval" : "On set days"}
+            </button>
+          </div>
+          {schedMode === "days" && (
+            <div className="mt-2 flex items-center gap-1.5">
+              {DAY_LETTERS.map((letter, idx) => {
+                const on = weekdaySel.includes(idx);
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => setWeekdaySel((prev) => on ? prev.filter((d) => d !== idx) : [...prev, idx])}
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold transition-colors"
+                    style={
+                      on
+                        ? { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }
+                        : { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }
+                    }
+                    aria-label={DAY_NAMES[idx]}
+                    aria-pressed={on}
+                  >
+                    {letter}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div className="mt-2 flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            <span>every</span>
-            <input
-              value={freqDays}
-              onChange={(e) => setFreqDays(e.target.value.replace(/\D/g, ""))}
-              inputMode="numeric"
-              className="w-14 rounded-lg border px-2 py-1.5 text-center text-base"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
-              aria-label="Repeat every N days"
-            />
-            <span>days ·</span>
+            <span>takes about</span>
             <input
               value={estMin}
               onChange={(e) => setEstMin(e.target.value.replace(/\D/g, ""))}
@@ -207,7 +334,7 @@ export default function ChoresTab({
           {error && <p className="mt-2 text-xs" style={{ color: "var(--color-error)" }}>{error}</p>}
           <button
             onClick={addChore}
-            disabled={saving || !title.trim()}
+            disabled={saving || !title.trim() || (schedMode === "days" && weekdaySel.length === 0)}
             className="mt-3 rounded-full px-5 py-2 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
           >
@@ -246,7 +373,7 @@ export default function ChoresTab({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>{c.title}</p>
                     <p className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                      every {fmtDays(c.frequencyDays)} · ~{fmtDur(c.estimatedMinutes)}
+                      {scheduleLabel(c)} · ~{fmtDur(c.estimatedMinutes)}
                     </p>
                   </div>
                   <span

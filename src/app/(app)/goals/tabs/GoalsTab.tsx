@@ -1,14 +1,17 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef } from "react";
-import { Target, Plus, Check, ChevronRight, ChevronDown, Trash2, Loader2, List, GitBranch, GripVertical } from "lucide-react";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { Target, Plus, Check, Trash2, Loader2, ChevronUp, ChevronDown, Pencil, Eye, EyeOff, Tag } from "lucide-react";
 import type { Goal } from "@/lib/db/schema";
-import { buildGoalTree, countCompleted, compareGoals, type GoalNode } from "@/lib/goals/tree";
+import { compareGoals } from "@/lib/goals/tree";
 import { relativeTarget } from "@/lib/goals/relative";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { syncGoalsToCache } from "@/lib/offline/cache-writers";
+import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/study/session";
 
-type View = "list" | "tree";
+// Suggested tags — "test" unlocks the sessions-target subfield. Freeform
+// entries are accepted too; tags are lowercase and capped server-side.
+const TAG_SUGGESTIONS = ["test", "school", "faith", "health", "work", "personal"];
 
 export type GoalHorizon = "week" | "month" | "year" | "all_time" | "rules";
 
@@ -39,8 +42,10 @@ export default function GoalsTab({
   setGoals: React.Dispatch<React.SetStateAction<Goal[]>>;
   goalType: GoalHorizon;
 }) {
-  const [view, setView] = useState<View>("list");
   const [loading, setLoading] = useState(false);
+  // Edit mode — the header's big Edit button reveals reorder arrows, the
+  // hide-from-today eye, the pencil, and delete on each row.
+  const [editMode, setEditMode] = useState(false);
   const [addingRoot, setAddingRoot] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -49,18 +54,43 @@ export default function GoalsTab({
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editTargetDate, setEditTargetDate] = useState("");
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [editSessionsTarget, setEditSessionsTarget] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
-  const dragCooldownRef = useRef(false);
+
+  // Session history for "N/target" on test-tagged goals — local now, server
+  // merged in (cross-device).
+  const [history, setHistory] = useState<SessionEntry[]>(() => getDiscipline().history);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/study-history")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && Array.isArray(d) && d.length) setHistory(mergeSessionHistory(d)); })
+      .catch(() => null);
+    return () => { cancelled = true; };
+  }, []);
+  // homeworkId → finished sessions count
+  const sessionsByHw = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of history) {
+      if (e.subjects?.some((s) => s.hw)) {
+        const seen = new Set<string>();
+        for (const s of e.subjects) if (s.hw) seen.add(s.hw);
+        for (const hwId of seen) m.set(hwId, (m.get(hwId) ?? 0) + 1);
+      }
+    }
+    return m;
+  }, [history]);
 
   // Filter goals by type
   const filteredGoals = useMemo(
     () => goals.filter((g) => (g.goalType || "month") === goalType),
     [goals, goalType],
   );
-  const tree = useMemo(() => buildGoalTree(filteredGoals), [filteredGoals]);
-  const { total, done } = useMemo(() => countCompleted(tree), [tree]);
+  const { total, done } = useMemo(() => {
+    const completable = filteredGoals.filter((g) => COMPLETABLE.has((g.goalType || "month") as GoalHorizon));
+    return { total: completable.length, done: completable.filter((g) => g.status === "done").length };
+  }, [filteredGoals]);
 
   // Sort goals by sortOrder for display
   const sortedGoals = useMemo(
@@ -68,48 +98,36 @@ export default function GoalsTab({
     [filteredGoals],
   );
 
-  // Reorder: move dragged goal to the position of the target goal
-  const handleReorder = useCallback(
-    (draggedGoalId: string, targetGoalId: string) => {
-      const ids = sortedGoals.map((g) => g.id);
-      const fromIdx = ids.indexOf(draggedGoalId);
-      const toIdx = ids.indexOf(targetGoalId);
-      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
-
-      // Build new order
-      const newOrder = [...ids];
-      const [moved] = newOrder.splice(fromIdx, 1);
-      newOrder.splice(toIdx, 0, moved);
-
-      // Assign sortOrder = index, update state + API for changed items
+  // Reorder via up/down arrows — swap sortOrder with the visible neighbor.
+  // More reliable on touch than HTML5 drag, which is why it replaced dnd.
+  const moveGoal = useCallback(
+    (id: string, dir: -1 | 1) => {
+      const idx = sortedGoals.findIndex((g) => g.id === id);
+      const swapIdx = idx + dir;
+      if (idx === -1 || swapIdx < 0 || swapIdx >= sortedGoals.length) return;
+      const a = sortedGoals[idx];
+      const b = sortedGoals[swapIdx];
+      const aSort = a.sortOrder ?? 0;
+      const bSort = b.sortOrder ?? 0;
+      const newASort = aSort === bSort ? bSort + dir : bSort;
+      const newBSort = aSort === bSort ? aSort : aSort;
       setGoals((prev) => {
-        const updated = prev.map((g) => {
-          if ((g.goalType || "month") !== goalType) return g;
-          const newIdx = newOrder.indexOf(g.id);
-          if (newIdx === -1) return g;
-          const newSort = newIdx;
-          if ((g.sortOrder || 0) === newSort) return g;
-          return { ...g, sortOrder: newSort };
-        });
+        const updated = prev.map((g) =>
+          g.id === a.id ? { ...g, sortOrder: newASort } : g.id === b.id ? { ...g, sortOrder: newBSort } : g,
+        );
         syncGoalsToCache(updated);
         return updated;
       });
-
-      // Persist changed sortOrders to API (batch, best-effort)
-      for (const id of newOrder) {
-        const newIdx = newOrder.indexOf(id);
-        const goal = sortedGoals.find((g) => g.id === id);
-        if (goal && (goal.sortOrder || 0) !== newIdx) {
-          fetch("/api/goals", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ id, sortOrder: newIdx }),
-          }).catch(() => {});
-        }
+      for (const [gid, s] of [[a.id, newASort], [b.id, newBSort]] as const) {
+        fetch("/api/goals", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ id: gid, sortOrder: s }),
+        }).catch(() => {});
       }
     },
-    [sortedGoals, setGoals, goalType],
+    [sortedGoals, setGoals],
   );
 
   const createGoal = useCallback(
@@ -127,11 +145,20 @@ export default function GoalsTab({
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.goal) {
+          // New goals land on top — sortOrder below the current minimum.
+          const topSort = Math.min(0, ...sortedGoals.map((g) => g.sortOrder ?? 0)) - 1;
+          const goal = { ...data.goal, sortOrder: topSort };
           setGoals((prev) => {
-            const updated = [...prev, data.goal];
+            const updated = [...prev, goal];
             syncGoalsToCache(updated);
             return updated;
           });
+          fetch("/api/goals", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ id: goal.id, sortOrder: topSort }),
+          }).catch(() => {});
           void invalidateApiCache("/api/goals");
         } else {
           setError(data.error || "Failed to create goal");
@@ -142,7 +169,7 @@ export default function GoalsTab({
         setLoading(false);
       }
     },
-    [goalType, setGoals],
+    [goalType, setGoals, sortedGoals],
   );
 
   const updateGoal = useCallback(
@@ -229,16 +256,18 @@ export default function GoalsTab({
             {COMPLETABLE.has(goalType) && total > 0 && ` · ${done}/${total} done`}
           </p>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setView(view === "list" ? "tree" : "list")}
-            className="rounded-lg p-2 transition-colors hover:bg-[var(--color-paper-2)]"
-            style={{ color: "var(--color-ink-muted)" }}
-            title={view === "list" ? "Tree view" : "List view"}
-          >
-            {view === "list" ? <GitBranch className="h-4 w-4" /> : <List className="h-4 w-4" />}
-          </button>
-        </div>
+        <button
+          onClick={() => { setEditMode((m) => !m); setEditingId(null); }}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+          style={
+            editMode
+              ? { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }
+              : { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }
+          }
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          {editMode ? "Done" : "Edit"}
+        </button>
       </div>
 
       {error && <p className="text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
@@ -327,50 +356,32 @@ export default function GoalsTab({
             No {horizon.singular}s yet.
           </p>
         </div>
-      ) : view === "list" ? (
+      ) : (
         <div className="flex flex-col gap-1">
-          {sortedGoals.map((goal) => (
+          {sortedGoals.map((goal, i) => (
             <GoalRow
               key={goal.id}
               goal={goal}
               horizon={goalType}
+              editMode={editMode}
+              isFirst={i === 0}
+              isLast={i === sortedGoals.length - 1}
+              onMove={moveGoal}
               editingId={editingId}
               setEditingId={setEditingId}
               editTitle={editTitle}
               setEditTitle={setEditTitle}
               editDescription={editDescription}
               setEditDescription={setEditDescription}
-              onUpdate={updateGoal}
-              onDelete={deleteGoal}
               editTargetDate={editTargetDate}
               setEditTargetDate={setEditTargetDate}
-              isDragged={draggedId === goal.id}
-              isDragOver={dragOverId === goal.id && draggedId !== goal.id}
-              onDragStart={() => setDraggedId(goal.id)}
-              onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
-              onDragOver={(e) => { e.preventDefault(); if (draggedId && draggedId !== goal.id && !dragCooldownRef.current) { setDragOverId(goal.id); dragCooldownRef.current = true; setTimeout(() => { dragCooldownRef.current = false; }, 150); } }}
-              onDrop={() => { if (draggedId && draggedId !== goal.id) handleReorder(draggedId, goal.id); setDraggedId(null); setDragOverId(null); }}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {tree.map((node) => (
-            <GoalTreeNode
-              key={node.id}
-              node={node}
-              goals={filteredGoals}
-              horizon={goalType}
-              editingId={editingId}
-              setEditingId={setEditingId}
-              editTitle={editTitle}
-              setEditTitle={setEditTitle}
-              editDescription={editDescription}
-              setEditDescription={setEditDescription}
+              editTags={editTags}
+              setEditTags={setEditTags}
+              editSessionsTarget={editSessionsTarget}
+              setEditSessionsTarget={setEditSessionsTarget}
+              sessionsDone={goal.homeworkId ? (sessionsByHw.get(goal.homeworkId) ?? 0) : 0}
               onUpdate={updateGoal}
               onDelete={deleteGoal}
-              onAddChild={createGoal}
-              level={0}
             />
           ))}
         </div>
@@ -379,13 +390,18 @@ export default function GoalsTab({
   );
 }
 
-// ─── Goal Row (list view) ───
+// ─── Goal Row ───
 function GoalRow({
-  goal, horizon, editingId, setEditingId, editTitle, setEditTitle, editDescription, setEditDescription, editTargetDate, setEditTargetDate, onUpdate, onDelete,
-  isDragged, isDragOver, onDragStart, onDragEnd, onDragOver, onDrop,
+  goal, horizon, editMode, isFirst, isLast, onMove, editingId, setEditingId,
+  editTitle, setEditTitle, editDescription, setEditDescription, editTargetDate, setEditTargetDate,
+  editTags, setEditTags, editSessionsTarget, setEditSessionsTarget, sessionsDone, onUpdate, onDelete,
 }: {
   goal: Goal;
   horizon: GoalHorizon;
+  editMode: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  onMove: (id: string, dir: -1 | 1) => void;
   editingId: string | null;
   setEditingId: (id: string | null) => void;
   editTitle: string;
@@ -394,64 +410,74 @@ function GoalRow({
   setEditDescription: (s: string) => void;
   editTargetDate: string;
   setEditTargetDate: (s: string) => void;
+  editTags: string[];
+  setEditTags: (t: string[]) => void;
+  editSessionsTarget: string;
+  setEditSessionsTarget: (s: string) => void;
+  sessionsDone: number;
   onUpdate: (id: string, updates: Partial<Goal>) => void;
   onDelete: (id: string) => void;
-  isDragged?: boolean;
-  isDragOver?: boolean;
-  onDragStart?: () => void;
-  onDragEnd?: () => void;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDrop?: () => void;
 }) {
   const isDone = goal.status === "done";
   const isEditing = editingId === goal.id;
   // Rules and all-time goals aren't "finished" — no checkbox, no strike-through.
   const completable = COMPLETABLE.has(horizon);
   const dated = DATED.has(horizon);
-  const trackable = horizon !== "rules";
   const showDone = completable && isDone;
-  const [editProgressTarget, setEditProgressTarget] = useState("");
+  const isTestGoal = (goal.tags ?? []).includes("test");
   const [seededEditId, setSeededEditId] = useState<string | null>(null);
   const saveEdit = () => {
     onUpdate(goal.id, {
       title: editTitle,
       description: editDescription,
       targetDate: dated ? editTargetDate || null : goal.targetDate,
-      progressTarget: trackable ? (editProgressTarget ? Number(editProgressTarget) : null) : goal.progressTarget,
+      tags: editTags,
+      sessionsTarget: editTags.includes("test") && editSessionsTarget ? Number(editSessionsTarget) : null,
     });
     setEditingId(null);
   };
-  // Seed the progress-target input when editing starts — render-time
+  // Seed the tag/session inputs when editing starts — render-time
   // adjustment pattern (avoids setState-in-effect cascading renders)
   if (isEditing && seededEditId !== goal.id) {
     setSeededEditId(goal.id);
-    setEditProgressTarget(goal.progressTarget != null ? String(goal.progressTarget) : "");
+    setEditTags(goal.tags ?? []);
+    setEditSessionsTarget(goal.sessionsTarget != null ? String(goal.sessionsTarget) : "");
   } else if (!isEditing && seededEditId !== null) {
     setSeededEditId(null);
   }
 
   return (
     <div
-      draggable={!isEditing}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
       className="flex items-start gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-[var(--color-paper-2)]"
       style={{
         borderLeft: goal.color ? `3px solid ${goal.color}` : "3px solid transparent",
-        opacity: isDragged ? 0.4 : 1,
-        borderTop: isDragOver ? "2px solid var(--color-accent)" : "2px solid transparent",
       }}
     >
-      {/* Drag handle */}
-      <div
-        className="mt-0.5 shrink-0 cursor-grab touch-none"
-        style={{ color: "var(--color-ink-muted)", opacity: 0.4 }}
-        title="Drag to reorder"
-      >
-        <GripVertical className="h-4 w-4" />
-      </div>
+      {/* Reorder arrows — edit mode only, touch-friendly */}
+      {editMode && (
+        <div className="mt-0.5 flex shrink-0 flex-col">
+          <button
+            onClick={() => onMove(goal.id, -1)}
+            disabled={isFirst}
+            className="rounded p-0.5 disabled:opacity-25"
+            style={{ color: "var(--color-ink-muted)" }}
+            title="Move up"
+            aria-label={`Move ${goal.title} up`}
+          >
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => onMove(goal.id, 1)}
+            disabled={isLast}
+            className="rounded p-0.5 disabled:opacity-25"
+            style={{ color: "var(--color-ink-muted)" }}
+            title="Move down"
+            aria-label={`Move ${goal.title} down`}
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       {completable ? (
         <button
           onClick={() => onUpdate(goal.id, { status: isDone ? "active" : "done", completedAt: isDone ? null : new Date() })}
@@ -495,7 +521,7 @@ function GoalRow({
             </label>
             <label className="block">
               <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                Why it matters
+                Description
               </span>
               <input
                 value={editDescription}
@@ -527,25 +553,52 @@ function GoalRow({
                 />
               </label>
             )}
-            {trackable && (
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                  Track progress — total units
+            {horizon !== "rules" && (
+              <div>
+                <span className="mb-1 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  <Tag className="h-3 w-3" /> Tags
                 </span>
-                <input
-                  type="number"
-                  min={1}
-                  value={editProgressTarget}
-                  onChange={(e) => setEditProgressTarget(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveEdit();
-                    if (e.key === "Escape") setEditingId(null);
-                  }}
-                  placeholder="e.g. 300 pages"
-                  className="w-full rounded border px-2 py-1.5 text-xs outline-none"
-                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-                />
-              </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {TAG_SUGGESTIONS.map((tag) => {
+                    const active = editTags.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => setEditTags(active ? editTags.filter((t) => t !== tag) : [...editTags, tag])}
+                        className="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+                        style={
+                          active
+                            ? { borderColor: "var(--color-accent)", backgroundColor: "var(--color-accent-faint, var(--color-paper-2))", color: "var(--color-accent)" }
+                            : { borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }
+                        }
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+                {editTags.includes("test") && (
+                  <label className="mt-2 block">
+                    <span className="mb-1 block text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                      How many study sessions do you need for this?
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10000}
+                      value={editSessionsTarget}
+                      onChange={(e) => setEditSessionsTarget(e.target.value)}
+                      placeholder="e.g. 200"
+                      className="w-full rounded border px-2 py-1.5 text-xs outline-none"
+                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                    />
+                    <span className="mt-1 block text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                      It becomes plannable from Plan — each finished session counts toward the target.
+                    </span>
+                  </label>
+                )}
+              </div>
             )}
             <div className="flex gap-2">
               <button
@@ -592,6 +645,33 @@ function GoalRow({
                   </span>
                 )}
               </p>
+            )}
+            {(goal.tags?.length ?? 0) > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {goal.tags!.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                    style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* Test goal — sessions progress ("3/200 finished") */}
+            {isTestGoal && goal.sessionsTarget != null && goal.sessionsTarget > 0 && (
+              <div className="mt-1.5 flex items-center gap-2">
+                <div className="relative h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                  <div
+                    className="absolute left-0 top-0 h-full rounded-full transition-[width]"
+                    style={{ width: `${Math.min(100, (sessionsDone / goal.sessionsTarget) * 100)}%`, backgroundColor: "var(--color-accent)" }}
+                  />
+                </div>
+                <span className="shrink-0 text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                  {sessionsDone}/{goal.sessionsTarget} sessions
+                </span>
+              </div>
             )}
             {/* Progress tracker with pace line — actual vs expected progress */}
             {goal.progressTarget != null && goal.progressTarget > 0 && !showDone && (() => {
@@ -650,20 +730,36 @@ function GoalRow({
         )}
       </div>
 
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          onClick={() => { setEditingId(goal.id); setEditTitle(goal.title); setEditDescription(goal.description || ""); setEditTargetDate(goal.targetDate || ""); }}
-          className="rounded p-1 text-xs transition-colors hover:bg-[var(--color-paper-3)]"
-          style={{ color: "var(--color-ink-muted)" }}
-          title="Edit"
-        >
-          ✎
-        </button>
+      {/* Controls: delete is always one tap; edit-mode adds the eye + pencil */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        {editMode && (
+          <>
+            <button
+              onClick={() => onUpdate(goal.id, { hiddenFromToday: !goal.hiddenFromToday })}
+              className="rounded p-1.5 transition-colors hover:bg-[var(--color-paper-3)]"
+              style={{ color: goal.hiddenFromToday ? "var(--color-warmth)" : "var(--color-ink-muted)" }}
+              title={goal.hiddenFromToday ? "Show on Today" : "Hide from Today"}
+              aria-label={goal.hiddenFromToday ? `Show ${goal.title} on Today` : `Hide ${goal.title} from Today`}
+            >
+              {goal.hiddenFromToday ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+            <button
+              onClick={() => { setEditingId(goal.id); setEditTitle(goal.title); setEditDescription(goal.description || ""); setEditTargetDate(goal.targetDate || ""); }}
+              className="rounded p-1.5 transition-colors hover:bg-[var(--color-paper-3)]"
+              style={{ color: "var(--color-ink-muted)" }}
+              title="Edit"
+              aria-label={`Edit ${goal.title}`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
         <button
           onClick={() => onDelete(goal.id)}
-          className="rounded p-1 transition-colors hover:bg-[var(--color-paper-3)]"
+          className="rounded p-1.5 transition-colors hover:bg-[var(--color-paper-3)]"
           style={{ color: "var(--color-ink-muted)" }}
           title="Delete"
+          aria-label={`Delete ${goal.title}`}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -672,112 +768,3 @@ function GoalRow({
   );
 }
 
-// ─── Goal Tree Node (tree view) ───
-function GoalTreeNode({
-  node, goals, horizon, editingId, setEditingId, editTitle, setEditTitle, editDescription, setEditDescription, onUpdate, onDelete, onAddChild, level,
-}: {
-  node: GoalNode;
-  goals: Goal[];
-  horizon: GoalHorizon;
-  editingId: string | null;
-  setEditingId: (id: string | null) => void;
-  editTitle: string;
-  setEditTitle: (s: string) => void;
-  editDescription: string;
-  setEditDescription: (s: string) => void;
-  onUpdate: (id: string, updates: Partial<Goal>) => void;
-  onDelete: (id: string) => void;
-  onAddChild: (title: string, parentId: string | null, description?: string) => void;
-  level: number;
-}) {
-  const [expanded, setExpanded] = useState(true);
-  const [addingChild, setAddingChild] = useState(false);
-  const [childTitle, setChildTitle] = useState("");
-  const goal = node;
-  const isDone = goal.status === "done";
-  const completable = COMPLETABLE.has(horizon);
-  const showDone = completable && isDone;
-
-  return (
-    <div style={{ paddingLeft: level * 20 }}>
-      <div className="flex items-center gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-[var(--color-paper-2)]">
-        {node.children.length > 0 ? (
-          <button onClick={() => setExpanded(!expanded)} className="shrink-0">
-            {expanded ? <ChevronDown className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} /> : <ChevronRight className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />}
-          </button>
-        ) : (
-          <div className="w-4 shrink-0" />
-        )}
-        {completable ? (
-          <button
-            onClick={() => onUpdate(goal.id, { status: isDone ? "active" : "done", completedAt: isDone ? null : new Date() })}
-            className="shrink-0"
-          >
-            <div
-              className="flex h-5 w-5 items-center justify-center rounded-full border-2"
-              style={{ borderColor: isDone ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: isDone ? "var(--color-accent)" : "transparent" }}
-            >
-              {isDone && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
-            </div>
-          </button>
-        ) : (
-          <div className="flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden>
-            <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-ink-muted)", opacity: 0.5 }} />
-          </div>
-        )}
-        <span
-          className="min-w-0 flex-1 truncate text-sm font-medium"
-          style={{ color: showDone ? "var(--color-ink-muted)" : "var(--color-ink)", textDecoration: showDone ? "line-through" : "none" }}
-        >
-          {goal.title}
-        </span>
-        <button
-          onClick={() => { setAddingChild(true); }}
-          className="rounded p-1 text-xs transition-colors hover:bg-[var(--color-paper-3)]"
-          style={{ color: "var(--color-ink-muted)" }}
-          title="Add sub-goal"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      {addingChild && (
-        <div className="mt-1 pl-6">
-          <input
-            autoFocus
-            value={childTitle}
-            onChange={(e) => setChildTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && childTitle.trim()) { onAddChild(childTitle, goal.id); setChildTitle(""); setAddingChild(false); }
-              if (e.key === "Escape") { setAddingChild(false); setChildTitle(""); }
-            }}
-            placeholder="Sub-goal title..."
-            className="w-full rounded border px-2 py-1 text-sm outline-none"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-          />
-        </div>
-      )}
-      {expanded && node.children.length > 0 && (
-        <div className="mt-1">
-          {node.children.map((child) => (
-            <GoalTreeNode
-              key={child.id}
-              node={child}
-              goals={goals}
-              horizon={horizon}
-              editingId={editingId}
-              setEditingId={setEditingId}
-              editTitle={editTitle}
-              setEditTitle={setEditTitle}
-              editDescription={editDescription}
-              setEditDescription={setEditDescription}
-              onUpdate={onUpdate}
-              onDelete={onDelete}
-              onAddChild={onAddChild}
-              level={level + 1}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}

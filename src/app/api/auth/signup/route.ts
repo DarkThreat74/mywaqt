@@ -15,9 +15,13 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-  // ── Rate limit: 5 signup attempts per 15 min per IP ──
+  // ── Rate limit: 5/15min per IP (burst) + 3/hour per IP (slow burn) ──
+  // Bots solving the captcha still can't mint accounts faster than this.
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("signup", ip, 5, 15 * 60 * 1000)) {
+  if (
+    !checkRateLimit("signup", ip, 5, 15 * 60 * 1000) ||
+    !checkRateLimit("signup-hourly", ip, 3, 60 * 60 * 1000)
+  ) {
     return NextResponse.json(
       { error: "Too many attempts. Please try again later." },
       { status: 429 },
@@ -114,6 +118,12 @@ export async function POST(request: NextRequest) {
       ? "Check your email for a link to finish creating your account."
       : "If this email isn't already registered, your account is ready — sign in to continue.",
   };
+
+  // ── Per-email burn — the same address can't retry more than 3/hour,
+  // regardless of IP. Checked before any DB work. ──
+  if (!checkRateLimit(`signup-email:${normalizedEmail}`, normalizedEmail, 3, 60 * 60 * 1000)) {
+    return NextResponse.json(GENERIC_OK); // generic — don't leak the throttle exists
+  }
 
   const passwordHash = await bcrypt.hash(password, 10);
 

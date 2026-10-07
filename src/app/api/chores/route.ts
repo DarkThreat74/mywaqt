@@ -8,6 +8,14 @@ import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
 
+// Weekday schedule: sorted unique ints 0–6 (Sun–Sat). null = interval mode.
+function cleanWeekdays(w: unknown): number[] | null {
+  if (w === null || w === undefined) return null;
+  if (!Array.isArray(w)) return null;
+  const clean = [...new Set(w.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
+  return clean.length ? clean : null;
+}
+
 // GET /api/chores — list all chores for the user
 export async function GET(request: NextRequest) {
   try {
@@ -45,7 +53,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
-    let body: { title?: string; estimatedMinutes?: number; frequencyDays?: number };
+    let body: { title?: string; estimatedMinutes?: number; frequencyDays?: number; weekdays?: number[] | null };
     try {
       body = await request.json();
     } catch {
@@ -76,9 +84,14 @@ export async function POST(request: NextRequest) {
       frequencyDays = body.frequencyDays;
     }
 
+    const weekdays = cleanWeekdays(body.weekdays);
+    if (body.weekdays !== undefined && body.weekdays !== null && !weekdays) {
+      return NextResponse.json({ error: "Weekdays must be 0–6 (Sun–Sat)" }, { status: 400 });
+    }
+
     const [chore] = await db
       .insert(schema.chores)
-      .values({ userId: session.userId, title, estimatedMinutes, frequencyDays })
+      .values({ userId: session.userId, title, estimatedMinutes, frequencyDays, weekdays })
       .returning();
 
     return NextResponse.json(chore);
@@ -106,6 +119,7 @@ export async function PATCH(request: NextRequest) {
       title?: string;
       estimatedMinutes?: number;
       frequencyDays?: number;
+      weekdays?: number[] | null;
       sortOrder?: number;
       done?: boolean;
     };
@@ -150,6 +164,14 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: "sortOrder must be an integer" }, { status: 400 });
       }
       updates.sortOrder = body.sortOrder;
+    }
+    if (body.weekdays !== undefined) {
+      const w = cleanWeekdays(body.weekdays);
+      if (body.weekdays !== null && body.weekdays.length > 0 && !w) {
+        return NextResponse.json({ error: "Weekdays must be 0–6 (Sun–Sat)" }, { status: 400 });
+      }
+      // Empty array or null clears the schedule → back to interval mode
+      updates.weekdays = Array.isArray(body.weekdays) && body.weekdays.length === 0 ? null : w;
     }
     if (body.done === true) updates.lastDoneAt = new Date();
     if (body.done === false) updates.lastDoneAt = null;

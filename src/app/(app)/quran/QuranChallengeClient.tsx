@@ -559,7 +559,7 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
       fetch("/api/prayer-friends")
         .then((r) => (r.ok ? r.json() : []))
         .then((rows: { id: string; firstName: string | null; displayName: string | null; avatarUrl?: string | null }[]) =>
-          setFriends(rows.map((f) => ({ id: f.id, name: f.firstName || f.displayName || "Friend", avatarUrl: f.avatarUrl }))),
+          setFriends(rows.map((f) => ({ id: f.id, name: (f as { shownName?: string }).shownName || f.firstName || f.displayName || "Friend", avatarUrl: f.avatarUrl }))),
         )
         .catch(() => setFriends([]));
     }

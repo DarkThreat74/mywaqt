@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef } from "react";
-import { Repeat, Plus, Check, Trash2, Flame, GripVertical } from "lucide-react";
-import type { Habit, HabitLog } from "@/lib/db/schema";
+import { Repeat, Plus, Check, Trash2, Flame, GripVertical, BrushCleaning } from "lucide-react";
+import type { Habit, HabitLog, Chore } from "@/lib/db/schema";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { upsertHabitToCache, deleteHabitFromCache, toggleHabitLogInCache } from "@/lib/offline/cache-writers";
+import ChoresTab from "./ChoresTab";
 
 const HABIT_COLORS = [
   "#c2410c", // burnt orange
@@ -52,11 +53,15 @@ export default function HabitsTab({
   setHabits,
   habitLogs,
   setHabitLogs,
+  chores,
+  setChores,
 }: {
   habits: Habit[];
   setHabits: React.Dispatch<React.SetStateAction<Habit[]>>;
   habitLogs: HabitLog[];
   setHabitLogs: React.Dispatch<React.SetStateAction<HabitLog[]>>;
+  chores: Chore[];
+  setChores: React.Dispatch<React.SetStateAction<Chore[]>>;
 }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName] = useState("");
@@ -500,6 +505,15 @@ export default function HabitsTab({
           })}
         </div>
       )}
+
+      {/* ── Chores — recurring household tasks, same family as habits ── */}
+      <div className="mt-6 border-t pt-4" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="mb-3 flex items-center gap-2">
+          <BrushCleaning className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
+          <h2 className="text-sm font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>Chores</h2>
+        </div>
+        <ChoresTab chores={chores} setChores={setChores} />
+      </div>
     </div>
   );
 }

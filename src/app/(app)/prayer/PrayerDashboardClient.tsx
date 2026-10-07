@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle } from "lucide-react";
+import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -73,6 +73,9 @@ interface Analytics {
 interface Friend {
   id: string;
   firstName: string | null;
+  /** Server-resolved label: nickname → first → collision-suffixed name. */
+  shownName?: string;
+  nickname?: string | null;
   displayName: string | null;
   avatarUrl?: string | null;
   streak: number | null;
@@ -243,6 +246,21 @@ export default function PrayerDashboard() {
     expiresAt: string | null;
   }>>([]);
   const [friendsView, setFriendsView] = useState<"mine" | "add">("mine");
+  // Nickname editing — id of the friend whose field is open.
+  const [nickEditing, setNickEditing] = useState<string | null>(null);
+  const [nickValue, setNickValue] = useState("");
+
+  async function saveNickname(friendId: string) {
+    const res = await fetch("/api/prayer-friends/nickname", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ friendId, nickname: nickValue }),
+    }).catch(() => null);
+    if (res?.ok) {
+      setNickEditing(null);
+      void refreshFriends();
+    }
+  }
   const [visOpen, setVisOpen] = useState(false);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<{
@@ -355,7 +373,7 @@ export default function PrayerDashboard() {
     } catch {
       // ignore
     }
-  }, [todayStr, statsRange]);
+  }, [todayStr, statsRange, setTodayLogs]);
 
   const refreshFriends = useCallback(async () => {
     const res = await fetch("/api/prayer-friends").catch(() => null);
@@ -832,7 +850,7 @@ export default function PrayerDashboard() {
     setReminding((prev) => new Set(prev).add(key));
     playSfx("send"); // same cue family as the fidget/learn sounds
     const label = prayerName.charAt(0).toUpperCase() + prayerName.slice(1);
-    const friendName = friends.find((f) => f.id === friendId)?.displayName || friends.find((f) => f.id === friendId)?.firstName || "your friend";
+    const friendName = friends.find((f) => f.id === friendId)?.shownName || friends.find((f) => f.id === friendId)?.displayName || friends.find((f) => f.id === friendId)?.firstName || "your friend";
     try {
       const res = await fetch("/api/prayer-friends/remind", {
         method: "POST",
@@ -1743,7 +1761,7 @@ export default function PrayerDashboard() {
                     <ComparisonRow
                       key={friend.id}
                       rank={rank}
-                      name={friend.firstName || friend.displayName || "Friend"}
+                      name={friend.shownName || friend.firstName || friend.displayName || "Friend"}
                       isMe={false}
                       streak={friend.streak ?? 0}
                       sharedStreak={friend.sharedStreak?.streak ?? 0}
@@ -2636,7 +2654,7 @@ export default function PrayerDashboard() {
                                 color: idx === 0 ? "var(--color-warmth)" : "var(--color-ink-muted)",
                               }}
                             >
-                              {(friend.firstName || friend.displayName || "?").charAt(0).toUpperCase()}
+                              {(friend.shownName || friend.firstName || friend.displayName || "?").charAt(0).toUpperCase()}
                             </div>
                           )}
                           <span
@@ -2647,9 +2665,44 @@ export default function PrayerDashboard() {
                           </span>
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                            {friend.firstName || friend.displayName || "Friend"}
+                          <div className="flex items-center gap-1.5 truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                            <span className="truncate">{friend.shownName || friend.firstName || friend.displayName || "Friend"}</span>
+                            <button
+                              onClick={() => { setNickEditing(friend.id); setNickValue(friend.nickname ?? ""); }}
+                              className="shrink-0 rounded p-0.5 transition-opacity hover:opacity-70"
+                              style={{ color: "var(--color-ink-muted)" }}
+                              aria-label={`Set a nickname for ${friend.shownName || "friend"}`}
+                              title="Set nickname — only you see it"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
                           </div>
+                          {friend.nickname && (
+                            <div className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                              {friend.firstName || friend.displayName}
+                            </div>
+                          )}
+                          {nickEditing === friend.id && (
+                            <div className="mt-1 flex items-center gap-1.5">
+                              <input
+                                autoFocus
+                                value={nickValue}
+                                onChange={(e) => setNickValue(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") void saveNickname(friend.id); if (e.key === "Escape") setNickEditing(null); }}
+                                placeholder="Nickname — only you see it"
+                                maxLength={40}
+                                className="min-w-0 flex-1 rounded-md border px-2 py-1 text-xs outline-none focus:border-[var(--color-accent)]"
+                                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                              />
+                              <button
+                                onClick={() => void saveNickname(friend.id)}
+                                className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium"
+                                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                              >
+                                Save
+                              </button>
+                            </div>
+                          )}
                           <div className="truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
                             {subStats.length > 0 ? subStats.join(" · ") : "Stats private"}
                           </div>
@@ -2667,7 +2720,7 @@ export default function PrayerDashboard() {
                           href={`/messages/${friend.id}`}
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
                           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                          aria-label={`Message ${friend.firstName || friend.displayName || "friend"}`}
+                          aria-label={`Message ${friend.shownName || friend.firstName || friend.displayName || "friend"}`}
                           title="Message"
                         >
                           <MessageCircle className="h-3.5 w-3.5" />
@@ -2676,7 +2729,7 @@ export default function PrayerDashboard() {
                           href={`/profile/${friend.id}`}
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
                           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                          aria-label={`View ${friend.firstName || friend.displayName || "friend"}'s profile`}
+                          aria-label={`View ${friend.shownName || friend.firstName || friend.displayName || "friend"}'s profile`}
                           title="View profile"
                         >
                           <User className="h-3.5 w-3.5" />
@@ -2691,7 +2744,7 @@ export default function PrayerDashboard() {
                       {/* Today's prayers — tap an open dot to send a reminder */}
                       <div className="mt-2.5 flex items-center justify-center gap-2 border-t pt-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
                         <PrayerDots
-                          name={friend.firstName || friend.displayName || "Friend"}
+                          name={friend.shownName || friend.firstName || friend.displayName || "Friend"}
                           isMe={false}
                           todayLogs={friend.todayLogs}
                           todaySunnahs={friend.todaySunnahs}

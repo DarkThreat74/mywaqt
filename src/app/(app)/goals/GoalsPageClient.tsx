@@ -6,7 +6,6 @@ import {
   Target,
   BookOpen,
   Repeat,
-  BrushCleaning,
   CheckCircle2,
 } from "lucide-react";
 import type { Goal, Homework, Class, Habit, HabitLog, Chore } from "@/lib/db/schema";
@@ -21,11 +20,10 @@ import {
 import GoalsTab, { type GoalHorizon } from "./tabs/GoalsTab";
 import HomeworkTab from "./tabs/HomeworkTab";
 import HabitsTab from "./tabs/HabitsTab";
-import ChoresTab from "./tabs/ChoresTab";
 import TodayTab from "./tabs/TodayTab";
 import DoneTab from "./tabs/DoneTab";
 
-export type TabId = "today" | "goals" | "homework" | "habits" | "chores" | "done";
+export type TabId = "today" | "goals" | "homework" | "habits" | "done";
 
 interface TabDef {
   id: TabId;
@@ -38,7 +36,6 @@ const TABS: TabDef[] = [
   { id: "goals", label: "Goals", icon: Target },
   { id: "homework", label: "Homework", icon: BookOpen },
   { id: "habits", label: "Habits", icon: Repeat },
-  { id: "chores", label: "Chores", icon: BrushCleaning },
   { id: "done", label: "Done", icon: CheckCircle2 },
 ];
 
@@ -56,6 +53,7 @@ const LEGACY_TAB: Record<string, TabId> = {
   "short-term": "goals",
   notes: "today",
   backlog: "today",
+  chores: "habits",
 };
 
 function resolveHash(hash: string): TabId {
@@ -93,12 +91,24 @@ export default function GoalsPageClient({
   const [habitLogs, setHabitLogs] = useState<HabitLog[]>(initialHabitLogs);
   const [chores, setChores] = useState<Chore[]>(initialChores);
   const [mountNow] = useState(() => Date.now());
-  // Ambient nudge on the Chores tab chip — a chore ≥80% through its interval
-  // (or never done) shows a dot, so due chores are visible without a push.
-  const choresDue = chores.some((c) =>
-    !c.lastDoneAt ||
-    (mountNow - new Date(c.lastDoneAt).getTime()) / 86400000 >= c.frequencyDays * 0.8,
-  );
+  // Ambient nudge on the Habits tab chip (chores live under Habits) — a chore
+  // ≥80% through its interval, never done, or due on a scheduled weekday today.
+  const choresDue = chores.some((c) => {
+    if (c.weekdays && c.weekdays.length > 0) {
+      const now = new Date(mountNow);
+      for (let back = 0; back < 7; back++) {
+        if (c.weekdays.includes((now.getDay() - back + 7) % 7)) {
+          const sched = new Date(now);
+          sched.setDate(now.getDate() - back);
+          sched.setHours(0, 0, 0, 0);
+          return !c.lastDoneAt || new Date(c.lastDoneAt).getTime() < sched.getTime();
+        }
+      }
+      return false;
+    }
+    return !c.lastDoneAt ||
+      (mountNow - new Date(c.lastDoneAt).getTime()) / 86400000 >= c.frequencyDays * 0.8;
+  });
 
   // ── Update URL hash when tab changes ──
   useEffect(() => {
@@ -246,7 +256,7 @@ export default function GoalsPageClient({
                 >
                   <span className="relative">
                     <Icon className="h-4 w-4" />
-                    {tab.id === "chores" && choresDue && (
+                    {tab.id === "habits" && choresDue && (
                       <span
                         className="absolute -right-1 -top-1 h-2 w-2 rounded-full"
                         style={{ backgroundColor: "var(--color-warmth)" }}
@@ -279,7 +289,7 @@ export default function GoalsPageClient({
                 >
                   <span className="relative">
                     <Icon className="h-3.5 w-3.5" />
-                    {tab.id === "chores" && choresDue && (
+                    {tab.id === "habits" && choresDue && (
                       <span
                         className="absolute -right-1 -top-1 h-2 w-2 rounded-full"
                         style={{ backgroundColor: "var(--color-warmth)" }}
@@ -298,7 +308,13 @@ export default function GoalsPageClient({
       {/* ── Tab content ── */}
       <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-8">
         {activeTab === "today" && (
-          <TodayTab goals={goals} setGoals={setGoals} homework={homework} classes={classes} habits={habits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} onNavigate={(t) => setActiveTab(t as TabId)} />
+          <TodayTab goals={goals} setGoals={setGoals} homework={homework} classes={classes} habits={habits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} onNavigate={(t) => {
+            // "goals:all_time" deep-links the Goals tab at the all-time horizon
+            // (Life milestones on Today opens the milestones, not this week).
+            if (t === "goals:all_time") { setGoalHorizon("all_time"); setActiveTab("goals"); }
+            else if (t === "goals:year") { setGoalHorizon("year"); setActiveTab("goals"); }
+            else setActiveTab(t as TabId);
+          }} />
         )}
         {activeTab === "goals" && (
           <div className="flex flex-col gap-4">
@@ -325,10 +341,7 @@ export default function GoalsPageClient({
           <HomeworkTab homework={homework} classes={classes} onHomeworkChange={setHomework} />
         )}
         {activeTab === "habits" && (
-          <HabitsTab habits={habits} setHabits={setHabits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} />
-        )}
-        {activeTab === "chores" && (
-          <ChoresTab chores={chores} setChores={setChores} />
+          <HabitsTab habits={habits} setHabits={setHabits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} chores={chores} setChores={setChores} />
         )}
         {activeTab === "done" && (
           <DoneTab goals={goals} homework={homework} setGoals={setGoals} setHomework={setHomework} />

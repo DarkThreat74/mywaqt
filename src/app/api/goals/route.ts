@@ -179,6 +179,9 @@ export async function PATCH(request: NextRequest) {
       targetDate?: string | null;
       progressCurrent?: number;
       progressTarget?: number | null;
+      tags?: string[] | null;
+      sessionsTarget?: number | null;
+      hiddenFromToday?: boolean;
     };
     try {
       body = await request.json();
@@ -288,12 +291,66 @@ export async function PATCH(request: NextRequest) {
     if (body.color !== undefined) updates.color = body.color || null;
     if (body.parentId !== undefined) updates.parentId = body.parentId;
     if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder;
+    if (body.tags !== undefined) {
+      const clean = Array.isArray(body.tags)
+        ? [...new Set(body.tags.filter((t): t is string => typeof t === "string").map((t) => t.trim().toLowerCase()).filter((t) => t && t.length <= 24))].slice(0, 10)
+        : [];
+      updates.tags = clean.length ? clean : null;
+    }
+    if (body.sessionsTarget !== undefined) {
+      if (body.sessionsTarget === null) {
+        updates.sessionsTarget = null;
+      } else {
+        if (typeof body.sessionsTarget !== "number" || body.sessionsTarget <= 0 || body.sessionsTarget > 10_000) {
+          return NextResponse.json({ error: "Invalid sessions target" }, { status: 400 });
+        }
+        updates.sessionsTarget = Math.round(body.sessionsTarget);
+      }
+    }
+    if (body.hiddenFromToday !== undefined) updates.hiddenFromToday = Boolean(body.hiddenFromToday);
 
     const [updated] = await db
       .update(schema.goals)
       .set(updates)
       .where(and(eq(schema.goals.id, body.id), eq(schema.goals.userId, session.userId)))
       .returning();
+
+    // ── "test" tag ⇄ shadow homework ─────────────────────────────────
+    // A study-target goal needs a homework row so the Plan sheet can pick it
+    // and sessions count against it (subjects[].hw). Created on first tag,
+    // deleted when the tag comes off.
+    const finalTags = updated.tags ?? [];
+    const wantsTest = finalTags.includes("test") && (updated.sessionsTarget ?? 0) > 0;
+    if (wantsTest && !updated.homeworkId) {
+      const [hwRow] = await db
+        .insert(schema.homeworks)
+        .values({
+          userId: session.userId,
+          title: `Study for: ${updated.title}`.slice(0, 200),
+          description: `Auto-linked study target for the goal "${updated.title.slice(0, 120)}"`,
+          dueDate: updated.targetDate ?? "2099-12-31",
+          kind: "study",
+        })
+        .returning({ id: schema.homeworks.id });
+      if (hwRow) {
+        const [withHw] = await db
+          .update(schema.goals)
+          .set({ homeworkId: hwRow.id })
+          .where(eq(schema.goals.id, updated.id))
+          .returning();
+        return NextResponse.json({ goal: withHw ?? updated });
+      }
+    } else if (!wantsTest && updated.homeworkId) {
+      await db
+        .delete(schema.homeworks)
+        .where(and(eq(schema.homeworks.id, updated.homeworkId), eq(schema.homeworks.userId, session.userId)));
+      const [cleared] = await db
+        .update(schema.goals)
+        .set({ homeworkId: null })
+        .where(eq(schema.goals.id, updated.id))
+        .returning();
+      return NextResponse.json({ goal: cleared ?? updated });
+    }
 
     return NextResponse.json({ goal: updated });
   } catch (err) {
@@ -322,7 +379,7 @@ export async function DELETE(request: NextRequest) {
 
     // Verify ownership before delete (cascade will handle children)
     const [existing] = await db
-      .select({ id: schema.goals.id })
+      .select({ id: schema.goals.id, homeworkId: schema.goals.homeworkId })
       .from(schema.goals)
       .where(and(eq(schema.goals.id, id), eq(schema.goals.userId, session.userId)))
       .limit(1);
@@ -331,6 +388,12 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.delete(schema.goals).where(and(eq(schema.goals.id, id), eq(schema.goals.userId, session.userId)));
+    // A "test" goal's shadow homework goes with it.
+    if (existing.homeworkId) {
+      await db
+        .delete(schema.homeworks)
+        .where(and(eq(schema.homeworks.id, existing.homeworkId), eq(schema.homeworks.userId, session.userId)));
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {

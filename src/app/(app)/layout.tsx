@@ -28,6 +28,7 @@ import ThemeGuard from "@/components/theme-guard";
 import { SoundscapeProvider } from "@/components/soundscape-context";
 import StudySession from "@/components/study-session";
 import SidebarSalah from "@/components/sidebar-salah";
+import OnboardingGuard from "@/components/onboarding-guard";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
@@ -35,13 +36,23 @@ export const dynamic = "force-dynamic";
 // unstable_cache memoizes the onboarding/settings check per user for 60s
 // across requests — the layout re-executes on every client-side navigation,
 // so without this every tab click cost two extra Neon round-trips.
-const getNeedsSettings = (userId: string): Promise<boolean> =>
+interface UserGate {
+  needsSettings: boolean;
+  onboardingCompleted: boolean;
+  onboardingStep: string | null;
+}
+
+const getUserGate = (userId: string): Promise<UserGate> =>
   unstable_cache(
-    async (): Promise<boolean> => {
+    async (): Promise<UserGate> => {
       try {
         const [userRows, settingsRows] = await Promise.all([
           db
-            .select({ displayName: schema.users.displayName })
+            .select({
+              displayName: schema.users.displayName,
+              onboardingCompleted: schema.users.onboardingCompleted,
+              onboardingStep: schema.users.onboardingStep,
+            })
             .from(schema.users)
             .where(eq(schema.users.id, userId))
             .limit(1),
@@ -58,16 +69,21 @@ const getNeedsSettings = (userId: string): Promise<boolean> =>
         ]);
 
         const [user] = userRows;
-        if (!user?.displayName) return true;
-
         const [settings] = settingsRows;
-        if (!settings) return true;
-        if (!settings.latitude || !settings.longitude) return true;
-        if (!settings.calculationMethod) return true;
-        if (!settings.madhab) return true;
-        return false;
+        const needsSettings =
+          !user?.displayName ||
+          !settings ||
+          !settings.latitude ||
+          !settings.longitude ||
+          !settings.calculationMethod ||
+          !settings.madhab;
+        return {
+          needsSettings,
+          onboardingCompleted: user?.onboardingCompleted ?? false,
+          onboardingStep: user?.onboardingStep ?? null,
+        };
       } catch {
-        return false;
+        return { needsSettings: false, onboardingCompleted: true, onboardingStep: null };
       }
     },
     ['needs-settings', userId],
@@ -79,9 +95,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session) redirect("/login");
 
   // Kick both cached lookups in parallel instead of serializing round-trips.
-  const needsSettingsP = getNeedsSettings(session.userId);
+  const gateP = getUserGate(session.userId);
   const feedbackEnabledP = isFeedbackEnabled();
-  const needsSettings = await needsSettingsP;
+  const gate = await gateP;
+  const needsSettings = gate.needsSettings;
 
   const navItems = [
     { label: "Calendar", href: "/calendar/day", icon: Calendar, alert: false },
@@ -93,6 +110,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <AudioPlayerProvider>
     <SoundscapeProvider>
+    <OnboardingGuard completed={gate.onboardingCompleted} step={gate.onboardingStep} />
     <div className="flex min-h-dvh w-full overflow-x-hidden" style={{ backgroundColor: "var(--color-paper)" }}>
       {/* ── Skip link for keyboard users (WCAG 2.4.1) ── */}
       <a href="#main-content" className="skip-link">

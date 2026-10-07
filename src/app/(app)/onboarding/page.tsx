@@ -7,7 +7,19 @@ import { MapPin, Bell, ArrowRight, ArrowLeft, Check, CheckCircle2, Loader2, User
 import { readAvatarFile, presetAvatarDataUrl, AVATAR_PRESETS } from "@/lib/avatar";
 import { GuideGate } from "./guide-gate";
 
-type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "location" | "madhab" | "hifidh" | "notifications" | "tour" | "guide" | "done";
+type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "theme" | "location" | "madhab" | "hifidh" | "notifications" | "install" | "tour" | "guide" | "done";
+
+const VALID_STEPS = new Set<Step>([
+  "terms", "name", "avatar", "gender", "hayd", "theme", "location",
+  "madhab", "hifidh", "notifications", "install", "tour", "guide",
+]);
+
+/** Resume point — the layout's guard redirects here with ?s=<step>. */
+function initialStep(): Step {
+  if (typeof window === "undefined") return "terms";
+  const s = new URLSearchParams(window.location.search).get("s") as Step | null;
+  return s && VALID_STEPS.has(s) ? s : "terms";
+}
 
 type TourVisualKind = "dots" | "league" | "planner" | "quran" | "tools" | "offline";
 
@@ -251,16 +263,44 @@ function TourVisual({ kind }: { kind: TourVisualKind }) {
 }
 
 export default function OnboardingWizard() {
-  const [step, setStep] = useState<Step>("terms");
+  const [step, setStep] = useState<Step>(initialStep);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // router removed — using window.location.href for reliable hard navigation
 
+  // Persist the wizard position so logout/device-change resumes mid-flow.
+  const lastSavedStep = useRef<Step | null>(null);
+  useEffect(() => {
+    if (step === lastSavedStep.current) return;
+    lastSavedStep.current = step;
+    fetch("/api/onboarding/progress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ step }),
+    }).catch(() => null);
+  }, [step]);
+
   // Terms acceptance
   const [acceptedTerms, setAcceptedTerms] = useState(false);
 
-  // Name state
-  const [displayName, setDisplayName] = useState("");
+  // Name state — first/last(+optional middle initial) power the friends-view
+  // disambiguation; displayName stays the friendly shown name.
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [middleInitial, setMiddleInitial] = useState("");
+  const [nameHint, setNameHint] = useState<string | null>(null);
+  const displayName = [firstName, lastName].filter(Boolean).join(" ");
+
+  // Theme state — mirrors the settings toggle (localStorage + data-theme).
+  const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
+
+  // PWA install — the deferred prompt only exists when the browser offers it.
+  const [installPrompt, setInstallPrompt] = useState<{ prompt: () => Promise<void> } | null>(null);
+  useEffect(() => {
+    const onPrompt = (e: Event) => { e.preventDefault(); setInstallPrompt(e as unknown as { prompt: () => Promise<void> }); };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", onPrompt);
+  }, []);
 
   // Avatar state — a data URL staged locally, saved on Continue
   const [avatar, setAvatar] = useState<string | null>(null);
@@ -497,11 +537,24 @@ export default function OnboardingWizard() {
         return;
       }
 
-      // Mark onboarding complete (and save display name)
+      setStep("install");
+    } catch {
+      setError("Network error.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  // Completion only happens once the guide quiz passes — quitting before that
+  // leaves onboardingCompleted false and the guard resumes the wizard.
+  async function finishOnboarding() {
+    setPending(true);
+    setError(null);
+    try {
       const completeRes = await fetch("/api/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName }),
+        body: JSON.stringify({ displayName, firstName, lastName, middleInitial }),
       });
       if (!completeRes.ok) {
         const data = await completeRes.json().catch(() => ({}));
@@ -509,8 +562,7 @@ export default function OnboardingWizard() {
         setPending(false);
         return;
       }
-
-      setStep("tour");
+      setStep("done");
     } catch {
       setError("Network error.");
     } finally {
@@ -520,8 +572,8 @@ export default function OnboardingWizard() {
 
   // Progress dots: hayd step only exists for girls — count it conditionally
   const steps: Step[] = gender === "female"
-    ? ["terms", "name", "avatar", "gender", "hayd", "location", "madhab", "hifidh", "notifications", "tour", "guide", "done"]
-    : ["terms", "name", "avatar", "gender", "location", "madhab", "hifidh", "notifications", "tour", "guide", "done"];
+    ? ["terms", "name", "avatar", "gender", "hayd", "theme", "location", "madhab", "hifidh", "notifications", "install", "tour", "guide", "done"]
+    : ["terms", "name", "avatar", "gender", "theme", "location", "madhab", "hifidh", "notifications", "install", "tour", "guide", "done"];
   const currentIdx = steps.indexOf(step);
 
   return (
@@ -630,7 +682,7 @@ export default function OnboardingWizard() {
         </div>
       )}
 
-      {/* ── Step 1: Name ── */}
+      {/* ── Step 1: Name — first/last(+middle) with collision escalation ── */}
       {step === "name" && (
         <div className="flex flex-col items-center text-center">
           <div
@@ -643,32 +695,71 @@ export default function OnboardingWizard() {
             What should we call you?
           </h1>
           <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-            Your name appears on your shared calendar so friends and family know whose schedule they&apos;re looking at.
+            Friends see your first name — the rest only helps when two people share it.
           </p>
 
-          <div className="mt-8 w-full max-w-sm">
+          <div className="mt-8 w-full max-w-sm space-y-3">
             <input
               type="text"
-              placeholder="Your name"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="First name"
+              value={firstName}
+              onChange={(e) => { setFirstName(e.target.value); setNameHint(null); }}
               autoFocus
               maxLength={50}
               className="w-full rounded-xl border px-4 py-3.5 text-center text-base outline-none focus:border-[var(--color-accent)]"
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 48 }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && displayName.trim()) {
-                  setStep("avatar");
-                }
-              }}
             />
+            <input
+              type="text"
+              placeholder="Last name"
+              value={lastName}
+              onChange={(e) => { setLastName(e.target.value); setNameHint(null); }}
+              maxLength={50}
+              className="w-full rounded-xl border px-4 py-3.5 text-center text-base outline-none focus:border-[var(--color-accent)]"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 48 }}
+            />
+            <input
+              type="text"
+              placeholder="Middle initial (optional)"
+              value={middleInitial}
+              onChange={(e) => setMiddleInitial(e.target.value.slice(0, 1))}
+              maxLength={1}
+              className="w-full rounded-xl border px-4 py-3.5 text-center text-base outline-none focus:border-[var(--color-accent)]"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 48 }}
+            />
+            {nameHint && (
+              <p className="text-xs leading-relaxed" style={{ color: "var(--color-warmth)" }}>{nameHint}</p>
+            )}
             <button
-              onClick={() => {
-                if (!displayName.trim()) {
-                  setError("Please enter your name to continue.");
+              onClick={async () => {
+                if (!firstName.trim()) {
+                  setError("Please enter your first name to continue.");
                   return;
                 }
                 setError(null);
+                // Collision check — escalates politely rather than rejecting.
+                try {
+                  const res = await fetch("/api/onboarding/name-check", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ first: firstName.trim(), last: lastName.trim(), middle: middleInitial.trim() }),
+                  });
+                  if (res.ok) {
+                    const d = await res.json();
+                    if (!lastName.trim() && d.firstTaken) {
+                      setNameHint("Someone already shares that first name — add your last name so friends can tell you apart.");
+                      return;
+                    }
+                    if (d.fullTaken && !middleInitial.trim()) {
+                      setNameHint("That exact name is taken — a middle initial separates you (or skip it and we'll add digits).");
+                      return;
+                    }
+                    if (d.fullTaken && d.suggested) {
+                      // Still colliding after middle initial — auto-append digits.
+                      setLastName((v) => `${v.trim()} ${d.suggested}`.trim());
+                    }
+                  }
+                } catch { /* proceed without the check */ }
                 setStep("avatar");
               }}
               disabled={pending}
@@ -783,7 +874,7 @@ export default function OnboardingWizard() {
                 onClick={() => {
                   setGender(g);
                   setError(null);
-                  setStep(g === "female" ? "hayd" : "location");
+                  setStep(g === "female" ? "hayd" : "theme");
                 }}
                 className="flex w-full items-center justify-center rounded-xl border p-4 text-sm font-semibold transition-colors"
                 style={{
@@ -818,7 +909,7 @@ export default function OnboardingWizard() {
             <button
               onClick={() => {
                 setHaydTracking(true);
-                setStep("location");
+                setStep("theme");
               }}
               className="w-full rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
@@ -829,13 +920,54 @@ export default function OnboardingWizard() {
             <button
               onClick={() => {
                 setHaydTracking(false);
-                setStep("location");
+                setStep("theme");
               }}
               className="w-full text-sm font-medium transition-opacity hover:opacity-60"
               style={{ color: "var(--color-ink-muted)" }}
             >
               Not now
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 2c: Theme — light/dark, mirrors the settings toggle ── */}
+      {step === "theme" && (
+        <div className="flex flex-col items-center text-center">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+            Pick your look
+          </h1>
+          <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+            You can change this anytime in Settings.
+          </p>
+          <div className="mt-8 flex w-full max-w-sm gap-3">
+            {(["light", "dark", "system"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => {
+                  setTheme(t);
+                  try {
+                    if (t === "system") localStorage.removeItem("waqt:theme");
+                    else localStorage.setItem("waqt:theme", t);
+                    document.documentElement.setAttribute(
+                      "data-theme",
+                      t === "system"
+                        ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+                        : t,
+                    );
+                  } catch { /* private mode — theme just won't persist */ }
+                  setStep("location");
+                }}
+                className="flex-1 rounded-xl border p-4 text-sm font-semibold capitalize transition-colors"
+                style={{
+                  borderColor: theme === t ? "var(--color-accent)" : "var(--color-paper-3)",
+                  backgroundColor: theme === t ? "color-mix(in oklab, var(--color-accent) 6%, transparent)" : "transparent",
+                  color: "var(--color-ink)",
+                }}
+              >
+                {t === "system" ? "Auto" : t}
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -1084,6 +1216,49 @@ export default function OnboardingWizard() {
         </div>
       )}
 
+      {/* ── Install — the app behaves like a native app from the home screen ── */}
+      {step === "install" && (
+        <div className="flex flex-col items-center text-center">
+          <div
+            className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
+            style={{ backgroundColor: "var(--color-accent-faint)" }}
+          >
+            <CloudOff className="h-7 w-7" style={{ color: "var(--color-accent)" }} />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+            Keep Waqt on your home screen
+          </h1>
+          <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+            Works offline, opens full-screen, and prayer reminders arrive even
+            when the tab is closed. Highly recommended.
+          </p>
+          <div className="mt-8 w-full max-w-sm space-y-3">
+            {installPrompt ? (
+              <button
+                onClick={() => { void installPrompt.prompt(); setStep("tour"); }}
+                className="w-full rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+              >
+                Install the app
+                <ArrowRight className="ml-2 inline h-4 w-4" />
+              </button>
+            ) : (
+              <p className="rounded-xl border px-4 py-3 text-sm leading-relaxed" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                On iPhone: Share → <strong>Add to Home Screen</strong>. On Android:
+                browser menu → <strong>Install app</strong>.
+              </p>
+            )}
+            <button
+              onClick={() => setStep("tour")}
+              className="w-full text-sm font-medium transition-opacity hover:opacity-60"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              {installPrompt ? "Skip for now" : "Continue"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Feature tour — what Waqt can do ── */}
       {step === "tour" && (() => {
         const slide = TOUR_SLIDES[tourIdx];
@@ -1189,7 +1364,7 @@ export default function OnboardingWizard() {
       })()}
 
       {/* ── Guide gate: read → quiz → pass ── */}
-      {step === "guide" && <GuideGate onPass={() => setStep("done")} />}
+      {step === "guide" && <GuideGate onPass={() => void finishOnboarding()} />}
 
       {/* ── Done ── */}
       {step === "done" && (

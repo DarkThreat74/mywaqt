@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
   const friendships = await db
     .select({
       friendId: schema.prayerFriends.friendId,
+      nickname: schema.prayerFriends.nickname,
     })
     .from(schema.prayerFriends)
     .where(
@@ -86,6 +87,8 @@ export async function GET(request: NextRequest) {
         .select({
           id: schema.users.id,
           firstName: schema.users.firstName,
+          lastName: schema.users.lastName,
+          middleInitial: schema.users.middleInitial,
           displayName: schema.users.displayName,
           avatarUrl: schema.users.avatarUrl,
         })
@@ -285,10 +288,20 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // Owner-set nicknames ride the friendship row — they only apply to the
+  // viewer's own list, never the friend's public identity.
+  const nicknameByFriend = new Map(
+    friendships.map((f) => [f.friendId, f.nickname?.trim() || null]),
+  );
+
   const friends: Array<{
     id: string;
     firstName: string | null;
+    lastName: string | null;
+    middleInitial: string | null;
+    nickname: string | null;
     displayName: string | null;
+    shownName: string;
     avatarUrl: string | null;
     streak: number | null;
     weekCompleteDays: number | null;
@@ -367,6 +380,10 @@ export async function GET(request: NextRequest) {
     friends.push({
       id: friendUser.id,
       firstName: friendUser.firstName,
+      lastName: friendUser.lastName,
+      middleInitial: friendUser.middleInitial,
+      nickname: nicknameByFriend.get(friendUser.id) ?? null,
+      shownName: "", // resolved in the collision pass below
       displayName: friendUser.displayName,
       avatarUrl: friendUser.avatarUrl,
       streak: settings.friendsSeeStreak ? streak : null,
@@ -392,6 +409,34 @@ export async function GET(request: NextRequest) {
         ? (timesByUserDate.get(`${friendUser.id}|${todayStr}`) ?? null)
         : null,
     });
+  }
+
+  // Display name resolution: nickname → first name → display name → "Friend".
+  // When the shown base name collides (two Muhammads), append the last
+  // initial; still colliding → add the middle initial ("Muhammad A.K.").
+  const baseOf = (f: (typeof friends)[number]) =>
+    (f.nickname ?? f.firstName ?? f.displayName ?? "Friend").trim();
+  const baseCounts = new Map<string, number>();
+  for (const f of friends) {
+    const b = baseOf(f).toLowerCase();
+    baseCounts.set(b, (baseCounts.get(b) ?? 0) + 1);
+  }
+  for (const f of friends) {
+    let name = baseOf(f);
+    if ((baseCounts.get(name.toLowerCase()) ?? 0) > 1) {
+      const li = f.lastName?.trim().charAt(0);
+      if (li) {
+        name = `${name} ${li.toUpperCase()}.`;
+        // Still colliding? Middle initial breaks the tie.
+        const clash = friends.some(
+          (o) => o !== f
+            && `${baseOf(o)} ${o.lastName?.trim().charAt(0).toUpperCase()}.` === name,
+        );
+        const mi = f.middleInitial?.trim().charAt(0);
+        if (clash && mi) name = `${name.slice(0, -1)}${mi.toUpperCase()}.`;
+      }
+    }
+    f.shownName = name;
   }
 
   // Sort by streak descending so the leaderboard is competitive
