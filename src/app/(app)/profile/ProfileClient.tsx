@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronDown, Swords, Camera, Flame, Check, MapPin, Link2 } from "lucide-react";
+import { ChevronLeft, ChevronDown, Swords, Camera, Flame, Check, MapPin, Link2, EyeOff, Eye } from "lucide-react";
 import { RANKS, MATCH_WIN_PTS, MATCH_LOSS_PTS } from "@/lib/quran-rank";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { readAvatarFile } from "@/lib/avatar";
@@ -54,6 +54,7 @@ interface FriendSalah {
   todayVisible: boolean;
   todayLogs: Array<{ prayerName: string; status: string }>;
   sharedStreak: { streak: number; bestStreak: number } | null;
+  hiddenFromLeague?: boolean;
 }
 
 interface Profile {
@@ -86,6 +87,19 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
   const [confirmUnfriend, setConfirmUnfriend] = useState(false);
   const [unfriendBusy, setUnfriendBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  async function toggleLeagueHide() {
+    if (!userId || !salah) return;
+    const next = !salah.hiddenFromLeague;
+    setSalah({ ...salah, hiddenFromLeague: next });
+    const res = await fetch("/api/prayer-friends/nickname", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ friendId: userId, hiddenFromLeague: next }),
+    }).catch(() => null);
+    if (res?.ok) invalidateApiCache("/api/prayer-friends");
+    else setSalah((prev) => (prev ? { ...prev, hiddenFromLeague: !next } : prev));
+  }
 
   async function unfriend() {
     if (!userId || unfriendBusy) return;
@@ -331,6 +345,19 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
             </p>
           )}
         </div>
+      )}
+
+      {/* League visibility — compact toggle, lives on the profile not the
+          leaderboard row so cards stay clean on small screens. */}
+      {userId && salah && (
+        <button
+          onClick={() => void toggleLeagueHide()}
+          className="mb-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed px-3 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+        >
+          {salah.hiddenFromLeague ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+          {salah.hiddenFromLeague ? "Show in leaderboard" : "Hide from leaderboard"}
+        </button>
       )}
 
       {/* Rank card — medallion wears the progress ring */}

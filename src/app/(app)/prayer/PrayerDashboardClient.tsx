@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye, EyeOff } from "lucide-react";
+import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -1760,7 +1760,7 @@ export default function PrayerDashboard() {
                 const myScore = { week: myWeekPrayed, sunnah: analytics?.weekSunnah ?? 0 };
                 const entries: Array<{ key: string; friend?: Friend }> = [
                   { key: "me" },
-                  ...friends.map((f) => ({ key: f.id, friend: f })),
+                  ...friends.filter((f) => !f.hiddenFromLeague).map((f) => ({ key: f.id, friend: f })),
                 ];
                 entries.sort((a, b) => {
                   const aw = a.friend ? (a.friend.thisWeekPrayed ?? -1) : myScore.week;
@@ -2751,15 +2751,6 @@ export default function PrayerDashboard() {
                               </div>
                             )}
                           </div>
-                          <button
-                            onClick={() => void toggleLeagueHide(friend.id, !friend.hiddenFromLeague)}
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
-                            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                            aria-label={friend.hiddenFromLeague ? "Show in leaderboard" : "Hide from leaderboard"}
-                            title={friend.hiddenFromLeague ? "Show in leaderboard" : "Hide from leaderboard"}
-                          >
-                            {friend.hiddenFromLeague ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                          </button>
                           <Link
                             href={`/messages/${friend.id}`}
                             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors"
