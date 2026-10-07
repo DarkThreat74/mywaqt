@@ -1176,26 +1176,33 @@ self.addEventListener("message", (event) => {
 
 // ─── Push notifications ───
 self.addEventListener("push", (event) => {
-  let data = { title: "Waqt", body: "Time to pray" };
-
+  let data = {};
   if (event.data) {
     try {
       data = event.data.json();
     } catch {
-      data = { title: "Waqt", body: event.data.text() };
+      try {
+        data = { body: event.data.text() };
+      } catch {
+        data = {};
+      }
     }
   }
+  if (!data || typeof data !== "object") data = {};
 
   const silent = data.silent === true;
-  const tag = data.tag || "waqt-notification";
+  const tag = typeof data.tag === "string" && data.tag ? data.tag : "waqt-notification";
+  // Senders place the deep-link at either `url` (top level) or `data.url` —
+  // support both so taps always land on the right screen.
+  const targetUrl = data.url ?? (data.data && data.data.url) ?? "/";
 
   const options = {
-    body: data.body,
+    body: typeof data.body === "string" ? data.body : "",
     icon: data.icon || "/icon-192.png",
     // Status-bar badge is alpha-masked by Android — an opaque tile icon shows
     // as a white blob. icon-badge.png is transparent with the 5-band glyph.
     badge: data.badge || "/icon-badge.png",
-    data: data.data || { url: "/" },
+    data: { ...(data.data && typeof data.data === "object" ? data.data : {}), url: targetUrl },
     tag,
     requireInteraction: data.requireInteraction === true,
     renotify: data.renotify === true && !!tag,
@@ -1215,7 +1222,22 @@ self.addEventListener("push", (event) => {
   // keep it harmless so future browsers can use it
   if (data.sound) options.sound = data.sound;
 
-  event.waitUntil(self.registration.showNotification(data.title, options));
+  // A push that ends without a visible notification makes Chrome show its own
+  // generic "updated in the background" notification — blue Chrome icon with
+  // an Unsubscribe action. Guarantee a branded notification twice: retry with
+  // a minimal payload if the full options object throws.
+  const title = typeof data.title === "string" && data.title.trim() ? data.title : "Waqt";
+  event.waitUntil(
+    self.registration.showNotification(title, options).catch(() =>
+      self.registration.showNotification("Waqt", {
+        body: options.body,
+        icon: "/icon-192.png",
+        badge: "/icon-badge.png",
+        data: { url: "/" },
+        tag,
+      }).catch(() => {})
+    )
+  );
 });
 
 // ─── Notification click ───
