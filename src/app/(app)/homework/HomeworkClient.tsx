@@ -19,6 +19,9 @@ import { parseICS, type ICSEntry } from "@/lib/homework/ics";
 import { computeCushion } from "@/lib/homework/cushion";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { wallClockToUtc } from "@/lib/timezone";
+import { getDiscipline } from "@/lib/study/session";
+import { fmtDur } from "@/lib/blocks/gaps";
+import StudyStatsSheet, { weekMinutes } from "@/components/study-stats-sheet";
 
 // Wall-clock date+time → ISO instant in the user's stored timezone.
 // new Date("YYYY-MM-DDTHH:mm") parses in the *browser* tz — wrong instant
@@ -124,6 +127,10 @@ export default function HomeworkClient({
   const [showAddClass, setShowAddClass] = useState(false);
   const [filterClassId, setFilterClassId] = useState<string | null>(null);
   const [filterPriority, setFilterPriority] = useState<"all" | "high" | "medium" | "low">("all");
+  const [statsOpen, setStatsOpen] = useState(false);
+  // Date line + week minutes are localStorage/ICU-dependent — mount-gated.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { Promise.resolve().then(() => setMounted(true)); }, []);
   const [sortBy, setSortBy] = useState<"soonest" | "latest" | "type">("soonest");
   const [sortTypeKind, setSortTypeKind] = useState<HomeworkItem["kind"]>("homework");
 
@@ -1180,11 +1187,36 @@ export default function HomeworkClient({
 
   return (
     <div className="mx-auto w-full max-w-3xl overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6">
-      {/* Header */}
+      {/* Header — date + this week's focused time + stats entry, all on
+          one compact line so mobile keeps it to a single row under the title. */}
       <div className="mb-4 flex items-center justify-between gap-2">
-        <h1 className="text-xl font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
-          Homework
-        </h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
+            Homework
+          </h1>
+          {mounted && (
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] leading-tight tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+              {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+              {(() => {
+                const w = weekMinutes(getDiscipline().history);
+                return w > 0 ? (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span style={{ color: "var(--color-accent)" }}>{fmtDur(w)}</span>
+                    <span>studied this wk</span>
+                  </>
+                ) : null;
+              })()}
+              <button
+                onClick={() => setStatsOpen(true)}
+                className="rounded-full border px-2 py-px text-[10px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+              >
+                Stats
+              </button>
+            </p>
+          )}
+        </div>
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => { setShowImport(true); setImportMsg(null); }}
@@ -1203,6 +1235,8 @@ export default function HomeworkClient({
           </button>
         </div>
       </div>
+
+      {statsOpen && <StudyStatsSheet onClose={() => setStatsOpen(false)} />}
 
       {/* ── Classes (collapsible dropdown so homework is the main focus) ── */}
       <div className="mb-4">

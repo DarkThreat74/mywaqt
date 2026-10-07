@@ -6,7 +6,7 @@ import type { Class, Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
 import { formatDueBadge } from "@/lib/homework/due-format";
 import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/study/session";
-import StudyStatsSheet, { entryMinutes, weekMinutes } from "@/components/study-stats-sheet";
+import { entryMinutes } from "@/components/study-stats-sheet";
 
 export interface BlockWithAssignments extends StudyBlock {
   assignments: {
@@ -72,7 +72,6 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
 
 
   // Composer state — null when nothing is being drafted
-  const [statsOpen, setStatsOpen] = useState(false);
   const [gapSel, setGapSel] = useState<Interval | null>(null);
   const [startStr, setStartStr] = useState("");
   const [endStr, setEndStr] = useState("");
@@ -441,18 +440,6 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
             <p className="whitespace-nowrap text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
               {composing ? (editingBlock ? "Edit block" : "New block") : `Plan ${isToday ? "today" : date}`}
             </p>
-            {!composing && (
-              <span className="flex items-center gap-1.5 text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                {(() => { const w = weekMinutes(history); return w > 0 ? <><span style={{ color: "var(--color-accent)" }}>{fmtDur(w)}</span> this wk</> : null; })()}
-                <button
-                  onClick={() => setStatsOpen(true)}
-                  className="rounded-full border px-2 py-px text-[10px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                >
-                  Stats
-                </button>
-              </span>
-            )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {!composing && !draft && !isPast && onPickOnCalendar && (
@@ -879,7 +866,6 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
           )}
         </div>
       </div>
-      {statsOpen && <StudyStatsSheet onClose={() => setStatsOpen(false)} />}
     </div>
   );
 }
