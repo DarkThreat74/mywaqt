@@ -88,7 +88,10 @@ const getUserGate = (userId: string): Promise<UserGate> =>
       }
     },
     ['needs-settings', userId],
-    { revalidate: 60 }
+    // Tagged so /api/onboarding/* writes can revalidateTag it instantly —
+    // otherwise a just-completed user bounces back to /onboarding for up to
+    // 60s (the "endless onboarding" bug).
+    { revalidate: 60, tags: [`user-gate-${userId}`] }
   )();
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -111,7 +114,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <AudioPlayerProvider>
     <SoundscapeProvider>
-    <OnboardingGuard completed={gate.onboardingCompleted} step={gate.onboardingStep} />
+    <OnboardingGuard completed={gate.onboardingCompleted} step={gate.onboardingStep} userId={session.userId} />
     <ShellMode />
     <div className="flex min-h-dvh w-full overflow-x-hidden" style={{ backgroundColor: "var(--color-paper)" }}>
       {/* ── Skip link for keyboard users (WCAG 2.4.1) ── */}

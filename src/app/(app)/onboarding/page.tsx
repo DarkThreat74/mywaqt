@@ -6,12 +6,13 @@ import Link from "next/link";
 import { MapPin, ArrowRight, ArrowLeft, Check, Loader2, User, Camera, CloudOff } from "lucide-react";
 import { readAvatarFile, presetAvatarDataUrl, AVATAR_PRESETS } from "@/lib/avatar";
 import { GuideGate } from "./guide-gate";
+import { ONBOARDING_DONE_KEY } from "@/components/onboarding-guard";
 
 type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "theme" | "location" | "madhab" | "hifidh" | "notifications" | "install" | "tour" | "guide" | "done";
 
 const VALID_STEPS = new Set<Step>([
   "terms", "name", "avatar", "gender", "hayd", "theme", "location",
-  "madhab", "hifidh", "notifications", "install", "tour", "guide",
+  "madhab", "hifidh", "notifications", "install", "tour", "guide", "done",
 ]);
 
 /** Resume point — the layout's guard redirects here with ?s=<step>. */
@@ -337,45 +338,57 @@ export default function OnboardingWizard() {
   // localStorage. Reload, sign-out, device sleep mid-flow: the wizard comes
   // back with everything filled in. Cleared on completion.
   const hydratedRef = useRef(false);
+  const userIdRef = useRef<string | null>(null);
   useEffect(() => {
-    let draft: Record<string, unknown> | null = null;
-    try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "null"); } catch { /* corrupt */ }
-    // Deferred — hydration setStates must not run synchronously in the effect.
-    Promise.resolve().then(() => {
-      const d = draft;
-      if (d) {
-        if (typeof d.acceptedTerms === "boolean") setAcceptedTerms(d.acceptedTerms);
-        if (typeof d.firstName === "string") setFirstName(d.firstName);
-        if (typeof d.lastName === "string") setLastName(d.lastName);
-        if (typeof d.middleInitial === "string") setMiddleInitial(d.middleInitial);
-        if (d.theme === "light" || d.theme === "dark" || d.theme === "system") setTheme(d.theme);
-        if (d.gender === "male" || d.gender === "female") setGender(d.gender);
-        if (typeof d.haydTracking === "boolean") setHaydTracking(d.haydTracking);
-        if (typeof d.lat === "number") setLat(d.lat);
-        if (typeof d.lng === "number") setLng(d.lng);
-        if (typeof d.timezone === "string" && d.timezone) { setTimezone(d.timezone); if (typeof d.lat === "number") setLocationStatus("done"); }
-        if (typeof d.madhab === "string") setMadhab(d.madhab);
-        if (typeof d.earlyMid === "string") setEarlyMid(d.earlyMid);
-        if (typeof d.finalReminder === "string") setFinalReminder(d.finalReminder);
-        if (typeof d.otherReminders === "string") setOtherReminders(d.otherReminders);
-        if (typeof d.avatar === "string") setAvatar(d.avatar);
+    // Draft restore waits on /api/profile so a draft left by a *different*
+    // account on this device is never applied (shared-device leak).
+    const applyDraft = (knownUid: string | null) => {
+      let draft: Record<string, unknown> | null = null;
+      try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "null"); } catch { /* corrupt */ }
+      if (draft && knownUid && typeof draft.uid === "string" && draft.uid !== knownUid) {
+        draft = null;
+        try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       }
-      hydratedRef.current = true;
-    });
+      // Deferred — hydration setStates must not run synchronously in the effect.
+      Promise.resolve().then(() => {
+        const d = draft;
+        if (d) {
+          if (typeof d.acceptedTerms === "boolean") setAcceptedTerms(d.acceptedTerms);
+          if (typeof d.firstName === "string") setFirstName(d.firstName);
+          if (typeof d.lastName === "string") setLastName(d.lastName);
+          if (typeof d.middleInitial === "string") setMiddleInitial(d.middleInitial);
+          if (d.theme === "light" || d.theme === "dark" || d.theme === "system") setTheme(d.theme);
+          if (d.gender === "male" || d.gender === "female") setGender(d.gender);
+          if (typeof d.haydTracking === "boolean") setHaydTracking(d.haydTracking);
+          if (typeof d.lat === "number") setLat(d.lat);
+          if (typeof d.lng === "number") setLng(d.lng);
+          if (typeof d.timezone === "string" && d.timezone) { setTimezone(d.timezone); if (typeof d.lat === "number") setLocationStatus("done"); }
+          if (typeof d.madhab === "string") setMadhab(d.madhab);
+          if (typeof d.earlyMid === "string") setEarlyMid(d.earlyMid);
+          if (typeof d.finalReminder === "string") setFinalReminder(d.finalReminder);
+          if (typeof d.otherReminders === "string") setOtherReminders(d.otherReminders);
+          if (typeof d.avatar === "string") setAvatar(d.avatar);
+        }
+        hydratedRef.current = true;
+      });
+    };
     fetch("/api/profile")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
+        if (d?.id) userIdRef.current = d.id;
         if (d?.joinedAt && Date.now() - new Date(d.joinedAt).getTime() > 24 * 60 * 60 * 1000) {
           setLegacyUser(true);
         }
+        applyDraft(userIdRef.current);
       })
-      .catch(() => {});
+      .catch(() => applyDraft(null));
   }, []);
 
   useEffect(() => {
     if (!hydratedRef.current || step === "done") return;
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        uid: userIdRef.current,
         acceptedTerms, firstName, lastName, middleInitial, theme, gender,
         haydTracking, lat, lng, timezone, madhab, earlyMid, finalReminder,
         otherReminders, avatar,
@@ -649,6 +662,10 @@ export default function OnboardingWizard() {
         setPending(false);
         return;
       }
+      // Client-side completion flag — the guard consults this so a stale
+      // cached gate can never loop the user back into the wizard. Stored as
+      // the account id so another account on this device can't inherit it.
+      try { localStorage.setItem(ONBOARDING_DONE_KEY, userIdRef.current ?? ""); } catch { /* non-critical */ }
       setStep("done");
     } catch {
       setError("Network error.");

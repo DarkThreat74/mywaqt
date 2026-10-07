@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
 
   const [u] = await db
     .select({
+      id: schema.users.id,
       firstName: schema.users.firstName,
       displayName: schema.users.displayName,
       prayerCode: schema.users.prayerCode,
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest) {
   const next = nextRank(rating);
 
   return NextResponse.json({
+    id: u.id,
     name: u.firstName || u.displayName || "Friend",
     displayName: u.displayName,
     prayerCode: u.prayerCode,

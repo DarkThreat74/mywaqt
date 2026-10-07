@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
@@ -51,6 +52,10 @@ export async function POST(request: NextRequest) {
       ...(trimmedMiddle ? { middleInitial: trimmedMiddle } : {}),
     })
     .where(eq(schema.users.id, session.userId));
+
+  // Bust the cached onboarding gate — without this the layout keeps serving
+  // completed=false for up to 60s and the guard loops the user back in.
+  try { revalidateTag(`user-gate-${session.userId}`, "max"); } catch { /* non-critical */ }
 
   return NextResponse.json({ ok: true });
 }

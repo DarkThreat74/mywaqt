@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
@@ -29,5 +30,6 @@ export async function POST(request: NextRequest) {
   }
 
   await db.update(schema.users).set({ onboardingStep: step }).where(eq(schema.users.id, session.userId));
+  try { revalidateTag(`user-gate-${session.userId}`, "max"); } catch { /* non-critical */ }
   return NextResponse.json({ ok: true });
 }
