@@ -55,7 +55,9 @@ export default function SidebarSalah() {
         try {
           const { getOfflineDB } = await import("@/lib/offline/db");
           const cached = await getOfflineDB().prayerTimes.get(dateStr);
-          if (cached?.fajr) times = cached as unknown as Record<string, string>;
+          // sunrise is Fajr's window end — a cached row without it makes the
+          // Fajr window unresolvable, so only accept complete rows.
+          if (cached?.fajr && cached?.sunrise) times = cached as unknown as Record<string, string>;
         } catch { /* fall through to API */ }
         if (!times) {
           const r = await fetch(`/api/prayer-times?date=${dateStr}`);
@@ -96,7 +98,14 @@ export default function SidebarSalah() {
     // Open window?
     for (const [p, endKey] of ORDER) {
       const s = toTs(b.times[p]);
-      const e = endKey === "fajr" ? toTs(b.times.fajr, 1) : toTs(b.times[endKey]);
+      let e = endKey === "fajr" ? toTs(b.times.fajr, 1) : toTs(b.times[endKey]);
+      // Missing window end (e.g. no sunrise in the row) — fall back to the
+      // next prayer's start so the open window still reads "ends in Xm"
+      // instead of silently skipping to a "starts in" line.
+      if (Number.isNaN(e)) {
+        const ni = START_ORDER.indexOf(p) + 1;
+        e = ni < START_ORDER.length ? toTs(b.times[START_ORDER[ni]]) : toTs(b.times.fajr, 1);
+      }
       if (Number.isNaN(s) || Number.isNaN(e)) continue;
       if (now >= s && now < e) {
         if (b.unmarked.has(p)) {

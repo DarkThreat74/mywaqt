@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Check, ChevronLeft, Eye, EyeOff, Loader2, Pencil, Sparkles, X } from "lucide-react";
+import { Check, ChevronLeft, Eye, EyeOff, Loader2, Pencil, Sparkles, X } from "lucide-react";
 import type { Class, Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
 import { formatDueBadge } from "@/lib/homework/due-format";
 import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/study/session";
+import { entryMinutes } from "@/components/study-stats-sheet";
 
 export interface BlockWithAssignments extends StudyBlock {
   assignments: {
@@ -54,62 +55,10 @@ function timeInputToMin(s: string): number | null {
   return v >= 0 && v <= 1440 ? v : null;
 }
 
-// ─── Study stats — computed from the local session history (no server round
-// trip, works offline, survives across the whole device) ───
-type StatsRange = "month" | "year" | "all";
-
-function rangeStart(range: StatsRange, now: Date): Date | null {
-  if (range === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
-  if (range === "year") return new Date(now.getFullYear(), 0, 1);
-  return null;
-}
-
-function entryMinutes(e: SessionEntry): number {
-  // Locked-in minutes are the honest study number; fall back to elapsed for
-  // history entries written before the habit fields existed.
-  return e.focusMin ?? e.minutes;
-}
-
-/** `classOf` rolls a subject entry up to its class name when the homeworkId
- *  resolves ("Chemistry 4h" instead of "Chem lab 90m + Chem exam 2h"). */
-function studyStats(history: SessionEntry[], range: StatsRange, classOf: (s: { label: string; hw?: string }) => string) {
-  const from = rangeStart(range, new Date());
-  const rows = history.filter((e) => !from || new Date(`${e.date}T12:00:00`) >= from);
-  const totalMin = rows.reduce((s, e) => s + entryMinutes(e), 0);
-  const finished = rows.filter((e) => e.finished).length;
-  const methods = new Map<string, number>();
-  const subjects = new Map<string, number>();
-  let breaks = 0, switches = 0;
-  for (const e of rows) {
-    if (e.method) methods.set(e.method, (methods.get(e.method) ?? 0) + 1);
-    breaks += e.breaks ?? 0;
-    switches += e.switches ?? 0;
-    for (const s of e.subjects ?? []) subjects.set(classOf(s), (subjects.get(classOf(s)) ?? 0) + s.min);
-  }
-  const top = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]);
-  return {
-    totalMin, sessions: rows.length, finished,
-    methods: top(methods), subjects: top(subjects),
-    avgBreaks: rows.length ? breaks / rows.length : 0,
-    avgSwitches: rows.length ? switches / rows.length : 0,
-  };
-}
-
-/** Minutes studied this calendar week (Mon–Sun) — shown by the sheet's date. */
-function weekMinutes(history: SessionEntry[]): number {
-  const now = new Date();
-  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
-  return history
-    .filter((e) => new Date(`${e.date}T12:00:00`) >= monday)
-    .reduce((s, e) => s + entryMinutes(e), 0);
-}
-
 export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose, onPickOnCalendar, initialGap, initialBlock, dayStart, dayEnd }: Props) {
   const [hw, setHw] = useState<Homework[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
-  // homeworkId → classId for stats class-rollup — covers completed homework
-  // too, unlike the pending-only `hw` list.
-  const [hwClass, setHwClass] = useState<Map<string, string>>(new Map());
+
   /** Local "now" in minutes — decides whether today's block is upcoming or
    *  already ended (list hides ended blocks, badges read "passed"). */
   const [nowMin] = useState(() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); });
@@ -120,9 +69,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState(false);
-  // Study stats — local session history, no fetch needed.
-  const [statsOpen, setStatsOpen] = useState(false);
-  const [statsRange, setStatsRange] = useState<StatsRange>("month");
+
 
   // Composer state — null when nothing is being drafted
   const [gapSel, setGapSel] = useState<Interval | null>(null);
@@ -176,22 +123,25 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   // history can't change underneath it. Server history merges in async so
   // stats reflect sessions done on other devices.
   const [history, setHistory] = useState<SessionEntry[]>(() => getDiscipline().history);
-  const weekMin = useMemo(() => weekMinutes(history), [history]);
-  const stats = useMemo(() => studyStats(history, statsRange, (s) => {
-    const clsId = s.hw ? hwClass.get(s.hw) : undefined;
-    return (clsId ? classMap.get(clsId)?.name : undefined) ?? s.label;
-  }), [history, statsRange, hwClass, classMap]);
   /** Total focused minutes per homeworkId — the ≥10m threshold that turns a
-   *  worked block into a real "studied" tag. */
+   *  worked block into a real "studied" tag. Sessions logged against a block
+   *  (blockId) count even when the entry has no subject rows — a 2h session
+   *  on this assignment's block shouldn't read "passed". */
   const studiedMin = useMemo(() => {
     const m = new Map<string, number>();
+    const blockToHw = new Map<string, string>();
+    for (const [hwId, c] of plannedCounts) {
+      for (const id of c.workedIds ?? []) blockToHw.set(id, hwId);
+    }
     for (const e of history) {
+      const viaBlock = e.blockId ? blockToHw.get(e.blockId) : undefined;
+      if (viaBlock) m.set(viaBlock, (m.get(viaBlock) ?? 0) + entryMinutes(e));
       for (const s of e.subjects ?? []) {
         if (s.hw) m.set(s.hw, (m.get(s.hw) ?? 0) + s.min);
       }
     }
     return m;
-  }, [history]);
+  }, [history, plannedCounts]);
 
   /** Remove the "studied" tag — releases the worked block(s) behind it so the
    *  assignment drops back to "no plan". Local history is untouched. */
@@ -230,10 +180,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
         if (cancelled) return;
         if (hwRes?.ok) {
           const data = await hwRes.json();
-          if (Array.isArray(data)) {
-            setHw(data.filter((h: Homework) => h.status === "pending"));
-            setHwClass(new Map(data.map((h: Homework) => [h.id, h.classId ?? ""]).filter(([, c]) => c) as [string, string][]));
-          }
+          if (Array.isArray(data)) setHw(data.filter((h: Homework) => h.status === "pending"));
         }
         if (classRes?.ok) {
           const data = await classRes.json();
@@ -466,51 +413,33 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
-            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+            <p className="whitespace-nowrap text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
               {composing ? (editingBlock ? "Edit block" : "New block") : `Plan ${isToday ? "today" : date}`}
-              {!composing && weekMin > 0 && (
-                <span className="ml-2 text-[11px] font-medium tabular-nums" style={{ color: "var(--color-accent)" }}>
-                  · {fmtDur(weekMin)} this wk
-                </span>
-              )}
             </p>
           </div>
-          <div className="flex items-center gap-1">
-            {!composing && !draft && (
-              <button
-                onClick={() => setStatsOpen((v) => !v)}
-                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-85"
-                style={{
-                  backgroundColor: statsOpen ? "var(--color-accent-faint)" : "var(--color-paper-3)",
-                  color: statsOpen ? "var(--color-accent)" : "var(--color-ink)",
-                }}
-                aria-label="Study stats"
-                aria-expanded={statsOpen}
-              >
-                <BarChart3 className="h-3.5 w-3.5" />
-                Stats
-              </button>
-            )}
+          <div className="flex shrink-0 items-center gap-1">
             {!composing && !draft && !isPast && onPickOnCalendar && (
               <button
                 onClick={onPickOnCalendar}
-                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-85"
+                className="flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1.5 text-[11px] font-medium transition-opacity hover:opacity-85"
                 style={{ backgroundColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
                 aria-label="Pick a time on the calendar"
+                title="Pick a time on the calendar"
               >
                 <Pencil className="h-3.5 w-3.5" />
-                Pick on calendar
+                Pick
               </button>
             )}
             {!composing && !draft && !isPast && gaps.length > 0 && hw.length > 0 && (
               <button
                 onClick={buildDraft}
                 disabled={busyAction}
-                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-85 disabled:opacity-50"
+                className="flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1.5 text-[11px] font-medium transition-opacity hover:opacity-85 disabled:opacity-50"
                 style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                title="Draft a plan for me"
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                Draft for me
+                Draft
               </button>
             )}
             <button
@@ -666,81 +595,6 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                   {" · "}
                   {hw.filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0)).length} deadline{hw.filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0)).length === 1 ? "" : "s"} need{hw.filter((h) => !(plannedCounts.get(h.id)?.planned ?? 0)).length === 1 ? "s" : ""} time
                 </p>
-              )}
-
-              {/* Study stats — habits broken down by month / year / all time.
-                  Local history only; finishes on this device are what count. */}
-              {statsOpen && (
-                <section
-                  className="rounded-xl border p-3"
-                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
-                >
-                  <div className="mb-3 flex items-center gap-1">
-                    {(["month", "year", "all"] as const).map((r) => (
-                      <button
-                        key={r}
-                        onClick={() => setStatsRange(r)}
-                        className="rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
-                        style={{
-                          backgroundColor: statsRange === r ? "var(--color-ink)" : "transparent",
-                          color: statsRange === r ? "var(--color-paper)" : "var(--color-ink-muted)",
-                        }}
-                      >
-                        {r === "month" ? "Month" : r === "year" ? "Year" : "All time"}
-                      </button>
-                    ))}
-                  </div>
-                  {stats.sessions === 0 ? (
-                    <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>No sessions logged yet.</p>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-3 gap-2 text-center">
-                        {[
-                          { v: fmtDur(stats.totalMin), l: "studied" },
-                          { v: String(stats.sessions), l: "sessions" },
-                          { v: `${Math.round((stats.finished / stats.sessions) * 100)}%`, l: "finished" },
-                        ].map((s) => (
-                          <div key={s.l} className="rounded-lg border px-2 py-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-                            <p className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{s.v}</p>
-                            <p className="text-[10px] font-medium" style={{ color: "var(--color-ink-muted)" }}>{s.l}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="mt-3 text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                        avg {stats.avgBreaks.toFixed(1)} breaks · {stats.avgSwitches.toFixed(1)} switches per session
-                      </p>
-                      {stats.methods.length > 0 && (
-                        <>
-                          <p className="mt-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-                            How you study
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {stats.methods.map(([m, n]) => (
-                              <span key={m} className="rounded-full border px-2 py-0.5 text-[10px] font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
-                                {m === "auto" ? "auto" : m} ×{n}
-                              </span>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                      {stats.subjects.length > 0 && (
-                        <>
-                          <p className="mt-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-                            Time per subject
-                          </p>
-                          <div className="flex flex-col gap-1">
-                            {stats.subjects.slice(0, 8).map(([label, min]) => (
-                              <div key={label} className="flex items-baseline gap-2 text-xs">
-                                <span className="min-w-0 flex-1 truncate" style={{ color: "var(--color-ink)" }}>{label}</span>
-                                <span className="shrink-0 tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{fmtDur(min)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </>
-                  )}
-                </section>
               )}
 
               {/* Draft preview — "Draft for me" proposes, nothing is saved until confirmed */}
@@ -919,9 +773,12 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                       const w = cov?.worked ?? 0;
                       const p = cov?.passed ?? 0;
                       // "studied" only counts when a real session put ≥10
-                      // minutes into this assignment — a block marked worked
-                      // but never actually sat doesn't earn the tag.
-                      const studied = (studiedMin.get(h.id) ?? 0) >= 10;
+                      // minutes into this assignment — but a worked block with
+                      // no linked session entries at all (logged before hw
+                      // tracking existed, or on another device pre-sync) earns
+                      // it too; a recorded <10m session stays "passed".
+                      const linkedMin = studiedMin.get(h.id);
+                      const studied = w > 0 && (linkedMin === undefined || linkedMin >= 10);
                       // "planned for Th" — the nearest upcoming block's day,
                       // parsed as a local date so UTC-midnight doesn't shift it.
                       const dayAbbr = cov?.nextDate

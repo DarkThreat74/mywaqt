@@ -1433,8 +1433,10 @@ export default function DayViewClient({ date }: { date: string }) {
           role="group"
           aria-label="Prayer times"
         >
-          {/* Mobile: single row, chips share the full width evenly */}
-          <div className="flex gap-1 lg:hidden">
+          {/* Mobile: single row, chips share the full width evenly — on very
+              narrow phones they get a floor width and scroll sideways instead
+              of crushing into unreadability. */}
+          <div className="flex gap-1 overflow-x-auto lg:hidden" style={{ scrollbarWidth: "none" }}>
             {PRAYER_NAMES.map((prayer) => {
               const rawTime = prayerTimes[prayer.key];
               if (!rawTime) return null;
@@ -1471,7 +1473,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 <button
                   key={prayer.key}
                   onClick={isClickable ? () => setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayerLabel(prayer.key, prayer.label) }) : undefined}
-                  className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-lg border px-1 py-1.5 transition-colors"
+                  className="flex min-w-[54px] flex-1 flex-col items-center justify-center rounded-lg border px-1 py-1.5 transition-colors"
                   style={{
                     minHeight: 44,
                     borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",

@@ -174,12 +174,14 @@ export default function HomeworkClient({
   // Cushion warnings (per homework id → shortfall minutes)
   const [cushions, setCushions] = useState<Record<string, number>>({});
   // Per-homework planned block counts (study-block coverage)
-  const [blockSummary, setBlockSummary] = useState<Record<string, { planned: number; worked: number }>>({});
+  const [blockSummary, setBlockSummary] = useState<Record<string, { planned: number; worked: number; nextDate?: string }>>({});
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/blocks?summary=1")
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    fetch(`/api/blocks?summary=1&today=${today}&nowMin=${now.getHours() * 60 + now.getMinutes()}`)
       .then((r) => (r.ok ? r.json() : {}))
-      .then((d: { summary?: Record<string, { planned: number; worked: number }> }) => { if (!cancelled && d.summary) setBlockSummary(d.summary); })
+      .then((d: { summary?: Record<string, { planned: number; worked: number; nextDate?: string }> }) => { if (!cancelled && d.summary) setBlockSummary(d.summary); })
       .catch(() => null);
     return () => { cancelled = true; };
   }, []);
@@ -989,13 +991,18 @@ export default function HomeworkClient({
               const cov = blockSummary[hw.id];
               const soon = daysUntilDate(hw.dueDate) <= 7;
               if (cov && cov.planned > 0) {
+                // Same badge as the planner sheet — "planned for Th" from the
+                // nearest upcoming block's weekday.
+                const dayAbbr = cov.nextDate
+                  ? (() => { const [y, m, dd] = cov.nextDate!.split("-").map(Number); return ["Su","Mo","Tu","We","Th","Fr","Sa"][new Date(y, m - 1, dd).getDay()]; })()
+                  : null;
                 return (
                   <span
                     className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
                     style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
                     title={`${cov.planned} study block${cov.planned === 1 ? "" : "s"} planned${cov.worked ? ` · ${cov.worked} worked` : ""}`}
                   >
-                    {cov.planned} block{cov.planned === 1 ? "" : "s"}
+                    {dayAbbr ? `planned for ${dayAbbr}` : `${cov.planned} block${cov.planned === 1 ? "" : "s"}`}
                   </span>
                 );
               }
