@@ -448,6 +448,7 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
 
             const isToday = cell.dateStr === today;
             const done = cell.dateStr ? isDayDone(cell.dateStr) : false;
+            const hasBirthday = cell.day != null && birthdays.some((b) => isBirthdayOn(b, year, month, cell.day!));
             const dayEvents = cell.dateStr ? eventsByDate[cell.dateStr] || [] : [];
             const blockEvents = dayEvents.filter((e) => e.type !== "reminder");
             const reminderEvents = dayEvents.filter((e) => e.type === "reminder");
@@ -475,7 +476,20 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
                   }}
                 >
                   <span className="flex items-center gap-1">
-                    {cell.day}
+                    {/* Birthday marker — a soft cake circle behind the day
+                        number so the date stays readable on top of it. */}
+                    <span className="relative inline-flex h-5 w-5 items-center justify-center">
+                      {hasBirthday && (
+                        <span
+                          className="absolute inset-0 flex items-center justify-center rounded-full"
+                          style={{ backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }}
+                          aria-hidden="true"
+                        >
+                          <Cake className="h-3.5 w-3.5 opacity-60" />
+                        </span>
+                      )}
+                      <span className="relative">{cell.day}</span>
+                    </span>
                     {/* Homework squares — next to the number, distinct from notification dots */}
                     {cell.dateStr && homeworkByDate[cell.dateStr] && homeworkByDate[cell.dateStr].length > 0 && (
                       <span className="flex items-center gap-0.5">

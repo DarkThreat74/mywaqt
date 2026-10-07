@@ -85,14 +85,26 @@ export async function GET(request: NextRequest) {
 
     // Coverage summary — planned block count per pending homework (for badges)
     if (searchParams.get("summary") === "1") {
+      // The client sends its local "now" so a planned block whose window
+      // already ended counts as `ended`, not upcoming — drives the "passed"
+      // badge and keeps "planned for X" pointing at real future blocks.
+      const today = searchParams.get("today");
+      const nowMinParam = Number(searchParams.get("nowMin"));
+      const hasNow =
+        !!today && DATE_RE.test(today) &&
+        Number.isInteger(nowMinParam) && nowMinParam >= 0 && nowMinParam <= 1440;
+      const ended = hasNow
+        ? sql`(${schema.studyBlocks.blockDate} < ${today} or (${schema.studyBlocks.blockDate} = ${today} and ${schema.studyBlocks.endMin} <= ${nowMinParam}))`
+        : sql`false`;
       const rows = await db
         .select({
           homeworkId: schema.blockAssignments.homeworkId,
-          planned: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'planned')::int`,
+          planned: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'planned' and not ${ended})::int`,
           worked: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'worked')::int`,
+          passed: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'planned' and ${ended})::int`,
           // Earliest upcoming planned block — powers the "planned for Thu"
           // badge in the planner so the chip says WHEN, not just how many.
-          nextDate: sql<string | null>`min(${schema.studyBlocks.blockDate}) filter (where ${schema.studyBlocks.status} = 'planned')`,
+          nextDate: sql<string | null>`min(${schema.studyBlocks.blockDate}) filter (where ${schema.studyBlocks.status} = 'planned' and not ${ended})`,
           // Ids of the worked blocks — the "remove studied tag" action flips
           // these back to released so the chip resets to "no plan".
           workedIds: sql<string[]>`array_agg(${schema.studyBlocks.id}) filter (where ${schema.studyBlocks.status} = 'worked')`,
@@ -105,8 +117,8 @@ export async function GET(request: NextRequest) {
           eq(schema.homeworks.status, "pending"),
         ))
         .groupBy(schema.blockAssignments.homeworkId);
-      const summary: Record<string, { planned: number; worked: number; nextDate?: string; workedIds?: string[] }> = {};
-      for (const r of rows) summary[r.homeworkId] = { planned: r.planned, worked: r.worked, nextDate: r.nextDate ?? undefined, workedIds: r.workedIds ?? undefined };
+      const summary: Record<string, { planned: number; worked: number; passed?: number; nextDate?: string; workedIds?: string[] }> = {};
+      for (const r of rows) summary[r.homeworkId] = { planned: r.planned, worked: r.worked, passed: r.passed, nextDate: r.nextDate ?? undefined, workedIds: r.workedIds ?? undefined };
       return NextResponse.json({ summary });
     }
 
@@ -118,15 +130,20 @@ export async function GET(request: NextRequest) {
     let blocks;
     if (unworked === "1" && date && DATE_RE.test(date)) {
       // Carry-forward: planned blocks left unworked on days strictly before
-      // `date`. String comparison — date columns compare lexicographically,
-      // no Date/UTC conversion needed.
+      // `date`, plus today's blocks whose window already ended. String
+      // comparison — date columns compare lexicographically, no Date/UTC
+      // conversion needed.
+      const unworkedNowMin = Number(searchParams.get("nowMin"));
+      const includeTodayEnded = Number.isInteger(unworkedNowMin) && unworkedNowMin >= 0 && unworkedNowMin <= 1440;
       blocks = await db
         .select()
         .from(schema.studyBlocks)
         .where(and(
           eq(schema.studyBlocks.userId, session.userId),
           eq(schema.studyBlocks.status, "planned"),
-          lte(schema.studyBlocks.blockDate, sql`${date}::date - 1`),
+          includeTodayEnded
+            ? sql`(${schema.studyBlocks.blockDate} <= ${date}::date - 1 or (${schema.studyBlocks.blockDate} = ${date} and ${schema.studyBlocks.endMin} <= ${unworkedNowMin}))`
+            : lte(schema.studyBlocks.blockDate, sql`${date}::date - 1`),
         ))
         .orderBy(asc(schema.studyBlocks.blockDate), asc(schema.studyBlocks.startMin))
         .limit(50);

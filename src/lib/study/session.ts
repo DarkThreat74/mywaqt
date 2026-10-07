@@ -42,7 +42,10 @@ export type SessionState =
       pausedAt: number | null; pausedMs: number;
       /** Method chosen at intake + how many times "switch it up" fired — the
        *  habits stats read these off the session history. */
-      method?: StudyMethod; switches?: number };
+      method?: StudyMethod; switches?: number;
+      /** Assignment title → homeworkId — lets the recap attach real homework
+       *  ids to per-subject minutes for class rollup + per-exam history. */
+      hw?: Record<string, string> };
 
 const KEY = "waqt-study-session";
 
@@ -166,6 +169,9 @@ export function confirmSession() {
     method: state.planInput.method,
     switches: 0,
     blockId: state.blockId,
+    hw: Object.fromEntries(
+      state.planInput.assignments.filter((a) => a.homeworkId).map((a) => [a.title, a.homeworkId!]),
+    ),
   };
   emit();
 }
@@ -229,13 +235,18 @@ export function startSprint(minutes: number, label = "Focus sprint", blockId?: s
 // A completed session grows the streak; ending early (not finished) or
 // abandoning resets it. Persisted locally, surfaced in the intake sheet.
 export interface SessionEntry {
+  /** Client uuid — dedupes server sync and offline outbox replays. */
+  id?: string;
   date: string; minutes: number; finished: boolean; label: string; reason?: string;
   /** Study habits telemetry — feeds the planner's stats section. */
   method?: string;
   /** Break segments actually used (0.5m+), focus minutes, mid-session switches. */
   breaks?: number; focusMin?: number; switches?: number;
-  /** Per-assignment minutes — feeds "time per subject" stats. */
-  subjects?: { label: string; min: number }[];
+  /** Per-assignment minutes — `hw` carries the homeworkId for class rollup
+   *  and "how long did I study for that exam" lookups. */
+  subjects?: { label: string; min: number; hw?: string }[];
+  /** The study block this session ran against — powers the ≥10m "studied" tag. */
+  blockId?: string;
 }
 export interface Discipline { streak: number; completed: number; abandoned: number; history: SessionEntry[] }
 
@@ -250,17 +261,48 @@ export function getDiscipline(): Discipline {
 }
 
 /** Record the outcome. finished=true grows the streak; false breaks it.
- *  `entry` logs the session into the local history (newest first, cap 60). */
+ *  `entry` logs the session into the local history (newest first, cap 400)
+ *  and mirrors it to /api/study-history so stats follow the account, not the
+ *  device. Offline: the SW outbox queues the POST automatically. */
 export function recordOutcome(finished: boolean, entry?: Omit<SessionEntry, "finished">): Discipline {
   const d = getDiscipline();
-  const history = entry
-    ? [{ ...entry, finished }, ...d.history].slice(0, 400)
-    : d.history;
+  const stamped = entry ? { ...entry, id: entry.id ?? crypto.randomUUID(), finished } : null;
+  const history = stamped ? [stamped, ...d.history].slice(0, 400) : d.history;
   const next = finished
     ? { streak: d.streak + 1, completed: d.completed + 1, abandoned: d.abandoned, history }
     : { streak: 0, completed: d.completed, abandoned: d.abandoned + 1, history };
   try { localStorage.setItem(DISC_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  if (stamped) {
+    try {
+      void fetch("/api/study-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(stamped),
+      }).catch(() => { /* offline — SW outbox replays it */ });
+    } catch { /* non-critical */ }
+  }
   return next;
+}
+
+/** Merge server-side history into the local log (cross-device sync). Entries
+ *  dedupe by id; pre-id local entries fall back to a content key so a row
+ *  synced from another device can't duplicate the local copy of itself. */
+export function mergeSessionHistory(rows: SessionEntry[]): SessionEntry[] {
+  if (!Array.isArray(rows) || rows.length === 0) return getDiscipline().history;
+  const d = getDiscipline();
+  const key = (e: SessionEntry) => e.id ?? `${e.date}|${e.label}|${e.minutes}|${e.finished}`;
+  const seen = new Set(d.history.map(key));
+  const merged = [...d.history];
+  for (const r of rows) {
+    if (r && typeof r.date === "string" && !seen.has(key(r))) {
+      seen.add(key(r));
+      merged.push(r);
+    }
+  }
+  merged.sort((a, b) => b.date.localeCompare(a.date));
+  const next = { ...d, history: merged.slice(0, 400) };
+  try { localStorage.setItem(DISC_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  return next.history;
 }
 
 /** Minutes focused today across finished sessions — the Forest-style

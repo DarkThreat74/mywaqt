@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Moon } from "lucide-react";
 
 const LABEL: Record<string, string> = {
@@ -129,16 +130,18 @@ export default function SidebarSalah() {
 
   if (!status) return null;
   return (
-    <p
-      className="mb-3 flex items-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-medium tabular-nums"
+    <Link
+      href="/prayer"
+      className="mb-3 flex items-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-medium tabular-nums transition-colors hover:bg-[var(--color-paper-3)]"
       style={{
         color: status.urgent ? "var(--color-warmth)" : "var(--color-ink-muted)",
         backgroundColor: status.urgent ? "var(--color-warmth-faint)" : "var(--color-paper-2)",
       }}
       aria-live="polite"
+      title="Open prayer check-ins"
     >
       <Moon className="h-3 w-3 shrink-0" />
       {status.text}
-    </p>
+    </Link>
   );
 }

@@ -1203,3 +1203,28 @@ export const blockAssignments = pgTable('block_assignments', {
 
 export type StudyBlock = typeof studyBlocks.$inferSelect;
 export type BlockAssignment = typeof blockAssignments.$inferSelect;
+
+// ─── Study Session History (cross-device mirror of the local Vox log) ──
+// The device keeps a localStorage copy for instant/offline stats; this table
+// is the durable record so stats and per-assignment minutes survive device
+// changes. Rows are upserted by client-generated id — replays are idempotent.
+export const studySessionHistory = pgTable('study_session_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  date: date('date').notNull(),                  // user-local YYYY-MM-DD
+  label: text('label').notNull(),
+  minutes: integer('minutes').notNull(),
+  finished: boolean('finished').notNull().default(false),
+  reason: text('reason'),
+  method: text('method'),
+  breaks: integer('breaks'),
+  focusMin: integer('focus_min'),
+  switches: integer('switches'),
+  subjects: jsonb('subjects').$type<{ label: string; min: number; hw?: string }[]>(),
+  blockId: uuid('block_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index('study_session_history_user_idx').on(table.userId, table.date),
+}));
+
+export type StudySessionHistory = typeof studySessionHistory.$inferSelect;

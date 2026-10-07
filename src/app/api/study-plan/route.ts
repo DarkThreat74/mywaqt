@@ -86,17 +86,33 @@ export async function POST(request: NextRequest) {
       .where(and(eq(schema.studyBlocks.userId, session.userId), inArray(schema.blockAssignments.homeworkId, ids)))
       .groupBy(schema.blockAssignments.homeworkId, schema.homeworks.kind, schema.homeworks.grade)
       .catch(() => []);
+    // Real focused minutes per homeworkId — the session log records actual
+    // used study time per assignment, which beats the scheduled block length
+    // (a 2h block where 40m was focused shouldn't count as 2h of prep).
+    const sessRows = await db
+      .select({ subjects: schema.studySessionHistory.subjects })
+      .from(schema.studySessionHistory)
+      .where(eq(schema.studySessionHistory.userId, session.userId))
+      .limit(400)
+      .catch(() => [] as { subjects: { label: string; min: number; hw?: string }[] | null }[]);
+    const realMin = new Map<string, number>();
+    for (const r of sessRows) {
+      for (const s of r.subjects ?? []) {
+        if (s.hw) realMin.set(s.hw, (realMin.get(s.hw) ?? 0) + s.min);
+      }
+    }
     const byId = new Map(hist.map((h) => [h.homeworkId, h]));
     for (const a of assignments) {
       const h = a.homeworkId ? byId.get(a.homeworkId) : undefined;
-      if (!h) continue;
-      a.kind = h.kind;
-      a.grade = h.grade;
-      a.studiedMin = h.workedMin;
+      const real = a.homeworkId ? realMin.get(a.homeworkId) ?? 0 : 0;
+      if (!h && real === 0) continue;
+      a.kind = h?.kind;
+      a.grade = h?.grade;
+      a.studiedMin = Math.max(h?.workedMin ?? 0, real);
       // Under-studied assessments need room to breathe — lift the estimate
       // to at least what's actually been logged so segments aren't starved.
-      if (h.workedMin > 0 && (!a.estimatedMinutes || h.workedMin > a.estimatedMinutes)) {
-        a.estimatedMinutes = Math.min(240, h.workedMin);
+      if (a.studiedMin! > 0 && (!a.estimatedMinutes || a.studiedMin! > a.estimatedMinutes)) {
+        a.estimatedMinutes = Math.min(240, a.studiedMin!);
       }
     }
   }

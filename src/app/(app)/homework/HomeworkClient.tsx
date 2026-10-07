@@ -545,7 +545,7 @@ export default function HomeworkClient({
   }
 
   /** Kinds whose completion asks for a grade outcome. */
-  const GRADED_KINDS = ["test", "quiz", "exam"];
+  const GRADED_KINDS = ["quiz", "exam"];
 
   /** Persist (or clear) the letter grade on an assessment — offline-safe via
    *  the same 202/optimistic pattern as completion. */

@@ -136,13 +136,22 @@ function buildRecap(run: RunState, label: string, finished: boolean, streak: num
   };
 }
 
-/** Aggregate study-segment minutes by label — "time per subject" stats. */
-function subjectMins(recap: { rows: { kind: string; label: string; min: number }[] }) {
-  const m = new Map<string, number>();
+/** Aggregate study-segment minutes by label — "time per subject" stats.
+ *  `hw` maps intake titles to homeworkIds so stats can roll up to the class
+ *  and the planner can see per-assignment totals. Labels that gained a
+ *  " (finish)" suffix (or were renamed by Vox) fall back to the label key. */
+function subjectMins(recap: { rows: { kind: string; label: string; min: number }[] }, hw?: Record<string, string>) {
+  const m = new Map<string, { label: string; min: number; hw?: string }>();
   for (const r of recap.rows) {
-    if (r.kind === "study") m.set(r.label, (m.get(r.label) ?? 0) + r.min);
+    if (r.kind !== "study") continue;
+    const clean = r.label.replace(/( \(finish\))+$/, "");
+    const hwId = hw?.[r.label] ?? hw?.[clean];
+    const k = hwId ?? r.label;
+    const cur = m.get(k) ?? { label: clean, min: 0, hw: hwId };
+    cur.min += r.min;
+    m.set(k, cur);
   }
-  return [...m.entries()].map(([label, min]) => ({ label, min: Math.round(min) })).filter((s) => s.min > 0);
+  return [...m.values()].map((s) => ({ ...s, min: Math.round(s.min) })).filter((s) => s.min > 0);
 }
 
 export default function StudySession() {
@@ -304,7 +313,8 @@ export default function StudySession() {
       breaks: recap.breaks,
       focusMin: recap.focusMin,
       switches: run.switches ?? 0,
-      subjects: subjectMins(recap),
+      subjects: subjectMins(recap, run.hw),
+      blockId: run.blockId,
     });
     setSummary({ ...recap, streak: disc.streak });
   }, [state]);
@@ -489,7 +499,8 @@ export default function StudySession() {
       breaks: recap?.breaks,
       focusMin: recap?.focusMin,
       switches: state.status === "running" ? state.switches ?? 0 : undefined,
-      subjects: recap ? subjectMins(recap) : undefined,
+      subjects: recap ? subjectMins(recap, state.status === "running" ? state.hw : undefined) : undefined,
+      blockId: state.status === "running" ? state.blockId : undefined,
     });
     if (recap) setSummary({ ...recap, streak: nextDiscipline.streak });
     const bid = runningBlockId();

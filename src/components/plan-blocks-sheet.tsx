@@ -5,7 +5,7 @@ import { BarChart3, Check, ChevronLeft, Eye, EyeOff, Loader2, Pencil, Sparkles, 
 import type { Class, Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
 import { formatDueBadge } from "@/lib/homework/due-format";
-import { getDiscipline, type SessionEntry } from "@/lib/study/session";
+import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/study/session";
 
 export interface BlockWithAssignments extends StudyBlock {
   assignments: {
@@ -70,7 +70,9 @@ function entryMinutes(e: SessionEntry): number {
   return e.focusMin ?? e.minutes;
 }
 
-function studyStats(history: SessionEntry[], range: StatsRange) {
+/** `classOf` rolls a subject entry up to its class name when the homeworkId
+ *  resolves ("Chemistry 4h" instead of "Chem lab 90m + Chem exam 2h"). */
+function studyStats(history: SessionEntry[], range: StatsRange, classOf: (s: { label: string; hw?: string }) => string) {
   const from = rangeStart(range, new Date());
   const rows = history.filter((e) => !from || new Date(`${e.date}T12:00:00`) >= from);
   const totalMin = rows.reduce((s, e) => s + entryMinutes(e), 0);
@@ -82,7 +84,7 @@ function studyStats(history: SessionEntry[], range: StatsRange) {
     if (e.method) methods.set(e.method, (methods.get(e.method) ?? 0) + 1);
     breaks += e.breaks ?? 0;
     switches += e.switches ?? 0;
-    for (const s of e.subjects ?? []) subjects.set(s.label, (subjects.get(s.label) ?? 0) + s.min);
+    for (const s of e.subjects ?? []) subjects.set(classOf(s), (subjects.get(classOf(s)) ?? 0) + s.min);
   }
   const top = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]);
   return {
@@ -105,9 +107,15 @@ function weekMinutes(history: SessionEntry[]): number {
 export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, onChanged, onClose, onPickOnCalendar, initialGap, initialBlock, dayStart, dayEnd }: Props) {
   const [hw, setHw] = useState<Homework[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  // homeworkId → classId for stats class-rollup — covers completed homework
+  // too, unlike the pending-only `hw` list.
+  const [hwClass, setHwClass] = useState<Map<string, string>>(new Map());
+  /** Local "now" in minutes — decides whether today's block is upcoming or
+   *  already ended (list hides ended blocks, badges read "passed"). */
+  const [nowMin] = useState(() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); });
   // Per-assignment coverage across ALL blocks (not just this day's) —
   // summary counts planned blocks anywhere in the future.
-  const [coverage, setCoverage] = useState<Record<string, { planned: number; worked: number; nextDate?: string; workedIds?: string[] }>>({});
+  const [coverage, setCoverage] = useState<Record<string, { planned: number; worked: number; passed?: number; nextDate?: string; workedIds?: string[] }>>({});
   const [unworked, setUnworked] = useState<BlockWithAssignments[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -134,17 +142,19 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   }, [busy, blocks, dayStart, dayEnd]);
 
   const plannedCounts = useMemo(() => {
-    const map = new Map<string, { planned: number; worked: number; nextDate?: string; workedIds?: string[] }>();
+    const map = new Map<string, { planned: number; worked: number; passed?: number; nextDate?: string; workedIds?: string[] }>();
     // Coverage summary spans every planned block on any day — the prop only
     // carries the viewed date, so without this an assignment planned on
     // another day looked unplanned.
     for (const [id, c] of Object.entries(coverage)) {
-      if (c.planned > 0 || c.worked > 0) map.set(id, { planned: c.planned, worked: c.worked, nextDate: c.nextDate, workedIds: c.workedIds });
+      if (c.planned > 0 || c.worked > 0 || (c.passed ?? 0) > 0) map.set(id, { ...c });
     }
     for (const b of blocks) {
+      const ended = isToday && b.endMin <= nowMin;
       for (const a of b.assignments) {
         const e = map.get(a.homeworkId) ?? { planned: 0, worked: 0 };
-        if (b.status === "planned") {
+        if (b.status === "planned" && ended) e.passed = (e.passed ?? 0) + 1;
+        else if (b.status === "planned") {
           e.planned++;
           if (!e.nextDate || b.blockDate < e.nextDate) e.nextDate = b.blockDate;
         } else if (b.status === "worked") e.worked++;
@@ -152,7 +162,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
       }
     }
     return map;
-  }, [blocks, coverage]);
+  }, [blocks, coverage, isToday, nowMin]);
 
   const classMap = useMemo(() => {
     const m = new Map<string, Class>();
@@ -161,10 +171,25 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   }, [classes]);
 
   // Read once per mount — the sheet is closed while sessions run, so the
-  // history can't change underneath it.
-  const history = useMemo(() => getDiscipline().history, []);
+  // history can't change underneath it. Server history merges in async so
+  // stats reflect sessions done on other devices.
+  const [history, setHistory] = useState<SessionEntry[]>(() => getDiscipline().history);
   const weekMin = useMemo(() => weekMinutes(history), [history]);
-  const stats = useMemo(() => studyStats(history, statsRange), [history, statsRange]);
+  const stats = useMemo(() => studyStats(history, statsRange, (s) => {
+    const clsId = s.hw ? hwClass.get(s.hw) : undefined;
+    return (clsId ? classMap.get(clsId)?.name : undefined) ?? s.label;
+  }), [history, statsRange, hwClass, classMap]);
+  /** Total focused minutes per homeworkId — the ≥10m threshold that turns a
+   *  worked block into a real "studied" tag. */
+  const studiedMin = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of history) {
+      for (const s of e.subjects ?? []) {
+        if (s.hw) m.set(s.hw, (m.get(s.hw) ?? 0) + s.min);
+      }
+    }
+    return m;
+  }, [history]);
 
   /** Remove the "studied" tag — releases the worked block(s) behind it so the
    *  assignment drops back to "no plan". Local history is untouched. */
@@ -191,18 +216,22 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     (async () => {
       setLoading(true);
       try {
-        const [hwRes, unRes, classRes, sumRes] = await Promise.all([
-          // Unfiltered list (200 most recent by dueDate, ascending) — includes
-          // overdue pending work, which is exactly what needs planning.
-          fetch(`/api/homework`).catch(() => null),
-          isToday ? fetch(`/api/blocks?unworked=1&date=${date}`).catch(() => null) : Promise.resolve(null),
+        const [hwRes, unRes, classRes, sumRes, histRes] = await Promise.all([
+          // all=1 — the deadline list filters to pending below, but stats
+          // class-rollup needs completed homework's classIds too.
+          fetch(`/api/homework?all=1`).catch(() => null),
+          isToday ? fetch(`/api/blocks?unworked=1&date=${date}&nowMin=${nowMin}`).catch(() => null) : Promise.resolve(null),
           fetch(`/api/classes`).catch(() => null),
-          fetch(`/api/blocks?summary=1`).catch(() => null),
+          fetch(`/api/blocks?summary=1&today=${new Date().toLocaleDateString("en-CA")}&nowMin=${nowMin}`).catch(() => null),
+          fetch(`/api/study-history`).catch(() => null),
         ]);
         if (cancelled) return;
         if (hwRes?.ok) {
           const data = await hwRes.json();
-          setHw(Array.isArray(data) ? data.filter((h: Homework) => h.status === "pending") : []);
+          if (Array.isArray(data)) {
+            setHw(data.filter((h: Homework) => h.status === "pending"));
+            setHwClass(new Map(data.map((h: Homework) => [h.id, h.classId ?? ""]).filter(([, c]) => c) as [string, string][]));
+          }
         }
         if (classRes?.ok) {
           const data = await classRes.json();
@@ -216,12 +245,16 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
           const data = await unRes.json();
           setUnworked(data.blocks ?? []);
         }
+        if (histRes?.ok) {
+          const data = await histRes.json();
+          if (Array.isArray(data) && data.length > 0) setHistory(mergeSessionHistory(data));
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [date, isToday]);
+  }, [date, isToday, nowMin]);
 
   // Date changed while open (day nav) — drop any in-progress compose/edit so
   // it can't land on the wrong day. Runs before the initialGap effect.
@@ -797,13 +830,16 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                 </section>
               )}
 
-              {blocks.filter((b) => b.status !== "released").length > 0 && (
+              {/* On today: only upcoming or in-progress blocks — a block whose
+                  window already ended is history (its assignment reads
+                  "studied" or "passed" via the coverage badges). */}
+              {blocks.filter((b) => b.status !== "released" && !(isToday && b.endMin <= nowMin)).length > 0 && (
                 <section>
                   <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
                     Planned blocks
                   </p>
                   <div className="flex flex-col gap-2">
-                    {blocks.filter((b) => b.status !== "released").map((b) => (
+                    {blocks.filter((b) => b.status !== "released" && !(isToday && b.endMin <= nowMin)).map((b) => (
                       <div
                         key={b.id}
                         className="flex items-center gap-2 rounded-xl border transition-colors hover:bg-[var(--color-paper-2)]"
@@ -879,6 +915,11 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                       const cov = plannedCounts.get(h.id);
                       const n = cov?.planned ?? 0;
                       const w = cov?.worked ?? 0;
+                      const p = cov?.passed ?? 0;
+                      // "studied" only counts when a real session put ≥10
+                      // minutes into this assignment — a block marked worked
+                      // but never actually sat doesn't earn the tag.
+                      const studied = (studiedMin.get(h.id) ?? 0) >= 10;
                       // "planned for Th" — the nearest upcoming block's day,
                       // parsed as a local date so UTC-midnight doesn't shift it.
                       const dayAbbr = cov?.nextDate
@@ -905,7 +946,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                               );
                             })()}
                           </span>
-                          {w > 0 && n === 0 ? (
+                          {n === 0 && w > 0 && studied ? (
                             /* "studied" is a real tag the user can remove —
                                releases the worked block(s) and reverts the
                                chip to "no plan". */
@@ -927,7 +968,9 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                                   : { backgroundColor: "var(--color-warmth-faint)", color: "var(--color-warmth)" }
                               }
                             >
-                              {n > 0 ? (dayAbbr ? `planned for ${dayAbbr}` : `${n} block${n === 1 ? "" : "s"}`) : "no plan"}
+                              {n > 0
+                                ? (dayAbbr ? `planned for ${dayAbbr}` : `${n} block${n === 1 ? "" : "s"}`)
+                                : w > 0 || p > 0 ? "passed" : "no plan"}
                             </span>
                           )}
                         </div>

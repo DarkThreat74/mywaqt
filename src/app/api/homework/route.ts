@@ -116,6 +116,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(await withSubtasks(homework));
     }
 
+    // ?all=1 — the planner's class-rollup needs completed homework's classIds
+    // too, so stats don't degrade to bare assignment titles for old work.
+    const all = searchParams.get("all") === "1";
+
     // No date filter — return only pending + recently completed (last 30 days)
     // This prevents loading years of old homework on every page load
     const recentCutoff = new Date();
@@ -127,11 +131,11 @@ export async function GET(request: NextRequest) {
         and(
           eq(schema.homeworks.userId, session.userId),
           // Only pending homework OR completed within last 30 days
-          sql`(${schema.homeworks.status} = 'pending' OR ${schema.homeworks.completedAt} >= ${recentCutoff.toISOString()})`,
+          ...(all ? [] : [sql`(${schema.homeworks.status} = 'pending' OR ${schema.homeworks.completedAt} >= ${recentCutoff.toISOString()})`]),
         ),
       )
       .orderBy(asc(schema.homeworks.dueDate), asc(schema.homeworks.dueTime))
-      .limit(200);
+      .limit(all ? 500 : 200);
 
     return NextResponse.json(await withSubtasks(homework));
   } catch (err) {

@@ -12,7 +12,6 @@ import DeepLinkHandler from "@/components/deep-link-handler";
 import PendingInvite from "@/components/pending-invite";
 import ToolsMenu from "@/components/tools-menu";
 import { NotificationBell, NotificationTray } from "@/components/notification-center";
-import MessagesNavItem from "@/components/messages-nav-item";
 import ToolsFab from "@/components/tools-fab";
 import DuaToast from "@/components/dua-toast";
 import FunFactPopup from "@/components/fun-fact-popup";
@@ -116,7 +115,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {navItems.map((item) => (
             <NavItem key={item.href} {...item} />
           ))}
-          <MessagesNavItem />
         </nav>
 
         {/* Tools + Logout — pinned to bottom; salah status rides on top */}
@@ -174,7 +172,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {navItems.slice(2).map((item) => (
           <MobileNavItem key={item.href} {...item} />
         ))}
-        <MessagesNavItem mobile />
       </nav>
 
       {/* Service worker + notification scheduler + deep links + fun fact popup */}

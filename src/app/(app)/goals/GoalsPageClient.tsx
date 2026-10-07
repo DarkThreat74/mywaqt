@@ -92,6 +92,13 @@ export default function GoalsPageClient({
   const [habits, setHabits] = useState<Habit[]>(initialHabits);
   const [habitLogs, setHabitLogs] = useState<HabitLog[]>(initialHabitLogs);
   const [chores, setChores] = useState<Chore[]>(initialChores);
+  const [mountNow] = useState(() => Date.now());
+  // Ambient nudge on the Chores tab chip — a chore ≥80% through its interval
+  // (or never done) shows a dot, so due chores are visible without a push.
+  const choresDue = chores.some((c) =>
+    !c.lastDoneAt ||
+    (mountNow - new Date(c.lastDoneAt).getTime()) / 86400000 >= c.frequencyDays * 0.8,
+  );
 
   // ── Update URL hash when tab changes ──
   useEffect(() => {
@@ -237,7 +244,16 @@ export default function GoalsPageClient({
                     color: isActive ? "var(--color-ink)" : "var(--color-ink-muted)",
                   }}
                 >
-                  <Icon className="h-4 w-4" />
+                  <span className="relative">
+                    <Icon className="h-4 w-4" />
+                    {tab.id === "chores" && choresDue && (
+                      <span
+                        className="absolute -right-1 -top-1 h-2 w-2 rounded-full"
+                        style={{ backgroundColor: "var(--color-warmth)" }}
+                        aria-label="Chores due"
+                      />
+                    )}
+                  </span>
                   {tab.label}
                 </button>
               );
@@ -261,7 +277,16 @@ export default function GoalsPageClient({
                     color: isActive ? "var(--color-paper)" : "var(--color-ink-muted)",
                   }}
                 >
-                  <Icon className="h-3.5 w-3.5" />
+                  <span className="relative">
+                    <Icon className="h-3.5 w-3.5" />
+                    {tab.id === "chores" && choresDue && (
+                      <span
+                        className="absolute -right-1 -top-1 h-2 w-2 rounded-full"
+                        style={{ backgroundColor: "var(--color-warmth)" }}
+                        aria-label="Chores due"
+                      />
+                    )}
+                  </span>
                   {tab.label}
                 </button>
               );
