@@ -12,9 +12,10 @@ import type { Class, Homework } from "@/lib/db/schema";
 import { fmtDur } from "@/lib/blocks/gaps";
 import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/study/session";
 
-export type StatsRange = "month" | "year" | "all";
+export type StatsRange = "week" | "month" | "year" | "all";
 
 export function rangeStart(range: StatsRange, now: Date): Date | null {
+  if (range === "week") return new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
   if (range === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
   if (range === "year") return new Date(now.getFullYear(), 0, 1);
   return null;
@@ -150,7 +151,7 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
             Study stats
           </p>
           <div className="flex items-center gap-1">
-            {(["month", "year", "all"] as const).map((r) => (
+            {(["week", "month", "year", "all"] as const).map((r) => (
               <button
                 key={r}
                 onClick={() => setRange(r)}
@@ -160,7 +161,7 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
                   color: range === r ? "var(--color-paper)" : "var(--color-ink-muted)",
                 }}
               >
-                {r === "month" ? "Month" : r === "year" ? "Year" : "All time"}
+                {r === "week" ? "Week" : r === "month" ? "Month" : r === "year" ? "Year" : "All time"}
               </button>
             ))}
             <button

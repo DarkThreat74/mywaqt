@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Check, Timer, Volume2, Wind, Hand, GraduationCap, X, BookOpenCheck } from "lucide-react";
 import FocusTimer from "./FocusTimer";
+import Refocus from "./Refocus";
 import Soundscape from "./Soundscape";
 import Breathe from "./Breathe";
 import Fidget from "./Fidget";
@@ -43,7 +44,7 @@ export default function StudyClient() {
 
       {/* Tab bar */}
       <div
-        className="mb-6 grid grid-cols-5 gap-1 rounded-xl border p-1"
+        className="mb-6 flex gap-1 overflow-x-auto rounded-xl border p-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
         role="tablist"
       >
@@ -55,7 +56,7 @@ export default function StudyClient() {
               role="tab"
               aria-selected={active}
               onClick={() => { if (id !== tab) play("select"); setTab(id); }}
-              className="flex flex-col items-center gap-1 rounded-lg py-2 text-[11px] font-medium transition-colors"
+              className="flex min-w-[72px] flex-1 shrink-0 flex-col items-center gap-1 whitespace-nowrap rounded-lg px-1 py-2 text-[11px] font-medium transition-colors"
               style={{
                 backgroundColor: active ? "var(--color-paper)" : "transparent",
                 color: active ? "var(--color-ink)" : "var(--color-ink-muted)",
@@ -70,7 +71,10 @@ export default function StudyClient() {
       </div>
 
       {/* Tab content — keep all mounted so timers/audio survive tab switches */}
-      <div className={tab === "focus" ? "" : "hidden"}><FocusTimer /></div>
+      <div className={tab === "focus" ? "" : "hidden"}>
+        <FocusTimer />
+        <Refocus />
+      </div>
       <div className={tab === "sounds" ? "" : "hidden"}><Soundscape /></div>
       <div className={tab === "breathe" ? "" : "hidden"}><Breathe /></div>
       <div className={tab === "fidget" ? "" : "hidden"}><Fidget /></div>
