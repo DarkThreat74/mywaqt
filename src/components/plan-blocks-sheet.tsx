@@ -5,8 +5,7 @@ import { Check, ChevronLeft, Eye, EyeOff, Loader2, Pencil, Sparkles, X } from "l
 import type { Class, Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
 import { formatDueBadge } from "@/lib/homework/due-format";
-import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/study/session";
-import { entryMinutes } from "@/components/study-stats-sheet";
+import { mergeSessionHistory } from "@/lib/study/session";
 
 export interface BlockWithAssignments extends StudyBlock {
   assignments: {
@@ -60,11 +59,11 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   const [classes, setClasses] = useState<Class[]>([]);
 
   /** Local "now" in minutes — decides whether today's block is upcoming or
-   *  already ended (list hides ended blocks, badges read "passed"). */
+   *  already ended (list hides ended blocks — they count as past coverage). */
   const [nowMin] = useState(() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); });
   // Per-assignment coverage across ALL blocks (not just this day's) —
   // summary counts planned blocks anywhere in the future.
-  const [coverage, setCoverage] = useState<Record<string, { planned: number; worked: number; passed?: number; nextDate?: string; workedIds?: string[] }>>({});
+  const [coverage, setCoverage] = useState<Record<string, { planned: number; worked: number; studied?: number; passed?: number; nextDate?: string; workedIds?: string[] }>>({});
   const [unworked, setUnworked] = useState<BlockWithAssignments[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +88,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   }, [busy, blocks, dayStart, dayEnd]);
 
   const plannedCounts = useMemo(() => {
-    const map = new Map<string, { planned: number; worked: number; passed?: number; nextDate?: string; workedIds?: string[] }>();
+    const map = new Map<string, { planned: number; worked: number; studied?: number; passed?: number; nextDate?: string; workedIds?: string[] }>();
     // Coverage summary spans every planned block on any day — the prop only
     // carries the viewed date, so without this an assignment planned on
     // another day looked unplanned.
@@ -106,7 +105,12 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
         else if (b.status === "planned") {
           e.planned++;
           if (!e.nextDate || b.blockDate < e.nextDate) e.nextDate = b.blockDate;
-        } else if (b.status === "worked") e.worked++;
+        } else if (b.status === "worked") {
+          e.worked++;
+          // done = the user checked it off at session end — that is what
+          // makes the "studied" tag, not the clock.
+          if (a.done) e.studied = (e.studied ?? 0) + 1;
+        }
         map.set(a.homeworkId, e);
       }
     }
@@ -119,56 +123,34 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     return m;
   }, [classes]);
 
-  // Read once per mount — the sheet is closed while sessions run, so the
-  // history can't change underneath it. Server history merges in async so
-  // stats reflect sessions done on other devices.
-  const [history, setHistory] = useState<SessionEntry[]>(() => getDiscipline().history);
+  // Server history still merges into the local log on open (cross-device
+  // sync) even though the studied tag no longer reads minutes from it.
 
-  /** Total focused minutes per homeworkId — the ≥10m threshold that turns a
-   *  worked block into a real "studied" tag. Sessions logged against a block
-   *  (blockId) count even when the entry has no subject rows — a 2h session
-   *  on this assignment's block shouldn't read "passed". */
-  const studiedMin = useMemo(() => {
-    const m = new Map<string, number>();
-    const blockToHw = new Map<string, string>();
-    for (const [hwId, c] of plannedCounts) {
-      for (const id of c.workedIds ?? []) blockToHw.set(id, hwId);
-    }
-    for (const e of history) {
-      const viaBlock = e.blockId ? blockToHw.get(e.blockId) : undefined;
-      if (viaBlock) m.set(viaBlock, (m.get(viaBlock) ?? 0) + entryMinutes(e));
-      for (const s of e.subjects ?? []) {
-        if (s.hw) m.set(s.hw, (m.get(s.hw) ?? 0) + s.min);
-      }
-    }
-    return m;
-  }, [history, plannedCounts]);
 
   // Plan-status per assignment, shared by the deadlines list and the
-  // gap-picker. Colors: studied green, passed blue, no-plan light red,
-  // planned gray — same mapping the homework tab uses.
+  // gap-picker. "studied" is a checkmark the user sets at session end
+  // (block_assignments.done), not a clock inference. Colors: studied green,
+  // planned blue, no-plan light red — same mapping the homework tab uses.
   const statusByHw = useMemo(() => {
-    const m = new Map<string, { kind: "studied" | "planned" | "passed" | "none"; label: string }>();
+    const m = new Map<string, { kind: "studied" | "planned" | "none"; label: string }>();
     for (const h of hw) {
       const cov = plannedCounts.get(h.id);
       const n = cov?.planned ?? 0;
-      const w = cov?.worked ?? 0;
-      const p = cov?.passed ?? 0;
-      const linkedMin = studiedMin.get(h.id);
-      const studied = w > 0 && (linkedMin === undefined || linkedMin >= 10);
+      const studied = (cov?.studied ?? 0) > 0;
       const dayAbbr = cov?.nextDate
         ? (() => { const [y, mo, dd] = cov.nextDate!.split("-").map(Number); return ["Su","Mo","Tu","We","Th","Fr","Sa"][new Date(y, mo - 1, dd).getDay()]; })()
         : null;
-      if (n === 0 && w > 0 && studied) m.set(h.id, { kind: "studied", label: "studied" });
+      if (n === 0 && studied) m.set(h.id, { kind: "studied", label: "studied" });
       else if (n > 0) m.set(h.id, { kind: "planned", label: dayAbbr ? `planned for ${dayAbbr}` : `${n} block${n === 1 ? "" : "s"}` });
-      else if (w > 0 || p > 0) m.set(h.id, { kind: "passed", label: "passed" });
+      else if (studied) m.set(h.id, { kind: "studied", label: "studied" });
       else m.set(h.id, { kind: "none", label: "no plan" });
     }
     return m;
-  }, [hw, plannedCounts, studiedMin]);
+  }, [hw, plannedCounts]);
 
-  /** Remove the "studied" tag — releases the worked block(s) behind it so the
-   *  assignment drops back to "no plan". Local history is untouched. */
+  /** Remove the "studied" tag — clears the done checkmarks on this
+   *  assignment's worked blocks. The block stays "worked" (the session did
+   *  run); only the studied credit is released. */
   async function removeStudied(hwId: string) {
     const ids = plannedCounts.get(hwId)?.workedIds ?? [];
     setBusyAction(true);
@@ -177,10 +159,10 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
         await fetch("/api/blocks", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, status: "released", releaseReason: "other" }),
+          body: JSON.stringify({ id, undoneIds: [hwId] }),
         }).catch(() => null);
       }
-      setCoverage((c) => ({ ...c, [hwId]: { ...c[hwId], planned: c[hwId]?.planned ?? 0, worked: 0, workedIds: [] } }));
+      setCoverage((c) => ({ ...c, [hwId]: { ...c[hwId], planned: c[hwId]?.planned ?? 0, studied: 0 } }));
       onChanged();
     } finally {
       setBusyAction(false);
@@ -220,7 +202,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
         }
         if (histRes?.ok) {
           const data = await histRes.json();
-          if (Array.isArray(data) && data.length > 0) setHistory(mergeSessionHistory(data));
+          if (Array.isArray(data) && data.length > 0) mergeSessionHistory(data);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -562,9 +544,8 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                         {(() => {
                           const st = statusByHw.get(h.id) ?? { kind: "none" as const, label: "no plan" };
                           const color = st.kind === "studied" ? "var(--color-success)"
-                            : st.kind === "passed" ? "var(--color-accent)"
-                            : st.kind === "none" ? "var(--color-error)"
-                            : "var(--color-ink-muted)";
+                            : st.kind === "planned" ? "var(--color-accent)"
+                            : "var(--color-error)";
                           return (
                             <span className="flex shrink-0 items-center gap-1" title={st.label}>
                               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
@@ -726,8 +707,8 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
               )}
 
               {/* On today: only upcoming or in-progress blocks — a block whose
-                  window already ended is history (its assignment reads
-                  "studied" or "passed" via the coverage badges). */}
+                  window already ended is history (a worked block's checked
+                  assignments read "studied" via the coverage badges). */}
               {blocks.filter((b) => b.status !== "released" && !(isToday && b.endMin <= nowMin)).length > 0 && (
                 <section>
                   <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
@@ -847,10 +828,8 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                               className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
                               style={
                                 st.kind === "planned"
-                                  ? { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }
-                                  : st.kind === "passed"
-                                    ? { backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }
-                                    : { backgroundColor: "color-mix(in oklab, var(--color-error) 10%, var(--color-paper))", color: "var(--color-error)" }
+                                  ? { backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }
+                                  : { backgroundColor: "color-mix(in oklab, var(--color-error) 10%, var(--color-paper))", color: "var(--color-error)" }
                               }
                             >
                               {st.label}

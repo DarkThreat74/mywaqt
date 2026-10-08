@@ -186,9 +186,8 @@ function FigPlanner() {
       {/* status legend */}
       <g transform="translate(172 18)">
         {[
-          { c: OK, t: "studied — a real session ran" },
-          { c: ACCENT, t: "passed — the window went by" },
-          { c: P3, t: "planned — on a coming day" },
+          { c: OK, t: "studied — you checked it off" },
+          { c: ACCENT, t: "planned — on a coming day" },
           { c: "var(--color-error)", t: "no plan — nothing claimed" },
         ].map((r, i) => (
           <g key={r.t} transform={`translate(0 ${i * 22})`}>
@@ -570,7 +569,7 @@ export const SECTIONS: GuideSection[] = [
       },
       {
         heading: "The plan sheet",
-        body: "Tap + → Plan to open today's planner: it shows your free gaps, your blocks, and every assignment's status — studied (green), planned (gray), passed (blue), or no plan (red).",
+        body: "Tap + → Plan to open today's planner: it shows your free gaps, your blocks, and every assignment's status — studied (green), planned (blue), or no plan (red).",
       },
       {
         heading: "Draft & pick",
@@ -605,7 +604,7 @@ export const SECTIONS: GuideSection[] = [
       },
       {
         heading: "Homework",
-        body: "Classes color every card. Due badges say 'today 5:00p', and each item carries the same planner status — studied, planned for Th, passed, or no plan. Quiz and exam completions ask for a grade.",
+        body: "Classes color every card. Due badges say 'today 5:00p', and each item carries the same planner status — studied, planned for Th, or no plan. Quiz and exam completions ask for a grade.",
       },
       {
         heading: "Study stats",

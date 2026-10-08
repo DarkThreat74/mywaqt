@@ -404,6 +404,24 @@ export default function NotificationScheduler() {
       if (!times || !times.fajr) return;
       const perPrayer = await getPerPrayerPrefs();
 
+      // Prayers already settled today — never nag about a logged salah.
+      // Best-effort: if the log fetch fails, fire anyway (missed nudge beats
+      // a silenced one).
+      const settled = new Set<string>();
+      try {
+        const logRes = await fetch(`/api/prayer-log?date=${today}`, { cache: "no-store" });
+        if (logRes.ok) {
+          const logs: { prayerName?: string; status?: string }[] = await logRes.json().catch(() => []);
+          if (Array.isArray(logs)) {
+            for (const l of logs) {
+              if (l.prayerName && (l.status === "prayed" || l.status === "assumed_prayed" || l.status === "excused" || l.status === "missed")) {
+                settled.add(l.prayerName);
+              }
+            }
+          }
+        }
+      } catch { /* offline — the notification still fires */ }
+
       // Compute "now" in minutes, in the prayer timezone (not browser-local)
       let nowMinutes: number;
       if (prayerTimezone) {
@@ -421,6 +439,7 @@ export default function NotificationScheduler() {
       }
 
       for (const prayer of PRAYER_NOTIFICATIONS) {
+        if (settled.has(prayer.key)) continue;
         const cfg = perPrayer?.[prayer.key as "fajr" | "dhuhr" | "asr" | "maghrib" | "isha"];
         if (cfg && cfg.mode !== "push") continue;
         const { hours, minutes } = parseTimeParts(times[prayer.key]);

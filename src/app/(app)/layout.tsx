@@ -53,6 +53,7 @@ const getUserGate = (userId: string): Promise<UserGate> =>
               displayName: schema.users.displayName,
               onboardingCompleted: schema.users.onboardingCompleted,
               onboardingStep: schema.users.onboardingStep,
+              createdAt: schema.users.createdAt,
             })
             .from(schema.users)
             .where(eq(schema.users.id, userId))
@@ -71,6 +72,19 @@ const getUserGate = (userId: string): Promise<UserGate> =>
 
         const [user] = userRows;
         const [settings] = settingsRows;
+        // Legacy accounts (joined before onboarding existed — same >24h rule
+        // the wizard uses for its "we know you" banner) are grandfathered in:
+        // mark them completed on first load so they never see the wizard or
+        // the quiz. New accounts still onboard normally.
+        if (user && !user.onboardingCompleted &&
+            user.createdAt && Date.now() - new Date(user.createdAt).getTime() > 24 * 60 * 60 * 1000) {
+          await db
+            .update(schema.users)
+            .set({ onboardingCompleted: true, onboardingStep: "done" })
+            .where(eq(schema.users.id, userId))
+            .catch(() => { /* flag flips next load — still treated as done below */ });
+          user.onboardingCompleted = true;
+        }
         const needsSettings =
           !user?.displayName ||
           !settings ||

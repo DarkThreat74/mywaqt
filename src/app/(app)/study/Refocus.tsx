@@ -41,7 +41,9 @@ export default function Refocus({ compact = false }: { compact?: boolean }) {
     const restore = restoreRef.current;
     restoreRef.current = null;
     if (restore) {
-      if (restore.soundscape) soundscape.togglePause();
+      // Only ever resume here — a stale togglePause captured before we paused
+      // would suspend again instead. Guard on the live paused flag.
+      if (restore.soundscape && soundscape.paused) soundscape.togglePause();
       for (const el of restore.audios) void el.play().catch(() => {});
     }
     setRunning(false);
@@ -95,7 +97,9 @@ export default function Refocus({ compact = false }: { compact?: boolean }) {
       const t = performance.now() - startRef.current;
       setElapsedMs(t);
       if (t < tech.duration) rafRef.current = requestAnimationFrame(tick);
-      else stop();
+      // Fresh stop via ref — the closure-captured stop holds a togglePause
+      // that predates our pause and would re-suspend instead of resuming.
+      else stopRef.current();
     };
     rafRef.current = requestAnimationFrame(tick);
   }

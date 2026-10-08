@@ -162,6 +162,33 @@ function subjectMins(recap: { rows: { kind: string; label: string; min: number }
   return [...m.values()].map((s) => ({ ...s, min: Math.round(s.min) })).filter((s) => s.min > 0);
 }
 
+/** The session's homework-linked assignments (checklist rows) and which of
+ *  them actually got focus minutes (the default checks). */
+function sessionHwList(run: RunState, recap: { rows: RecapRow[] }) {
+  const seen = new Set<string>();
+  const hwList = Object.entries(run.hw ?? {}).flatMap(([title, id]) =>
+    seen.has(id) ? [] : (seen.add(id), [{ id, title }]));
+  const workedIds = new Set(
+    subjectMins(recap, run.hw).flatMap((s) => (s.hw ? [s.hw] : [])),
+  );
+  return { hwList, workedIds };
+}
+
+/** Write the checklist to the block's assignment links — checked ids become
+ *  `done` (the "studied" tag), unchecked flip back, so unchecking here cancels
+ *  the tag exactly like the user asked. */
+function saveStudiedPicks(blockId: string, hwList: { id: string }[], picks: Set<string>) {
+  void fetch("/api/blocks", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id: blockId,
+      doneIds: hwList.filter((h) => picks.has(h.id)).map((h) => h.id),
+      undoneIds: hwList.filter((h) => !picks.has(h.id)).map((h) => h.id),
+    }),
+  }).catch(() => { /* cosmetic — the tag catches up next load */ });
+}
+
 export default function StudySession() {
   const state = useSyncExternalStore(subscribeSession, getSession, () => ({ status: "idle" }) as ReturnType<typeof getSession>);
   const [now, setNow] = useState(() => Date.now());
@@ -325,7 +352,15 @@ export default function StudySession() {
     pausedMin: number; awayMin: number;
     rows: { kind: "study" | "break"; label: string; startMs: number; endMs: number; min: number }[];
     breaks: number; segsDone: number; segsTotal: number; streak: number;
+    /** Assignments linked to homework + the block they ran under — powers the
+     *  "which did you finish?" checklist on the recap. */
+    hwList?: { id: string; title: string }[];
+    blockId?: string;
   } | null>(null);
+  // Checklist state — starts with whatever actually got focus minutes; every
+  // toggle PATCHes the block's done links so the "studied" tag is exactly
+  // what the user checks here.
+  const [studiedPicks, setStudiedPicks] = useState<Set<string>>(new Set());
 
   // Silent-exit watcher — a running session that ends without finish()
   // (start-new, discard, restart) still gets a recap + abandonment record.
@@ -337,6 +372,8 @@ export default function StudySession() {
     if (finishHandledRef.current) { finishHandledRef.current = false; return; }
     const label = run.segments.find((s) => s.kind === "study")?.label ?? "Focus session";
     const recap = buildRecap(run, label, false, 0);
+    const { hwList, workedIds } = sessionHwList(run, recap);
+    setStudiedPicks(workedIds);
     const disc = recordOutcome(false, {
       date: localDateStr(),
       // pausedMs alone misses a live pause — include the open pausedAt span
@@ -353,9 +390,10 @@ export default function StudySession() {
       subjects: subjectMins(recap, run.hw),
       blockId: run.blockId,
     });
-    setSummary({ ...recap, streak: disc.streak });
+    setSummary({ ...recap, streak: disc.streak, hwList, blockId: run.blockId });
     // A session that actually got focus minutes counts as working the block
-    // even without a clean finish — otherwise it wrongly shows "passed".
+    // even without a clean finish — otherwise it wrongly shows as untouched.
+    if (run.blockId && hwList.length > 0) saveStudiedPicks(run.blockId, hwList, workedIds);
     if (run.blockId && recap.focusMin > 0) {
       void fetch("/api/blocks", {
         method: "PATCH",
@@ -482,7 +520,7 @@ export default function StudySession() {
     // hold the auto-queue off — otherwise the break re-inserts on the next
     // tick and the user can never push it back while the window still has
     // room. The ≤15-min forced break above remains the hard floor.
-    if (now >= graceMs && prayerQueuedRef.current !== salah.name && now < salahHushedUntil) {
+    if (now >= graceMs && prayerQueuedRef.current !== salah.name && now >= salahHushedUntil) {
       // Already queued? A break flagged with this prayer counts as covered.
       const covered =
         state.segments.slice(progress.index).some((s) => s.prayer === salah.name) ||
@@ -566,6 +604,10 @@ export default function StudySession() {
     // Recap numbers — walk the plan against the elapsed clock so focus time
     // counts only study segments and only up to where the session ended.
     const recap = state.status === "running" ? buildRecap(state, label, finished, 0) : null;
+    const { hwList, workedIds } = state.status === "running" && recap
+      ? sessionHwList(state, recap)
+      : { hwList: [] as { id: string; title: string }[], workedIds: new Set<string>() };
+    setStudiedPicks(workedIds);
     const nextDiscipline = recordOutcome(finished, {
       date: localDateStr(),
       minutes: Math.max(1, Math.round(sessionElapsed(Date.now()) / 60)),
@@ -579,10 +621,13 @@ export default function StudySession() {
       subjects: recap ? subjectMins(recap, state.status === "running" ? state.hw : undefined) : undefined,
       blockId: state.status === "running" ? state.blockId : undefined,
     });
-    if (recap) setSummary({ ...recap, streak: nextDiscipline.streak });
+    if (recap) setSummary({ ...recap, streak: nextDiscipline.streak, hwList, blockId: runningBlockId() });
     const bid = runningBlockId();
     // Worked = real focus happened, not just a clean finish — an early end
-    // with real minutes still counts toward the "studied" badge.
+    // with real minutes still counts toward the block. Which assignments
+    // count as "studied" is the checklist's call, pre-checked to what got
+    // focus minutes.
+    if (bid && hwList.length > 0) saveStudiedPicks(bid, hwList, workedIds);
     if (bid && (recap?.focusMin ?? 0) > 0) {
       void fetch("/api/blocks", {
         method: "PATCH",
@@ -640,6 +685,54 @@ export default function StudySession() {
                     </span>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+          {/* Which did you finish? — the checkmarks ARE the "studied" tag.
+              Toggle writes the block's done links; unchecking cancels it. */}
+          {summary.hwList && summary.hwList.length > 0 && (
+            <div className="mt-4 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                Which did you finish studying?
+              </p>
+              <div className="flex flex-col">
+                {summary.hwList.map((h) => {
+                  const on = studiedPicks.has(h.id);
+                  return (
+                    <button
+                      key={h.id}
+                      onClick={() => {
+                        const next = new Set(studiedPicks);
+                        if (next.has(h.id)) next.delete(h.id); else next.add(h.id);
+                        setStudiedPicks(next);
+                        if (summary.blockId) saveStudiedPicks(summary.blockId, summary.hwList!, next);
+                      }}
+                      aria-pressed={on}
+                      className="flex items-center gap-2.5 py-2 text-left"
+                    >
+                      <span
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors"
+                        style={{
+                          borderColor: on ? "var(--color-success)" : "var(--color-paper-3)",
+                          backgroundColor: on ? "var(--color-success)" : "var(--color-paper)",
+                        }}
+                      >
+                        {on && <Check className="h-3.5 w-3.5" style={{ color: "var(--color-paper)" }} />}
+                      </span>
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm"
+                        style={{ color: on ? "var(--color-ink)" : "var(--color-ink-soft)" }}
+                      >
+                        {h.title}
+                      </span>
+                      {on && (
+                        <span className="shrink-0 text-[10px] font-semibold" style={{ color: "var(--color-success)" }}>
+                          studied
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -731,9 +824,8 @@ export default function StudySession() {
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => {
-                  // A session that starts counts the block as studied — the
-                  // planner badge flips from "planned" to "studied" even if the
-                  // session is later cut short or cancelled.
+                  // A session that starts counts the block as worked — the
+                  // per-assignment "studied" checks happen at session end.
                   if (state.blockId) {
                     void fetch("/api/blocks", {
                       method: "PATCH",

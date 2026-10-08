@@ -20,6 +20,10 @@ interface BlockBody {
   homeworkIds?: string[];
   status?: string;
   releaseReason?: string;
+  /** Per-assignment "studied" checkmarks — homeworkIds to flag done /
+   *  undone on this block's links (ids not owned by the user are ignored). */
+  doneIds?: string[];
+  undoneIds?: string[];
   sharePublic?: boolean;
   clientId?: string;
 }
@@ -101,6 +105,9 @@ export async function GET(request: NextRequest) {
           homeworkId: schema.blockAssignments.homeworkId,
           planned: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'planned' and not ${ended})::int`,
           worked: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'worked')::int`,
+          // "Studied" is a user checkmark, not a clock verdict: done links on
+          // worked blocks only.
+          studied: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'worked' and ${schema.blockAssignments.done})::int`,
           passed: sql<number>`count(*) filter (where ${schema.studyBlocks.status} = 'planned' and ${ended})::int`,
           // Earliest upcoming planned block — powers the "planned for Thu"
           // badge in the planner so the chip says WHEN, not just how many.
@@ -117,8 +124,8 @@ export async function GET(request: NextRequest) {
           eq(schema.homeworks.status, "pending"),
         ))
         .groupBy(schema.blockAssignments.homeworkId);
-      const summary: Record<string, { planned: number; worked: number; passed?: number; nextDate?: string; workedIds?: string[] }> = {};
-      for (const r of rows) summary[r.homeworkId] = { planned: r.planned, worked: r.worked, passed: r.passed, nextDate: r.nextDate ?? undefined, workedIds: r.workedIds ?? undefined };
+      const summary: Record<string, { planned: number; worked: number; studied?: number; passed?: number; nextDate?: string; workedIds?: string[] }> = {};
+      for (const r of rows) summary[r.homeworkId] = { planned: r.planned, worked: r.worked, studied: r.studied, passed: r.passed, nextDate: r.nextDate ?? undefined, workedIds: r.workedIds ?? undefined };
       return NextResponse.json({ summary });
     }
 
@@ -319,6 +326,27 @@ export async function PATCH(request: NextRequest) {
           eq(schema.blockAssignments.blockId, existing.id),
           owned.length > 0 ? notInArray(schema.blockAssignments.homeworkId, owned) : undefined,
         ));
+    }
+
+    // Per-assignment studied checkmarks — the post-session "which did you
+    // finish?" sheet sends checked ids as doneIds and unchecked as undoneIds;
+    // "remove studied" sends undoneIds alone. Links not named are untouched,
+    // so one assignment's toggle can't wipe its block-mates.
+    if (Array.isArray(body.doneIds) || Array.isArray(body.undoneIds)) {
+      const on = await ownedHomeworkIds(session.userId, (body.doneIds ?? []).filter(isValidUUID).slice(0, 20));
+      const off = await ownedHomeworkIds(session.userId, (body.undoneIds ?? []).filter(isValidUUID).slice(0, 20));
+      if (on.length > 0) {
+        await db
+          .update(schema.blockAssignments)
+          .set({ done: true })
+          .where(and(eq(schema.blockAssignments.blockId, existing.id), inArray(schema.blockAssignments.homeworkId, on)));
+      }
+      if (off.length > 0) {
+        await db
+          .update(schema.blockAssignments)
+          .set({ done: false })
+          .where(and(eq(schema.blockAssignments.blockId, existing.id), inArray(schema.blockAssignments.homeworkId, off)));
+      }
     }
 
     if (Object.keys(set).length > 0) {
