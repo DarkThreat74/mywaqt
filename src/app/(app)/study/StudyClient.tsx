@@ -19,7 +19,7 @@ const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: st
   { id: "sounds", label: "Sounds", icon: Volume2 },
   { id: "breathe", label: "Breathe", icon: Wind },
   { id: "fidget", label: "Fidget", icon: Hand },
-  { id: "learn", label: "Learn", icon: BookOpenCheck },
+  { id: "learn", label: "How to Study", icon: BookOpenCheck },
 ];
 
 export default function StudyClient() {
