@@ -488,6 +488,36 @@ export function switchFocus() {
   emit();
 }
 
+/** "Switch it up" chooser — jump to a specific upcoming study segment rather
+ *  than the next one. Same mechanics as switchFocus: the current block is
+ *  truncated at now and its leftover minutes are re-queued after the last
+ *  remaining study block so the skipped work comes back. */
+export function switchFocusTo(targetIndex: number) {
+  if (state.status !== "running" || state.pausedAt) return;
+  const elapsedSec = runningElapsedSec();
+  const p = segmentAt(state.segments, elapsedSec);
+  if (p.done || p.segment.kind !== "study") return;
+
+  const segs = [...state.segments];
+  const usedMin = (p.segment.minutes * 60 - p.remainingSec) / 60;
+  const leftMin = p.segment.minutes - usedMin;
+  const next: StudySegment[] = segs.slice(0, p.index);
+  if (usedMin > 0.1) next.push({ ...p.segment, minutes: usedMin });
+
+  const rest = segs.slice(p.index + 1);
+  const targetRestIdx = targetIndex - (p.index + 1);
+  if (targetRestIdx < 0 || targetRestIdx >= rest.length || rest[targetRestIdx].kind !== "study") return;
+  const after = [rest[targetRestIdx], ...rest.filter((_, i) => i !== targetRestIdx)];
+  if (leftMin > 0.5) {
+    const label = p.segment.label.replace(/( \(finish\))+$/, "");
+    const lastStudy = after.reduce((last, s, i) => (s.kind === "study" ? i : last), -1);
+    after.splice(lastStudy + 1, 0, { ...p.segment, minutes: leftMin, label: `${label} (finish)` });
+  }
+  next.push(...after);
+  state = { ...state, segments: next, switches: (state.switches ?? 0) + 1 };
+  emit();
+}
+
 /** "Finished this assignment" — the work is done, not abandoned. Truncates the
  *  current study segment at now, drops its queued "(finish)" remainder, and
  *  lands on whatever comes next (next study item, or the end). Unlike

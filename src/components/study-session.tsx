@@ -23,7 +23,7 @@ import Refocus from "@/app/(app)/study/Refocus";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
-  planSession, takeBreakNow, switchFocus, getDiscipline, recordOutcome, todayFocusMinutes,
+  planSession, takeBreakNow, switchFocus, switchFocusTo, getDiscipline, recordOutcome, todayFocusMinutes,
   beginIntake,
   runningBlockId, pauseSession, resumeSession, startSprint, sessionElapsed, finishAssignment,
   endBreakEarly, prayerBreakNow, insertPrayerBreakAfterCurrent,
@@ -189,6 +189,9 @@ export default function StudySession() {
   // leaving the session.
   const [soundsOpen, setSoundsOpen] = useState(false);
   const [talksOpen, setTalksOpen] = useState(false);
+  // "Switch it up" chooser — opens a bottom sheet of remaining study
+  // segments; picking one jumps straight to it via switchFocusTo.
+  const [switchOpen, setSwitchOpen] = useState(false);
   const [openFolder, setOpenFolder] = useState<string | null | undefined>(undefined);
   const [talksData, setTalksData] = useState<{ folders: { id: string; name: string }[]; tracks: PlayerTrack[] } | null>(null);
 
@@ -475,7 +478,11 @@ export default function StudySession() {
       return;
     }
     const graceMs = salah.startsAt + 15 * 60 * 1000;
-    if (now >= graceMs && prayerQueuedRef.current !== salah.name) {
+    // Hush-gated: a deferral ("one more block") or dismissal must actually
+    // hold the auto-queue off — otherwise the break re-inserts on the next
+    // tick and the user can never push it back while the window still has
+    // room. The ≤15-min forced break above remains the hard floor.
+    if (now >= graceMs && prayerQueuedRef.current !== salah.name && now < salahHushedUntil) {
       // Already queued? A break flagged with this prayer counts as covered.
       const covered =
         state.segments.slice(progress.index).some((s) => s.prayer === salah.name) ||
@@ -485,7 +492,7 @@ export default function StudySession() {
         insertPrayerBreakAfterCurrent(salah.name, 10);
       }
     }
-  }, [salah, now, state, progress]);
+  }, [salah, now, state, progress, salahHushedUntil]);
 
   // ── Salah decision prompt ──
   // Opens the moment a prayer window arrives mid-session, and again whenever
@@ -503,6 +510,16 @@ export default function StudySession() {
   };
   // Dismissing without choosing = short hush, not a 15-min snooze.
   const hushSalah = () => setSalahHushedUntil(Date.now() + 5 * 60 * 1000);
+  // Deferred while ON the prayer break — the queue flag was already consumed
+  // inserting this break, so reset it, hush 15 min, and go back to work. The
+  // hush-gated effect re-queues a break once the hush expires; the ≤15-min
+  // forced break is still the floor if the window nearly closes.
+  const deferPrayerBreak = () => {
+    if (!salah) return;
+    prayerQueuedRef.current = null;
+    setSalahHushedUntil(Date.now() + 15 * 60 * 1000);
+    endBreakEarly();
+  };
 
   // Drift watcher — armed only while a study segment is live and unpaused.
   // Hiding the tab mid-segment is the strongest drift signal the web can see.
@@ -973,6 +990,52 @@ export default function StudySession() {
     </div>
   ) : null;
 
+  // "Switch it up" sheet — every remaining study segment as a tap target.
+  // Rows carry their absolute index into state.segments so switchFocusTo can
+  // pull exactly that block forward.
+  const upcomingStudy = state.segments
+    .map((s, i) => ({ s, i }))
+    .filter(({ s, i }) => s.kind === "study" && i > progress.index);
+  const switchSheet = switchOpen && upcomingStudy.length > 0 ? (
+    <div className="fixed inset-0 z-[96] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Switch to another assignment">
+      <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => setSwitchOpen(false)} aria-label="Back" />
+      <div className="relative w-full max-w-sm rounded-t-2xl border-t sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
+        <div className="px-5 pt-4 pb-2">
+          <p className="text-center text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--color-ink-muted)" }}>
+            Switch it up
+          </p>
+          <p className="mt-1 text-center text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+            Jump to — the rest of this block comes back later
+          </p>
+        </div>
+        <div className="max-h-[50dvh] overflow-y-auto px-3 pb-4">
+          {upcomingStudy.map(({ s, i }) => (
+            <button
+              key={`${i}-${s.label}`}
+              onClick={() => { setSwitchOpen(false); switchFocusTo(i); }}
+              className="mt-1.5 flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", minHeight: 48 }}
+            >
+              <span className="min-w-0 truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+                {s.label}
+              </span>
+              <span className="shrink-0 text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                {fmtDur(Math.round(s.minutes))}
+              </span>
+            </button>
+          ))}
+          <button
+            onClick={() => { setSwitchOpen(false); switchFocus(); }}
+            className="mt-1.5 w-full rounded-xl px-4 py-3 text-center text-[12px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-accent)", minHeight: 44 }}
+          >
+            Surprise me — Vox picks
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // While the overlay is closed the unified FloatingDock carries the session
   // pill — the finish and prayer dialogs still need to render here.
   if (!state.overlayOpen) {
@@ -1164,13 +1227,26 @@ export default function StudySession() {
         {!progress.done && isBreak && !paused && (
           <div className="mb-3 flex justify-center">
             {prayerName ? (
-              <button
-                onClick={() => { setLied(false); setConfirmPrayer(prayerName); }}
-                className="flex items-center gap-1.5 rounded-full px-4 py-2.5 text-[12px] font-semibold transition-opacity hover:opacity-90"
-                style={{ backgroundColor: "var(--color-warmth)", color: "var(--color-paper)", minHeight: 44 }}
-              >
-                I prayed — go back to studying
-              </button>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  onClick={() => { setLied(false); setConfirmPrayer(prayerName); }}
+                  className="flex items-center gap-1.5 rounded-full px-4 py-2.5 text-[12px] font-semibold transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "var(--color-warmth)", color: "var(--color-paper)", minHeight: 44 }}
+                >
+                  I prayed — go back to studying
+                </button>
+                {/* Deferral stays available while the window has room — same
+                    30-min floor the decision sheet uses. */}
+                {salahLeftMin !== null && salahLeftMin > 30 && (
+                  <button
+                    onClick={deferPrayerBreak}
+                    className="flex items-center gap-1.5 rounded-full border px-4 py-2.5 text-[12px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
+                  >
+                    Not yet — one more block
+                  </button>
+                )}
+              </div>
             ) : (
               <button
                 onClick={endBreakEarly}
@@ -1203,9 +1279,10 @@ export default function StudySession() {
             <Refocus compact />
             {state.segments.some((s, i) => i > progress.index && s.kind === "study") && (
               <button
-                onClick={switchFocus}
+                onClick={() => setSwitchOpen(true)}
                 className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 34 }}
+                aria-haspopup="dialog"
               >
                 <Shuffle className="h-3.5 w-3.5" /> Switch it up
               </button>
@@ -1360,6 +1437,7 @@ export default function StudySession() {
       {finishDialog}
       {prayerDialog}
       {salahDialog}
+      {switchSheet}
     </div>
   );
 }

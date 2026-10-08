@@ -4,109 +4,34 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Focus, X } from "lucide-react";
 import { useUISFX } from "@/components/uisfx-provider";
 import { useSoundscape } from "@/components/soundscape-context";
+import { TECHNIQUES, playTechniqueAudio } from "./refocus-techniques";
 
 /**
- * Refocus — a 15-second visual reset for a wandering mind.
+ * Refocus — a ~15-second visual reset for a wandering mind.
  *
- * Choreography is built on the visual-attention research:
- *  1. FIXATE (0–5s)   — narrow gaze on one small point triggers the
- *     acetylcholine "attention spotlight"; mental focus follows visual focus.
- *  2. TRACK  (5–11s)  — smooth-pursuit figure-8 sweep drives bilateral eye
- *     movements (the dual-attention stimulus that measurably improves visual
- *     attention after the exercise).
- *  3. WIDEN  (11–15s) — panoramic release: rings bloom to the screen edges so
- *     the arousal spike drops and you return calm-but-alert.
+ * Each press draws one of twenty techniques at random (never the same one
+ * twice in a row). Each maps to a published attention mechanism — gaze
+ * narrowing, smooth pursuit, bilateral saccades, accommodation, panoramic
+ * release, paced sighing, nature micro-breaks — see refocus-techniques.tsx.
  *
- * Sound: a rising sine swell, pursuit ticks, and a resolving bell — its own
- * AudioContext. While it runs, every other audio source is paused (the
- * soundscape engine via suspend, talks via the DOM <audio> element) and
- * resumed when you come back.
+ * While a technique runs, every other audio source is paused (the soundscape
+ * engine via suspend, talks via the DOM <audio> element) and resumed when
+ * it ends. Esc or the × exits early.
  */
-
-const TOTAL_MS = 15_000;
-
-const PHASES = [
-  { at: 0, label: "Fix your eyes on the dot" },
-  { at: 5000, label: "Follow it — eyes only" },
-  { at: 11000, label: "Widen — take in the whole screen" },
-];
-
-function playRefocusAudio(): () => void {
-  const ctx = new AudioContext();
-  // iOS Safari can hand you a suspended context even inside a tap handler.
-  if (ctx.state === "suspended") void ctx.resume();
-  const master = ctx.createGain();
-  master.gain.value = 0.2;
-  master.connect(ctx.destination);
-
-  const nodes: AudioNode[] = [];
-
-  // Rising swell across the fixation + tracking phases
-  const swell = ctx.createOscillator();
-  const swellGain = ctx.createGain();
-  swell.type = "sine";
-  swell.frequency.setValueAtTime(196, ctx.currentTime); // G3
-  swell.frequency.exponentialRampToValueAtTime(392, ctx.currentTime + 10.5); // G4
-  swellGain.gain.setValueAtTime(0.0001, ctx.currentTime);
-  swellGain.gain.exponentialRampToValueAtTime(0.5, ctx.currentTime + 1.8);
-  swellGain.gain.setValueAtTime(0.5, ctx.currentTime + 10.5);
-  swellGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 14.5);
-  swell.connect(swellGain).connect(master);
-  swell.start();
-  swell.stop(ctx.currentTime + 15);
-  nodes.push(swell, swellGain);
-
-  // Soft "tick" on each pursuit reversal
-  for (const t of [5.3, 6.3, 7.3, 8.3, 9.3, 10.3]) {
-    const tick = ctx.createOscillator();
-    const g = ctx.createGain();
-    tick.type = "triangle";
-    tick.frequency.value = 880;
-    g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
-    g.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + t + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.16);
-    tick.connect(g).connect(master);
-    tick.start(ctx.currentTime + t);
-    tick.stop(ctx.currentTime + t + 0.2);
-    nodes.push(tick, g);
-  }
-
-  // Resolution bell at the end (E5 + octave shimmer)
-  for (const [freq, vol, delay] of [[659, 0.5, 11.4], [1318, 0.18, 11.5]] as const) {
-    const bell = ctx.createOscillator();
-    const g = ctx.createGain();
-    bell.type = "sine";
-    bell.frequency.value = freq;
-    g.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
-    g.gain.exponentialRampToValueAtTime(vol, ctx.currentTime + delay + 0.03);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + 2.2);
-    bell.connect(g).connect(master);
-    bell.start(ctx.currentTime + delay);
-    bell.stop(ctx.currentTime + delay + 2.4);
-    nodes.push(bell, g);
-  }
-
-  return () => {
-    try {
-      for (const n of nodes) {
-        try { (n as OscillatorNode).stop?.(); } catch { /* already stopped */ }
-        try { n.disconnect(); } catch { /* not connected */ }
-      }
-      void ctx.close().catch(() => {});
-    } catch { /* context already gone */ }
-  };
-}
 
 export default function Refocus({ compact = false }: { compact?: boolean }) {
   const { play } = useUISFX();
   const soundscape = useSoundscape();
   const [running, setRunning] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [techIdx, setTechIdx] = useState(0);
   const rafRef = useRef(0);
   const startRef = useRef(0);
+  const lastIdxRef = useRef(-1);
   const stopAudioRef = useRef<(() => void) | null>(null);
   // Whatever we silenced, so it can come back when the exercise ends.
   const restoreRef = useRef<{ soundscape: boolean; audios: HTMLAudioElement[] } | null>(null);
+  const technique = TECHNIQUES[techIdx];
 
   const stop = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -122,24 +47,54 @@ export default function Refocus({ compact = false }: { compact?: boolean }) {
     setRunning(false);
     setElapsedMs(0);
   }, [soundscape]);
+  // stop() is recreated whenever the soundscape context object changes (the
+  // provider hands down a fresh value object on every state change). Effects
+  // must call it through a ref or pausing the soundscape mid-run would fire
+  // the cleanup and kill the exercise.
+  const stopRef = useRef(stop);
+  useEffect(() => { stopRef.current = stop; });
 
   function begin() {
     play("play");
-    // Silence everything else first — soundscapes suspend, talks pause.
-    const audios = Array.from(document.querySelectorAll("audio"))
-      .filter((el) => !el.paused);
-    for (const el of audios) el.pause();
-    const resumeSoundscape = !!soundscape.active && !soundscape.paused;
-    if (resumeSoundscape) soundscape.togglePause();
-    restoreRef.current = { soundscape: resumeSoundscape, audios };
+    // Pick a technique — any but the one that just ran.
+    let next = Math.floor(Math.random() * TECHNIQUES.length);
+    if (TECHNIQUES.length > 1 && next === lastIdxRef.current) {
+      next = (next + 1 + Math.floor(Math.random() * (TECHNIQUES.length - 1))) % TECHNIQUES.length;
+    }
+    lastIdxRef.current = next;
+    setTechIdx(next);
+    setElapsedMs(0);
+    const tech = TECHNIQUES[next];
 
-    stopAudioRef.current = playRefocusAudio();
+    // Open the overlay FIRST — ducking audio must never be able to block it
+    // (a suspended AudioContext or a provider hiccup would otherwise leave
+    // sounds paused with nothing on screen).
     startRef.current = performance.now();
     setRunning(true);
+
+    // Silence everything else — soundscapes suspend, talks pause. Each step
+    // is best-effort so one failing source can't take the whole exercise down.
+    try {
+      const audios = Array.from(document.querySelectorAll("audio"))
+        .filter((el) => !el.paused);
+      for (const el of audios) {
+        try { el.pause(); } catch { /* one bad element can't stop the rest */ }
+      }
+      let resumeSoundscape = false;
+      try {
+        resumeSoundscape = !!soundscape.active && !soundscape.paused;
+        if (resumeSoundscape) soundscape.togglePause();
+      } catch { resumeSoundscape = false; }
+      restoreRef.current = { soundscape: resumeSoundscape, audios };
+    } catch { /* ducking is best-effort */ }
+
+    try {
+      stopAudioRef.current = playTechniqueAudio(tech.audio);
+    } catch { /* silent exercise beats no exercise */ }
     const tick = () => {
       const t = performance.now() - startRef.current;
       setElapsedMs(t);
-      if (t < TOTAL_MS) rafRef.current = requestAnimationFrame(tick);
+      if (t < tech.duration) rafRef.current = requestAnimationFrame(tick);
       else stop();
     };
     rafRef.current = requestAnimationFrame(tick);
@@ -147,7 +102,7 @@ export default function Refocus({ compact = false }: { compact?: boolean }) {
 
   useEffect(() => {
     if (!running) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") stop(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") stopRef.current(); };
     window.addEventListener("keydown", onKey);
     // Lock the page behind the overlay — otherwise the background scrolls
     // under your thumb on mobile.
@@ -157,39 +112,17 @@ export default function Refocus({ compact = false }: { compact?: boolean }) {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = original;
     };
-  }, [running, stop]);
+  }, [running]);
 
-  useEffect(() => () => stop(), [stop]);
+  // Unmount cleanup only — see stopRef note above.
+  useEffect(() => () => stopRef.current(), []);
 
-  // ── Visual driver ──────────────────────────────────────────────────────────
-  // t in [0,1]. Phase 1 (0–0.33): dot dead center, halo contracts, gentle pulse.
-  // Phase 2 (0.33–0.73): figure-8 pursuit sweep — the eyes get a real path to
-  // chase, not a flat line.
-  // Phase 3 (0.73–1): dot blooms into a soft orb, rings expand to the edges.
-  const t = Math.min(elapsedMs / TOTAL_MS, 1);
-  const inPursuit = t >= 0.33 && t < 0.73;
-  const inExpand = t >= 0.73;
-
-  // prefers-reduced-motion: shrink the sweep to a gentle drift — the exercise
-  // still runs, it just doesn't throw the dot across the screen.
+  const t = Math.min(elapsedMs / technique.duration, 1);
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  const sweep = reducedMotion ? 9 : 34;
-
-  const pursue = (t - 0.33) / 0.4;
-  // Figure-8 (lemniscate): x = sin(θ), y = sin(θ)·cos(θ) scaled smaller.
-  const theta = pursue * Math.PI * 4; // two full loops
-  const dotX = inPursuit ? Math.sin(theta) * sweep : inExpand ? 0 : 0;
-  const dotY = inPursuit ? Math.sin(theta) * Math.cos(theta) * (sweep * 0.45) : 0;
-  const haloScale = t < 0.33 ? 1 - (t / 0.33) * 0.5 : 0.5;
-  // Fixation pulse — the dot breathes slightly so the eye keeps a live target.
-  const pulse = t < 0.33 ? 1 + Math.sin(t * Math.PI * 20) * 0.08 : 1;
-  // In the widen phase the dot grows into an orb instead of vanishing.
-  const dotScale = inExpand ? 1 + ((t - 0.73) / 0.27) * 6 : pulse;
-  const dotOpacity = inExpand ? Math.max(0.35, 1 - (t - 0.73) / 0.27) : 1;
-
-  const phaseLabel = [...PHASES].reverse().find((p) => elapsedMs >= p.at)?.label ?? PHASES[0].label;
-  const remain = Math.ceil((TOTAL_MS - elapsedMs) / 1000);
+  const step = [...technique.steps].reverse().find((s) => elapsedMs >= s.at)?.label
+    ?? technique.steps[0].label;
+  const remain = Math.ceil((technique.duration - elapsedMs) / 1000);
 
   return (
     <>
@@ -209,7 +142,7 @@ export default function Refocus({ compact = false }: { compact?: boolean }) {
           className="fixed inset-0 z-[95] flex flex-col items-center justify-center"
           role="dialog"
           aria-modal="true"
-          aria-label="Refocus exercise"
+          aria-label={`Refocus exercise: ${technique.name}`}
           style={{ backgroundColor: "var(--color-paper-2)", overflow: "hidden" }}
         >
           <button
@@ -221,56 +154,16 @@ export default function Refocus({ compact = false }: { compact?: boolean }) {
             <X className="h-5 w-5" />
           </button>
 
-          {/* Stage — full viewport so the sweep uses the whole screen */}
-          <div className="relative h-[60dvh] w-full">
-            {/* Fixation halo — contracts toward the dot in phase 1 */}
-            {!inExpand && (
-              <div
-                className="absolute left-1/2 top-1/2 h-48 w-48 rounded-full"
-                style={{
-                  border: "1.5px solid color-mix(in oklab, var(--color-accent) 45%, transparent)",
-                  backgroundColor: "color-mix(in oklab, var(--color-accent) 5%, transparent)",
-                  transform: `translate(-50%, -50%) scale(${haloScale})`,
-                }}
-              />
-            )}
-
-            {/* The dot */}
-            <div
-              className="absolute top-1/2 rounded-full"
-              style={{
-                width: 28,
-                height: 28,
-                left: `calc(50% + ${dotX}vw)`,
-                backgroundColor: "var(--color-accent)",
-                boxShadow:
-                  "0 0 18px 4px color-mix(in oklab, var(--color-accent) 55%, transparent), 0 0 48px 16px color-mix(in oklab, var(--color-accent) 25%, transparent)",
-                transform: `translate(-50%, -50%) translateY(${dotY}vh) scale(${dotScale})`,
-                opacity: dotOpacity,
-              }}
-            />
-
-            {/* Panoramic rings — bloom outward in the final phase */}
-            {inExpand && [0.45, 0.75, 1.05].map((size, i) => {
-              const p = Math.min(Math.max((t - 0.73 - i * 0.05) / 0.25, 0), 1);
-              return (
-                <div
-                  key={i}
-                  className="absolute left-1/2 top-1/2 rounded-full"
-                  style={{
-                    width: "140vw",
-                    height: "140vw",
-                    border: "1.5px solid color-mix(in oklab, var(--color-warmth) 35%, transparent)",
-                    transform: `translate(-50%, -50%) scale(${p * size})`,
-                    opacity: p * 0.7,
-                  }}
-                />
-              );
-            })}
+          {/* Stage — full viewport so movement uses the whole visual field */}
+          <div className="relative h-[60dvh] w-full overflow-hidden">
+            <technique.Scene t={t} rm={reducedMotion} />
           </div>
 
-          <p className="mt-8 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-            {phaseLabel}
+          <p className="mt-8 text-xs font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-accent)" }}>
+            {technique.name}
+          </p>
+          <p className="mt-2 max-w-[280px] text-center text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+            {step}
           </p>
           <p className="mt-1 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
             {remain}s
