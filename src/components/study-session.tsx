@@ -242,24 +242,40 @@ export default function StudySession() {
     // session is running, and a fresh session re-loads immediately.
     if (state.status !== "running") return;
     let cancelled = false;
+    // Prayer times are FROZEN for the session — re-resolving them every 60s
+    // lets the IndexedDB cache and the live API hand us divergent times
+    // (different madhab syncs, stale rows), which made `salah` oscillate
+    // between two prayers (Asr → Dhuhr → Asr) mid-window. The 60s reload
+    // only needs fresh LOG statuses; times only change when the date rolls.
+    let frozenTimes: { dateStr: string; times: Record<string, string> } | null = null;
+    let lastLogs: { prayerName: string; status: string }[] = [];
     async function load() {
       try {
         const d = new Date();
         const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        let times: Record<string, string> | null = null;
-        try {
-          const { getOfflineDB } = await import("@/lib/offline/db");
-          const cached = await getOfflineDB().prayerTimes.get(dateStr);
-          if (cached?.fajr) times = cached as unknown as Record<string, string>;
-        } catch { /* fall through to API */ }
+        let times = frozenTimes?.dateStr === dateStr ? frozenTimes.times : null;
         if (!times) {
-          const r = await fetch(`/api/prayer-times?date=${dateStr}`);
-          if (r.ok) times = await r.json();
+          try {
+            const { getOfflineDB } = await import("@/lib/offline/db");
+            const cached = await getOfflineDB().prayerTimes.get(dateStr);
+            if (cached?.fajr) times = cached as unknown as Record<string, string>;
+          } catch { /* fall through to API */ }
+          if (!times) {
+            const r = await fetch(`/api/prayer-times?date=${dateStr}`);
+            if (r.ok) times = await r.json();
+          }
         }
         if (!times || cancelled) return;
+        frozenTimes = { dateStr, times };
 
-        const logsRes = await fetch(`/api/prayer-log?date=${dateStr}`).catch(() => null);
-        const logs: { prayerName: string; status: string }[] = logsRes?.ok ? await logsRes.json() : [];
+        // no-store: the SW can serve a cached prayer-log response from before
+        // the user marked the prayer — resurrecting a prompt for a done salah.
+        const logsRes = await fetch(`/api/prayer-log?date=${dateStr}`, { cache: "no-store" }).catch(() => null);
+        // A failed fetch reuses the last good logs — an empty array would
+        // resurrect prompts for prayers already marked.
+        const logs: { prayerName: string; status: string }[] = logsRes?.ok
+          ? (lastLogs = await logsRes.json())
+          : lastLogs;
 
         // Window ends at the next prayer (Fajr ends at sunrise — shuruk).
         const order: [string, string][] = [
@@ -283,7 +299,9 @@ export default function StudySession() {
         if (!found) { setSalah(null); return; }
         if (markedPrayersRef.current.has(found.name)) { setSalah(null); return; }
         const entry = logs.find((l) => l.prayerName === found!.name);
-        if (entry && (entry.status === "prayed" || entry.status === "excused")) { setSalah(null); return; }
+        // assumed_prayed counts too — a cron-resolved prayer is settled, not
+        // something to nag about mid-session.
+        if (entry && (entry.status === "prayed" || entry.status === "assumed_prayed" || entry.status === "excused")) { setSalah(null); return; }
         setSalah({ ...found, date: dateStr });
       } catch { /* salah banner is best-effort — never break the session */ }
     }
