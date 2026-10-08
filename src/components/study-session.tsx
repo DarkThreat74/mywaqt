@@ -19,6 +19,7 @@ import { useSoundscape, SOUNDSCAPES } from "@/components/soundscape-context";
 import { useAudioPlayer } from "@/components/audio-player-context";
 import { SoundscapePanel } from "@/components/soundscape-indicator";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
+import Refocus from "@/app/(app)/study/Refocus";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
@@ -1166,28 +1167,29 @@ export default function StudySession() {
 
         {/* In-session rescue actions — break or switch without ending */}
         {!progress.done && !isBreak && !paused && (
-          <div className="mb-3 flex justify-center gap-2">
+          <div className="mb-3 flex flex-wrap items-center justify-center gap-1.5 px-1">
             <button
               onClick={finishAssignment}
-              className="flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 36 }}
+              className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 34 }}
             >
-              <CheckCheck className="h-3.5 w-3.5" /> Done with this — next
+              <CheckCheck className="h-3.5 w-3.5" /> Done — next
             </button>
             <button
               onClick={() => takeBreakNow(5)}
-              className="flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 36 }}
+              className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 34 }}
             >
-              <Coffee className="h-3.5 w-3.5" /> Quick break · 5m
+              <Coffee className="h-3.5 w-3.5" /> Break · 5m
             </button>
+            <Refocus compact />
             {state.segments.some((s, i) => i > progress.index && s.kind === "study") && (
               <button
                 onClick={switchFocus}
-                className="flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 36 }}
+                className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 34 }}
               >
-                <Shuffle className="h-3.5 w-3.5" /> Lost interest — switch it up
+                <Shuffle className="h-3.5 w-3.5" /> Switch it up
               </button>
             )}
           </div>

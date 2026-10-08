@@ -91,7 +91,7 @@ function playRefocusAudio(): () => void {
   };
 }
 
-export default function Refocus() {
+export default function Refocus({ compact = false }: { compact?: boolean }) {
   const { play } = useUISFX();
   const [running, setRunning] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -163,11 +163,13 @@ export default function Refocus() {
     <>
       <button
         onClick={begin}
-        className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+        className={compact
+          ? "flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+          : "mt-5 flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"}
+        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: compact ? 36 : undefined }}
       >
         <Focus className="h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />
-        Mind wandered? Refocus in 15s
+        {compact ? "Refocus · 15s" : "Mind wandered? Refocus in 15s"}
       </button>
 
       {running && (
