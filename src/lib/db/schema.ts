@@ -842,6 +842,9 @@ export const goals = pgTable('goals', {
   // study sessions planned from the Plan sheet ("1/200 sessions").
   tags: text('tags').array(),
   sessionsTarget: integer('sessions_target'),
+  // Checklist bullets for "find-mine"/"apply"-tagged goals — criteria the
+  // goal must meet (e.g. "in-state", "has research hours"), each checkable.
+  checklist: jsonb('checklist').$type<{ id: string; text: string; done: boolean }[] | null>(),
   // Edit-mode eye — hides the goal from the Today tab, not the goals list.
   hiddenFromToday: boolean('hidden_from_today').default(false).notNull(),
   // Shadow homework row for "test"-tagged goals — planning and session

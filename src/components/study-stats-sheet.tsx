@@ -70,6 +70,9 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [history, setHistory] = useState<SessionEntry[]>(() => getDiscipline().history);
   const [hwClass, setHwClass] = useState<Map<string, string>>(new Map());
+  // Homework title (lowercased) → classId — resolves subjects recorded before
+  // hw-tagging, where only the assignment title made it into the label.
+  const [hwByTitle, setHwByTitle] = useState<Map<string, string>>(new Map());
   const [classMap, setClassMap] = useState<Map<string, Class>>(new Map());
 
   useEffect(() => {
@@ -86,6 +89,7 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
           const data = await hwRes.json();
           if (Array.isArray(data)) {
             setHwClass(new Map(data.map((h: Homework) => [h.id, h.classId ?? ""]).filter(([, c]) => c) as [string, string][]));
+            setHwByTitle(new Map(data.map((h: Homework) => [h.title.trim().toLowerCase(), h.classId ?? ""]).filter(([, c]) => c) as [string, string][]));
           }
         }
         if (classRes?.ok) {
@@ -113,9 +117,15 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   const stats = useMemo(() => studyStats(history, range, (s) => {
+    // 1. Homework id → class. 2. Label → homework title → class (older sessions
+    //    and derived labels like "Chem Quiz 6 — page 3" / "Review Chem Quiz 6").
+    // 3. Fall back to the raw label.
     const clsId = s.hw ? hwClass.get(s.hw) : undefined;
-    return (clsId ? classMap.get(clsId)?.name : undefined) ?? s.label;
-  }), [history, range, hwClass, classMap]);
+    if (clsId && classMap.has(clsId)) return classMap.get(clsId)!.name;
+    const clean = s.label.replace(/^Review\s+/i, "").replace(/\s+—\s+(page\s+\d+|keep going)$/i, "").replace(/( \(finish\))+$/i, "").trim().toLowerCase();
+    const cls2 = hwByTitle.get(clean);
+    return (cls2 ? classMap.get(cls2)?.name : undefined) ?? s.label;
+  }), [history, range, hwClass, hwByTitle, classMap]);
 
   return (
     <div

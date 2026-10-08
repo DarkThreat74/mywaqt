@@ -182,6 +182,7 @@ export async function PATCH(request: NextRequest) {
       tags?: string[] | null;
       sessionsTarget?: number | null;
       hiddenFromToday?: boolean;
+      checklist?: { id?: string; text?: string; done?: boolean }[] | null;
     };
     try {
       body = await request.json();
@@ -308,6 +309,19 @@ export async function PATCH(request: NextRequest) {
       }
     }
     if (body.hiddenFromToday !== undefined) updates.hiddenFromToday = Boolean(body.hiddenFromToday);
+    if (body.checklist !== undefined) {
+      updates.checklist = Array.isArray(body.checklist)
+        ? body.checklist
+            .filter((c): c is { id?: string; text: string; done?: boolean } => typeof c?.text === "string" && c.text.trim().length > 0)
+            .slice(0, 50)
+            .map((c) => ({
+              id: c.id && isValidUUID(c.id) ? c.id : crypto.randomUUID(),
+              text: c.text.trim().slice(0, 300),
+              done: c.done === true,
+            }))
+        : null;
+      if (updates.checklist && (updates.checklist as unknown[]).length === 0) updates.checklist = null;
+    }
 
     const [updated] = await db
       .update(schema.goals)
