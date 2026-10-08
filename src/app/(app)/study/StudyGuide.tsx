@@ -29,6 +29,78 @@ const TIER_STYLE: Record<Tier, { bg: string; fg: string; label: string }> = {
 
 const SECTIONS: { id: string; title: string; blurb: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; entries: Entry[] }[] = [
   {
+    id: "system",
+    title: "The system — how learning actually works",
+    blurb: "Techniques are ingredients; this is the recipe. Understand the pipeline and every technique below clicks into place.",
+    icon: BrainCircuit,
+    entries: [
+      {
+        name: "The learning pipeline",
+        tier: "S",
+        what: "Information comes in → your brain filters it by relevance → it gets processed/organized → stored in memory → retrieved and repackaged, which re-strengthens it.",
+        why: "Most students only feed the input stage and wonder why nothing sticks. If your brain doesn't tag input as RELEVANT (connected to something you know or need), it's filtered out no matter how many times you reread it. Repetition compensates for bad processing — good processing needs less repetition.",
+        how: [
+          "Before reading anything, ask: how does this connect to what I already know? Why do I need it?",
+          "Learning = making information relevant + organized, then pulling it back out",
+        ],
+      },
+      {
+        name: "PERO — the full-cycle checklist",
+        tier: "S",
+        what: "Priming → Encoding → Reference → Retrieval → Interleaving → Overlearning. Six stages; a weakness in any one leaks the whole chain.",
+        why: "One technique can't fix a broken stage. Priming tags incoming info as relevant BEFORE you meet it (skim headings/questions first). Encoding organizes it (analogies, grouping, simplifying — the effortful part). Reference offloads fine details to notes/cards so encoding doesn't overload. Retrieval pulls it back out. Interleaving attacks it from new angles. Overlearning is optional polish — and where most people wrongly START.",
+        how: [
+          "Priming: before a lecture or chapter, skim headings, diagrams, and the end-of-chapter questions — your brain now knows what to catch",
+          "Reference: park tiny details in a card list; keep your brain on structure, not trivia",
+          "Overlearning LAST — drilling what was never properly encoded just wastes reps",
+        ],
+        waqt: "Priming = skim the assignment + past questions before your Vox session starts.",
+      },
+      {
+        name: "The 3C protocol",
+        tier: "A",
+        what: "Compress → Compile → Consolidate. Shrink ideas to chunks your brain can hold, practice-test them, then rest so consolidation can happen.",
+        why: "Working memory juggles ~4 ideas at once. Experts don't memorize more — they compress more (chess grandmasters store tens of thousands of patterns, not positions). And consolidation is where memory is actually written: during rest and sleep, not during study.",
+        how: [
+          "Compress: select the 20% that matters → associate it to something you know → chunk it into a model/metaphor/summary",
+          "Compile: short learn→test loops, not six weeks of input then one big exam",
+          "Consolidate: micro-rests INSIDE the block (10–20s pauses — the brain replays just-practiced skills ~20x speed during them), real breaks between blocks, sleep",
+        ],
+      },
+      {
+        name: "The confusion compass",
+        tier: "S",
+        what: "Confusion is the symptom of learning happening. The move: turn the feeling into a written list of questions, then answer them.",
+        why: "New data arrives with no address — your brain figuring out where to put it IS confusion. Most people sit in the vague feeling for hours; the top learners convert it into targets. A question list exposes the actual gaps AND gives you a work queue. No confusion at all while reading = you're not processing (red flag).",
+        how: [
+          "Feeling lost? Write: what exactly don't I get? How does this compare to X? How would I use it? What's an example?",
+          "Answer them in order — new confusion on the answers = new questions; that's the loop working",
+          "Feeling bored/blank? Trigger confusion on purpose: 'how does this affect my work/exam?'",
+        ],
+      },
+      {
+        name: "Struggle is the mechanism",
+        tier: "A",
+        what: "The generation effect: answers your brain works to generate are wired deeper than answers it's handed.",
+        why: "Adaptive-learning studies show students hate material that scales to the edge of their ability — and learn roughly twice as much from it. Easy feels good and teaches little; effortful feels bad and teaches a lot. Your brain doesn't hate struggle — it requires it.",
+        how: [
+          "Judge a technique by effort-per-minute, not comfort-per-minute",
+          "When an AI explains something instantly, you skip the struggle — use AI to grade YOU, not to feed you",
+        ],
+      },
+      {
+        name: "Learn it before class",
+        tier: "A",
+        what: "Pre-learn material to a basic level on your own — at your own pace, pausing and rewinding freely — so the lecture becomes your second pass.",
+        why: "You can't pause a teacher. Lose the thread for 5 minutes in lecture and the next 40 are noise. Arriving with a scaffold already built turns class into spaced review: you can predict what's coming, answer questions, and leave energized instead of drained.",
+        how: [
+          "Skim the topic before the lecture — headings, one video, the chapter questions",
+          "Treat the lecture as review: the gaps you notice in class are exactly what to study after",
+        ],
+      },
+    ],
+  },
+  {
     id: "gold",
     title: "The techniques that actually work",
     blurb: "Everything below is backed by meta-analysis, not vibes. If you only read one section, read this one.",
@@ -61,10 +133,10 @@ const SECTIONS: { id: string; title: string; blurb: string; icon: React.Componen
       {
         name: "Interleaving (mix it)",
         tier: "A",
-        what: "Alternate between subjects — or better, between problem types and angles within a subject — in a single session instead of grinding one topic for hours.",
-        why: "Switching forces your brain to forget then re-retrieve, and placing confusable concepts side by side teaches the edges of each (atrial vs ventricular, trig identities A vs B). Exams are chaos — mixed practice trains you for the chaos.",
+        what: "Alternate between problem types and angles within a domain in a single session instead of grinding one type for hours.",
+        why: "The mechanism is discrimination, not variety: placing confusable concepts side by side teaches the edges of each (atrial vs ventricular, allusion vs illusion). In math RCTs, interleaved practice doubled delayed-test scores (63% vs 20%; Rohrer & Taylor) while feeling harder the whole time — that discomfort is the work. Boundary: mixing unrelated subjects (chem + French vocab) does nothing, and brand-new material needs a blocked first pass before you can compare it.",
         how: [
-          "30 min bio → 30 min chem beats 60 min bio",
+          "First exposure → blocked. Once the basics execute → interleave ~⅓ to ½ of practice items from earlier confusable topics",
           "Strongest form: same topic, different question types and comparisons",
           "When a segment feels stale, switch — don't push through numb",
         ],
@@ -156,7 +228,8 @@ const SECTIONS: { id: string; title: string; blurb: string; icon: React.Componen
         what: "2 hours fully locked in beats 8 distracted hours. Time studied ≠ knowledge gained.",
         why: "Task-switching destroys up to 40% of productive time. Focus is a muscle — every time you pull yourself back from a distraction, you're training it.",
         how: [
-          "52/17 rhythm: 52 min full focus → 17 min real break (matches your brain's ultradian rhythm) — Pomodoro's 25/5 is the lighter version",
+          "Block rhythm: 25–50 min focus → 5–15 min real break. Skip the viral '52/17' — it's marketing data from a time-tracker blog, not physiology; the right rhythm is the one you can repeat daily",
+          "Cap the whole session near 90 min then take a real 15–30 min break — a fatigue heuristic, not a 'brain clock'",
           "One tab, one subject, full screen — the 'one tab rule'",
           "Phone in another room. Not silenced — in another room",
           "Tell people you're going into monk mode; get disturbed only for cake or fire",
@@ -178,10 +251,10 @@ const SECTIONS: { id: string; title: string; blurb: string; icon: React.Componen
         name: "Protect your dopamine baseline",
         tier: "B",
         what: "No phone/social media first thing in the morning; study before the scroll.",
-        why: "A huge early dopamine spike forces a compensating dip — everything after it feels like a chore. Keep the baseline flat and studying itself becomes the most stimulating thing available. Top students aim for 'natural' dopamine: exercise, outdoors, the work itself.",
+        why: "Honest version of the viral claim: 'dopamine detox' isn't a real neurochemical reset — but removing high-stimulation cues first thing is textbook stimulus control, and it works. If the scroll is always available, the book never wins. Studying first keeps the day's easiest dopamine coming from the work itself.",
         how: [
           "Morning order: wake → (no phone) → prime your intent → study. Breakfast and the phone come after",
-          "15 min daily 'boredom detox' — no inputs, let the mind settle. It recalibrates your pleasure scale",
+          "Scheduled low-stimulation blocks — cue reduction, not a brain reset. Silence notifications during sessions (each one costs focus even unchecked)",
           "Make studying deliver the hits: small checkmarks, countdown timers, session streaks — finite challenges your brain loves",
         ],
         waqt: "Session streaks and the 'finished' counter are exactly this — small wins that make you come back.",
@@ -195,6 +268,73 @@ const SECTIONS: { id: string; title: string; blurb: string; icon: React.Componen
           "6-minute floor on hard days: 2 min recall + 2 min review + 2 min practice — never zero",
           "Same time, same place, same ritual object — the ritual tells your brain 'study mode'",
         ],
+      },
+      {
+        name: "The mistake journal",
+        tier: "A",
+        what: "A dedicated list of every error you make — wrong answers, confused steps, misread questions — reviewed before the exam.",
+        why: "You don't care about what you got right. Every wrong answer is a map of the gap; reviewing the red list targets study at exactly the weak points instead of the comfortable ones. (Research calls this errorful learning / hypercorrection — confidently wrong answers corrected become the most durable memories.)",
+        how: [
+          "One running list per subject — question, what you answered, why it's wrong, the rule",
+          "Before the exam, the red list IS your review sheet — nothing else competes with it",
+        ],
+      },
+      {
+        name: "Study the answers first",
+        tier: "B",
+        what: "Read the questions (and mark schemes) BEFORE the chapter — then learn to fill the gaps they expose.",
+        why: "Exams follow predictable patterns; the questions tell you which 20% of the material carries 80% of the marks. Learning to the answer's structure also trains the examiner-facing format — knowing content you can't express in marking-scheme form scores like not knowing it.",
+        how: [
+          "Skim end-of-chapter and past-paper questions first — note what's actually tested",
+          "Focus on weaknesses and the most-tested topics; skip the rest (the Pareto move)",
+        ],
+      },
+      {
+        name: "Timers & fake deadlines",
+        tier: "B",
+        what: "Give every task a countdown that pushes you without panicking you — 'cover this chapter in 60 min', not 'study all day'.",
+        why: "Parkinson's law: work expands to fill the time allowed. A visible deadline forces triage — you reach for the important parts first and finish in the least time possible. Self-imposed finish times ('done by 9pm') light more fire than start times ('start at 6pm').",
+        how: [
+          "Set a slightly-uncomfortable timebox per assignment — not per day",
+          "Checkpoints beat vague endurance: finish the list, then you can leave",
+        ],
+        waqt: "Every Vox session is a timebox; the segment countdowns are the checkpoints.",
+      },
+      {
+        name: "Flow engineering",
+        tier: "A",
+        what: "Flow — effortless deep engagement where time vanishes — happens when challenge ≈ skill, goals are clear, and feedback is immediate.",
+        why: "Flow correlates with better learning and higher output, and it's engineerable: too easy → boredom, too hard → anxiety, balanced → absorption. Self-judgment kills it — be the performer during the session, the critic only after.",
+        how: [
+          "Pick assignments that stretch you ~one level past comfort — Tetris rules",
+          "One clear goal + visible progress meter + moment-to-moment feedback",
+          "Raise the stakes on boring tasks: time them, race them, add constraints",
+          "Don't chase flow itself — set the conditions and let it happen",
+        ],
+      },
+      {
+        name: "Attention resets & environment",
+        tier: "B",
+        what: "Small protocols that downshift your nervous system into focus: box breathing, open-gaze, quiet wakeful rest, phone out of the room.",
+        why: "Structured breathing (in-4, hold-4, out-4, hold-4) measurably lowers arousal and steadies mood in ~5 min (Cell Reports Medicine 2023 — cyclic sighing beat mindfulness meditation). Brief eyes-closed rest after learning measurably improves consolidation. And the #1 environmental fact: task-switching costs ~40% of productive time.",
+        how: [
+          "Before a hard session: 60–90s of box breathing, or a 5-min eyes-closed settle",
+          "Phone in another room, face a blank wall, noise-cancel + lyric-free sound (white/brown noise genuinely helps ADHD-type attention; lyrics measurably hurt verbal tasks)",
+          "Movement counts — pace while reciting, stand up, use a whiteboard; restless isn't broken",
+        ],
+        waqt: "The Breathe and Sounds tabs are built for exactly this.",
+      },
+      {
+        name: "Go pro — the ritual",
+        tier: "A",
+        what: "Treat your study block like a job: same time every day, body in the seat no matter how you feel, inspiration optional.",
+        why: "Discipline is a skill, not a mood. Deadline-fueled cramming isn't discipline — it's fear working. Training yourself to start without motivation is the muscle that transfers to everything else. The 9-to-5 framing fails for school hours (uncontrollable environment) but works perfectly for one protected daily deep-work block.",
+        how: [
+          "Same hour daily — your brain starts tagging that time as 'study mode' automatically",
+          "Start small (even 25 min) and lengthen — you train for marathons, you don't sign up cold",
+          "Turn up even when the mind is elsewhere; the seat is the contract",
+        ],
+        waqt: "Vox streaks are the contract made visible — the streak survives only if you turn up.",
       },
       {
         name: "Fuel the machine",
