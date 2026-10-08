@@ -358,11 +358,27 @@ export function SoundscapeProvider({ children }: { children: ReactNode }) {
     setPaused(false);
   }
 
+  // resume() outside a user gesture (e.g. Refocus ending on a rAF tick, not a
+  // tap) can be silently refused — iOS may never even resolve the promise. So
+  // we can't await it; instead, check shortly after and if the context is
+  // still suspended, retry on the user's next real gesture. Without this the
+  // engine reports "playing" while the context stays suspended forever.
+  function resumeWithGestureFallback(ctx: AudioContext) {
+    void ctx.resume().catch(() => {});
+    setTimeout(() => {
+      if (ctx.state === "running") return;
+      const retry = () => { void ctx.resume().catch(() => {}); };
+      window.addEventListener("pointerdown", retry, { once: true });
+      window.addEventListener("keydown", retry, { once: true });
+      window.addEventListener("touchend", retry, { once: true });
+    }, 400);
+  }
+
   function togglePause() {
     const ctx = ctxRef.current;
     if (!ctx || !active) return;
     if (paused) {
-      void ctx.resume();
+      resumeWithGestureFallback(ctx);
       setPaused(false);
     } else {
       void ctx.suspend();

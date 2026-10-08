@@ -44,7 +44,17 @@ export default function Refocus({ compact = false }: { compact?: boolean }) {
       // Only ever resume here — a stale togglePause captured before we paused
       // would suspend again instead. Guard on the live paused flag.
       if (restore.soundscape && soundscape.paused) soundscape.togglePause();
-      for (const el of restore.audios) void el.play().catch(() => {});
+      // el.play() from a rAF/keydown-less path is blocked on mobile — keep the
+      // rejected elements and replay them on the user's next real gesture.
+      const stuck: HTMLAudioElement[] = [];
+      for (const el of restore.audios) {
+        el.play().catch(() => stuck.push(el));
+      }
+      if (stuck.length > 0) {
+        const retry = () => { for (const el of stuck) void el.play().catch(() => {}); };
+        window.addEventListener("pointerdown", retry, { once: true });
+        window.addEventListener("touchend", retry, { once: true });
+      }
     }
     setRunning(false);
     setElapsedMs(0);
