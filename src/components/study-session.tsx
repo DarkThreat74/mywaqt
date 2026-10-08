@@ -206,6 +206,10 @@ export default function StudySession() {
   // Prayers confirmed via the dialog this mount — a periodic refetch must not
   // resurrect the banner while a queued/slow check-in write lands.
   const markedPrayersRef = useRef(new Set<string>());
+  // Salah decision prompt — hushed-until timestamp. The `now` tick re-shows
+  // the sheet once it expires: 15 min after "pray in next break", 5 after a
+  // bare dismiss. Under 30 min left the defer option is gone entirely.
+  const [salahHushedUntil, setSalahHushedUntil] = useState(0);
   const soundscape = useSoundscape();
   const talksPlayer = useAudioPlayer();
 
@@ -463,6 +467,23 @@ export default function StudySession() {
       }
     }
   }, [salah, now, state, progress]);
+
+  // ── Salah decision prompt ──
+  // Opens the moment a prayer window arrives mid-session, and again whenever
+  // a hush expires while the salah is still unmarked.
+  const salahPrompt = !!salah && state.status === "running" && !confirmPrayer && now >= salahHushedUntil;
+
+  // "Pray in next break" — queue a prayer break after the current segment and
+  // hush the prompt ~15 min. The escalation effect above still owns the
+  // last-resort forced break, so deferral can never outrun the window.
+  const deferSalah = () => {
+    if (!salah) return;
+    prayerQueuedRef.current = salah.name;
+    insertPrayerBreakAfterCurrent(salah.name, 10);
+    setSalahHushedUntil(Date.now() + 15 * 60 * 1000);
+  };
+  // Dismissing without choosing = short hush, not a 15-min snooze.
+  const hushSalah = () => setSalahHushedUntil(Date.now() + 5 * 60 * 1000);
 
   // Drift watcher — armed only while a study segment is live and unpaused.
   // Hiding the tab mid-segment is the strongest drift signal the web can see.
@@ -890,10 +911,53 @@ export default function StudySession() {
     </div>
   ) : null;
 
+  // Salah decision sheet — fires when a prayer window opens mid-session.
+  // "Pray in next break" vanishes once under 30 min remain: late in the
+  // window the only honest choices are "I prayed" or "pray now".
+  const salahDialog = salah && salahPrompt ? (
+    <div className="fixed inset-0 z-[97] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label={`${PRAYER_LABEL[salah.name] ?? salah.name} time`}>
+      <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={hushSalah} aria-label="Back" />
+      <div className="relative w-full max-w-sm rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
+        <p className="text-center text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--color-warmth)" }}>
+          Prayer time
+        </p>
+        <p className="mt-1.5 text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
+          {PRAYER_LABEL[salah.name] ?? salah.name} is here{salahLeftMin !== null ? ` — ends in ${fmtDur(salahLeftMin)}` : ""}
+        </p>
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            onClick={() => { setLied(false); setConfirmPrayer(salah.name); }}
+            className="flex items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
+          >
+            <Check className="h-4 w-4" /> I prayed
+          </button>
+          {salahLeftMin !== null && salahLeftMin > 30 ? (
+            <button
+              onClick={deferSalah}
+              className="flex items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 48 }}
+            >
+              Pray in next break
+            </button>
+          ) : (
+            <button
+              onClick={() => { setSalahHushedUntil(Date.now() + 15 * 60 * 1000); prayerBreakNow(salah.name, 10); }}
+              className="flex items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-medium transition-colors"
+              style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 45%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 8%, transparent)", color: "var(--color-warmth)", minHeight: 48 }}
+            >
+              Pray now — window&apos;s closing
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // While the overlay is closed the unified FloatingDock carries the session
   // pill — the finish and prayer dialogs still need to render here.
   if (!state.overlayOpen) {
-    return <>{finishDialog}{prayerDialog}</>;
+    return <>{finishDialog}{prayerDialog}{salahDialog}</>;
   }
 
   // Full overlay
@@ -930,7 +994,7 @@ export default function StudySession() {
         </div>
 
         {/* Salah banner — the open prayer window still waiting on you */}
-        {salah && salahLeftMin !== null && (
+        {salah && salahLeftMin !== null && !salahPrompt && (
           <button
             onClick={() => { setLied(false); setConfirmPrayer(salah.name); }}
             className="mt-3 flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
@@ -1268,6 +1332,7 @@ export default function StudySession() {
 
       {finishDialog}
       {prayerDialog}
+      {salahDialog}
     </div>
   );
 }
