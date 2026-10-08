@@ -488,6 +488,28 @@ export function switchFocus() {
   emit();
 }
 
+/** "Finished this assignment" — the work is done, not abandoned. Truncates the
+ *  current study segment at now, drops its queued "(finish)" remainder, and
+ *  lands on whatever comes next (next study item, or the end). Unlike
+ *  switchFocus, leftover minutes are NOT re-queued — the user said it's done. */
+export function finishAssignment() {
+  if (state.status !== "running" || state.pausedAt) return;
+  const elapsedSec = runningElapsedSec();
+  const p = segmentAt(state.segments, elapsedSec);
+  if (p.done || p.segment.kind !== "study") return;
+
+  const base = p.segment.label.replace(/( \(finish\))+$/, "");
+  const usedMin = (p.segment.minutes * 60 - p.remainingSec) / 60;
+  const next: StudySegment[] = state.segments.slice(0, p.index);
+  if (usedMin > 0.1) next.push({ ...p.segment, minutes: usedMin });
+  // Drop any queued remainder of the same task — finishing removes it all.
+  next.push(...state.segments.slice(p.index + 1).filter(
+    (s) => !(s.kind === "study" && s.label.replace(/( \(finish\))+$/, "") === base),
+  ));
+  state = { ...state, segments: next };
+  emit();
+}
+
 /** Elapsed seconds since the session started — call inside a ticking component. */
 export function sessionElapsed(now: number): number {
   if (state.status !== "running") return 0;

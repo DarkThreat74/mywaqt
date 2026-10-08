@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { Check, ChevronDown, ChevronUp, Coffee, ListMusic, Minus, Pause, Play, Plus, RefreshCw, Shuffle, Square, Volume2, VolumeX, X, Zap } from "lucide-react";
+import { Check, CheckCheck, ChevronDown, ChevronUp, Coffee, ListMusic, Minus, Pause, Play, Plus, RefreshCw, Shuffle, Square, Volume2, VolumeX, X, Zap } from "lucide-react";
 import VoxIcon from "@/components/vox-icon";
 import { useSoundscape, SOUNDSCAPES } from "@/components/soundscape-context";
 import { useAudioPlayer } from "@/components/audio-player-context";
@@ -24,7 +24,7 @@ import {
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
   planSession, takeBreakNow, switchFocus, getDiscipline, recordOutcome, todayFocusMinutes,
   beginIntake,
-  runningBlockId, pauseSession, resumeSession, startSprint, sessionElapsed,
+  runningBlockId, pauseSession, resumeSession, startSprint, sessionElapsed, finishAssignment,
   endBreakEarly, prayerBreakNow, insertPrayerBreakAfterCurrent,
   type StudyMethod, type SessionState,
 } from "@/lib/study/session";
@@ -1167,6 +1167,13 @@ export default function StudySession() {
         {/* In-session rescue actions — break or switch without ending */}
         {!progress.done && !isBreak && !paused && (
           <div className="mb-3 flex justify-center gap-2">
+            <button
+              onClick={finishAssignment}
+              className="flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 36 }}
+            >
+              <CheckCheck className="h-3.5 w-3.5" /> Done with this — next
+            </button>
             <button
               onClick={() => takeBreakNow(5)}
               className="flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"

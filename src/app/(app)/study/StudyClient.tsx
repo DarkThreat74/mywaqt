@@ -2,22 +2,24 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, Timer, Volume2, Wind, Hand, GraduationCap, X } from "lucide-react";
+import { Check, Timer, Volume2, Wind, Hand, GraduationCap, X, BookOpenCheck } from "lucide-react";
 import FocusTimer from "./FocusTimer";
 import Soundscape from "./Soundscape";
 import Breathe from "./Breathe";
 import Fidget from "./Fidget";
+import StudyGuide from "./StudyGuide";
 import { useUISFX } from "@/components/uisfx-provider";
 import VoxIcon from "@/components/vox-icon";
 import { getDiscipline } from "@/lib/study/session";
 
-type Tab = "focus" | "sounds" | "breathe" | "fidget";
+type Tab = "focus" | "sounds" | "breathe" | "fidget" | "learn";
 
 const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "focus", label: "Focus", icon: Timer },
   { id: "sounds", label: "Sounds", icon: Volume2 },
   { id: "breathe", label: "Breathe", icon: Wind },
   { id: "fidget", label: "Fidget", icon: Hand },
+  { id: "learn", label: "Learn", icon: BookOpenCheck },
 ];
 
 export default function StudyClient() {
@@ -41,7 +43,7 @@ export default function StudyClient() {
 
       {/* Tab bar */}
       <div
-        className="mb-6 grid grid-cols-4 gap-1 rounded-xl border p-1"
+        className="mb-6 grid grid-cols-5 gap-1 rounded-xl border p-1"
         style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
         role="tablist"
       >
@@ -72,6 +74,7 @@ export default function StudyClient() {
       <div className={tab === "sounds" ? "" : "hidden"}><Soundscape /></div>
       <div className={tab === "breathe" ? "" : "hidden"}><Breathe /></div>
       <div className={tab === "fidget" ? "" : "hidden"}><Fidget /></div>
+      <div className={tab === "learn" ? "" : "hidden"}><StudyGuide /></div>
 
       <VoxStats />
 
