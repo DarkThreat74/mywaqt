@@ -17,6 +17,14 @@ const SESSION_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
 
 const encodedKey = new TextEncoder().encode(env.sessionSecret);
 
+// Fail closed: with no secret configured, HS256 signs with an empty key and
+// every token becomes forgeable. Never issue or accept a session without one.
+function assertKey(): void {
+  if (encodedKey.length === 0) {
+    throw new Error("SESSION_SECRET is not configured — refusing to issue/verify sessions.");
+  }
+}
+
 export interface SessionPayload {
   userId: string;
   email: string;
@@ -27,6 +35,7 @@ export interface SessionPayload {
  * Create a signed JWT session token.
  */
 export async function encryptSession(payload: SessionPayload): Promise<string> {
+  assertKey();
   return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -38,6 +47,7 @@ export async function encryptSession(payload: SessionPayload): Promise<string> {
  * Verify and decode a JWT session token.
  */
 export async function decryptSession(token: string): Promise<SessionPayload | null> {
+  if (encodedKey.length === 0) return null; // fail closed
   try {
     const { payload } = await jwtVerify(token, encodedKey, {
       algorithms: ['HS256'],

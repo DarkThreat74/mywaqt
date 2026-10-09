@@ -68,10 +68,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Can't log a prayer for a future date." }, { status: 400 });
   }
 
-  const validStatuses = ["prayed", "missed", "pending", "assumed_prayed", "excused"];
-  // Reject invalid statuses — defaulting to "prayed" would record a prayer
-  // the user never confirmed. Missing status defaults to prayed (the client
-  // omits it for the common check-in).
+  // "assumed_prayed" is system-resolved (cron at window close) — a client
+  // writing it would forge the auto-resolution trail. "excused" stays
+  // client-writable: illness/travel/hayd are user-declared by design.
+  const validStatuses = ["prayed", "missed", "pending", "excused"];
   if (status !== undefined && !validStatuses.includes(status)) {
     return NextResponse.json({ error: "Invalid status." }, { status: 400 });
   }

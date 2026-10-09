@@ -35,11 +35,12 @@ export async function verifyTurnstileToken(
 
   // ── Play CAPTCHA fallback token ──
   // The playcaptcha widget sends this synthetic token when Turnstile is not
-  // configured. Accept it immediately — the interactive claw-machine challenge
-  // already proved the user is human. Other security layers (rate limit,
-  // honeypot, time-trap, fingerprint) still apply.
+  // configured. It is a CLIENT-SIDE claim only — a bot could send this literal
+  // string. It is accepted only in non-production when no real secret is
+  // configured; in production a missing secret must fail CLOSED, not let a
+  // synthetic token through.
   if (token === 'playcaptcha-verified') {
-    return true;
+    return !env.turnstileSecretKey && !env.isProduction;
   }
 
   // If no secret key is configured and we got a non-playcaptcha token,
@@ -68,7 +69,7 @@ export async function verifyTurnstileToken(
       }
     }
     // Production without secret key: reject unknown tokens
-    // (playcaptcha-verified was already accepted above)
+    // (playcaptcha-verified was already rejected above)
     console.warn('[turnstile] TURNSTILE_SECRET_KEY not configured but received non-playcaptcha token. Rejecting.');
     return false;
   }

@@ -2915,10 +2915,14 @@ export default function PrayerDashboard() {
           existingStatus={todayLogs.find((l) => l.prayerName === checkinPrayer)?.status}
           onClose={() => setCheckinPrayer(null)}
           onCheckedIn={(result) => {
-            setTodayLogs((prev) => [
-              ...prev.filter((l) => l.prayerName !== checkinPrayer),
-              { prayerName: checkinPrayer, status: result.status },
-            ]);
+            // Post-midnight Isha logs to yesterday's row — don't paint it as
+            // today's; the popup reports the resolved `date`.
+            if (result.date === todayStr) {
+              setTodayLogs((prev) => [
+                ...prev.filter((l) => l.prayerName !== checkinPrayer),
+                { prayerName: checkinPrayer, status: result.status },
+              ]);
+            }
             setCheckinPrayer(null);
           }}
         />

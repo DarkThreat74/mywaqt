@@ -77,7 +77,7 @@ export default async function PublicCalendarPage({
 
   // Code is a 6-char share code (unambiguous alphabet). Legacy 32-char hex
   // tokens are also accepted so existing shared links don't break.
-  if (!code || (!/^[A-Z2-9]{6}$/.test(code) && !/^[a-f0-9]{32}$/.test(code))) {
+  if (!code || (!/^[A-Z2-9]{6,8}$/.test(code) && !/^[a-f0-9]{32}$/.test(code))) {
     return <ShareLinkExpired />;
   }
 

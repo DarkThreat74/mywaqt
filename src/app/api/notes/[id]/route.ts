@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,9 @@ export async function PATCH(
     }
 
     const { id } = await params;
+    if (!isValidUUID(id)) {
+      return NextResponse.json({ error: "Invalid note ID" }, { status: 400 });
+    }
 
     let body: { title?: string | null; content?: string; pinned?: boolean };
     try {
@@ -95,6 +99,9 @@ export async function DELETE(
     }
 
     const { id } = await params;
+    if (!isValidUUID(id)) {
+      return NextResponse.json({ error: "Invalid note ID" }, { status: 400 });
+    }
 
     // Verify ownership + delete with userId in WHERE
     const [deleted] = await db

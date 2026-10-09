@@ -128,7 +128,7 @@ const HANAFI_SUNNAHS: SunnahDefinition[] = [
     position: "before",
     associatedFard: "fajr",
     category: "muakkadah",
-    locksAt: "fajr",
+    locksAt: "dhuhr",
   },
   {
     key: "dhuhr_before",

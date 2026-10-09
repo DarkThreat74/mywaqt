@@ -137,6 +137,11 @@ export async function PATCH(
     updates.color = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
   }
 
+  // Empty PATCH — Drizzle would emit `SET` with no columns and 500.
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
+  }
+
   // Update — scoped to the current user
   const [updated] = await db
     .update(schema.events)

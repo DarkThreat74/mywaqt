@@ -188,8 +188,8 @@ export async function PATCH(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
-    if (!body.id || typeof body.id !== "string") {
-      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    if (!body.id || typeof body.id !== "string" || !isValidUUID(body.id)) {
+      return NextResponse.json({ error: "Valid id is required" }, { status: 400 });
     }
 
     const { out, errors } = validateFields(body, true);
@@ -225,7 +225,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const id = request.nextUrl.searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+    if (!id || !isValidUUID(id)) return NextResponse.json({ error: "Valid id is required" }, { status: 400 });
 
     const deleted = await db
       .delete(schema.subscriptions)

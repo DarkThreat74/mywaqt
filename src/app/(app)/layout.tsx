@@ -75,8 +75,10 @@ const getUserGate = (userId: string): Promise<UserGate> =>
         // Legacy accounts (joined before onboarding existed — same >24h rule
         // the wizard uses for its "we know you" banner) are grandfathered in:
         // mark them completed on first load so they never see the wizard or
-        // the quiz. New accounts still onboard normally.
-        if (user && !user.onboardingCompleted &&
+        // the quiz. New accounts still onboard normally. An account WITHOUT
+        // prayer settings isn't legacy at all — it's someone who abandoned
+        // the wizard; auto-completing them would brick their prayer setup.
+        if (user && !user.onboardingCompleted && settings &&
             user.createdAt && Date.now() - new Date(user.createdAt).getTime() > 24 * 60 * 60 * 1000) {
           await db
             .update(schema.users)
@@ -186,7 +188,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page content */}
-        <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">
+        {/* Bottom padding lives in globals.css (main#main-content) — it adds
+            nav + safe-area + player-bar height; a Tailwind pb-* here loses to
+            that ID selector anyway. */}
+        <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden">
           <OfflineBanner />
           <BiometricGate>{children}</BiometricGate>
         </main>

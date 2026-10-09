@@ -107,6 +107,20 @@ export default function ChatClient({ friendId }: { friendId: string }) {
     if (stickToBottom.current) bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages]);
 
+  // iOS Safari doesn't shrink the layout viewport when the keyboard opens —
+  // a fixed inset-0 shell leaves the composer hidden behind it. Track
+  // visualViewport so the shell hugs the visible area instead.
+  const [vv, setVv] = useState<{ h: number; top: number } | null>(null);
+  useEffect(() => {
+    const v = window.visualViewport;
+    if (!v) return;
+    const on = () => setVv({ h: v.height, top: v.offsetTop });
+    on();
+    v.addEventListener("resize", on);
+    v.addEventListener("scroll", on);
+    return () => { v.removeEventListener("resize", on); v.removeEventListener("scroll", on); };
+  }, []);
+
   async function send() {
     const content = draft.trim();
     if (!content || sending) return;
@@ -162,7 +176,14 @@ export default function ChatClient({ friendId }: { friendId: string }) {
   const dayOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col" style={{ backgroundColor: "var(--color-paper)" }}>
+    <div
+      className="fixed left-0 right-0 top-0 z-[70] flex flex-col"
+      style={{
+        backgroundColor: "var(--color-paper)",
+        height: vv ? `${vv.h}px` : "100dvh",
+        transform: vv && vv.top ? `translateY(${vv.top}px)` : undefined,
+      }}
+    >
       {/* Masthead — names set like a correspondence card */}
       <header
         className="border-b"

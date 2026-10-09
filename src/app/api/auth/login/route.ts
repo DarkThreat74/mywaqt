@@ -110,35 +110,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Trusted device check ──
-  // If a fingerprint hash is provided and matches a trusted device,
-  // allow login without a password.
+  // A fingerprint is never an auth factor — it is a deterministic browser
+  // fingerprint (not a secret) and is replayable. It only marks a device as
+  // trusted AFTER a successful password check below.
   const validFingerprint = fingerprintHash && typeof fingerprintHash === "string" && isValidFingerprintHash(fingerprintHash);
-  if (validFingerprint) {
-    const [trusted] = await db
-      .select({ id: schema.trustedDevices.id })
-      .from(schema.trustedDevices)
-      .where(and(
-        eq(schema.trustedDevices.userId, user.id),
-        eq(schema.trustedDevices.fingerprintHash, fingerprintHash),
-      ))
-      .limit(1);
-
-    if (trusted) {
-      // Update lastUsedAt — fire and forget, don't block login
-      db.update(schema.trustedDevices)
-        .set({ lastUsedAt: new Date() })
-        .where(eq(schema.trustedDevices.id, trusted.id))
-        .then(() => {})
-        .catch(() => {});
-
-      // Clear failed attempts on successful trusted-device login
-      await db.delete(schema.loginAttempts).where(eq(schema.loginAttempts.email, normalizedEmail));
-
-      await setSessionCookie({ id: user.id, email: user.email });
-      return NextResponse.json({ ok: true, trustedDevice: true });
-    }
-  }
 
   // ── Password verification ──
   if (!password) {

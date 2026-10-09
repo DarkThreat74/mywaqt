@@ -188,7 +188,9 @@ function IqamahTable({ m, prayerTimes, sameTz }: { m: Masjid; prayerTimes: Praye
 }
 
 export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes | null }) {
-  const loc = getCachedPrayerSettings();
+  // Read AFTER mount — getCachedPrayerSettings() hits localStorage, so
+  // reading it during render diverges between SSR (empty) and client.
+  const [loc, setLoc] = useState<ReturnType<typeof getCachedPrayerSettings>>(null);
   const [mode, setMode] = useState<"list" | "map">("list");
   const [all, setAll] = useState<Masjid[]>([]);
   const [shown, setShown] = useState(PAGE);
@@ -197,7 +199,14 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
   const [radiusKm, setRadiusKm] = useState(32); // ~20mi default
   const [selected, setSelected] = useState<Masjid | null>(null);
   const [locating, setLocating] = useState(false);
-  const [, setLocTick] = useState(0); // bump to re-read cached coords
+  const [locTick, setLocTick] = useState(0); // bump to re-read cached coords
+  // Read localStorage AFTER mount (never during render — SSR has none and a
+  // server/client markup diff is a hydration error). Deferred a tick so the
+  // write isn't a synchronous setState-in-effect.
+  useEffect(() => {
+    const t = setTimeout(() => setLoc(getCachedPrayerSettings()), 0);
+    return () => clearTimeout(t);
+  }, [locTick]);
   const [driveInfo, setDriveInfo] = useState<{ km: number; min: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const [editingIqamah, setEditingIqamah] = useState<string | null>(null);

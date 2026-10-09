@@ -95,6 +95,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // SSRF guard — this endpoint is POSTed to server-side by web-push. Only
+  // HTTPS URLs to public push services are legitimate; block private/loopback
+  // hosts and non-HTTP schemes outright.
+  try {
+    const url = new URL(endpoint);
+    const host = url.hostname.toLowerCase();
+    const isPrivate =
+      url.protocol !== "https:" ||
+      host === "localhost" || host === "[::1]" || host.endsWith(".local") || host.endsWith(".internal") ||
+      /^10\./.test(host) || /^127\./.test(host) || /^169\.254\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^192\.168\./.test(host) ||
+      /^0\./.test(host) || host === "::" || /^fc|^fd|^fe80/.test(host.replace(/^\[|\]$/g, ""));
+    if (isPrivate) {
+      return NextResponse.json({ error: "Invalid push endpoint." }, { status: 400 });
+    }
+  } catch {
+    return NextResponse.json({ error: "Invalid push endpoint." }, { status: 400 });
+  }
+
   // Check if this endpoint is already registered for this user
   const [existing] = await db
     .select()

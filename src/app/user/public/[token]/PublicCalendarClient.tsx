@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { layoutOverlap } from "@/lib/calendar/overlap";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -253,6 +254,7 @@ function PublicDayView({ token, date, minDate, maxDate, onNavigateToMonth, onDat
   onDateChange: (date: string) => void;
 }) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [ownerTz, setOwnerTz] = useState<string | null>(null);
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -273,10 +275,17 @@ function PublicDayView({ token, date, minDate, maxDate, onNavigateToMonth, onDat
 
         if (eventsRes.ok) {
           const eventsData = await eventsRes.json();
-          // Filter to only events that fall on this date in the viewer's local timezone
-          const filtered = eventsData.filter((e: { startAt: string }) => {
+          // Server returns { timezone, events } — render in the OWNER's
+          // timezone, not the viewer's (a viewer in Tokyo looking at a
+          // Chicago calendar must see the Chicago day).
+          const list = Array.isArray(eventsData) ? eventsData : (eventsData.events ?? []);
+          const tz = Array.isArray(eventsData) ? null : (eventsData.timezone ?? null);
+          if (!cancelled) setOwnerTz(tz);
+          const filtered = list.filter((e: { startAt: string }) => {
             const d = new Date(e.startAt);
-            const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            const localDateStr = tz
+              ? d.toLocaleDateString("en-CA", { timeZone: tz })
+              : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
             return localDateStr === date;
           });
           if (!cancelled) setEvents(filtered);
@@ -317,6 +326,10 @@ function PublicDayView({ token, date, minDate, maxDate, onNavigateToMonth, onDat
   function isoToLocalTime(iso: string): string {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return "00:00";
+    if (ownerTz) {
+      // Owner's timezone — en-GB gives zero-padded 24h "HH:MM".
+      return d.toLocaleTimeString("en-GB", { timeZone: ownerTz, hour: "2-digit", minute: "2-digit", hour12: false });
+    }
     const h = String(d.getHours()).padStart(2, "0");
     const m = String(d.getMinutes()).padStart(2, "0");
     return `${h}:${m}`;
@@ -337,22 +350,24 @@ function PublicDayView({ token, date, minDate, maxDate, onNavigateToMonth, onDat
     return `${hour}a`;
   }
 
-  function getOverlappingEvents(event: CalendarEvent, allEvents: CalendarEvent[]): CalendarEvent[] {
-    const start = timeToMinutes(isoToLocalTime(event.startAt));
-    let end = timeToMinutes(isoToLocalTime(event.endAt));
-    // Handle events spanning midnight — if end < start, it crossed midnight
-    if (end < start) end += 24 * 60;
-    return allEvents.filter((e) => {
-      const eStart = timeToMinutes(isoToLocalTime(e.startAt));
-      let eEnd = timeToMinutes(isoToLocalTime(e.endAt));
-      if (eEnd < eStart) eEnd += 24 * 60;
-      return eStart < end && eEnd > start;
-    });
-  }
-
   // Separate blocks from reminders
   const blockEvents = events.filter((e) => e.type !== "reminder");
   const reminderEvents = events.filter((e) => e.type === "reminder");
+
+  // Cluster-aware overlap layout — shared with the private day view.
+  const overlapLayout = useMemo(
+    () =>
+      layoutOverlap(
+        blockEvents.map((event) => {
+          const start = timeToMinutes(isoToLocalTime(event.startAt));
+          let end = timeToMinutes(isoToLocalTime(event.endAt));
+          if (end <= start) end += 24 * 60;
+          return { id: event.id, start, end };
+        }),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [events, ownerTz],
+  );
 
   // Date navigation
   const currentDate = new Date(date + "T00:00:00");
@@ -553,18 +568,16 @@ function PublicDayView({ token, date, minDate, maxDate, onNavigateToMonth, onDat
             const startStr = isoToLocalTime(event.startAt);
             const endStr = isoToLocalTime(event.endAt);
             const startMin = timeToMinutes(startStr);
-            const endMin = timeToMinutes(endStr);
+            let endMin = timeToMinutes(endStr);
+            // Overnight event — end is on the next day, so it reads smaller
+            // than start; span it past midnight instead of collapsing to 22px.
+            if (endMin <= startMin) endMin += 24 * 60;
             const top = minutesToTop(startMin);
             const height = Math.max(((endMin - startMin) / 60) * HOUR_HEIGHT, 22);
 
-            const overlapping = getOverlappingEvents(event, blockEvents).sort((a, b) => {
-              const aStart = timeToMinutes(isoToLocalTime(a.startAt));
-              const bStart = timeToMinutes(isoToLocalTime(b.startAt));
-              return aStart - bStart;
-            });
-            const index = overlapping.findIndex((e) => e.id === event.id);
-            const widthPct = 100 / overlapping.length;
-            const leftPct = index * widthPct;
+            const { colIndex, colCount } = overlapLayout.get(event.id) ?? { colIndex: 0, colCount: 1 };
+            const widthPct = 100 / colCount;
+            const leftPct = colIndex * widthPct;
 
             const eventColor = event.color && event.color.length >= 4 ? event.color : null;
             const borderColor = eventColor || TYPE_COLORS[event.type] || "var(--color-accent)";
@@ -646,6 +659,7 @@ function PublicMonthView({ token, year, month, minDate, maxDate, onNavigateToDay
   canGoNext: boolean;
 }) {
   const [eventsByDate, setEventsByDate] = useState<Record<string, CalendarEvent[]>>({});
+  const [ownerTz, setOwnerTz] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [maxVisibleEvents, setMaxVisibleEvents] = useState(2);
 
@@ -674,15 +688,29 @@ function PublicMonthView({ token, year, month, minDate, maxDate, onNavigateToDay
 
         const res = await fetch(`/api/public/${token}/events?from=${fromStr}&to=${toStr}`);
         if (res.ok && !cancelled) {
-          const events: CalendarEvent[] = await res.json().catch(() => []);
-          if (!Array.isArray(events)) return;
+          const payload = await res.json().catch(() => null);
+          const events: CalendarEvent[] = Array.isArray(payload) ? payload : (payload?.events ?? []);
+          const tz: string | null = Array.isArray(payload) ? null : (payload?.timezone ?? null);
+          if (!cancelled && tz) setOwnerTz(tz);
           const grouped: Record<string, CalendarEvent[]> = {};
           for (const event of events) {
-            // Use the viewer's local date, not the UTC date from the ISO string
+            // Bucket by the OWNER's local date — an overnight event also
+            // appears on the day it ends.
             const d = new Date(event.startAt);
-            const eventDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-            if (!grouped[eventDate]) grouped[eventDate] = [];
-            grouped[eventDate].push(event);
+            const dEnd = new Date(event.endAt);
+            const dates = new Set<string>();
+            const pushDate = (dt: Date) => {
+              const ds = tz
+                ? dt.toLocaleDateString("en-CA", { timeZone: tz })
+                : `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+              if (ds >= fromStr && ds <= toStr) dates.add(ds);
+            };
+            pushDate(d);
+            if (dEnd.getTime() > d.getTime()) pushDate(new Date(dEnd.getTime() - 60 * 1000));
+            for (const eventDate of dates) {
+              if (!grouped[eventDate]) grouped[eventDate] = [];
+              grouped[eventDate].push(event);
+            }
           }
           for (const date of Object.keys(grouped)) {
             grouped[date].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
@@ -707,7 +735,9 @@ function PublicMonthView({ token, year, month, minDate, maxDate, onNavigateToDay
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstDay = new Date(year, month - 1, 1).getDay();
   const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const today = ownerTz
+    ? now.toLocaleDateString("en-CA", { timeZone: ownerTz })
+    : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   function isDayDone(dateStr: string): boolean {
     return dateStr < today;

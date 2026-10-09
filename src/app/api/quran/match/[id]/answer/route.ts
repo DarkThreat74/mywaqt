@@ -4,14 +4,24 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
+import { getCorpus } from "@/lib/content/quran-server";
+import { matchMode, tailOf } from "@/lib/mutashabih";
+import { matchTarget, getMutashabihat } from "@/lib/content/mutashabihat-server";
 
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/quran/match/[id]/answer { round, correct, ms } — stamps my answer.
- * `ms` is self-reported (time from seeing the ayah to answering) — it's a
- * friends game; the 120s clamp + server timestamps bound the honesty window.
- * When both have answered, the winner resolves atomically here.
+ * POST /api/quran/match/[id]/answer { round, pick, ms } — stamps my answer.
+ * Correctness is computed HERE, never trusted from the client — a self-
+ * reported `correct: true` would farm ranked wins trivially.
+ *  - trace game:  `pick` = chosen surah number → correct iff verse.s
+ *  - mutashabih count:  `pick` = chosen count → correct iff instances.length
+ *  - mutashabih ending: `pick` = chosen tail string → correct iff tailOf(target)
+ *  - mutashabih homes:  `picks` = chosen surah numbers → correct iff the set
+ *    exactly equals the family's distinct surah set
+ * `ms` is self-reported ordering data — the 120s clamp + server timestamps
+ * bound the honesty window. When both have answered, the winner resolves
+ * atomically here.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSessionFromRequest(request);
@@ -25,13 +35,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   if (!isValidUUID(id)) return NextResponse.json({ error: "Invalid match." }, { status: 400 });
 
-  let body: { round?: number; correct?: boolean; ms?: number };
+  let body: { round?: number; pick?: number | string; picks?: number[]; ms?: number };
   try { body = await request.json(); } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
-  const { round, correct } = body;
+  const { round } = body;
   const ms = Math.max(0, Math.min(Math.round(body.ms ?? 0), 120_000));
-  if (!Number.isInteger(round) || round! < 1 || round! > 20 || typeof correct !== "boolean") {
+  if (!Number.isInteger(round) || round! < 1 || round! > 20) {
     return NextResponse.json({ error: "Invalid answer." }, { status: 400 });
   }
 
@@ -55,6 +65,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .limit(1);
   if (!r || !r.startedAt || r.resolvedAt) {
     return NextResponse.json({ error: "Round not open." }, { status: 409 });
+  }
+
+  // Judge the answer server-side — never trust a client-reported verdict.
+  let correct: boolean;
+  if (m.game === "mutashabih") {
+    const fam = getMutashabihat()[r.verseIdx];
+    if (!fam) return NextResponse.json({ error: "Round not open." }, { status: 409 });
+    const mode = matchMode(round!);
+    if (mode === "count") {
+      correct = typeof body.pick === "number" && body.pick === fam.instances.length;
+    } else if (mode === "ending") {
+      const tIdx = matchTarget(m.seed, round!, r.verseIdx);
+      const expected = tailOf(fam.instances[tIdx]);
+      correct = typeof body.pick === "string" && body.pick === expected;
+    } else {
+      // homes — the picked surah set must equal the family's full set
+      const expected = new Set(fam.instances.map((i) => i.s));
+      const got = Array.isArray(body.picks) ? new Set(body.picks) : new Set<number>();
+      correct = got.size === expected.size && [...expected].every((s) => got.has(s));
+    }
+  } else {
+    const verse = getCorpus().verses[r.verseIdx];
+    if (!verse) return NextResponse.json({ error: "Round not open." }, { status: 409 });
+    correct = typeof body.pick === "number" && body.pick === verse.s;
   }
 
   // Conditional stamp — an already-answered column refuses overwrite.

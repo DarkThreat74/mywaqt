@@ -157,8 +157,14 @@ export default function DhikrCounterClient() {
 
   const handleTap = useCallback(() => {
     if (!current || showOverlay) return;
-    const newCount = count + 1;
-    setCount(newCount);
+    // Functional update — two taps landing before a re-render must both count
+    // (reading `count` from this closure would overwrite the first tap).
+    let hitTarget = false;
+    setCount((c) => {
+      const n = c + 1;
+      if (n >= current.targetCount) hitTarget = true;
+      return n;
+    });
     setPulseKey((k) => k + 1);
 
     // Light haptic on each tap
@@ -167,7 +173,7 @@ export default function DhikrCounterClient() {
       try { navigator.vibrate(12); } catch { /* no-op */ }
     }
 
-    if (newCount >= current.targetCount) {
+    if (hitTarget) {
       setCompletedSequences((prev) => new Set(prev).add(currentIndex));
       void hapticNotification("success");
       if (typeof navigator !== "undefined" && "vibrate" in navigator) {
@@ -185,7 +191,20 @@ export default function DhikrCounterClient() {
         }
       }, 700);
     }
-  }, [count, current, currentIndex, isLast, showOverlay]);
+  }, [current, currentIndex, isLast, showOverlay]);
+
+  // Unwedge: if the page was left inside the 700ms auto-advance window, the
+  // persisted session can hold count>=target on an already-completed index —
+  // leaving a dead "Complete" screen with a disabled counter. Advance it.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (current && count >= current.targetCount && !isLast) {
+        goToSequence(currentIndex + 1);
+      }
+    }, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time unwedge on mount
+  }, [current]);
 
   const handleReset = useCallback(() => {
     setCount(0);

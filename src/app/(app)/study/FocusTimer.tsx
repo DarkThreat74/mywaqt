@@ -27,10 +27,27 @@ export default function FocusTimer() {
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0); // stopwatch
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const secondsRef = useRef(seconds);
+  // Wall-clock anchors — setInterval throttles in a backgrounded tab or a
+  // locked phone, so decrementing per tick loses real minutes. Compute from
+  // Date.now() instead: the countdown is anchored to an absolute deadline.
+  const endsAtRef = useRef(0);      // pomodoro: ms timestamp the phase ends
+  const startedAtRef = useRef(0);   // stopwatch: ms timestamp of (re)start
+  const elapsedBaseRef = useRef(0); // stopwatch: seconds banked before resume
   const phaseRef = useRef(phase);
-  useEffect(() => { secondsRef.current = seconds; }, [seconds]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  function toggleRunning() {
+    play(running ? "pause" : "play");
+    if (!running) {
+      // Start/resume — anchor the wall clock
+      if (mode === "pomodoro") endsAtRef.current = Date.now() + seconds * 1000;
+      else startedAtRef.current = Date.now();
+    } else if (mode === "stopwatch") {
+      // Pause — bank the elapsed seconds so resume starts a fresh anchor
+      elapsedBaseRef.current += Math.floor((Date.now() - startedAtRef.current) / 1000);
+    }
+    setRunning((r) => !r);
+  }
 
   // Tick
   useEffect(() => {
@@ -40,21 +57,23 @@ export default function FocusTimer() {
     }
     intervalRef.current = setInterval(() => {
       if (mode === "stopwatch") {
-        setElapsed((e) => e + 1);
+        setElapsed(elapsedBaseRef.current + Math.floor((Date.now() - startedAtRef.current) / 1000));
         return;
       }
-      const s = secondsRef.current;
-      if (s > 1) {
-        setSeconds(s - 1);
+      const rem = Math.ceil((endsAtRef.current - Date.now()) / 1000);
+      if (rem > 0) {
+        setSeconds(rem);
         return;
       }
-      // Phase complete — switch work↔rest and notify
+      // Phase complete — switch work↔rest and notify, anchoring the new
+      // phase's deadline to now so a throttled burst can't double-flip.
       if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
       play("complete");
       const p = PRESETS[preset];
       const next = phaseRef.current === "work" ? "rest" : "work";
       setPhase(next);
       setSeconds(next === "work" ? p.work : p.rest);
+      endsAtRef.current = Date.now() + (next === "work" ? p.work : p.rest) * 1000;
     }, 1000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs carry the mutable countdown state
@@ -73,6 +92,7 @@ export default function FocusTimer() {
     setRunning(false);
     if (mode === "stopwatch") {
       setElapsed(0);
+      elapsedBaseRef.current = 0;
     } else {
       setPhase("work");
       setSeconds(PRESETS[preset].work);
@@ -161,7 +181,7 @@ export default function FocusTimer() {
             <RotateCcw className="h-4 w-4" />
           </button>
           <button
-            onClick={() => { play(running ? "pause" : "play"); setRunning((r) => !r); }}
+            onClick={toggleRunning}
             className="flex h-14 w-14 items-center justify-center rounded-full transition-opacity hover:opacity-90"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
             aria-label={running ? "Pause" : "Start"}
@@ -170,7 +190,11 @@ export default function FocusTimer() {
           </button>
           {mode === "pomodoro" && phase === "work" ? (
             <button
-              onClick={() => { play("check"); setSeconds((s) => s + 5 * 60); }}
+              onClick={() => {
+                play("check");
+                setSeconds((s) => s + 5 * 60);
+                if (running) endsAtRef.current += 5 * 60 * 1000;
+              }}
               className="flex h-11 w-11 items-center justify-center rounded-full border transition-colors hover:bg-[var(--color-paper-3)]"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
               aria-label="Add 5 minutes"

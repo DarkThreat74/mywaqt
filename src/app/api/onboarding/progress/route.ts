@@ -7,9 +7,11 @@ import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
+// "done" is deliberately absent — a crafted ?s=done could otherwise persist
+// step='done' server-side and erase the user's real resume point.
 const STEPS = new Set([
   "terms", "name", "avatar", "gender", "hayd", "theme", "location",
-  "madhab", "hifidh", "notifications", "install", "tour", "guide", "done",
+  "madhab", "hifidh", "notifications", "install", "tour", "guide",
 ]);
 
 /** POST — persist the wizard position so onboarding resumes after logout. */

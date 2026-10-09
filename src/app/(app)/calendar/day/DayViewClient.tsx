@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "reac
 import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff, Cake } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
+import { layoutOverlap } from "@/lib/calendar/overlap";
 import { useUISFX } from "@/components/uisfx-provider";
 import { getDisplayAsrTime, isFridayDate, type PrayerKey } from "@/lib/prayer/checkin";
 import { invalidateApiCache, removeOutboxItem } from "@/lib/sw-helpers";
@@ -865,90 +866,19 @@ export default function DayViewClient({ date }: { date: string }) {
   // the maximum concurrent events in its connected overlap cluster.
   // This replaces the old per-event width calculation that produced
   // inconsistent widths for partial overlaps (A-B-C chains).
-  const overlapLayout = useMemo(() => {
-    const layout = new Map<string, { colIndex: number; colCount: number }>();
-
-    // Sort by start time for deterministic ordering
-    const sorted = [...blockEvents].sort((a, b) => {
-      const aStart = timeToMinutes(isoToLocalTime(a.startAt));
-      const bStart = timeToMinutes(isoToLocalTime(b.startAt));
-      return aStart - bStart;
-    });
-
-    // Assign each event to a lane (column) using a greedy algorithm:
-    // For each event, find the first lane whose last event ends before
-    // this event starts. If none, create a new lane.
-    const lanes: Array<{ endTime: number }> = [];
-
-    for (const event of sorted) {
-      const start = timeToMinutes(isoToLocalTime(event.startAt));
-      let end = timeToMinutes(isoToLocalTime(event.endAt));
-      if (end <= start) end += 24 * 60;
-
-      let assignedLane = -1;
-      for (let i = 0; i < lanes.length; i++) {
-        if (lanes[i].endTime <= start) {
-          assignedLane = i;
-          break;
-        }
-      }
-      if (assignedLane === -1) {
-        assignedLane = lanes.length;
-        lanes.push({ endTime: 0 });
-      }
-      lanes[assignedLane].endTime = end;
-      layout.set(event.id, { colIndex: assignedLane, colCount: 0 });
-    }
-
-    // Now compute the max concurrent events (colCount) for each event.
-    // For each event, find all events that overlap it and take the max
-    // of their lane counts + 1.
-    for (const event of sorted) {
-      const start = timeToMinutes(isoToLocalTime(event.startAt));
-      let end = timeToMinutes(isoToLocalTime(event.endAt));
-      if (end <= start) end += 24 * 60;
-
-      // Count how many events overlap this one
-      let maxCols = 1;
-      for (const other of sorted) {
-        if (other.id === event.id) continue;
-        const oStart = timeToMinutes(isoToLocalTime(other.startAt));
-        let oEnd = timeToMinutes(isoToLocalTime(other.endAt));
-        if (oEnd <= oStart) oEnd += 24 * 60;
-        if (oStart < end && oEnd > start) {
-          maxCols = Math.max(maxCols, (layout.get(other.id)?.colIndex ?? 0) + 1);
-        }
-      }
-      const entry = layout.get(event.id);
-      if (entry) {
-        entry.colCount = Math.max(entry.colCount, maxCols);
-      }
-    }
-
-    // Normalize: ensure all events in the same overlap cluster share
-    // the same colCount (the max across the cluster)
-    for (const event of sorted) {
-      const start = timeToMinutes(isoToLocalTime(event.startAt));
-      let end = timeToMinutes(isoToLocalTime(event.endAt));
-      if (end <= start) end += 24 * 60;
-
-      let clusterMax = layout.get(event.id)?.colCount ?? 1;
-      for (const other of sorted) {
-        if (other.id === event.id) continue;
-        const oStart = timeToMinutes(isoToLocalTime(other.startAt));
-        let oEnd = timeToMinutes(isoToLocalTime(other.endAt));
-        if (oEnd <= oStart) oEnd += 24 * 60;
-        if (oStart < end && oEnd > start) {
-          clusterMax = Math.max(clusterMax, layout.get(other.id)?.colCount ?? 1);
-        }
-      }
-      const entry = layout.get(event.id);
-      if (entry) entry.colCount = clusterMax;
-    }
-
-    return layout;
+  const overlapLayout = useMemo(
+    () =>
+      layoutOverlap(
+        blockEvents.map((event) => {
+          const start = timeToMinutes(isoToLocalTime(event.startAt));
+          let end = timeToMinutes(isoToLocalTime(event.endAt));
+          if (end <= start) end += 24 * 60;
+          return { id: event.id, start, end };
+        }),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockEvents]);
+    [blockEvents],
+  );
 
   async function handleAddEvent(e: React.FormEvent) {
     e.preventDefault();
@@ -2787,13 +2717,16 @@ export default function DayViewClient({ date }: { date: string }) {
           existingStatus={prayerLogs.find((l) => l.prayerName === checkinPopup.prayer)?.status}
           onClose={() => setCheckinPopup(null)}
           onCheckedIn={(result) => {
-            // Update local prayer logs state
-            setPrayerLogs((prev) => {
-              const filtered = prev.filter((l) => l.prayerName !== checkinPopup.prayer);
-              return [...filtered, { prayerName: checkinPopup.prayer, status: result.status, wentToMasjid: result.wentToMasjid }];
-            });
+            // result.date can differ from the viewed date (post-midnight Isha
+            // logs to yesterday) — only repaint the grid when it matches.
+            if (result.date === date) {
+              setPrayerLogs((prev) => {
+                const filtered = prev.filter((l) => l.prayerName !== checkinPopup.prayer);
+                return [...filtered, { prayerName: checkinPopup.prayer, status: result.status, wentToMasjid: result.wentToMasjid }];
+              });
+            }
             // Update IndexedDB cache so the check-in persists across page navigations
-            upsertPrayerLogToCache(date, checkinPopup.prayer, result.status, result.wentToMasjid);
+            upsertPrayerLogToCache(result.date, checkinPopup.prayer, result.status, result.wentToMasjid);
             setCheckinPopup(null);
           }}
         />

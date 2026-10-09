@@ -15,7 +15,7 @@ export default async function LegacyPublicCalendarPage({
   // New 6-char codes are handled by /[name]/[code]/public — they never
   // match here. Anything arriving at this legacy route is an old link.
   // Still validate format to avoid rendering for garbage paths.
-  if (!token || (!/^[a-f0-9]{32}$/.test(token) && !/^\d{5}$/.test(token) && !/^[A-Z2-9]{6}$/.test(token))) {
+  if (!token || (!/^[a-f0-9]{32}$/.test(token) && !/^\d{5}$/.test(token) && !/^[A-Z2-9]{6,8}$/.test(token))) {
     return <ShareLinkExpired />;
   }
 

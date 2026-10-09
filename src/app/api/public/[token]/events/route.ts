@@ -74,7 +74,7 @@ export async function GET(
   const { token } = await params;
   // Token is a 6-char share code (unambiguous alphabet). Legacy 32-char hex
   // tokens are also accepted so existing shared links don't break.
-  if (!token || (!/^[A-Z2-9]{6}$/.test(token) && !/^[a-f0-9]{32}$/.test(token))) {
+  if (!token || (!/^[A-Z2-9]{6,8}$/.test(token) && !/^[a-f0-9]{32}$/.test(token))) {
     return NextResponse.json({ error: "Invalid link." }, { status: 400 });
   }
 
@@ -157,8 +157,9 @@ export async function GET(
         and(
           eq(schema.events.userId, user.id),
           eq(schema.events.sharePublic, true),
-          gte(schema.events.startAt, qFrom),
+          // Overlap semantics — overnight events ending inside the range count
           lte(schema.events.startAt, qTo),
+          gte(schema.events.endAt, qFrom),
         ),
       )
       .orderBy(schema.events.startAt)
@@ -168,7 +169,7 @@ export async function GET(
     const merged = [...events, ...blocks].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
     // no-store: visibility changes must apply immediately, no edge caching
-    const response = NextResponse.json(merged.map(mask));
+    const response = NextResponse.json({ timezone: user.timezone ?? "UTC", events: merged.map(mask) });
     response.headers.set("Cache-Control", "no-store");
     return response;
   }
@@ -219,8 +220,8 @@ export async function GET(
       and(
         eq(schema.events.userId, user.id),
         eq(schema.events.sharePublic, true),
-        gte(schema.events.startAt, qStart),
         lte(schema.events.startAt, qEnd),
+        gte(schema.events.endAt, qStart),
       ),
     )
     .orderBy(schema.events.startAt)
@@ -229,7 +230,7 @@ export async function GET(
   const blocks = await sharedBlocks(user.id, user.timezone ?? "UTC", dateStr, dateStr);
   const merged = [...events, ...blocks].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
-  const response = NextResponse.json(merged.map(mask));
+  const response = NextResponse.json({ timezone: user.timezone ?? "UTC", events: merged.map(mask) });
   response.headers.set("Cache-Control", "no-store");
   return response;
 }

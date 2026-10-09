@@ -550,8 +550,11 @@ export function syncHabitLogsToCache(logs: { id: string; habitId: string; date: 
     const db = getOfflineDB();
     db.habitLogs.clear().then(() =>
       db.habitLogs.bulkPut(
+        // Keyed by habitId_date to match toggleHabitLogInCache — keying by
+        // server id left toggle-off deleting a row that never existed and
+        // toggle-on inserting a duplicate.
         logs.map((l) => ({
-          id: l.id,
+          id: `${l.habitId}_${l.date}`,
           habitId: l.habitId,
           date: l.date,
           count: l.count,

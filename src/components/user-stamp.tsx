@@ -29,6 +29,16 @@ export default function UserStamp({ userId }: { userId: string }) {
       }
       localStorage.setItem("waqt:uid", userId);
     } catch { /* non-critical */ }
+
+    // Tell the SW which account owns this session — cookies are forbidden
+    // headers inside service workers, so the page-stamp match + API cache
+    // gate depend on this postMessage instead.
+    try {
+      navigator.serviceWorker?.controller?.postMessage({ type: "SET_SESSION", uid: userId });
+      navigator.serviceWorker?.ready?.then((reg) =>
+        reg.active?.postMessage({ type: "SET_SESSION", uid: userId })
+      ).catch(() => {});
+    } catch { /* non-critical */ }
   }, [userId]);
   return null;
 }

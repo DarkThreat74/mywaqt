@@ -54,8 +54,9 @@ const APP_PAGES = [
 
 // ─── IndexedDB helpers for offline event outbox ───
 const DB_NAME = "waqt-offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const OUTBOX_STORE = "event-outbox";
+const META_STORE = "meta";
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -65,9 +66,40 @@ function openDB() {
       if (!db.objectStoreNames.contains(OUTBOX_STORE)) {
         db.createObjectStore(OUTBOX_STORE, { keyPath: "id", autoIncrement: true });
       }
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, { keyPath: "key" });
+      }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      // Close when a page or another context asks to delete/upgrade the DB —
+      // otherwise deleteDatabase blocks forever and cross-account data leaks.
+      req.result.onversionchange = () => req.result.close();
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
+  });
+}
+
+// Key-value meta store: persists the uid + session flag across SW restarts.
+// Cookies are forbidden headers inside a SW, so the client posts these via
+// the SET_SESSION / CLEAR_USER_CACHE messages instead.
+async function getMeta(key) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(META_STORE, "readonly");
+    const req = tx.objectStore(META_STORE).get(key);
+    req.onsuccess = () => resolve(req.result ? req.result.value : null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function setMeta(key, value) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(META_STORE, "readwrite");
+    tx.objectStore(META_STORE).put({ key, value });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -134,6 +166,11 @@ async function syncOutbox() {
     const syncedPrefixes = new Set();
 
     for (const item of outbox) {
+      // A synced prayer-log write also changes derived state cached under
+      // /api/qadaa — bust it so counters don't serve pre-sync numbers.
+      if (item.pathname && item.pathname.startsWith("/api/prayer-log")) {
+        syncedPrefixes.add("/api/qadaa");
+      }
       try {
         // Add _offlineTimestamp to the body so the server can check windows
         // against when the action was originally performed, not sync time
@@ -224,6 +261,16 @@ async function warmCache() {
   isWarming = true;
   try {
     const cache = await caches.open(PAGE_CACHE);
+    // Prune stale page entries — every ?date= navigation writes one, and
+    // without a cap the cache grows forever. 14 days is plenty.
+    const PRUNE_AFTER = 14 * 24 * 60 * 60 * 1000;
+    for (const key of await cache.keys()) {
+      const res = await cache.match(key);
+      const cachedAt = Number(res?.headers.get("x-waqt-cached-at") || 0);
+      if (cachedAt && Date.now() - cachedAt > PRUNE_AFTER) {
+        await cache.delete(key);
+      }
+    }
     const results = await Promise.allSettled(
       APP_PAGES.map(async (page) => {
         const res = await fetch(page, {
@@ -264,10 +311,8 @@ self.addEventListener("install", (event) => {
       })
       .then(() => self.skipWaiting())
   );
-  // Warm cache in background — keep SW alive until it finishes
-  event.waitUntil(
-    warmCache().catch(() => {})
-  );
+  // NOTE: warmCache is NOT awaited here — blocking install on 7 page fetches
+  // leaves the new SW stuck "installing" on slow connections. Activate warms.
 });
 
 // ─── Enable navigation preload for instant page loads ───
@@ -375,12 +420,36 @@ async function bustApiCache(pathname) {
   }
 }
 
-// The account a navigation request belongs to — from the waqt-uid cookie set
-// at login (cleared at logout). Used to stamp-match cached pages.
-function requestUid(request) {
-  const cookie = request.headers.get("cookie") || "";
-  const m = /(?:^|;\s*)waqt-uid=([^;]+)/.exec(cookie);
-  return m ? decodeURIComponent(m[1]) : null;
+// The account a navigation request belongs to. Cookie headers are forbidden
+// inside a service worker — the value arrives via the SET_SESSION postMessage
+// (sent by UserStamp on mount) and is persisted in the meta store so it
+// survives SW restarts. Cached in memory for hot-path reads.
+let cachedUid = null;
+let uidLoaded = false;
+async function requestUid() {
+  if (uidLoaded) return cachedUid;
+  try {
+    cachedUid = await getMeta("uid");
+  } catch {
+    cachedUid = null;
+  }
+  uidLoaded = true;
+  return cachedUid;
+}
+
+// Whether a live session flag was posted. Cached private API responses must
+// never be served to an unauthenticated session.
+let cachedSession = null;
+let sessionLoaded = false;
+async function hasSession() {
+  if (sessionLoaded) return cachedSession === true;
+  try {
+    cachedSession = (await getMeta("hasSession")) === true;
+  } catch {
+    cachedSession = false;
+  }
+  sessionLoaded = true;
+  return cachedSession;
 }
 
 // Serve a cached page only if it was rendered for THIS account. Cached HTML
@@ -539,6 +608,10 @@ self.addEventListener("fetch", (event) => {
           // this change optimistically, so a stale cached list (e.g. still
           // showing a deleted event or an unmarked prayer) must not resurface.
           await bustApiCache(url.pathname);
+          // Offline prayer-log writes change the derived qadaa counter too.
+          if (url.pathname.startsWith("/api/prayer-log")) {
+            await bustApiCache("/api/qadaa");
+          }
           broadcastOutboxCount();
 
           // Notify client that the write was queued offline
@@ -836,7 +909,7 @@ self.addEventListener("fetch", (event) => {
         } catch {
           // Network failed — fall back to cache (keyed by full URL), but only
           // if the cached page was rendered for the account in this request.
-          const uid = requestUid(request);
+          const uid = await requestUid();
           const cached = await matchStampedPage(pageCache, cacheKey, uid);
           if (cached) return cached;
 
@@ -898,14 +971,21 @@ self.addEventListener("fetch", (event) => {
       return 5 * 60 * 1000;                                                          // 5 minutes default
     })();
 
-    // Never serve cached private data to an unauthenticated request — the
-    // API cache must not outlive the session it was fetched under.
-    if (!/waqt-session=[^;]+/.test(request.headers.get("cookie") || "")) {
-      return; // let the browser hit the network → 401
-    }
-
     event.respondWith(
       (async () => {
+        // Never serve cached private data to an unauthenticated request — the
+        // API cache must not outlive the session it was fetched under. Cookie
+        // headers are unreadable in a SW, so the flag lives in the meta store,
+        // posted by the client at login (SET_SESSION) and cleared at logout.
+        // (respondWith must be called synchronously, so the check lives here —
+        // a missing flag passes the request straight to the network.)
+        if (!(await hasSession())) {
+          return timedFetch(request, 8000).catch(
+            () => new Response(JSON.stringify({ error: "offline" }), {
+              status: 503, headers: { "Content-Type": "application/json" },
+            })
+          );
+        }
         const cache = await caches.open(API_CACHE);
         const cached = await cache.match(request);
         if (cached) {
@@ -1110,14 +1190,36 @@ self.addEventListener("message", (event) => {
       })()
     );
   }
+  if (event.data && event.data.type === "SET_SESSION") {
+    // Client posts the signed-in uid + a session flag (cookies are unreadable
+    // in a SW). Persisted so stamp-matching + the API cache gate survive
+    // service-worker restarts.
+    const uid = typeof event.data.uid === "string" ? event.data.uid : null;
+    event.waitUntil(
+      (async () => {
+        cachedUid = uid;
+        cachedSession = !!uid;
+        uidLoaded = true;
+        sessionLoaded = true;
+        if (uid) {
+          await setMeta("uid", uid);
+          await setMeta("hasSession", true);
+        }
+      })().catch(() => {})
+    );
+  }
   if (event.data && event.data.type === "CLEAR_USER_CACHE") {
     // Clear user-specific caches on logout (keep STATIC_CACHE — shared assets)
     // Note: AUDIO_CACHE is kept — offline talks are shared content, not user-specific
+    cachedUid = null;
+    cachedSession = false;
     event.waitUntil(
       Promise.all([
         caches.delete(API_CACHE).catch(() => {}),
         caches.delete(PAGE_CACHE).catch(() => {}),
         caches.delete(RUNTIME_CACHE).catch(() => {}),
+        setMeta("uid", null).catch(() => {}),
+        setMeta("hasSession", false).catch(() => {}),
       ])
     );
   }

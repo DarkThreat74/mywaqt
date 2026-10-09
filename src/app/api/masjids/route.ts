@@ -711,7 +711,11 @@ export async function POST(request: NextRequest) {
   }
 
   const b = body as Record<string, unknown>;
-  const masjidId = typeof b.masjidId === "string" && b.masjidId.length <= 200 ? b.masjidId : null;
+  // masjidId must use a real source prefix — an arbitrary string would let a
+  // submission squat on (and poison the overlay for) any masjid id.
+  // ponytail: no geo-verification that the submitted lat/lng matches the
+  // canonical masjid; a determined user can still mislabel times.
+  const masjidId = typeof b.masjidId === "string" && /^(ia|mq|osm|pt):[A-Za-z0-9_./-]{1,140}$/.test(b.masjidId) ? b.masjidId : null;
   const name = typeof b.name === "string" && b.name.trim().length > 0 && b.name.length <= 200 ? b.name.trim() : null;
   const lat = typeof b.lat === "number" && b.lat >= -90 && b.lat <= 90 ? b.lat : null;
   const lng = typeof b.lng === "number" && b.lng >= -180 && b.lng <= 180 ? b.lng : null;

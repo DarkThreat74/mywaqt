@@ -288,6 +288,28 @@ async function processUserBatch(
     subscriptionMap.get(sub.userId)!.push(sub);
   }
 
+  // Batch 6b: hayd periods overlapping any user's "yesterday" — those days
+  // resolve as excused, not assumed_prayed (the obligation was lifted).
+  const yestList = Array.from(yesterdayDates).sort();
+  const batchHayd = await db
+    .select({
+      userId: schema.haydPeriods.userId,
+      startDate: schema.haydPeriods.startDate,
+      endDate: schema.haydPeriods.endDate,
+    })
+    .from(schema.haydPeriods)
+    .where(
+      and(
+        inArray(schema.haydPeriods.userId, userIds),
+        lte(schema.haydPeriods.startDate, yestList[yestList.length - 1]),
+      ),
+    );
+  const haydMap = new Map<string, typeof batchHayd>();
+  for (const p of batchHayd) {
+    if (!haydMap.has(p.userId)) haydMap.set(p.userId, []);
+    haydMap.get(p.userId)!.push(p);
+  }
+
   // Batch 7: birthdays — reminder offsets matched against each user's local today.
   const batchBirthdays = await db
     .select()
@@ -305,11 +327,15 @@ async function processUserBatch(
       const userNow = userNowAsLocalDate(s.timezone).now;
       const { today, yesterdayStr } = userNowAsLocalDate(s.timezone);
 
-      // 1. Resolve yesterday's unmarked prayers as assumed_prayed
-      const resolveStatus = "assumed_prayed" as const;
+      // 1. Resolve yesterday's unmarked prayers — excused on hayd days (the
+      //    obligation was lifted), assumed_prayed otherwise.
+      const haydCovered = (haydMap.get(s.userId) ?? []).some(
+        (p) => p.startDate <= yesterdayStr && (!p.endDate || p.endDate >= yesterdayStr),
+      );
+      const resolveStatus = (haydCovered ? "excused" : "assumed_prayed") as "assumed_prayed" | "excused";
       const yesterdayCached = cachedTimesMap.get(s.userId)?.get(yesterdayStr);
-      if (yesterdayCached) {
-        const yesterdayTimings = {
+      {
+        const yesterdayTimings = yesterdayCached && {
           fajr: yesterdayCached.fajr,
           sunrise: yesterdayCached.sunrise,
           dhuhr: yesterdayCached.dhuhr,
@@ -331,10 +357,17 @@ async function processUserBatch(
         }> = [];
 
         for (const prayerName of prayers) {
-          const window = getPrayerWindow(prayerName, yesterdayTimings);
-          // Pass yesterdayStr so isWindowClosed checks against yesterday's window,
-          // not today's. This fixes the bug where midnight cron thought windows hadn't closed.
-          if (!isWindowClosed(window, userNow, yesterdayStr)) continue;
+          // With cached times, only resolve prayers whose window has closed.
+          // Without them (cache gap) the date is fully over for the user —
+          // resolve anyway so pending rows never linger forever. Over-
+          // resolving is safe: the check-in route lets the user overwrite
+          // assumed_prayed/excused with prayed or missed.
+          if (yesterdayTimings) {
+            const window = getPrayerWindow(prayerName, yesterdayTimings);
+            // Pass yesterdayStr so isWindowClosed checks against yesterday's window,
+            // not today's. This fixes the bug where midnight cron thought windows hadn't closed.
+            if (!isWindowClosed(window, userNow, yesterdayStr)) continue;
+          }
 
           const existingLog = pendingLogsMap.get(s.userId)?.get(yesterdayStr)?.get(prayerName);
           if (existingLog) {

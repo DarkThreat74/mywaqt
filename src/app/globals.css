@@ -201,6 +201,13 @@ html[data-shell="bare"] main#main-content {
   padding-bottom: 0 !important;
 }
 
+/* Any mounted modal locks background scroll — otherwise iOS rubber-bands the
+   page behind sheets. Keys on aria-modal (true modals) not role=dialog, so
+   non-modal popovers like the soundscape panel and toasts don't lock. */
+html:has([aria-modal="true"]) body {
+  overflow: hidden;
+}
+
 /* Prevent 300ms tap delay on touch devices */
 button,
 a,

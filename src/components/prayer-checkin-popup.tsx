@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Check, X, Loader2, MapPin } from "lucide-react";
-import { shouldShowMasjidQuestion, getPrayerWindowState, getPrayerWindowStart, isFridayDate, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
+import { shouldShowMasjidQuestion, getPrayerWindowState, getPrayerWindowStart, isFridayDate, parseMinutes, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
 import { getSunnahsForFard, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { useUISFX } from "@/components/uisfx-provider";
 import { invalidateApiCache } from "@/lib/sw-helpers";
@@ -17,7 +17,7 @@ interface PrayerCheckinPopup {
   madhab?: string;
   timings: PrayerTimings;
   onClose: () => void;
-  onCheckedIn: (result: { status: string; wentToMasjid: boolean | null }) => void;
+  onCheckedIn: (result: { status: string; wentToMasjid: boolean | null; date: string }) => void;
   existingStatus?: string;
 }
 
@@ -43,7 +43,7 @@ export default function PrayerCheckinPopup({
   // Saved check-in result, set once the fard POST succeeds. Every close path
   // (backdrop, X, Done) must report it to the parent — otherwise the prayer
   // stays unmarked in the UI even though the server recorded it.
-  const [checkinResult, setCheckinResult] = useState<{ status: string; wentToMasjid: boolean | null } | null>(null);
+  const [checkinResult, setCheckinResult] = useState<{ status: string; wentToMasjid: boolean | null; date: string } | null>(null);
   // Next upcoming study block today — shown as a quiet line, not a notification
   const [nextBlock, setNextBlock] = useState<{ label: string; at: string } | null>(null);
 
@@ -82,6 +82,17 @@ export default function PrayerCheckinPopup({
   const alreadyPrayed = existingStatus === "prayed" || existingStatus === "assumed_prayed";
   const isExcused = existingStatus === "excused";
 
+  // Post-midnight attribution: before Fajr, Isha's window is still open but
+  // the prayer belongs to YESTERDAY's log — writing to today's isha row would
+  // make today look prayed and orphan yesterday's record.
+  const logDate = (() => {
+    if (prayer !== "isha" || date !== todayInTz) return date;
+    if (currentMinutes >= parseMinutes(timings.fajr)) return date;
+    const d = new Date(`${todayInTz}T12:00:00`);
+    d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+
   // On Fridays Dhuhr is presented as Jumu'ah. Praying Jumu'ah is recorded as
   // dhuhr + wentToMasjid, so the masjid-attendance stats count it correctly.
   const isJumuah = prayer === "dhuhr" && isFridayDate(date);
@@ -106,7 +117,7 @@ export default function PrayerCheckinPopup({
     if (sunnahDefs.length === 0) return;
     (async () => {
       try {
-        const res = await fetch(`/api/prayer-log/sunnah?date=${date}`);
+        const res = await fetch(`/api/prayer-log/sunnah?date=${logDate}`);
         if (res.ok) {
           const data = await res.json().catch(() => []);
           if (!Array.isArray(data)) return;
@@ -120,7 +131,7 @@ export default function PrayerCheckinPopup({
         // ignore
       }
     })();
-  }, [date, sunnahDefs.length]);
+  }, [date, logDate, sunnahDefs.length]);
 
   // Fetch today's study blocks once — only when viewing today
   useEffect(() => {
@@ -162,7 +173,7 @@ export default function PrayerCheckinPopup({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          date,
+          date: logDate,
           prayerName: prayer,
           status: "prayed",
           wentToMasjid: wentToMasjid,
@@ -176,14 +187,14 @@ export default function PrayerCheckinPopup({
         // row fields — synthesize the result from the request so the UI marks
         // the prayer immediately instead of looking like the tap failed.
         const result = data.offline
-          ? { status: "prayed", wentToMasjid }
-          : { status: data.status, wentToMasjid: data.wentToMasjid };
+          ? { status: "prayed", wentToMasjid, date: logDate }
+          : { status: data.status, wentToMasjid: data.wentToMasjid, date: logDate };
         // The friend who nudged you gets thanked — surface the dua prompt.
         // Offline checkins skip this: the SW replays the POST and the reminder
         // is stamped answered_at server-side, but there's no live toast then.
         if (!data.offline && Array.isArray(data.thanksDue) && data.thanksDue.length > 0) {
           window.dispatchEvent(new CustomEvent("waqt:dua-due", {
-            detail: { senders: data.thanksDue, prayerName: prayer, date },
+            detail: { senders: data.thanksDue, prayerName: prayer, date: logDate },
           }));
         }
         play("check");
@@ -191,7 +202,7 @@ export default function PrayerCheckinPopup({
         // Every status-bearing surface refetches — prayer dashboard, day view,
         // friend dots. Remote friends see it via their own polling/push.
         window.dispatchEvent(new CustomEvent("waqt:prayer-updated", {
-          detail: { date, prayerName: prayer },
+          detail: { date: logDate, prayerName: prayer },
         }));
         // Only show sunnah step if:
         // 1. There are sunnahs for this prayer
@@ -210,7 +221,7 @@ export default function PrayerCheckinPopup({
         const data = await res.json().catch(() => ({}));
         // 409 on a hayd-covered day — show the day as excused in the UI too
         if (data.excused) {
-          onCheckedIn({ status: "excused", wentToMasjid: null });
+          onCheckedIn({ status: "excused", wentToMasjid: null, date: logDate });
           return;
         }
         setError(data.error || "Failed to check in.");
@@ -233,13 +244,16 @@ export default function PrayerCheckinPopup({
       const res = await fetch("/api/prayer-log/checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, prayerName: prayer, status: "excused" }),
+        body: JSON.stringify({ date: logDate, prayerName: prayer, status: "excused" }),
       });
       if (res.ok) {
         invalidateApiCache("/api/prayer-log");
         play("check");
         void hapticNotification("success");
-        onCheckedIn({ status: "excused", wentToMasjid: null });
+        window.dispatchEvent(new CustomEvent("waqt:prayer-updated", {
+          detail: { date: logDate, prayerName: prayer },
+        }));
+        onCheckedIn({ status: "excused", wentToMasjid: null, date: logDate });
       } else {
         const data = await res.json().catch(() => ({}));
         setError(data.error || "Failed to mark excused.");
@@ -260,12 +274,12 @@ export default function PrayerCheckinPopup({
       const res = await fetch("/api/prayer-log/sunnah", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, sunnahKey: sunnah.key, prayed: !isLogged }),
+        body: JSON.stringify({ date: logDate, sunnahKey: sunnah.key, prayed: !isLogged }),
       });
       if (res.ok) {
         invalidateApiCache("/api/prayer-log");
         setSunnahLogs((prev) => ({ ...prev, [sunnah.key]: !isLogged }));
-        upsertSunnahLogToCache(date, sunnah.key, !isLogged);
+        upsertSunnahLogToCache(logDate, sunnah.key, !isLogged);
         void hapticImpact("light");
       } else {
         const data = await res.json().catch(() => ({}));
@@ -302,7 +316,7 @@ export default function PrayerCheckinPopup({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        date,
+        date: logDate,
         prayerName: prayer,
         status: "pending",
         wentToMasjid: false,
@@ -322,7 +336,10 @@ export default function PrayerCheckinPopup({
         invalidateApiCache("/api/prayer-log");
         play("undo");
         void hapticImpact("light");
-        onCheckedIn({ status: "pending", wentToMasjid: null });
+        window.dispatchEvent(new CustomEvent("waqt:prayer-updated", {
+          detail: { date: logDate, prayerName: prayer },
+        }));
+        onCheckedIn({ status: "pending", wentToMasjid: null, date: logDate });
       })
       .catch(() => {
         setError("Network error.");
@@ -333,7 +350,7 @@ export default function PrayerCheckinPopup({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[95] flex items-center justify-center p-4"
       style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
       onClick={close}
     >
@@ -719,7 +736,7 @@ export default function PrayerCheckinPopup({
             </div>
 
             <button
-              onClick={() => onCheckedIn(checkinResult ?? { status: "prayed", wentToMasjid: null })}
+              onClick={() => onCheckedIn(checkinResult ?? { status: "prayed", wentToMasjid: null, date: logDate })}
               className="min-h-11 w-full rounded-lg border py-2.5 text-sm font-medium transition-colors"
               style={{
                 borderColor: "var(--color-paper-3)",

@@ -258,7 +258,7 @@ function TourVisual({ kind }: { kind: TourVisualKind }) {
 
 const DRAFT_KEY = "waqt:onboarding-draft";
 
-export default function OnboardingWizard() {
+export default function OnboardingWizard({ userId }: { userId?: string }) {
   // The resume step comes from ?s= — a client-only read. Rendering before
   // mount would SSR "terms" then hydrate a different step (mismatch error),
   // so the wizard paints nothing until it's running client-side.
@@ -345,7 +345,9 @@ export default function OnboardingWizard() {
   // localStorage. Reload, sign-out, device sleep mid-flow: the wizard comes
   // back with everything filled in. Cleared on completion.
   const hydratedRef = useRef(false);
-  const userIdRef = useRef<string | null>(null);
+  // The server passes the session id as a prop — a failed /api/profile fetch
+  // can never leave this null and break the done-key guard.
+  const userIdRef = useRef<string | null>(userId ?? null);
   useEffect(() => {
     // Deferred — a synchronous setState in the effect body trips the
     // cascading-render lint; a microtask still lands before user input.
@@ -357,10 +359,13 @@ export default function OnboardingWizard() {
       try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "null"); } catch { /* corrupt */ }
       // Fail closed: a draft carrying a uid only applies to that account. A
       // failed profile fetch (knownUid null) must not apply another user's
-      // draft on a shared device.
-      if (draft && typeof draft.uid === "string" && draft.uid !== knownUid) {
+      // draft on a shared device — but it must also not DELETE the draft:
+      // one flaky request would otherwise destroy the owner's saved input.
+      if (draft && typeof draft.uid === "string" && knownUid !== null && draft.uid !== knownUid) {
         draft = null;
         try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+      } else if (draft && typeof draft.uid === "string" && knownUid === null) {
+        draft = null; // can't prove ownership — don't apply, don't destroy
       }
       // Deferred — hydration setStates must not run synchronously in the effect.
       // Every restore is a functional update that keeps the current value when
@@ -541,6 +546,14 @@ export default function OnboardingWizard() {
   }
 
   async function saveMadhab() {
+    // Resuming on a different device leaves lat/lng null (the draft lives in
+    // localStorage on the first device). Send the user back to location
+    // instead of crashing on the non-null assertion below.
+    if (lat === null || lng === null) {
+      setStep("location");
+      setError("Pick your location first — it didn't carry over from your other device.");
+      return;
+    }
     setPending(true);
     setError(null);
     try {
@@ -548,8 +561,8 @@ export default function OnboardingWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          latitude: lat!.toString(),
-          longitude: lng!.toString(),
+          latitude: lat.toString(),
+          longitude: lng.toString(),
           timezone,
           madhab,
           gender,
@@ -880,12 +893,13 @@ export default function OnboardingWizard() {
                       setNameHint("Someone already shares that first name — add your last name so friends can tell you apart.");
                       return;
                     }
-                    if (d.fullTaken && !middleInitial.trim()) {
-                      setNameHint("That exact name is taken — a middle initial separates you (or skip it and we'll add digits).");
+                    if (d.fullTaken && !middleInitial.trim() && !nameHint) {
+                      setNameHint("That exact name is taken — a middle initial separates you (or press Continue again and we'll add digits).");
                       return;
                     }
                     if (d.fullTaken && d.suggested) {
-                      // Still colliding after middle initial — auto-append digits.
+                      // Second Continue (or a middle initial that still
+                      // collides) — auto-append the suggested digits and go.
                       setLastName((v) => `${v.trim()} ${d.suggested}`.trim());
                     }
                   }
@@ -1155,7 +1169,7 @@ export default function OnboardingWizard() {
                 )}
                 <ul className="mt-2 overflow-hidden rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
                   {locResults.map((r, i) => (
-                    <li key={r.display_name} style={i > 0 ? { borderTop: "1px solid var(--color-paper-3)" } : undefined}>
+                    <li key={`${r.display_name}|${r.lat}|${r.lon}`} style={i > 0 ? { borderTop: "1px solid var(--color-paper-3)" } : undefined}>
                       <button
                         onClick={() => void pickManualLocation(r)}
                         className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors hover:bg-[var(--color-paper-2)]"

@@ -124,8 +124,12 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    if (!body.id) {
-      return NextResponse.json({ error: "Class ID is required" }, { status: 400 });
+    if (!body.id || !isValidUUID(body.id)) {
+      return NextResponse.json({ error: "Valid class ID is required" }, { status: 400 });
+    }
+    // Reject non-boolean archived — Postgres would coerce odd truthy values
+    if (body.archived !== undefined && typeof body.archived !== "boolean") {
+      return NextResponse.json({ error: "archived must be a boolean" }, { status: 400 });
     }
 
     // Verify ownership
@@ -184,8 +188,8 @@ export async function DELETE(request: NextRequest) {
 
     const url = new URL(request.url);
     const id = url.searchParams.get("id");
-    if (!id) {
-      return NextResponse.json({ error: "Class ID is required" }, { status: 400 });
+    if (!id || !isValidUUID(id)) {
+      return NextResponse.json({ error: "Valid class ID is required" }, { status: 400 });
     }
 
     // Verify ownership + delete with userId in WHERE

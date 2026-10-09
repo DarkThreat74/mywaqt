@@ -107,6 +107,12 @@ export function beginIntake(input: Omit<SessionPlanInput, "method">, blockId?: s
   emit();
 }
 
+/** Planning failure path — land back on the intake sheet (inputs intact)
+ *  rather than silently dumping to idle and discarding what was typed. */
+function backToIntake(input: Omit<SessionPlanInput, "method">, blockId?: string) {
+  beginIntake(input, blockId);
+}
+
 /** Textbook pacing — one study segment per page plus a short eyes-off break
  *  every 5 pages. Leftover block time becomes a review/finish segment. */
 function textbookPlan(minutes: number, pace: { pages: number; minPerPage: number }, title: string): StudySegment[] {
@@ -141,10 +147,12 @@ export async function planSession(input: SessionPlanInput, blockId?: string) {
   // Textbook pacing is deterministic — planned on-device, no round-trip.
   if (input.method === "textbook" && input.pagePace) {
     const segments = textbookPlan(input.minutes, input.pagePace, input.assignments[0]?.title || "Textbook");
-    state = segments.length > 0
-      ? { status: "planned", segments, titles: input.assignments.map((a) => a.title), blockId, planInput: input }
-      : { status: "idle" };
-    emit();
+    if (segments.length > 0) {
+      state = { status: "planned", segments, titles: input.assignments.map((a) => a.title), blockId, planInput: input };
+      emit();
+    } else {
+      backToIntake(input, blockId);
+    }
     return;
   }
   try {
@@ -180,10 +188,12 @@ export async function planSession(input: SessionPlanInput, blockId?: string) {
         planInput: input,
       };
     } else {
-      state = { status: "idle" };
+      backToIntake(input, blockId);
+      return;
     }
   } catch {
-    state = { status: "idle" };
+    backToIntake(input, blockId);
+    return;
   }
   emit();
 }
@@ -350,8 +360,10 @@ export function mergeSessionHistory(rows: SessionEntry[]): SessionEntry[] {
 export function todayFocusMinutes(): number {
   const today = new Date().toDateString();
   return getDiscipline().history
-    .filter((e) => e.finished && new Date(e.date).toDateString() === today)
-    .reduce((s, e) => s + (e.minutes || 0), 0);
+    // "YYYY-MM-DD" parses as UTC midnight — in UTC− zones .toDateString()
+    // lands on the previous day. Noon anchor keeps the date in local time.
+    .filter((e) => e.finished && new Date(e.date + "T12:00:00").toDateString() === today)
+    .reduce((s, e) => s + (e.focusMin ?? e.minutes ?? 0), 0);
 }
 
 export function runningBlockId(): string | undefined {
@@ -366,7 +378,10 @@ export function extendSession(minutes = 5, label = "Finish up") {
   const segments = [...state.segments, { kind: "study" as const, minutes, label }];
   const priorSec = segments.slice(0, -1).reduce((s, x) => s + x.minutes * 60, 0);
   const elapsedSec = Math.min(runningElapsedSec(), priorSec);
-  state = { ...state, segments, startedAt: Date.now() - elapsedSec * 1000, pausedAt: null, pausedMs: 0 };
+  // Preserve pause state — extending must not silently resume a session the
+  // user parked. Fold the paused span into startedAt so the math stays true.
+  const pauseMs = state.pausedMs + (state.pausedAt ? Date.now() - state.pausedAt : 0);
+  state = { ...state, segments, startedAt: Date.now() - elapsedSec * 1000 - pauseMs };
   emit();
 }
 

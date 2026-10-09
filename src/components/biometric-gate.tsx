@@ -17,8 +17,12 @@ import {
  * enrolled), the gate is skipped so the user is not locked out.
  */
 export default function BiometricGate({ children }: { children: React.ReactNode }) {
-  const [verified, setVerified] = useState(!isNativeApp());
-  const [loading, setLoading] = useState(isNativeApp());
+  // SSR renders isNativeApp()=false (no window) while the native client gets
+  // true — initializing state from it would hydration-mismatch and flash app
+  // content on the shell. Start verified and let the mount effect drop the
+  // gate in; on native the app shows for one frame before locking.
+  const [verified, setVerified] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   // Use a ref to track verified state so the appStateChange callback
   // always sees the current value, not a stale closure capture.
@@ -45,6 +49,11 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
 
     const timer = setTimeout(() => {
       if (!mounted) return;
+      // Engage the gate now that we know we're in the native shell — inside
+      // the timer so it isn't a synchronous setState-in-effect.
+      setVerified(false);
+      verifiedRef.current = false;
+      setLoading(true);
       checkBiometricAvailability().then((result) => {
         if (!mounted) return;
         setBiometricAvailable(result.available);

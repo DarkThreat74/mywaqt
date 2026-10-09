@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -74,6 +74,22 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "accept") {
+    // A block in EITHER direction vetoes the accept — otherwise a blocked
+    // requester could be re-friended and regain messaging + status access.
+    const [block] = await db
+      .select({ id: schema.prayerBlocks.id })
+      .from(schema.prayerBlocks)
+      .where(
+        or(
+          and(eq(schema.prayerBlocks.userId, session.userId), eq(schema.prayerBlocks.blockedUserId, friendReq.userId)),
+          and(eq(schema.prayerBlocks.userId, friendReq.userId), eq(schema.prayerBlocks.blockedUserId, session.userId)),
+        ),
+      )
+      .limit(1);
+    if (block) {
+      return NextResponse.json({ error: "Cannot accept this request." }, { status: 403 });
+    }
+
     // Cap accepted friends at 100 for both parties — bounds fan-out
     const [myCount, theirCount] = await Promise.all([
       db

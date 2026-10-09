@@ -309,14 +309,29 @@ function fallbackPlan(
 /** Rebalance so segment minutes sum exactly to the block's minutes. */
 function normalizeTotal(segments: Segment[], minutes: number): Segment[] {
   const total = segments.reduce((s, x) => s + x.minutes, 0);
-  if (total === minutes) return segments;
   const diff = minutes - total;
-  // Adjust the last study segment; create a study segment if none exists.
-  for (let i = segments.length - 1; i >= 0; i--) {
-    if (segments[i].kind === "study") {
-      segments[i] = { ...segments[i], minutes: Math.max(1, segments[i].minutes + diff) };
-      return segments;
+  if (diff === 0) return segments;
+  if (diff > 0) {
+    // Undershoot — extend the last study segment (or create one).
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (segments[i].kind === "study") {
+        segments[i] = { ...segments[i], minutes: segments[i].minutes + diff };
+        return segments;
+      }
     }
+    return [...segments, { kind: "study", minutes: diff, label: "Study" }];
   }
-  return [...segments, { kind: "study", minutes: Math.max(1, diff), label: "Study" }];
+  // Overshoot — shrink study segments back-to-front (1-min floor each) until
+  // balanced. Dumping the whole deficit on one segment could clamp it to 1
+  // and still leave the plan minutes over the block.
+  let excess = -diff;
+  for (let i = segments.length - 1; i >= 0 && excess > 0; i--) {
+    if (segments[i].kind !== "study") continue;
+    const cut = Math.min(excess, segments[i].minutes - 1);
+    segments[i] = { ...segments[i], minutes: segments[i].minutes - cut };
+    excess -= cut;
+  }
+  // ponytail: if every study segment bottoms out at 1 min the plan can still
+  // over-run the block — extremely rare (model plan ≫ block); acceptable.
+  return segments;
 }

@@ -23,5 +23,5 @@ export default async function OnboardingPage() {
 
   if (u?.onboardingCompleted) redirect("/calendar/day");
 
-  return <OnboardingWizard />;
+  return <OnboardingWizard userId={session.userId} />;
 }

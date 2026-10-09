@@ -163,16 +163,31 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const passwordHash = await bcrypt.hash(password, 10);
+      // Consume the token atomically FIRST — a concurrent reset with the same
+      // link must find it already used. (SELECT-then-UPDATE had a TOCTOU gap.)
       const now = new Date();
+      const [consumed] = await db
+        .update(schema.passwordResetTokens)
+        .set({ usedAt: now })
+        .where(
+          and(
+            eq(schema.passwordResetTokens.id, row.id),
+            isNull(schema.passwordResetTokens.usedAt),
+          ),
+        )
+        .returning({ id: schema.passwordResetTokens.id });
+      if (!consumed) {
+        return NextResponse.json(
+          { error: "This reset link is invalid or has expired." },
+          { status: 400 },
+        );
+      }
 
-      // Mark token used, set new password, invalidate all existing sessions,
-      // and revoke trusted devices — a real recovery, not just a password swap.
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      // Set new password, invalidate all existing sessions, and revoke
+      // trusted devices — a real recovery, not just a password swap.
       await Promise.all([
-        db
-          .update(schema.passwordResetTokens)
-          .set({ usedAt: now })
-          .where(eq(schema.passwordResetTokens.id, row.id)),
         db
           .update(schema.users)
           .set({ passwordHash, sessionsValidAfter: now })

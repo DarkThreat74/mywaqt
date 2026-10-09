@@ -178,13 +178,14 @@ export default function MatchView({
   function guess(n: number) {
     if (picked !== null || !verse || !st?.round) return;
     setPicked(n);
-    const correct = n === verse.s;
     // eslint-disable-next-line react-hooks/purity -- event handler: measuring answer latency is the point
     const ms = Math.round(Date.now() - shownAtRef.current);
     sentRef.current.answered = st.round.n;
     fetch(`/api/quran/match/${matchId}/answer`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ round: st.round.n, correct, ms }),
+      // The server judges correctness from `pick` — a self-reported
+      // `correct` boolean would be farmable.
+      body: JSON.stringify({ round: st.round.n, pick: n, ms }),
     }).catch(() => {});
   }
 

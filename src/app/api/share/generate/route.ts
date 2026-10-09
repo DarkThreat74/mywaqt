@@ -9,12 +9,13 @@ import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
 
-// Generate a short 6-character share code using an unambiguous alphabet
-// (no I, O, 0, 1). 32^6 ≈ 1 billion possibilities — collision-resistant at
-// 100k users with a DB uniqueness check. The code is URL-friendly and
-// easy to share verbally.
+// Generate a short share code using an unambiguous alphabet
+// (no I, O, 0, 1). 8 chars → 32^8 ≈ 1 trillion possibilities: unguessable
+// even under distributed brute-force (public routes are rate-limited per
+// IP, but a 6-char code's ~1B space was enumerable in theory). Legacy
+// 6-char codes keep working — the validators accept both lengths.
 const SHARE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const SHARE_CODE_LENGTH = 6;
+const SHARE_CODE_LENGTH = 8;
 
 function generateShareCode(): string {
   let code = "";

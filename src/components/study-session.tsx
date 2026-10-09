@@ -20,6 +20,8 @@ import { useAudioPlayer } from "@/components/audio-player-context";
 import { SoundscapePanel } from "@/components/soundscape-indicator";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
 import Refocus from "@/app/(app)/study/Refocus";
+import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { wallClockToUtc, dateStrInTimezone } from "@/lib/timezone";
 import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
@@ -31,14 +33,21 @@ import {
 } from "@/lib/study/session";
 
 let audioCtx: AudioContext | null = null;
+// Stable server snapshot — a fresh object per call can loop hydration errors.
+const IDLE_SNAPSHOT = { status: "idle" } as ReturnType<typeof getSession>;
 // Soft chime rather than a raw beep — fast attack, exponential decay, and a
 // quiet octave-up partial so it reads as a struck bell, not an alarm.
 function beep(freq = 880, dur = 0.12, vol = 0.12) {
   try {
     audioCtx ??= new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    // iOS keeps the context suspended until a resume — without this every
-    // beep silently no-ops on Safari.
-    if (audioCtx.state === "suspended") void audioCtx.resume().catch(() => {});
+    // iOS keeps the context suspended until a resume — and refuses a resume
+    // issued outside a user gesture, so retry on the next tap/keypress too.
+    if (audioCtx.state === "suspended") {
+      void audioCtx.resume().catch(() => {});
+      const retry = () => { void audioCtx?.resume().catch(() => {}); };
+      window.addEventListener("pointerdown", retry, { once: true });
+      window.addEventListener("keydown", retry, { once: true });
+    }
     const t = audioCtx.currentTime;
     const g = audioCtx.createGain();
     g.gain.setValueAtTime(0.0001, t);
@@ -190,7 +199,7 @@ function saveStudiedPicks(blockId: string, hwList: { id: string }[], picks: Set<
 }
 
 export default function StudySession() {
-  const state = useSyncExternalStore(subscribeSession, getSession, () => ({ status: "idle" }) as ReturnType<typeof getSession>);
+  const state = useSyncExternalStore(subscribeSession, getSession, () => IDLE_SNAPSHOT);
   const [now, setNow] = useState(() => Date.now());
   const lastSegRef = useRef(-1);
   const lastBeepRef = useRef(-1);
@@ -281,8 +290,15 @@ export default function StudySession() {
     let lastLogs: { prayerName: string; status: string }[] = [];
     async function load() {
       try {
-        const d = new Date();
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        // Everything runs in the user's stored prayer timezone — the rest of
+        // the app (dashboard, check-in lib, scheduler) does the same. Using
+        // device-local time here fired the banner for the wrong prayer when
+        // the two zones disagreed (travel, manual settings).
+        const tz = getCachedPrayerSettings()?.timezone
+          ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const nowInst = new Date();
+        const dateStr = dateStrInTimezone(nowInst, tz);
+        const [y, mo, dd] = dateStr.split("-").map(Number);
         let times = frozenTimes?.dateStr === dateStr ? frozenTimes.times : null;
         if (!times) {
           try {
@@ -311,12 +327,12 @@ export default function StudySession() {
         const order: [string, string][] = [
           ["fajr", "sunrise"], ["dhuhr", "asr"], ["asr", "maghrib"], ["maghrib", "isha"], ["isha", "fajr"],
         ];
+        // Wall-clock "HH:MM" in the prayer timezone → UTC instant.
         const toTs = (hhmm: string | undefined, dayOffset = 0) => {
           if (!hhmm) return NaN;
           const [h, m] = hhmm.split(":").map(Number);
-          const t = new Date(d);
-          t.setHours(h, m, 0, 0);
-          return t.getTime() + dayOffset * 86400000;
+          // Date.UTC normalizes day overflow, so d + 1 rolls month/year safely.
+          return wallClockToUtc(y, mo, dd + dayOffset, h, m, 0, tz).getTime();
         };
         const nowMs = Date.now();
         let found: { name: string; startsAt: number; endsAt: number } | null = null;
@@ -515,6 +531,9 @@ export default function StudySession() {
       prayerBreakNow(salah.name, 10);
       return;
     }
+    // Consume the queue flag once the prayer break is actually running — if
+    // it elapses unmarked, the auto-queue must be allowed to re-fire.
+    if (progress.segment.prayer === salah.name) prayerQueuedRef.current = null;
     const graceMs = salah.startsAt + 15 * 60 * 1000;
     // Hush-gated: a deferral ("one more block") or dismissal must actually
     // hold the auto-queue off — otherwise the break re-inserts on the next
@@ -593,6 +612,9 @@ export default function StudySession() {
   /** Close the session and record the outcome — finishing grows the focus
    *  streak and auto-marks the source block worked; quitting breaks it. */
   const finish = (finished: boolean, reason?: string | null) => {
+    // Double-tap guard — recordOutcome writes streak + history; a second call
+    // in the same burst would double-count before React re-renders.
+    if (state.status !== "running" || finishHandledRef.current) return;
     finishHandledRef.current = true;
     setAskFinish(false);
     setEndReason(null);
@@ -854,7 +876,7 @@ export default function StudySession() {
                 onClick={() => beginIntake({
                   minutes: state.planInput.minutes,
                   originalMinutes: state.planInput.originalMinutes,
-                  assignments: state.planInput.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null })),
+                  assignments: state.planInput.assignments.map((a) => ({ title: a.title, estimatedMinutes: a.estimatedMinutes ?? null, homeworkId: a.homeworkId })),
                 }, state.blockId)}
                 className="text-[11px] font-medium transition-opacity hover:opacity-70"
                 style={{ color: "var(--color-ink-muted)" }}
@@ -1537,16 +1559,12 @@ export default function StudySession() {
 /** Pre-session intake — confirm how long each assignment needs and pick a
  *  method before Vox segments the block. */
 function IntakeSheet() {
-  const state = useSyncExternalStore(subscribeSession, getSession, () => ({ status: "idle" }) as ReturnType<typeof getSession>);
+  const state = useSyncExternalStore(subscribeSession, getSession, () => IDLE_SNAPSHOT);
   const assignments = state.status === "intake" ? state.assignments : null;
   // Reseed the editable estimates whenever a new intake's list arrives —
   // adjusting state during render is the sanctioned reset pattern.
   const [prev, setPrev] = useState(assignments);
   const [ests, setEsts] = useState<(number | null)[]>(() => assignments?.map((a) => a.estimatedMinutes) ?? []);
-  if (assignments !== prev) {
-    setPrev(assignments);
-    setEsts(assignments?.map((a) => a.estimatedMinutes) ?? []);
-  }
   const [method, setMethod] = useState<StudyMethod>("auto");
   // Textbook pacing — pages to cover × minutes per page (adjustable).
   const [pages, setPages] = useState(20);
@@ -1554,7 +1572,16 @@ function IntakeSheet() {
   // Manual order — touched when the user moves a row; sent as `ordered` so
   // Vox respects their arrangement instead of sorting hardest-first.
   const [order, setOrder] = useState<number[] | null>(null);
-  if (assignments !== prev) setOrder(null);
+  if (assignments !== prev) {
+    setPrev(assignments);
+    setEsts(assignments?.map((a) => a.estimatedMinutes) ?? []);
+    // A new intake must not inherit the last session's method/pacing —
+    // "textbook + 20 pages" leaking into an unrelated session is confusing.
+    setMethod("auto");
+    setPages(20);
+    setMinPerPage(3);
+    setOrder(null);
+  }
 
   if (state.status !== "intake") return null;
 

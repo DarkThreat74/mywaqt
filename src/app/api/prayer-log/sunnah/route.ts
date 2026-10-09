@@ -172,19 +172,9 @@ export async function POST(request: NextRequest) {
       isha: parseMinutes(timings.isha),
     };
 
-    // 2a. "before" sunnahs: the associated fard's time must have started
-    if (isToday && sunnah.position === "before") {
-      const fardStartMinutes = prayerMinutes[sunnah.associatedFard];
-      if (currentMinutes < fardStartMinutes) {
-        const fardLabel = sunnah.associatedFard.charAt(0).toUpperCase() + sunnah.associatedFard.slice(1);
-        return NextResponse.json(
-          { error: `${fardLabel} hasn't started yet — you can't log this sunnah until ${fardLabel} time comes in.` },
-          { status: 403 },
-        );
-      }
-    }
-
     // 2b. Lock check: can't log after the lock prayer starts (window closed)
+    //     "before" sunnahs are logged *before* their fard — the lock alone
+    //     defines their window, so no lower gate is needed here.
     //     EXCEPT Duha — user wants late Duha logging allowed
     if (isToday && sunnah.locksAt && sunnah.key !== "duha") {
       const lockMinutes = prayerMinutes[sunnah.locksAt];

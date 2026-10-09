@@ -37,8 +37,6 @@ export default function SyncStatus() {
       if (!d || typeof d !== "object") return;
       if (d.type === "OUTBOX_COUNT") {
         setPending(typeof d.count === "number" ? d.count : 0);
-      } else if (d.type === "EVENT_QUEUED_OFFLINE") {
-        setPending((p) => p + 1);
       } else if (d.type === "EVENT_SYNCED") {
         setFailed(0);
         setSyncing(false);

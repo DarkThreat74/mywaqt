@@ -60,7 +60,12 @@ export default function FloatingDock({ feedbackEnabled = false }: { feedbackEnab
           className="fixed z-50 rounded-2xl border p-3 shadow-lg backdrop-blur-md"
           style={{
             right: "1rem",
-            bottom: "calc(4rem + env(safe-area-inset-bottom) + 4rem)",
+            // Track the dock's lane: 8.5rem (above the day-view FAB) or 5rem
+            // (FAB's spot) + ~3rem of dock height. The old fixed 8rem sat
+            // UNDER the dock on the day view — and under its z-60 too.
+            bottom: fabPresent
+              ? "calc(11.5rem + env(safe-area-inset-bottom))"
+              : "calc(8rem + env(safe-area-inset-bottom))",
             width: "min(19rem, calc(100vw - 2rem))",
             borderColor: "var(--color-paper-3)",
             backgroundColor: "color-mix(in oklab, var(--color-paper) 95%, transparent)",

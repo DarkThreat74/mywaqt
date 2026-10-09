@@ -25,7 +25,20 @@ async function requireFriendship(userId: string, friendId: string) {
       ),
     )
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  // Defense in depth: a block in either direction cuts messaging even if a
+  // friendship row still exists (e.g. accepted before the block landed).
+  const [block] = await db
+    .select({ id: schema.prayerBlocks.id })
+    .from(schema.prayerBlocks)
+    .where(
+      or(
+        and(eq(schema.prayerBlocks.userId, userId), eq(schema.prayerBlocks.blockedUserId, friendId)),
+        and(eq(schema.prayerBlocks.userId, friendId), eq(schema.prayerBlocks.blockedUserId, userId)),
+      ),
+    )
+    .limit(1);
+  return block ? null : row;
 }
 
 function shape(m: typeof schema.friendMessages.$inferSelect, replyToContent: string | null) {

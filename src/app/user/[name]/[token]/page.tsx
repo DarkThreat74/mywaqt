@@ -12,7 +12,7 @@ export default async function LegacyNamedPublicCalendarPage({
   const { token } = await params;
 
   // Validate format to avoid rendering for garbage paths.
-  if (!token || (!/^[a-f0-9]{32}$/.test(token) && !/^\d{5}$/.test(token) && !/^[A-Z2-9]{6}$/.test(token))) {
+  if (!token || (!/^[a-f0-9]{32}$/.test(token) && !/^\d{5}$/.test(token) && !/^[A-Z2-9]{6,8}$/.test(token))) {
     return <ShareLinkExpired />;
   }
 

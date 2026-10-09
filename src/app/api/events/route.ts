@@ -81,14 +81,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Date range cannot exceed 31 days." }, { status: 400 });
     }
 
+    // Overlap semantics: an event belongs to the range if it starts before
+    // the range ends AND ends after the range starts — catches overnight
+    // events whose startAt is yesterday but still run into today.
     const events = await db
       .select(EVENT_COLUMNS)
       .from(schema.events)
       .where(
         and(
           eq(schema.events.userId, session.userId),
-          gte(schema.events.startAt, fromDate),
           lte(schema.events.startAt, toDate),
+          gte(schema.events.endAt, fromDate),
         ),
       )
       .orderBy(schema.events.startAt)
@@ -117,8 +120,8 @@ export async function GET(request: NextRequest) {
     .where(
       and(
         eq(schema.events.userId, session.userId),
-        gte(schema.events.startAt, startOfDayUtc),
         lte(schema.events.startAt, endWithBuffer),
+        gte(schema.events.endAt, startOfDayUtc),
       ),
     )
     .orderBy(schema.events.startAt)

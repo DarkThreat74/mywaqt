@@ -186,7 +186,9 @@ export default function MutashabihMatchView({
     } catch { /* next poll refetches */ }
   }
 
-  function submit(correct: boolean) {
+  // `correct` drives the local verdict UI only — the server re-judges from
+  // the raw pick (a self-reported verdict would be farmable).
+  function submit(payload: { pick?: number | string; picks?: number[] }, correct: boolean) {
     if (!st?.round || sentRef.current.answered === st.round.n) return;
     setAnswered(correct ? "correct" : "wrong");
     try { navigator.vibrate?.(correct ? 15 : [50, 40, 50]); } catch { /* unsupported */ }
@@ -194,7 +196,7 @@ export default function MutashabihMatchView({
     sentRef.current.answered = st.round.n;
     fetch(`/api/quran/match/${matchId}/answer`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ round: st.round.n, correct, ms }),
+      body: JSON.stringify({ round: st.round.n, ms, ...payload }),
     }).catch(() => {});
   }
 
@@ -388,7 +390,7 @@ export default function MutashabihMatchView({
             </div>
           ) : mode === "count" ? (
             <div className="mt-4">
-              <CountOptions key={st.round.n} n={fam.instances.length} onPick={(c) => submit(c === fam.instances.length)} />
+              <CountOptions key={st.round.n} n={fam.instances.length} onPick={(c) => submit({ pick: c }, c === fam.instances.length)} />
             </div>
           ) : mode === "homes" ? (
             <div className="mt-4">
@@ -401,16 +403,18 @@ export default function MutashabihMatchView({
                   if (idxs.length > 0) {
                     const np = [...homesPicked, ...idxs];
                     setHomesPicked(np);
-                    if (new Set(np.map((i) => fam.instances[i].s)).size === distinctSurahs(fam)) submit(true);
+                    if (new Set(np.map((i) => fam.instances[i].s)).size === distinctSurahs(fam)) {
+                      submit({ picks: np.map((i) => fam.instances[i].s) }, true);
+                    }
                   } else {
-                    submit(false);
+                    submit({ picks: [...homesPicked.map((i) => fam.instances[i].s), s] }, false);
                   }
                 }}
               />
             </div>
           ) : mode === "ending" && target ? (
             <div className="mt-4">
-              <EndingOptions key={st.round.n} fam={fam} onPick={(t) => submit(t === tailOf(target))} />
+              <EndingOptions key={st.round.n} fam={fam} onPick={(t) => submit({ pick: t }, t === tailOf(target))} />
             </div>
           ) : null}
         </>
