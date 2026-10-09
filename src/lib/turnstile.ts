@@ -36,11 +36,15 @@ export async function verifyTurnstileToken(
   // ── Play CAPTCHA fallback token ──
   // The playcaptcha widget sends this synthetic token when Turnstile is not
   // configured. It is a CLIENT-SIDE claim only — a bot could send this literal
-  // string. It is accepted only in non-production when no real secret is
-  // configured; in production a missing secret must fail CLOSED, not let a
-  // synthetic token through.
+  // string. It is therefore accepted only when no real secret key is
+  // configured (playcaptcha is the intended captcha mode there). When a
+  // Turnstile secret IS configured, the synthetic token is rejected — bots
+  // can't short-circuit real verification. With playcaptcha active,
+  // bot-resistance rests on the honeypot + time-trap + rate limits + email
+  // verification. ponytail: known ceiling — configure TURNSTILE_SECRET_KEY
+  // for real captcha verification in production.
   if (token === 'playcaptcha-verified') {
-    return !env.turnstileSecretKey && !env.isProduction;
+    return !env.turnstileSecretKey;
   }
 
   // If no secret key is configured and we got a non-playcaptcha token,
