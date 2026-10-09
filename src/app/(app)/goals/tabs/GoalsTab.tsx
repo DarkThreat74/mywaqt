@@ -15,7 +15,7 @@ import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/stu
 //   apply     → same checklist mechanism (application requirements)
 //   read      → quantity target in pages (pace-line tracker)
 //   save      → quantity target in money/units (pace-line tracker)
-const TAG_SUGGESTIONS = ["test", "find-mine", "apply", "read", "save", "school", "faith", "health", "work", "personal"];
+const TAG_SUGGESTIONS = ["test", "find-mine", "apply", "read", "save"];
 
 // Functional tags that shouldn't render as chips — they describe behavior,
 // not the goal.
@@ -755,8 +755,8 @@ function GoalRow({
                       <button
                         key={tag}
                         type="button"
-                        onClick={() => setEditTags(active ? editTags.filter((t) => t !== tag) : [...editTags, tag])}
-                        className="rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors"
+                        onClick={() => setEditTags(active ? [] : [tag])}
+                        className="rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors"
                         style={
                           active
                             ? { borderColor: "var(--color-accent)", backgroundColor: "var(--color-accent-faint, var(--color-paper-2))", color: "var(--color-accent)" }
@@ -904,26 +904,30 @@ function GoalChecklist({
           </li>
         ))}
       </ul>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const text = newItem.trim();
-          if (!text) return;
-          setItems([...items, { id: crypto.randomUUID(), text, done: false }]);
-          setNewItem("");
-        }}
-        className="mt-1.5 flex items-center gap-1.5"
-      >
-        <Plus className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
-        <input
-          value={newItem}
-          onChange={(e) => setNewItem(e.target.value)}
-          placeholder="Add a criteria — e.g. in-state, has research hours"
-          className="min-w-0 flex-1 border-0 border-b bg-transparent py-1 text-xs outline-none"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-          maxLength={300}
-        />
-      </form>
+      {/* Add-criteria row — edit mode only, and kept visually small so the
+          checklist reads as a list, not a form. */}
+      {editMode && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const text = newItem.trim();
+            if (!text) return;
+            setItems([...items, { id: crypto.randomUUID(), text, done: false }]);
+            setNewItem("");
+          }}
+          className="mt-1.5 flex items-center gap-1"
+        >
+          <Plus className="h-2.5 w-2.5 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+          <input
+            value={newItem}
+            onChange={(e) => setNewItem(e.target.value)}
+            placeholder="Add a criteria — e.g. in-state, has research hours"
+            className="min-w-0 flex-1 border-0 border-b bg-transparent py-0.5 text-xs outline-none"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+            maxLength={300}
+          />
+        </form>
+      )}
     </div>
   );
 }
