@@ -516,6 +516,45 @@ export default function StudySession() {
     }
   }, [progress, state.status]);
 
+  // Page-over cue — one soft low tick the moment a page's budget expires
+  // without a tap. Keyed by segment+pages-done so each new page can fire
+  // once, and re-arms if a back-page pull lifts the clock positive again.
+  const pageOverRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!progress || progress.done || state.status !== "running" || paused) return;
+    const s = progress.segment;
+    if (!s.pages || !s.minPerPage) { pageOverRef.current = null; return; }
+    const elapsedInSeg = s.minutes * 60 - progress.remainingSec;
+    const done = state.pageDone?.[progress.index] ?? 0;
+    const mark = state.pageMark?.[progress.index] ?? 0;
+    const left = progress.remainingSec / Math.max(1, s.pages - done) - Math.max(0, elapsedInSeg - mark);
+    const key = `${state.startedAt}:${progress.index}:${done}`;
+    if (left < 0) {
+      if (pageOverRef.current !== key) {
+        pageOverRef.current = key;
+        beep(587, 0.12, 0.1);
+      }
+    } else if (pageOverRef.current === key) {
+      pageOverRef.current = null;
+    }
+  }, [progress, state.status, paused, state]);
+
+  // Page keys — → / Space turns the page, ← goes back one. Only while the
+  // overlay shows a paged segment; never while typing in a field.
+  useEffect(() => {
+    if (state.status !== "running" || !state.overlayOpen || paused) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const seg = segmentAt(state.segments, sessionElapsed(Date.now())).segment;
+      if (!seg.pages) return;
+      if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); bumpPage(1); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); bumpPage(-1); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [state.status, state, paused]);
+
   // ── Salah escalation ──
   // 15 min after the window OPENS, still unmarked → a 10-min prayer break is
   // queued right after the current segment (early prayer beats late panic).
@@ -1186,9 +1225,15 @@ export default function StudySession() {
   const pageBudget = paged ? progress.remainingSec / pagesLeft : 0;
   const pageLeft = pageBudget - pageElapsed;
   const globalPage = paged ? (seg.pageStart ?? 1) + pagesDone : 0;
-  // On-pace check — where the clock says you should be vs where you tapped.
-  const schedDone = paged ? Math.min(seg.pages!, Math.floor(elapsedInSeg / ((seg.minutes * 60) / seg.pages!))) : 0;
-  const pageDrift = pagesDone - schedDone; // <0 behind, >0 ahead
+  // Pace verdict in seconds, not whole pages — the old integer drift both
+  // lagged a full page behind reality and punished deliberate back-taps.
+  // Instead: does the slot time left still cover the pages left at the
+  // PLANNED pace, crediting the share of the current page already spent?
+  //   banked > 0 → ahead (banked seconds you can spend slowing down)
+  //   banked < 0 → behind (the deficit the adaptive budget is absorbing)
+  const nominalSec = paged ? seg.minPerPage! * 60 : 0;
+  const effLeft = paged ? Math.max(0, pagesLeft - Math.min(1, pageElapsed / Math.max(1, pageBudget))) : 0;
+  const bankedSec = paged ? progress.remainingSec - effLeft * nominalSec : 0;
 
   return (
     <div className="fixed inset-0 z-[90] flex flex-col" style={{ backgroundColor: "var(--color-paper)" }} role="dialog" aria-modal="true" aria-label="Study session">
@@ -1238,8 +1283,34 @@ export default function StudySession() {
             </p>
 
             <div className="relative mt-4 flex items-center justify-center lg:scale-110" aria-hidden>
+              {/* Page-turn flash — "on to page N" pops above the ring each
+                  tap-through so a page change is FELT, not just read. Keyed
+                  remount replays the animation every turn. */}
+              {paged && pagesDone > 0 && (
+                <p
+                  key={`${progress.index}:${globalPage}`}
+                  className="waqt-page-turn absolute -top-1 left-1/2 z-10 whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-semibold"
+                  style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 14%, var(--color-paper))", color: "var(--color-accent)" }}
+                >
+                  on to page {globalPage}
+                </p>
+              )}
               <svg width="224" height="224" viewBox="0 0 224 224" className="-rotate-90">
                 <circle cx="112" cy="112" r="102" fill="none" stroke="var(--color-paper-3)" strokeWidth="5" />
+                {paged && (
+                  <>
+                    {/* Inner quiet arc — the slot's total clock, demoted to a
+                        thin track inside the page ring (the "small bubble"). */}
+                    <circle cx="112" cy="112" r="86" fill="none" stroke="var(--color-paper-3)" strokeWidth="3" opacity={0.5} />
+                    <circle
+                      cx="112" cy="112" r="86" fill="none"
+                      stroke="var(--color-ink-muted)" strokeWidth="3" strokeLinecap="round" opacity={0.45}
+                      strokeDasharray={2 * Math.PI * 86}
+                      strokeDashoffset={2 * Math.PI * 86 * (1 - pct / 100)}
+                      style={{ transition: "stroke-dashoffset 1s linear" }}
+                    />
+                  </>
+                )}
                 <circle
                   cx="112" cy="112" r="102" fill="none"
                   stroke={paused ? "var(--color-ink-muted)" : paged ? (pageLeft < 0 || pageLeft <= 8 ? "var(--color-warmth)" : segAccent) : winding ? "var(--color-warmth)" : segAccent}
@@ -1259,7 +1330,7 @@ export default function StudySession() {
                       className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
                       style={{ color: paused ? "var(--color-ink-muted)" : pageLeft < 0 ? "var(--color-warmth)" : "var(--color-ink)", transition: "color 0.4s ease" }}
                     >
-                      {pageLeft >= 0 ? fmtClock(pageLeft) : `+${fmtClock(Math.ceil(-pageLeft))}`}
+                      {pageLeft >= 0 ? fmtClock(Math.floor(pageLeft)) : `+${fmtClock(Math.ceil(-pageLeft))}`}
                     </p>
                     <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                       {pageLeft < 0 ? "over pace" : "this page"} · {fmtClock(progress.remainingSec)} in slot
@@ -1300,34 +1371,49 @@ export default function StudySession() {
                 warm only when you're actually behind. */}
             {paged && !paused && (
               <>
-                <p className="mt-1.5 text-xs font-medium tabular-nums" aria-live="polite"
-                  style={{ color: pageLeft < 0 || pageDrift < 0 ? "var(--color-warmth)" : pageDrift > 0 ? "var(--color-success)" : "var(--color-ink-muted)" }}>
+                <p className="sr-only" aria-live="polite">on to page {globalPage} of {totalPages}</p>
+                <p className="mt-1.5 flex items-center justify-center gap-1.5 text-xs font-medium tabular-nums lg:justify-start" aria-live="polite"
+                  style={{ color: pageLeft < 0 || bankedSec < -15 ? "var(--color-warmth)" : bankedSec > 45 ? "var(--color-success)" : "var(--color-ink-muted)" }}>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full" aria-hidden
+                    style={{ backgroundColor: pageLeft < 0 || bankedSec < -15 ? "var(--color-warmth)" : bankedSec > 45 ? "var(--color-success)" : "var(--color-ink-muted)" }} />
                   {pageLeft < 0
-                    ? `${fmtClock(Math.ceil(-pageLeft))} over on this page — next pages tighten`
-                    : pageDrift > 0
-                      ? `${pageDrift} page${pageDrift === 1 ? "" : "s"} ahead of schedule`
-                      : pageDrift < 0
-                        ? `${-pageDrift} page${-pageDrift === 1 ? "" : "s"} behind — ~${fmtClock(Math.ceil(pageBudget))} each now`
-                        : "On pace — keep turning"}
+                    ? `${fmtClock(Math.ceil(-pageLeft))} over — the slot clock is still running`
+                    : bankedSec < -15
+                      ? `${fmtClock(Math.ceil(-bankedSec))} behind — ~${fmtClock(Math.ceil(pageBudget))} a page from here`
+                      : bankedSec > 45 && !(pagesLeft === 1 && effLeft < 1)
+                        ? `${fmtClock(Math.floor(bankedSec))} banked — you can breathe`
+                        : "on pace — keep turning"}
                 </p>
-                <div className="mt-2.5 flex items-center justify-center gap-2 lg:justify-start">
+                <div className="mt-2.5 flex items-center justify-center gap-1 lg:justify-start">
                   <button
-                    onClick={() => bumpPage(-1)}
+                    onClick={() => { bumpPage(-1); beep(880, 0.06, 0.07); navigator.vibrate?.(6); }}
                     disabled={pagesDone === 0}
-                    className="flex items-center gap-1 rounded-full border px-3 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-40"
-                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 40 }}
+                    className="flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-30"
+                    style={{ color: "var(--color-ink-muted)" }}
                     aria-label="Go back a page"
                   >
-                    ← back
+                    ←
                   </button>
                   <button
-                    onClick={() => bumpPage(1)}
-                    className="flex items-center gap-1.5 rounded-full px-4 py-2 text-[12px] font-semibold transition-opacity hover:opacity-90"
+                    onClick={() => { bumpPage(1); beep(1319, 0.07, 0.09); navigator.vibrate?.(8); }}
+                    className="rounded-full px-4 py-2 text-[12px] font-semibold transition-opacity hover:opacity-90"
                     style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 40 }}
                     aria-label={pagesDone === seg.pages! - 1 ? "Finished reading — close this block early" : `Done with page ${globalPage} — next page`}
                   >
                     {pagesDone === seg.pages! - 1 ? "Done reading →" : `Next page →`}
                   </button>
+                </div>
+                {/* Whole-reading progress — a hairline, not a widget: each
+                    page turned visibly moves the book forward. */}
+                <div className="mx-auto mt-2 h-0.5 w-full max-w-[16rem] overflow-hidden rounded-full lg:mx-0 lg:max-w-md" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden>
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.min(100, ((seg.pageStart! - 1 + pagesDone) / Math.max(1, totalPages)) * 100)}%`,
+                      backgroundColor: "var(--color-accent)",
+                      transition: "width 0.5s ease",
+                    }}
+                  />
                 </div>
               </>
             )}

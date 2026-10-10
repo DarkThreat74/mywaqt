@@ -285,6 +285,15 @@ a,
 .waqt-bell-ring { animation: waqt-bell-ring 0.7s ease-in-out; transform-origin: top center; }
 .waqt-answer-pop { animation: waqt-scale-in 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
 
+/* ── Study page-turn cue — pops in, holds, lifts away ── */
+@keyframes waqt-page-turn {
+  0% { opacity: 0; transform: translate(-50%, 6px) scale(0.92); }
+  14% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  68% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -6px) scale(0.96); }
+}
+.waqt-page-turn { animation: waqt-page-turn 1.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
 /* ── Reduced motion: respect user preference (WCAG 2.3.3) ── */
 @media (prefers-reduced-motion: reduce) {
   *,
