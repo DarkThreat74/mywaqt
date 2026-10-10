@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { Check, CheckCheck, ChevronDown, ChevronUp, Coffee, ListMusic, Minus, Pause, Play, Plus, RefreshCw, Shuffle, Square, Volume2, VolumeX, X, Zap } from "lucide-react";
+import { BookOpen, Check, CheckCheck, ChevronDown, ChevronUp, Coffee, ListMusic, Minus, Pause, Play, Plus, RefreshCw, Shuffle, Square, Volume2, VolumeX, X, Zap } from "lucide-react";
 import VoxIcon from "@/components/vox-icon";
 import { useSoundscape, SOUNDSCAPES } from "@/components/soundscape-context";
 import { useAudioPlayer } from "@/components/audio-player-context";
@@ -26,7 +26,7 @@ import {
   getSession, subscribeSession, hydrateSession, confirmSession,
   discardPlan, endSession, extendSession, setOverlayOpen, segmentAt,
   planSession, takeBreakNow, switchFocus, switchFocusTo, getDiscipline, recordOutcome, todayFocusMinutes,
-  beginIntake,
+  beginIntake, bumpPage,
   runningBlockId, pauseSession, resumeSession, startSprint, sessionElapsed, finishAssignment,
   endBreakEarly, prayerBreakNow, insertPrayerBreakAfterCurrent,
   type StudyMethod, type SessionState,
@@ -160,7 +160,7 @@ function subjectMins(recap: { rows: { kind: string; label: string; min: number }
     if (!hwId && hw) {
       // Derived labels — "Title — page N", "Title — keep going", "Review Title" —
       // never equal the assignment title, so exact lookup misses them.
-      const title = Object.keys(hw).find((t) => clean === `Review ${t}` || clean.startsWith(`${t} —`));
+      const title = Object.keys(hw).find((t) => clean === `Review ${t}` || clean.startsWith(`${t} —`) || clean.startsWith(`Read ${t} —`));
       if (title) { hwId = hw[title]; label = title; }
     }
     const k = hwId ?? r.label;
@@ -1172,6 +1172,24 @@ export default function StudySession() {
     seg.minutes >= 20 && elapsedInSeg >= seg.minutes * 60 * 0.6 &&
     checkinDismissed !== checkinKey;
 
+  // Textbook page tracker — the chunk is one timeslot whose BIG clock is the
+  // per-page countdown (the proximate deadline; intermediate deadlines beat
+  // distant ones). "Next page" taps are the ground truth: the per-page budget
+  // is (chunk time left ÷ pages left), so finishing early banks time and
+  // falling behind tightens every remaining page — pressure that adapts.
+  const paged = !progress.done && !!seg.pages && !!seg.minPerPage && !isBreak;
+  const totalPages = state.segments.reduce((m, s) => Math.max(m, (s.pageStart ?? 0) + (s.pages ?? 0) - 1), 0);
+  const pagesDone = paged ? (state.pageDone?.[progress.index] ?? 0) : 0;
+  const pagesLeft = paged ? Math.max(1, seg.pages! - pagesDone) : 1;
+  const pageMark = paged ? (state.pageMark?.[progress.index] ?? 0) : 0;
+  const pageElapsed = paged ? Math.max(0, elapsedInSeg - pageMark) : 0;
+  const pageBudget = paged ? progress.remainingSec / pagesLeft : 0;
+  const pageLeft = pageBudget - pageElapsed;
+  const globalPage = paged ? (seg.pageStart ?? 1) + pagesDone : 0;
+  // On-pace check — where the clock says you should be vs where you tapped.
+  const schedDone = paged ? Math.min(seg.pages!, Math.floor(elapsedInSeg / ((seg.minutes * 60) / seg.pages!))) : 0;
+  const pageDrift = pagesDone - schedDone; // <0 behind, >0 ahead
+
   return (
     <div className="fixed inset-0 z-[90] flex flex-col" style={{ backgroundColor: "var(--color-paper)" }} role="dialog" aria-modal="true" aria-label="Study session">
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-6 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:max-w-xl lg:max-w-none lg:px-14">
@@ -1224,23 +1242,42 @@ export default function StudySession() {
                 <circle cx="112" cy="112" r="102" fill="none" stroke="var(--color-paper-3)" strokeWidth="5" />
                 <circle
                   cx="112" cy="112" r="102" fill="none"
-                  stroke={paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : segAccent}
+                  stroke={paused ? "var(--color-ink-muted)" : paged ? (pageLeft < 0 || pageLeft <= 8 ? "var(--color-warmth)" : segAccent) : winding ? "var(--color-warmth)" : segAccent}
                   strokeWidth="5" strokeLinecap="round"
                   strokeDasharray={2 * Math.PI * 102}
-                  strokeDashoffset={2 * Math.PI * 102 * (1 - pct / 100)}
+                  strokeDashoffset={2 * Math.PI * 102 * (1 - (paged ? Math.min(100, (pageElapsed / Math.max(1, pageBudget)) * 100) : pct) / 100)}
                   style={{ transition: "stroke-dashoffset 1s linear, stroke 0.3s ease", opacity: paused ? 0.4 : 1 }}
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <p
-                  className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
-                  style={{ color: paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : isBreak ? "var(--color-success)" : "var(--color-ink)", transition: "color 0.4s ease" }}
-                >
-                  {fmtClock(progress.remainingSec)}
-                </p>
-                <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-muted)" }}>
-                  {progress.done ? "done" : `${fmtDur(Math.round(seg.minutes))} ${isBreak ? "break" : "block"}`}
-                </p>
+                {paged ? (
+                  <>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: pageLeft < 0 ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
+                      page {globalPage} of {totalPages}
+                    </p>
+                    <p
+                      className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
+                      style={{ color: paused ? "var(--color-ink-muted)" : pageLeft < 0 ? "var(--color-warmth)" : "var(--color-ink)", transition: "color 0.4s ease" }}
+                    >
+                      {pageLeft >= 0 ? fmtClock(pageLeft) : `+${fmtClock(Math.ceil(-pageLeft))}`}
+                    </p>
+                    <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                      {pageLeft < 0 ? "over pace" : "this page"} · {fmtClock(progress.remainingSec)} in slot
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p
+                      className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
+                      style={{ color: paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : isBreak ? "var(--color-success)" : "var(--color-ink)", transition: "color 0.4s ease" }}
+                    >
+                      {fmtClock(progress.remainingSec)}
+                    </p>
+                    <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-muted)" }}>
+                      {progress.done ? "done" : `${fmtDur(Math.round(seg.minutes))} ${isBreak ? "break" : "block"}`}
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1256,6 +1293,43 @@ export default function StudySession() {
               <p className="max-w-[16rem] text-base font-medium lg:max-w-md lg:text-xl" style={{ color: "var(--color-ink-soft)" }}>
                 {progress.done ? "Nice work — go rest." : paused ? "Take the moment you need. I'll hold your place." : seg.label}
               </p>
+            )}
+            {/* Page pace line + controls — the tracker is honest both ways:
+                finishing early banks time (next page's budget grows), running
+                late tightens every remaining page. Green when you're winning,
+                warm only when you're actually behind. */}
+            {paged && !paused && (
+              <>
+                <p className="mt-1.5 text-xs font-medium tabular-nums" aria-live="polite"
+                  style={{ color: pageLeft < 0 || pageDrift < 0 ? "var(--color-warmth)" : pageDrift > 0 ? "var(--color-success)" : "var(--color-ink-muted)" }}>
+                  {pageLeft < 0
+                    ? `${fmtClock(Math.ceil(-pageLeft))} over on this page — next pages tighten`
+                    : pageDrift > 0
+                      ? `${pageDrift} page${pageDrift === 1 ? "" : "s"} ahead of schedule`
+                      : pageDrift < 0
+                        ? `${-pageDrift} page${-pageDrift === 1 ? "" : "s"} behind — ~${fmtClock(Math.ceil(pageBudget))} each now`
+                        : "On pace — keep turning"}
+                </p>
+                <div className="mt-2.5 flex items-center justify-center gap-2 lg:justify-start">
+                  <button
+                    onClick={() => bumpPage(-1)}
+                    disabled={pagesDone === 0}
+                    className="flex items-center gap-1 rounded-full border px-3 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-40"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 40 }}
+                    aria-label="Go back a page"
+                  >
+                    ← back
+                  </button>
+                  <button
+                    onClick={() => bumpPage(1)}
+                    className="flex items-center gap-1.5 rounded-full px-4 py-2 text-[12px] font-semibold transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 40 }}
+                    aria-label={pagesDone === seg.pages! - 1 ? "Finished reading — close this block early" : `Done with page ${globalPage} — next page`}
+                  >
+                    {pagesDone === seg.pages! - 1 ? "Done reading →" : `Next page →`}
+                  </button>
+                </div>
+              </>
             )}
             {isBreak && progress.remainingSec <= 5 && progress.remainingSec > 0 && (
               <p className="mt-1 text-sm font-semibold" style={{ color: "var(--color-success)" }} aria-live="assertive">
@@ -1566,9 +1640,9 @@ function IntakeSheet() {
   const [prev, setPrev] = useState(assignments);
   const [ests, setEsts] = useState<(number | null)[]>(() => assignments?.map((a) => a.estimatedMinutes) ?? []);
   const [method, setMethod] = useState<StudyMethod>("auto");
-  // Textbook pacing — pages to cover × minutes per page (adjustable).
-  const [pages, setPages] = useState(20);
-  const [minPerPage, setMinPerPage] = useState(3);
+  // Per-assignment paged reading — keyed by assignment index. A reading and
+  // an exam can share one block; only the paced row gets page-tracked segments.
+  const [pacing, setPacing] = useState<Record<number, { pages: number; minPerPage: number }>>({});
   // Manual order — touched when the user moves a row; sent as `ordered` so
   // Vox respects their arrangement instead of sorting hardest-first.
   const [order, setOrder] = useState<number[] | null>(null);
@@ -1578,8 +1652,7 @@ function IntakeSheet() {
     // A new intake must not inherit the last session's method/pacing —
     // "textbook + 20 pages" leaking into an unrelated session is confusing.
     setMethod("auto");
-    setPages(20);
-    setMinPerPage(3);
+    setPacing({});
     setOrder(null);
   }
 
@@ -1613,7 +1686,6 @@ function IntakeSheet() {
     { id: "ultradian",  label: "Ultradian",    hint: "90·20 single blocks", best: "one big piece of work" },
     { id: "interleave", label: "Interleaved",  hint: "rotate ~20 min",  best: "several subjects at once" },
     { id: "flowtime",   label: "Flowtime",     hint: "work till you fade", best: "when you're already in flow" },
-    { id: "textbook",   label: "Textbook",     hint: "paced page turns",   best: "reading a chapter page by page" },
   ];
 
   return (
@@ -1650,28 +1722,93 @@ function IntakeSheet() {
           <ul className="mt-2 flex flex-col gap-1.5">
             {idx.map((i, pos) => {
               const a = state.assignments[i];
+              const pace = pacing[i];
               return (
-                <li key={i} className="flex items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-                  <div className="flex shrink-0 flex-col">
-                    <button onClick={() => move(pos, -1)} disabled={pos === 0} className="flex h-4 w-5 items-center justify-center rounded transition-colors hover:bg-[var(--color-paper-3)] disabled:opacity-30" style={{ color: "var(--color-ink-muted)" }} aria-label={`Move ${a.title} up`}>
-                      <ChevronUp className="h-3 w-3" />
+                <li key={i} className="flex flex-col gap-1 rounded-lg border px-3 py-2" style={{ borderColor: pace ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                  <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 flex-col">
+                      <button onClick={() => move(pos, -1)} disabled={pos === 0} className="flex h-4 w-5 items-center justify-center rounded transition-colors hover:bg-[var(--color-paper-3)] disabled:opacity-30" style={{ color: "var(--color-ink-muted)" }} aria-label={`Move ${a.title} up`}>
+                        <ChevronUp className="h-3 w-3" />
+                      </button>
+                      <button onClick={() => move(pos, 1)} disabled={pos === idx.length - 1} className="flex h-4 w-5 items-center justify-center rounded transition-colors hover:bg-[var(--color-paper-3)] disabled:opacity-30" style={{ color: "var(--color-ink-muted)" }} aria-label={`Move ${a.title} down`}>
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>{a.title}</span>
+                    <button
+                      onClick={() => setPacing((p) => {
+                        const next = { ...p };
+                        if (next[i]) delete next[i];
+                        else next[i] = { pages: 20, minPerPage: 3 };
+                        return next;
+                      })}
+                      aria-pressed={!!pace}
+                      title={pace ? "Remove page pacing" : "Pace it by pages — reading/textbook"}
+                      aria-label={pace ? `Remove page pacing from ${a.title}` : `Pace ${a.title} by pages`}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]"
+                      style={{ color: pace ? "var(--color-accent)" : "var(--color-ink-muted)", backgroundColor: pace ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : "transparent" }}
+                    >
+                      <BookOpen className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={() => move(pos, 1)} disabled={pos === idx.length - 1} className="flex h-4 w-5 items-center justify-center rounded transition-colors hover:bg-[var(--color-paper-3)] disabled:opacity-30" style={{ color: "var(--color-ink-muted)" }} aria-label={`Move ${a.title} down`}>
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
+                    {!pace && (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button onClick={() => bump(i, -5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`Less time for ${a.title}`}>
+                          <Minus className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                          {ests[i] ? fmtDur(ests[i]) : "—"}
+                        </span>
+                        <button onClick={() => bump(i, 5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`More time for ${a.title}`}>
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink)" }}>{a.title}</span>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button onClick={() => bump(i, -5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`Less time for ${a.title}`}>
-                      <Minus className="h-3.5 w-3.5" />
-                    </button>
-                    <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
-                      {ests[i] ? fmtDur(ests[i]) : "—"}
-                    </span>
-                    <button onClick={() => bump(i, 5)} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label={`More time for ${a.title}`}>
-                      <Plus className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  {pace && (() => {
+                    const need = pace.pages * pace.minPerPage;
+                    const fitPages = Math.floor(state.minutes / pace.minPerPage);
+                    const over = need > state.minutes;
+                    const set = (patch: Partial<typeof pace>) => setPacing((p) => ({ ...p, [i]: { ...p[i], ...patch } }));
+                    return (
+                      <div className="flex flex-col gap-1.5 border-t pt-1.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>Pages</span>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => set({ pages: Math.max(1, pace.pages - 5) })} className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Fewer pages">
+                              <Minus className="h-3 w-3" />
+                            </button>
+                            <span className="w-9 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>{pace.pages}</span>
+                            <button onClick={() => set({ pages: Math.min(400, pace.pages + 5) })} className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="More pages">
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>Min/page</span>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => set({ minPerPage: Math.max(1, pace.minPerPage - 1) })} className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Faster pace">
+                              <Minus className="h-3 w-3" />
+                            </button>
+                            <span className="w-9 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>{pace.minPerPage}m</span>
+                            <button onClick={() => set({ minPerPage: Math.min(10, pace.minPerPage + 1) })} className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Slower pace">
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-[10px] leading-snug" style={{ color: over ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
+                          ≈ {fmtDur(need)} of reading
+                          {over
+                            ? ` — ${fmtDur(need - state.minutes)} over this ${fmtDur(state.minutes)} block.${fitPages >= 1 ? ` ${fitPages} page${fitPages === 1 ? "" : "s"} fit at this pace —` : ""}`
+                            : " — fits; leftover time becomes review."}
+                          {over && fitPages >= 1 && (
+                            <button onClick={() => set({ pages: fitPages })} className="ml-1 font-semibold underline underline-offset-2" style={{ color: "var(--color-warmth)" }}>
+                              use {fitPages}
+                            </button>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  })()}
                 </li>
               );
             })}
@@ -1731,42 +1868,6 @@ function IntakeSheet() {
             ))}
           </div>
 
-          {/* Textbook pacing — one timer segment per page; the pace is the
-              thing being tuned (dense pages slower, review pages faster). */}
-          {method === "textbook" && (
-            <div className="mt-2 rounded-xl border px-3 py-2.5" style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)" }}>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Pages to cover</span>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => setPages((p) => Math.max(1, p - 5))} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Fewer pages">
-                    <Minus className="h-3.5 w-3.5" />
-                  </button>
-                  <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>{pages}</span>
-                  <button onClick={() => setPages((p) => Math.min(400, p + 5))} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="More pages">
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-3">
-                <span className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Minutes per page</span>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => setMinPerPage((m) => Math.max(2, m - 1))} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Faster pace">
-                    <Minus className="h-3.5 w-3.5" />
-                  </button>
-                  <span className="w-10 text-center text-xs font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>{minPerPage}m</span>
-                  <button onClick={() => setMinPerPage((m) => Math.min(10, m + 1))} className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-3)]" style={{ color: "var(--color-ink-muted)" }} aria-label="Slower pace">
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-              <p className="mt-2 text-[10px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>
-                ≈ {fmtDur(pages * minPerPage)} of reading
-                {pages * minPerPage > state.minutes
-                  ? ` — more than this ${fmtDur(state.minutes)} block; I'll stop at the last page that fits.`
-                  : ` — fits inside your ${fmtDur(state.minutes)} block; leftover time becomes review.`}
-              </p>
-            </div>
-          )}
         </div>
 
         <div className="border-t px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]" style={{ borderColor: "var(--color-paper-3)" }}>
@@ -1777,14 +1878,14 @@ function IntakeSheet() {
                 originalMinutes: state.originalMinutes,
                 method,
                 ordered: order !== null,
-                pagePace: method === "textbook" ? { pages, minPerPage } : undefined,
-                // No time set → the user didn't commit to it — skip it in the
-                // plan rather than inventing a chunk for it. homeworkId rides
-                // along so the server can enrich with per-assignment history
-                // and the recap can attach minutes to the real homework row.
+                // No time set and no pages → the user didn't commit to it —
+                // skip it in the plan rather than inventing a chunk for it.
+                // homeworkId rides along so the server can enrich with
+                // per-assignment history and the recap can attach minutes to
+                // the real homework row.
                 assignments: idx
-                  .map((i) => ({ title: state.assignments[i].title, estimatedMinutes: ests[i], homeworkId: state.assignments[i].homeworkId }))
-                  .filter((a) => a.estimatedMinutes !== null || method === "textbook"),
+                  .map((i) => ({ title: state.assignments[i].title, estimatedMinutes: pacing[i] ? pacing[i].pages * pacing[i].minPerPage : ests[i], homeworkId: state.assignments[i].homeworkId, pagePace: pacing[i] }))
+                  .filter((a) => a.estimatedMinutes !== null || a.pagePace),
               },
               state.blockId,
             )}

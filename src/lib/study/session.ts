@@ -14,19 +14,30 @@ export interface StudySegment {
   /** Set on prayer breaks — the overlay renders the salah messaging and the
    *  "I prayed" check-in instead of the normal break UI. */
   prayer?: string;
+  /** Textbook pacing — a reading chunk is ONE timeslot covering `pages`
+   *  pages starting at 1-based `pageStart`, paced at `minPerPage` each.
+   *  The overlay derives the live "page N of M · m:ss on this page" tracker
+   *  from the segment clock — no per-page segments needed. */
+  pages?: number;
+  pageStart?: number;
+  minPerPage?: number;
 }
 
 export interface SessionPlanInput {
   minutes: number; // usable minutes (remaining in the block, capped)
   /** Full scheduled length — when minutes < this, the session started late. */
   originalMinutes?: number;
-  assignments: { title: string; estimatedMinutes?: number | null; homeworkId?: string }[];
+  assignments: { title: string; estimatedMinutes?: number | null; homeworkId?: string;
+    /** Paged reading — this assignment is a textbook/reading task: N pages at
+     *  M minutes each. Pacing is per-assignment: a reading and an exam can
+     *  share one block and only the reading gets page-tracked segments. */
+    pagePace?: { pages: number; minPerPage: number } }[];
   method?: StudyMethod;
   /** User manually arranged the assignment order — keep it instead of
    *  sorting hardest-first. */
   ordered?: boolean;
-  /** Textbook mode — paced page turns: N pages at M minutes each. Planned
-   *  deterministically on-device (an LLM can't hold a per-page clock). */
+  /** Legacy session-level pace (one assignment, whole block) — mapped onto
+   *  assignments[0] before planning. New intake uses per-assignment pacing. */
   pagePace?: { pages: number; minPerPage: number };
 }
 
@@ -48,7 +59,13 @@ export type SessionState =
       method?: StudyMethod; switches?: number;
       /** Assignment title → homeworkId — lets the recap attach real homework
        *  ids to per-subject minutes for class rollup + per-exam history. */
-      hw?: Record<string, string> };
+      hw?: Record<string, string>;
+      /** Manual page progress — segIndex → pages the user tapped through,
+       *  and the in-segment second when the current page started. Drives the
+       *  adaptive page clock (remaining time ÷ pages left) and the on-pace /
+       *  behind readout. */
+      pageDone?: Record<number, number>;
+      pageMark?: Record<number, number> };
 
 const KEY = "waqt-study-session";
 
@@ -113,29 +130,68 @@ function backToIntake(input: Omit<SessionPlanInput, "method">, blockId?: string)
   beginIntake(input, blockId);
 }
 
-/** Textbook pacing — one study segment per page plus a short eyes-off break
- *  every 5 pages. Leftover block time becomes a review/finish segment. */
-function textbookPlan(minutes: number, pace: { pages: number; minPerPage: number }, title: string): StudySegment[] {
-  const per = Math.min(10, Math.max(2, Math.round(pace.minPerPage)));
-  const pages = Math.min(400, Math.max(1, Math.round(pace.pages)));
+/** Paged reading chunks — ≤5 pages per timeslot carrying page metadata for
+ *  the in-session tracker, with a short eyes-off break between chunks.
+ *  Bounded by `budget` minutes; returns the segments it could fit. */
+function pagedChunks(budget: number, per: number, pages: number, title: string): StudySegment[] {
   const segs: StudySegment[] = [];
-  let remaining = minutes;
+  let remaining = budget;
   let page = 0;
   while (page < pages && remaining >= per) {
-    page++;
-    segs.push({ kind: "study", minutes: per, label: `${title} — page ${page}` });
-    remaining -= per;
-    if (page < pages && page % 5 === 0 && remaining >= 8) {
+    const take = Math.min(5, pages - page, Math.floor(remaining / per));
+    segs.push({
+      kind: "study",
+      minutes: take * per,
+      label: take > 1 ? `Read ${title} — pages ${page + 1}–${page + take}` : `Read ${title} — page ${page + 1}`,
+      pageStart: page + 1,
+      pages: take,
+      minPerPage: per,
+    });
+    page += take;
+    remaining -= take * per;
+    if (page < pages && remaining >= per + 3) {
       segs.push({ kind: "break", minutes: 3, label: "Rest your eyes" });
       remaining -= 3;
     }
   }
-  if (remaining >= 5) {
-    segs.push({
-      kind: "study",
-      minutes: remaining,
-      label: page >= pages ? `Review ${title}` : `${title} — keep going`,
-    });
+  return segs;
+}
+
+/** Mixed plan — a block can hold a paged reading AND plain assignments.
+ *  Paced assignments become page-tracked chunks; the rest become estimate-
+ *  sized study chunks (≤35m) with short breaks between. Deterministic and
+ *  on-device — an LLM can't hold a per-page clock anyway. */
+function mixedPlan(minutes: number, assignments: SessionPlanInput["assignments"]): StudySegment[] {
+  const segs: StudySegment[] = [];
+  let remaining = minutes;
+  const rest = (m = 5, label = "Break") => {
+    if (remaining < 10) return;
+    const b = Math.min(m, remaining);
+    segs.push({ kind: "break", minutes: b, label });
+    remaining -= b;
+  };
+  for (const a of assignments) {
+    if (remaining <= 0) break;
+    if (a.pagePace && a.pagePace.pages > 0) {
+      const per = Math.min(10, Math.max(1, Math.round(a.pagePace.minPerPage)));
+      const pages = Math.min(400, Math.max(1, Math.round(a.pagePace.pages)));
+      const chunks = pagedChunks(remaining, per, pages, a.title);
+      segs.push(...chunks);
+      remaining -= chunks.reduce((s, x) => s + x.minutes, 0);
+    } else {
+      let need = Math.min(a.estimatedMinutes ?? 25, remaining);
+      while (need > 0 && remaining > 0) {
+        const chunk = Math.min(35, need, remaining);
+        segs.push({ kind: "study", minutes: chunk, label: a.title });
+        remaining -= chunk;
+        need -= chunk;
+        if (need > 0) rest();
+      }
+    }
+    rest();
+  }
+  if (remaining >= 5 && assignments.length > 0) {
+    segs.push({ kind: "study", minutes: remaining, label: `Review ${assignments[0].title}` });
   }
   return segs;
 }
@@ -144,9 +200,14 @@ function textbookPlan(minutes: number, pace: { pages: number; minPerPage: number
 export async function planSession(input: SessionPlanInput, blockId?: string) {
   state = { status: "planning" };
   emit();
-  // Textbook pacing is deterministic — planned on-device, no round-trip.
-  if (input.method === "textbook" && input.pagePace) {
-    const segments = textbookPlan(input.minutes, input.pagePace, input.assignments[0]?.title || "Textbook");
+  // Legacy session-level pace → the first assignment's pages.
+  if (input.method === "textbook" && input.pagePace && !input.assignments.some((a) => a.pagePace) && input.assignments[0]) {
+    input = { ...input, assignments: input.assignments.map((a, i) => i === 0 ? { ...a, pagePace: input.pagePace } : a) };
+  }
+  // Any paced assignment → deterministic on-device plan (an LLM can't hold
+  // a per-page clock, and mixed reading + normal work must interleave by rule).
+  if (input.assignments.some((a) => a.pagePace)) {
+    const segments = mixedPlan(input.minutes, input.assignments);
     if (segments.length > 0) {
       state = { status: "planned", segments, titles: input.assignments.map((a) => a.title), blockId, planInput: input };
       emit();
@@ -552,6 +613,36 @@ export function finishAssignment() {
     (s) => !(s.kind === "study" && s.label.replace(/( \(finish\))+$/, "") === base),
   ));
   state = { ...state, segments: next };
+  emit();
+}
+
+/** "Next page" / "back a page" — records actual page progress inside the
+ *  current paged segment. The mark re-anchors the page clock: each page's
+ *  budget is (chunk time left ÷ pages left), so finishing early banks time
+ *  and falling behind genuinely tightens the next page. */
+export function bumpPage(delta: 1 | -1) {
+  if (state.status !== "running") return;
+  const elapsedSec = runningElapsedSec();
+  const p = segmentAt(state.segments, elapsedSec);
+  const seg = p.segment;
+  if (p.done || !seg.pages || !seg.minPerPage) return;
+  const elapsedInSeg = seg.minutes * 60 - p.remainingSec;
+  const done = Math.min(seg.pages, Math.max(0, (state.pageDone?.[p.index] ?? 0) + delta));
+  if (delta === 1 && done === seg.pages) {
+    // Tapped through the last page — close the timeslot at the actual time
+    // used and roll straight into the next segment. Banked minutes stay
+    // banked: the session ends early rather than idling a dead clock.
+    const next = state.segments.slice();
+    next[p.index] = { ...seg, minutes: Math.max(0.1, elapsedInSeg / 60) };
+    state = { ...state, segments: next, pageDone: { ...state.pageDone, [p.index]: done } };
+    emit();
+    return;
+  }
+  state = {
+    ...state,
+    pageDone: { ...state.pageDone, [p.index]: done },
+    pageMark: { ...state.pageMark, [p.index]: Math.max(0, Math.min(elapsedInSeg, seg.minutes * 60)) },
+  };
   emit();
 }
 

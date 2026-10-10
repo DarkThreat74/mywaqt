@@ -39,6 +39,18 @@ export default function FloatingDock({ feedbackEnabled = false }: { feedbackEnab
   const studySeg = running && !session.overlayOpen
     ? segmentAt(session.segments, sessionElapsed(now))
     : null;
+  // Paged reading — the bubble mirrors the overlay's page clock, not the
+  // chunk total: remaining ÷ pages-left minus time on the current page.
+  const pageClock = session.status === "running" && studySeg && !studySeg.done && studySeg.segment.pages
+    ? (() => {
+        const seg = studySeg.segment;
+        const done = session.pageDone?.[studySeg.index] ?? 0;
+        const mark = session.pageMark?.[studySeg.index] ?? 0;
+        const elapsedInSeg = seg.minutes * 60 - studySeg.remainingSec;
+        const left = studySeg.remainingSec / Math.max(1, seg.pages! - done) - Math.max(0, elapsedInSeg - mark);
+        return { page: (seg.pageStart ?? 1) + done, left };
+      })()
+    : null;
   const showSounds = !!soundscape.active && pathname !== "/study";
   const showTalks = !!player.currentTrack && player.view === "collapsed";
 
@@ -99,7 +111,11 @@ export default function FloatingDock({ feedbackEnabled = false }: { feedbackEnab
             aria-label={`Open study session — ${studySeg.segment.label}, ${fmtClock(studySeg.remainingSec)} left`}
           >
             <BookOpen className="h-3.5 w-3.5 shrink-0" style={{ color: studySeg.segment.kind === "break" ? "var(--color-success)" : "var(--color-accent)" }} />
-            <span className="tabular-nums">{session.status === "running" && session.pausedAt ? "‖" : fmtClock(studySeg.remainingSec)}</span>
+            <span className="tabular-nums">
+              {session.status === "running" && session.pausedAt ? "‖"
+                : pageClock ? `p${pageClock.page} ${pageClock.left >= 0 ? fmtClock(Math.floor(pageClock.left)) : `+${fmtClock(Math.ceil(-pageClock.left))}`}`
+                : fmtClock(studySeg.remainingSec)}
+            </span>
             <span className="hidden max-w-[6rem] truncate text-[11px] font-normal opacity-80 sm:inline">{studySeg.segment.label}</span>
           </button>
         )}
