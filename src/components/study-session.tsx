@@ -1272,8 +1272,8 @@ export default function StudySession() {
         {/* Current segment — the clock sits inside a progress ring. On
             desktop the hero splits: ring left, session text right, so the
             layout fills the screen instead of a mobile column in the middle. */}
-        <div className="flex flex-1 flex-col items-center justify-center text-center lg:grid lg:grid-cols-2 lg:items-center lg:gap-16 lg:text-left">
-          <div className="flex flex-col items-center lg:items-end">
+        <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto text-center lg:grid lg:grid-cols-2 lg:items-center lg:gap-16 lg:overflow-visible lg:text-left">
+          <div className="mt-auto flex flex-col items-center lg:mt-0 lg:items-end">
             <p
               className="text-[11px] font-semibold uppercase tracking-[0.2em] lg:self-center"
               style={{ color: segAccent }}
@@ -1282,7 +1282,7 @@ export default function StudySession() {
               {progress.done ? "Session complete" : paused ? "Paused" : prayerName ? "Prayer break" : isBreak ? "Break — stretch, breathe" : "Stay with it"}
             </p>
 
-            <div className="relative mt-4 flex items-center justify-center lg:scale-110" aria-hidden>
+            <div className="relative mt-2 flex items-center justify-center lg:mt-4 lg:scale-110" aria-hidden>
               {/* Page-turn flash — "on to page N" pops above the ring each
                   tap-through so a page change is FELT, not just read. Keyed
                   remount replays the animation every turn. */}
@@ -1295,7 +1295,7 @@ export default function StudySession() {
                   on to page {globalPage}
                 </p>
               )}
-              <svg width="224" height="224" viewBox="0 0 224 224" className="-rotate-90">
+              <svg width="224" height="224" viewBox="0 0 224 224" className="-rotate-90 w-[176px] h-[176px] sm:w-[224px] sm:h-[224px]">
                 <circle cx="112" cy="112" r="102" fill="none" stroke="var(--color-paper-3)" strokeWidth="5" />
                 {paged && (
                   <>
@@ -1327,7 +1327,7 @@ export default function StudySession() {
                       page {globalPage} of {totalPages}
                     </p>
                     <p
-                      className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
+                      className="text-4xl font-bold tabular-nums tracking-tight sm:text-6xl"
                       style={{ color: paused ? "var(--color-ink-muted)" : pageLeft < 0 ? "var(--color-warmth)" : "var(--color-ink)", transition: "color 0.4s ease" }}
                     >
                       {pageLeft >= 0 ? fmtClock(Math.floor(pageLeft)) : `+${fmtClock(Math.ceil(-pageLeft))}`}
@@ -1339,7 +1339,7 @@ export default function StudySession() {
                 ) : (
                   <>
                     <p
-                      className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
+                      className="text-4xl font-bold tabular-nums tracking-tight sm:text-6xl"
                       style={{ color: paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : isBreak ? "var(--color-success)" : "var(--color-ink)", transition: "color 0.4s ease" }}
                     >
                       {fmtClock(progress.remainingSec)}
@@ -1353,7 +1353,7 @@ export default function StudySession() {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-col items-center text-center lg:mt-0 lg:items-start lg:text-left">
+          <div className="mb-auto mt-3 flex flex-col items-center pb-2 text-center lg:mb-0 lg:mt-0 lg:items-start lg:text-left">
             {prayerName ? (
               <p className="max-w-[18rem] text-base font-bold uppercase tracking-wide lg:max-w-none lg:text-lg" style={{ color: "var(--color-warmth)" }} role="alert">
                 {lied
