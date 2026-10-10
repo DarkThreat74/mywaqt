@@ -517,18 +517,29 @@ export default function StudySession() {
   }, [progress, state.status]);
 
   // Page-over cue — one soft low tick the moment a page's budget expires
-  // without a tap. Keyed by segment+pages-done so each new page can fire
-  // once, and re-arms if a back-page pull lifts the clock positive again.
+  // without a tap, plus a swelling chime per second across the page's last
+  // five (same shape as the segment countdown). Both keyed by
+  // segment+pages-done so each page gets its own round, and re-arms if a
+  // back-page pull lifts the clock positive again.
   const pageOverRef = useRef<string | null>(null);
+  const pageTickRef = useRef<string | null>(null);
   useEffect(() => {
     if (!progress || progress.done || state.status !== "running" || paused) return;
     const s = progress.segment;
-    if (!s.pages || !s.minPerPage) { pageOverRef.current = null; return; }
+    if (!s.pages || !s.minPerPage) { pageOverRef.current = null; pageTickRef.current = null; return; }
     const elapsedInSeg = s.minutes * 60 - progress.remainingSec;
     const done = state.pageDone?.[progress.index] ?? 0;
     const mark = state.pageMark?.[progress.index] ?? 0;
     const left = progress.remainingSec / Math.max(1, s.pages - done) - Math.max(0, elapsedInSeg - mark);
     const key = `${state.startedAt}:${progress.index}:${done}`;
+    if (left > 0 && left <= 5) {
+      const tk = `${key}:${Math.ceil(left)}`;
+      if (pageTickRef.current !== tk) {
+        pageTickRef.current = tk;
+        // Brighter than the boundary beeps, swelling toward zero.
+        beep(988, 0.07, 0.05 + (5 - Math.ceil(left)) * 0.014);
+      }
+    }
     if (left < 0) {
       if (pageOverRef.current !== key) {
         pageOverRef.current = key;
@@ -1295,7 +1306,7 @@ export default function StudySession() {
                   on to page {globalPage}
                 </p>
               )}
-              <svg width="224" height="224" viewBox="0 0 224 224" className="-rotate-90 w-[176px] h-[176px] sm:w-[224px] sm:h-[224px]">
+              <svg width="224" height="224" viewBox="0 0 224 224" className="-rotate-90 w-[min(66vw,240px)] h-[min(66vw,240px)]">
                 <circle cx="112" cy="112" r="102" fill="none" stroke="var(--color-paper-3)" strokeWidth="5" />
                 {paged && (
                   <>
@@ -1327,7 +1338,7 @@ export default function StudySession() {
                       page {globalPage} of {totalPages}
                     </p>
                     <p
-                      className="text-4xl font-bold tabular-nums tracking-tight sm:text-6xl"
+                      className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
                       style={{ color: paused ? "var(--color-ink-muted)" : pageLeft < 0 ? "var(--color-warmth)" : "var(--color-ink)", transition: "color 0.4s ease" }}
                     >
                       {pageLeft >= 0 ? fmtClock(Math.floor(pageLeft)) : `+${fmtClock(Math.ceil(-pageLeft))}`}
@@ -1339,7 +1350,7 @@ export default function StudySession() {
                 ) : (
                   <>
                     <p
-                      className="text-4xl font-bold tabular-nums tracking-tight sm:text-6xl"
+                      className="text-5xl font-bold tabular-nums tracking-tight sm:text-6xl"
                       style={{ color: paused ? "var(--color-ink-muted)" : winding ? "var(--color-warmth)" : isBreak ? "var(--color-success)" : "var(--color-ink)", transition: "color 0.4s ease" }}
                     >
                       {fmtClock(progress.remainingSec)}
@@ -1361,7 +1372,7 @@ export default function StudySession() {
                   : `Get up and pray ${PRAYER_LABEL[prayerName] ?? prayerName} salah now`}
               </p>
             ) : (
-              <p className="max-w-[16rem] text-base font-medium lg:max-w-md lg:text-xl" style={{ color: "var(--color-ink-soft)" }}>
+              <p className="max-w-[16rem] truncate text-sm font-medium lg:max-w-md lg:text-xl" style={{ color: "var(--color-ink-soft)" }}>
                 {progress.done ? "Nice work — go rest." : paused ? "Take the moment you need. I'll hold your place." : seg.label}
               </p>
             )}
@@ -1431,7 +1442,7 @@ export default function StudySession() {
 
             {/* Vox's coaching line — strict trainer voice, rotates per segment */}
             {!progress.done && !paused && (
-              <p className="mt-3 text-[11px] font-medium italic" style={{ color: "var(--color-ink-muted)" }}>
+              <p className="mt-3 hidden text-[11px] font-medium italic lg:block" style={{ color: "var(--color-ink-muted)" }}>
                 {(isBreak ? COACH_BREAK : COACH_STUDY)[progress.index % (isBreak ? COACH_BREAK : COACH_STUDY).length]}
               </p>
             )}
@@ -1439,12 +1450,12 @@ export default function StudySession() {
             {/* Today's banked focus — the running total that makes finishing
                 another block feel like growth, not just elapsed time. */}
             {todayMin > 0 && (
-              <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
+              <p className="mt-2 hidden text-[11px] font-medium lg:block" style={{ color: "var(--color-ink-muted)" }}>
                 Today: {fmtDur(Math.round(todayMin))} focused
               </p>
             )}
 
-            <div className="mt-5 flex items-center justify-center gap-1 lg:justify-start" aria-hidden>
+            <div className="mt-5 hidden items-center justify-center gap-1 lg:flex lg:justify-start" aria-hidden>
               {state.segments.map((s, i) => (
                 <span
                   key={i}
