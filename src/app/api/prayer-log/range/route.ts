@@ -42,6 +42,8 @@ export async function GET(request: NextRequest) {
       prayerName: schema.prayerLog.prayerName,
       status: schema.prayerLog.status,
       wentToMasjid: schema.prayerLog.wentToMasjid,
+      // 0=none 1=early 2=mid 3=closing — "answered at the last call" signal
+      checkinStage: schema.prayerLog.checkinStage,
     })
     .from(schema.prayerLog)
     .where(

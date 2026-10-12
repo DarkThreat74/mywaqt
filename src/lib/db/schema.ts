@@ -1274,6 +1274,8 @@ export const studySessionHistory = pgTable('study_session_history', {
   reason: text('reason'),
   method: text('method'),
   breaks: integer('breaks'),
+  // Of `breaks`, how many were prayer breaks — feeds the "salah mid-study" stat.
+  salahBreaks: integer('salah_breaks'),
   focusMin: integer('focus_min'),
   switches: integer('switches'),
   subjects: jsonb('subjects').$type<{ label: string; min: number; hw?: string }[]>(),

@@ -924,9 +924,17 @@ self.addEventListener("fetch", (event) => {
                   // Deploy shipped new chunks — the page we just served is
                   // running dead JS. Tell THIS client to reload into the
                   // fresh copy we just cached (client guards against loops).
-                  if (freshBuild && freshBuild !== staleBuild && event.clientId) {
-                    const client = await self.clients.get(event.clientId);
-                    if (client) client.postMessage({ type: "SW_RELOAD", build: freshBuild });
+                  if (freshBuild && freshBuild !== staleBuild) {
+                    // Navigations set resultingClientId (the page being
+                    // created), not clientId — clientId is empty here.
+                    const cid = event.resultingClientId || event.clientId;
+                    // The client is created as the response lands — retry a
+                    // beat later if get() runs before registration completes.
+                    for (let i = 0; i < 3 && cid; i++) {
+                      const client = await self.clients.get(cid);
+                      if (client) { client.postMessage({ type: "SW_RELOAD", build: freshBuild }); break; }
+                      await new Promise((r) => setTimeout(r, 400));
+                    }
                   }
                 }
               } catch { /* offline — cached copy already served */ }
@@ -945,7 +953,7 @@ self.addEventListener("fetch", (event) => {
             const preloadResponse = await event.preloadResponse;
             const response = preloadResponse || await timedFetch(request, 10000);
             if (response && response.ok) {
-              event.waitUntil(store(response));
+              await store(response);
               return response;
             }
             // Non-ok response (e.g. redirect to /login) — return as-is
@@ -954,9 +962,15 @@ self.addEventListener("fetch", (event) => {
             return null;
           }
         })();
+        // Keeps the fetch event alive until the network settles so the cache
+        // write inside networkPromise can't be cut off mid-put — waitUntil
+        // calls made after respondWith resolves can throw.
+        event.waitUntil(networkPromise.catch(() => {}));
 
         const budgetPromise = new Promise((resolve) =>
-          setTimeout(() => resolve(fallbackPage()), 2500)
+          // No uid yet → first launch / logged out: keep waiting on the real
+          // network rather than flashing the offline page on slow wifi.
+          setTimeout(() => resolve(uid ? fallbackPage() : null), 2500)
         );
 
         const first = await Promise.race([networkPromise, budgetPromise]);

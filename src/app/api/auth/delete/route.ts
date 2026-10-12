@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/lib/auth/session";
+import { getSessionFromRequest, DELETION_GRACE_MS } from "@/lib/auth/session";
 import { db, schema } from "@/lib/db/client";
 import { eq } from "drizzle-orm";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
-
-export const DELETION_GRACE_MS = 5 * 60 * 60 * 1000; // 5 hours
 
 /**
  * Scheduled account deletion — required by Apple Guideline 5.1.2 and Google

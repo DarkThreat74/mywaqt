@@ -121,14 +121,14 @@ function buildRecap(run: RunState, label: string, finished: boolean, streak: num
   const now = Date.now();
   const pausedMs = run.pausedMs + (run.pausedAt ? now - run.pausedAt : 0);
   const elapsed = Math.max(0, (now - run.startedAt - pausedMs) / 1000);
-  let acc = 0, focusSec = 0, breaks = 0, segsDone = 0;
+  let acc = 0, focusSec = 0, breaks = 0, segsDone = 0, salahBreaks = 0;
   const rows: RecapRow[] = [];
   for (const s of run.segments) {
     const segSec = s.minutes * 60;
     const used = Math.max(0, Math.min(segSec, elapsed - acc));
     if (used >= segSec - 1) segsDone++;
     if (s.kind === "study") focusSec += used;
-    else if (used > 0) breaks++;
+    else if (used > 0) { breaks++; if (s.prayer) salahBreaks++; }
     // ponytail: segment timestamps assume no mid-run pause gaps — pausedMs is
     // one aggregate, so post-pause start times drift early. Close enough for a
     // recap; upgrade path is recording pause intervals on the run state.
@@ -142,7 +142,7 @@ function buildRecap(run: RunState, label: string, finished: boolean, streak: num
     focusMin: Math.round(focusMin), totalMin: Math.round(totalMin),
     pausedMin: Math.round(pausedMs / 60000),
     awayMin: Math.round(totalMin - focusMin + pausedMs / 60000),
-    rows, breaks, segsDone, segsTotal: run.segments.length, streak,
+    rows, breaks, salahBreaks, segsDone, segsTotal: run.segments.length, streak,
   };
 }
 
@@ -401,6 +401,7 @@ export default function StudySession() {
       reason: "ended without finishing",
       method: run.method,
       breaks: recap.breaks,
+      salahBreaks: recap.salahBreaks,
       focusMin: recap.focusMin,
       switches: run.switches ?? 0,
       subjects: subjectMins(recap, run.hw),
@@ -688,6 +689,7 @@ export default function StudySession() {
       // Habits telemetry for the stats section.
       method: state.status === "running" ? state.method : undefined,
       breaks: recap?.breaks,
+      salahBreaks: recap?.salahBreaks,
       focusMin: recap?.focusMin,
       switches: state.status === "running" ? state.switches ?? 0 : undefined,
       subjects: recap ? subjectMins(recap, state.status === "running" ? state.hw : undefined) : undefined,

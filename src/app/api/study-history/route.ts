@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
       reason: r.reason ?? undefined,
       method: r.method ?? undefined,
       breaks: r.breaks ?? undefined,
+      salahBreaks: r.salahBreaks ?? undefined,
       focusMin: r.focusMin ?? undefined,
       switches: r.switches ?? undefined,
       subjects: r.subjects ?? undefined,
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
     let body: {
       id?: string; date?: string; label?: string; minutes?: number; finished?: boolean;
       reason?: string | null; method?: string | null;
-      breaks?: number | null; focusMin?: number | null; switches?: number | null;
+      breaks?: number | null; salahBreaks?: number | null; focusMin?: number | null; switches?: number | null;
       subjects?: { label?: string; min?: number; hw?: string }[] | null;
       blockId?: string | null;
     };
@@ -116,6 +117,7 @@ export async function POST(request: NextRequest) {
         reason: typeof body.reason === "string" ? body.reason.slice(0, 120) : null,
         method: typeof body.method === "string" ? body.method.slice(0, 30) : null,
         breaks: optInt(body.breaks, 200),
+        salahBreaks: optInt(body.salahBreaks, 200),
         focusMin: optInt(body.focusMin, 24 * 60),
         switches: optInt(body.switches, 500),
         subjects,

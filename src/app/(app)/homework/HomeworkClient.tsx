@@ -554,7 +554,7 @@ export default function HomeworkClient({
   }
 
   /** Kinds whose completion asks for a grade outcome. */
-  const GRADED_KINDS = ["quiz", "exam"];
+  const GRADED_KINDS = ["test", "quiz", "exam"];
 
   /** Persist (or clear) the letter grade on an assessment — offline-safe via
    *  the same 202/optimistic pattern as completion. */
@@ -1615,7 +1615,10 @@ export default function HomeworkClient({
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>Type:</span>
-                {Object.entries(KIND_LABELS).map(([k, label]) => (
+                {/* "test" is hidden from the picker — quiz/exam cover the same
+                    ground — but stays a valid kind (NL parser + goal shadow
+                    rows still create it, and it prompts for a grade). */}
+                {Object.entries(KIND_LABELS).filter(([k]) => k !== "test").map(([k, label]) => (
                   <button
                     key={k}
                     type="button"

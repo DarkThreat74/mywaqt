@@ -353,6 +353,8 @@ export interface SessionEntry {
   method?: string;
   /** Break segments actually used (0.5m+), focus minutes, mid-session switches. */
   breaks?: number; focusMin?: number; switches?: number;
+  /** Of `breaks`, how many were prayer breaks — "left the desk for salah". */
+  salahBreaks?: number;
   /** Per-assignment minutes — `hw` carries the homeworkId for class rollup
    *  and "how long did I study for that exam" lookups. */
   subjects?: { label: string; min: number; hw?: string }[];

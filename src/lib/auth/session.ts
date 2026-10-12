@@ -100,7 +100,7 @@ export async function clearSessionCookie(): Promise<void> {
  * Password reset revalidates the `sva-${userId}` tag so revocation is still
  * immediate. Removes a Neon round-trip from every authed request/navigation.
  */
-const DELETION_GRACE_MS = 5 * 60 * 60 * 1000;
+export const DELETION_GRACE_MS = 5 * 60 * 60 * 1000;
 
 const getSessionValidity = (userId: string) =>
   unstable_cache(
