@@ -105,6 +105,13 @@ function fmtDur(min: number) {
 const fmtTime = (ms: number) =>
   new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
+// Salah prompt memory lives at module scope — a remount (route nav, Strict
+// Mode double-mount) must never reset "already marked" or the hush timer and
+// resurrect the sheet the user just dealt with. Marked entries are keyed
+// `date:prayer` so yesterday's mark can't suppress today's unmarked window.
+const salahMarkedMount = new Set<string>();
+const salahHushed: Record<string, number> = {};
+
 const localDateStr = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -238,13 +245,17 @@ export default function StudySession() {
   // Guards so each escalation fires once per prayer window.
   const prayerFiredRef = useRef<string | null>(null);   // <15 min forced break
   const prayerQueuedRef = useRef<string | null>(null);  // <30 min inserted break
-  // Prayers marked via the session UI this mount — a periodic refetch must not
+  // Prayers marked via the session UI — a periodic refetch must not
   // resurrect the banner while a queued/slow check-in write lands.
-  const markedPrayersRef = useRef(new Set<string>());
-  // Salah decision prompt — hushed-until timestamp. The `now` tick re-shows
-  // the sheet once it expires: 15 min after "pray in next break", 5 after a
-  // bare dismiss. Under 30 min left the defer option is gone entirely.
-  const [salahHushedUntil, setSalahHushedUntil] = useState(0);
+  const markedPrayersRef = useRef(salahMarkedMount);
+  // Salah decision prompt — hushed-until timestamp keyed by prayer so one
+  // prayer's hush can't mute another's first alert. Lives in module scope;
+  // the 1s `now` tick re-shows the sheet once it expires: 15 min after
+  // "pray in next break", 5 after a bare dismiss.
+  const salahHushedUntil = salah ? (salahHushed[salah.name] ?? 0) : 0;
+  const setSalahHushedUntil = (ts: number) => {
+    if (salah) salahHushed[salah.name] = ts;
+  };
   const soundscape = useSoundscape();
   const talksPlayer = useAudioPlayer();
 
@@ -352,7 +363,7 @@ export default function StudySession() {
           }
         }
         if (!found) { setSalah(null); return; }
-        if (markedPrayersRef.current.has(found.name)) { setSalah(null); return; }
+        if (markedPrayersRef.current.has(`${dateStr}:${found.name}`)) { setSalah(null); return; }
         const entry = logs.find((l) => l.prayerName === found!.name);
         // assumed_prayed counts too — a cron-resolved prayer is settled, not
         // something to nag about mid-session.
@@ -620,8 +631,12 @@ export default function StudySession() {
 
   // ── Salah decision prompt ──
   // Opens the moment a prayer window arrives mid-session, and again whenever
-  // a hush expires while the salah is still unmarked.
-  const salahPrompt = !!salah && state.status === "running" && now >= salahHushedUntil;
+  // a hush expires while the salah is still unmarked — UNLESS a break for
+  // this prayer is already queued or running ("pray in next break" promised
+  // the prayer is covered; re-prompting every hush expiry was the constant
+  // popup on every tab switch).
+  const salahPrompt = !!salah && state.status === "running" && now >= salahHushedUntil &&
+    !!progress && !state.segments.slice(progress.index).some((s) => s.prayer === salah.name);
 
   // "Pray in next break" — queue a prayer break after the current segment and
   // hush the prompt ~15 min. The escalation effect above still owns the
@@ -1103,7 +1118,7 @@ export default function StudySession() {
       });
       // Only treat it as prayed once the write is confirmed — 200 online or
       // the SW's 202 offline-queue receipt. A failed write keeps the banner.
-      if (res.ok || res.status === 202) markedPrayersRef.current.add(name);
+      if (res.ok || res.status === 202) markedPrayersRef.current.add(`${dateStr}:${name}`);
       else return;
     } catch { /* check-in is best-effort — the prayer page can still mark it */ }
     setSalah(null);
@@ -1116,12 +1131,20 @@ export default function StudySession() {
   const salahDialog = salah && salahPrompt ? (
     <div className="fixed inset-0 z-[97] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label={`${PRAYER_LABEL[salah.name] ?? salah.name} time`}>
       <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={hushSalah} aria-label="Back" />
-      <div className="relative w-full max-w-sm rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
-        <p className="text-center text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--color-warmth)" }}>
-          Prayer time
-        </p>
-        <p className="mt-1.5 text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
-          {PRAYER_LABEL[salah.name] ?? salah.name} is here{salahNote ? ` — ${salahNote}` : ""}
+      <div className="relative w-full max-w-sm rounded-t-2xl border-t px-5 pb-5 pt-4 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
+        {/* Ruled header — same voice as the prayer timeline, not a toast. */}
+        <div className="flex items-baseline justify-between gap-3 border-b pb-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+          <p className="text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+            {PRAYER_LABEL[salah.name] ?? salah.name}
+          </p>
+          <p className="text-xs tabular-nums" style={{ color: salahInMakruh ? "var(--color-error)" : "var(--color-ink-muted)" }}>
+            {salahNote}
+          </p>
+        </div>
+        <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
+          {salahInMakruh
+            ? "It\u2019s makruh — best to finish this segment first, but the window is still open."
+            : "The window opened while you were studying. Pray now, or take it in your next break."}
         </p>
         <div className="mt-4 flex flex-col gap-2">
           <button

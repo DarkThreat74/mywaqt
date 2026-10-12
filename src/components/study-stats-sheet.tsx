@@ -297,6 +297,11 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
                 })}
               </div>
 
+              {/* Range calendar — month shows the whole month, year the whole
+                  year, all-time every month since the first session. Cell
+                  intensity follows minutes studied that day. */}
+              <SessionCalendar history={history} range={range} />
+
               {/* Your rhythm — averages once there's enough data to mean
                   something (5+ tracked sessions in range). */}
               {stats.sessions >= 5 && (
@@ -396,6 +401,92 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Calendar of study days for the selected range — week = 7-day strip,
+ *  month = this month's grid, year = every month this year, all = every
+ *  month since the first logged session (years labeled when they differ). */
+function SessionCalendar({ history, range }: { history: SessionEntry[]; range: StatsRange }) {
+  const byDate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of history) m.set(e.date, (m.get(e.date) ?? 0) + entryMinutes(e));
+    return m;
+  }, [history]);
+  const maxMin = useMemo(() => Math.max(1, ...byDate.values()), [byDate]);
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const cell = (dateStr: string, dayNum: number | null) => {
+    const min = dayNum !== null ? (byDate.get(dateStr) ?? 0) : 0;
+    const pct = min > 0 ? Math.max(0.18, Math.min(1, min / maxMin)) : 0;
+    return (
+      <span
+        key={dateStr}
+        title={min > 0 ? `${fmtDur(Math.round(min))} studied` : undefined}
+        className="flex aspect-square items-center justify-center rounded-[4px] text-[9px] tabular-nums"
+        style={{
+          backgroundColor: min > 0 ? `color-mix(in oklab, var(--color-accent) ${Math.round(pct * 85)}%, transparent)` : "var(--color-paper-2)",
+          color: min > 0 ? "var(--color-ink)" : "var(--color-ink-muted)",
+          outline: dateStr === todayStr ? "1.5px solid var(--color-accent)" : "none",
+          outlineOffset: -1.5,
+        }}
+      >
+        {dayNum ?? ""}
+      </span>
+    );
+  };
+
+  const monthGrid = (y: number, mo: number, label: string) => {
+    const first = new Date(y, mo, 1);
+    const days = new Date(y, mo + 1, 0).getDate();
+    const lead = (first.getDay() + 6) % 7; // Mon-first
+    return (
+      <div key={`${y}-${mo}`}>
+        <p className="mb-1 text-[10px] font-semibold" style={{ color: "var(--color-ink-muted)" }}>{label}</p>
+        <div className="grid grid-cols-7 gap-[3px]">
+          {Array.from({ length: lead }, (_, i) => <span key={`b${i}`} />)}
+          {Array.from({ length: days }, (_, i) => {
+            const ds = `${y}-${String(mo + 1).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`;
+            return cell(ds, i + 1);
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  if (range === "week") {
+    const start = rangeStart("week", today)!;
+    return (
+      <div className="mt-3 grid grid-cols-7 gap-[3px]">
+        {Array.from({ length: 7 }, (_, i) => {
+          const d = new Date(start); d.setDate(start.getDate() + i);
+          const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          return cell(ds, d.getDate());
+        })}
+      </div>
+    );
+  }
+
+  const monthName = (y: number, mo: number, showYear: boolean) =>
+    new Date(y, mo, 1).toLocaleDateString([], { month: "short", ...(showYear ? { year: "numeric" } : {}) });
+
+  if (range === "month") {
+    return <div className="mt-4">{monthGrid(today.getFullYear(), today.getMonth(), monthName(today.getFullYear(), today.getMonth(), true))}</div>;
+  }
+
+  // Year + all-time — every month in range as a mini grid.
+  const firstEntry = history.length ? history.map((e) => e.date).sort()[0] : todayStr;
+  const [fy, fm] = range === "all" ? firstEntry.split("-").map(Number) : [today.getFullYear(), 1];
+  const months: [number, number][] = [];
+  for (let y = fy, mo = fm - 1; y < today.getFullYear() || (y === today.getFullYear() && mo <= today.getMonth()); mo === 11 ? (y++, mo = 0) : mo++) {
+    months.push([y, mo]);
+  }
+  const multiYear = months.some(([y]) => y !== months[0][0]);
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {months.map(([y, mo]) => monthGrid(y, mo, monthName(y, mo, multiYear || range === "all")))}
     </div>
   );
 }

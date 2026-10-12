@@ -139,31 +139,18 @@ export default function SidebarSalah() {
       }
       if (Number.isNaN(s) || Number.isNaN(e)) continue;
       if (now >= s && now < e) {
-        if (b.unmarked.has(p)) {
-          // Count down to the earlier of the window end and the next makruh
-          // window inside it — "Fajr — 20m left (until makruh)".
-          const bound = mkTs.find((w) => w.sTs > now && w.sTs < e);
-          const target = bound ? bound.sTs : e;
-          const left = Math.max(1, Math.round((target - now) / 60000));
-          setStatus({
-            text: bound
-              ? `${LABEL[p]} — ${fmtLeft(left)} left until makruh`
-              : `${LABEL[p]} ends in ${fmtLeft(left)}`,
-            urgent: left < 30,
-          });
-        } else {
-          // Prayed — count down to the next prayer's start.
-          const nextIdx = START_ORDER.indexOf(p) + 1;
-          const nStart = nextIdx < START_ORDER.length
-            ? toTs(b.times[START_ORDER[nextIdx]])
-            : toTs(b.times.fajr, 1);
-          const nName = nextIdx < START_ORDER.length ? START_ORDER[nextIdx] : "fajr";
-          setStatus(
-            Number.isNaN(nStart) || nStart <= now
-              ? null
-              : { text: `${LABEL[nName]} starts in ${fmtLeft(Math.round((nStart - now) / 60000))}`, urgent: false },
-          );
-        }
+        // While ANY window is open the line belongs to it — "Maghrib ends in
+        // 58m" — never the next prayer. Prayed only quiets the color.
+        const bound = mkTs.find((w) => w.sTs > now && w.sTs < e);
+        const target = bound ? bound.sTs : e;
+        const left = Math.max(1, Math.round((target - now) / 60000));
+        const unmarked = b.unmarked.has(p);
+        setStatus({
+          text: bound
+            ? `${LABEL[p]} — ${fmtLeft(left)} left until makruh`
+            : `${LABEL[p]} ends in ${fmtLeft(left)}`,
+          urgent: unmarked && left < 30,
+        });
         return;
       }
     }
