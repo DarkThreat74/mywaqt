@@ -5,6 +5,9 @@ import { Check, ChevronRight, Loader2, MoonStar } from "lucide-react";
 import {
   getShieldStatus,
   openShieldSetting,
+  getShieldBlockedApps,
+  setShieldBlockedApps,
+  SHIELD_BLOCKABLE_APPS,
   type ShieldPermissionKey,
   type ShieldStatus,
 } from "@/lib/salah-shield-native";
@@ -61,6 +64,22 @@ const LS_KEY = "waqt:salah-shield";
 export default function SalahShieldSetup({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }) {
   const [status, setStatus] = useState<ShieldStatus | null>(null);
   const [opening, setOpening] = useState<ShieldPermissionKey | null>(null);
+  // null = full curated default list; a stored subset overrides it.
+  const [blocked, setBlocked] = useState<Set<string>>(() => {
+    const custom = getShieldBlockedApps();
+    return new Set(custom ?? SHIELD_BLOCKABLE_APPS.map((a) => a.pkg));
+  });
+  const [appsOpen, setAppsOpen] = useState(false);
+
+  function toggleApp(pkg: string) {
+    setBlocked((prev) => {
+      const next = new Set(prev);
+      if (next.has(pkg)) next.delete(pkg); else next.add(pkg);
+      const all = SHIELD_BLOCKABLE_APPS.map((a) => a.pkg);
+      setShieldBlockedApps(all.every((p) => next.has(p)) ? null : [...next]);
+      return next;
+    });
+  }
 
   const refresh = useCallback(async () => {
     const s = await getShieldStatus();
@@ -156,6 +175,39 @@ export default function SalahShieldSetup({ onDone, onSkip }: { onDone: () => voi
             </div>
           );
         })}
+      </div>
+
+      {/* Apps the shield covers — defaults on, user can trim the list. */}
+      <div className="mt-3 w-full max-w-sm">
+        <button
+          onClick={() => setAppsOpen((o) => !o)}
+          className="w-full text-left text-xs font-medium"
+          style={{ color: "var(--color-ink-muted)" }}
+        >
+          {appsOpen ? "Hide apps" : `Apps covered (${blocked.size}) — tap to choose`}
+        </button>
+        {appsOpen && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {SHIELD_BLOCKABLE_APPS.map((a) => {
+              const on = blocked.has(a.pkg);
+              return (
+                <button
+                  key={a.pkg}
+                  onClick={() => toggleApp(a.pkg)}
+                  aria-pressed={on}
+                  className="rounded-full border px-2.5 py-1 text-[11px] transition-colors"
+                  style={{
+                    borderColor: on ? "var(--color-accent)" : "var(--color-paper-3)",
+                    backgroundColor: on ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : "transparent",
+                    color: on ? "var(--color-ink)" : "var(--color-ink-muted)",
+                  }}
+                >
+                  {a.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="mt-6 w-full max-w-sm">

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, MoonStar } from "lucide-react";
 import { openPrayer, prayerDisplayName, getPrayerWindowStart, getPrayerWindowEnd, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
-import { shieldNativeAvailable, syncShieldSchedule, shieldMarkPrayed, openShieldSetting } from "@/lib/salah-shield-native";
+import { shieldNativeAvailable, syncShieldSchedule, shieldMarkPrayed, openShieldSetting, consumeShieldPrayer, getShieldBlockedApps } from "@/lib/salah-shield-native";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
 import { useUISFX } from "@/components/uisfx-provider";
@@ -71,23 +71,45 @@ export default function SalahShield() {
 
       const minutes = now.getHours() * 60 + now.getMinutes();
 
-      // Push the day's schedule to the native side every cycle — the
-      // accessibility service reads SharedPreferences, never the network,
-      // so blocking stays correct through offline and app restarts.
+      // Push the schedule to the native side every cycle — today AND
+      // tomorrow, as absolute epoch ms. The accessibility service reads
+      // SharedPreferences, never the network, so blocking stays correct
+      // through offline, restarts, and even a full day without opening the
+      // app. Windows that have all ended are inert — stale data can't fire.
       if (shieldNativeAvailable()) {
         const enabled = (() => { try { return localStorage.getItem(LS_KEY) === "1"; } catch { return false; } })();
         const logs = await db.prayerLogs.where("date").equals(today).toArray();
         const marked = new Set(logs.filter((l) => l.status !== "pending").map((l) => l.prayerName));
+        const windows: import("@/lib/salah-shield-native").ShieldWindow[] = [];
+        const PRAYERS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as PrayerKey[];
+        for (let dayOff = 0; dayOff <= 1; dayOff++) {
+          const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOff);
+          const dayStr = localDateStr(d);
+          const t = dayOff === 0
+            ? timings
+            : ((await db.prayerTimes.get(dayStr)) as PrayerTimings | undefined);
+          if (!t) continue;
+          const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+          for (const p of PRAYERS) {
+            windows.push({
+              name: p,
+              startMs: midnight + getPrayerWindowStart(p, t) * 60_000,
+              endMs: midnight + getPrayerWindowEnd(p, t) * 60_000,
+              marked: dayOff === 0 && marked.has(p),
+            });
+          }
+        }
         void syncShieldSchedule({
           enabled,
-          date: today,
-          windows: (["fajr", "dhuhr", "asr", "maghrib", "isha"] as PrayerKey[]).map((p) => ({
-            name: p,
-            startMin: getPrayerWindowStart(p, timings),
-            endMin: getPrayerWindowEnd(p, timings),
-            marked: marked.has(p),
-          })),
+          windows,
+          blockedApps: getShieldBlockedApps() ?? undefined,
         });
+        // Landed here from the shield overlay's button — consume the
+        // deep-link prayer once and nudge any open check-in UI toward it.
+        const launchedPrayer = await consumeShieldPrayer();
+        if (launchedPrayer) {
+          window.dispatchEvent(new CustomEvent("waqt:prayer-updated", { detail: { prayerName: launchedPrayer } }));
+        }
       }
 
       const prayer = openPrayer(minutes, timings);
