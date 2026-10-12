@@ -212,6 +212,9 @@ export default function SpendingLog() {
       // keep state
     } finally {
       setConfirmDeleteId(null);
+      // Deleting the entry being edited would leave the form bound to a
+      // dead id — the next Save would PATCH a 404.
+      if (editingId === id) { setEditingId(null); setAdding(false); setForm(EMPTY); }
     }
   }
 

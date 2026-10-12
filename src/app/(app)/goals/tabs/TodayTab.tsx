@@ -18,7 +18,10 @@ function todayStr(): string {
 }
 
 function isSameDay(a: Date | string, b: Date): boolean {
-  const d = typeof a === "string" ? new Date(a + "T00:00:00") : a;
+  // Date-only strings get a local-midnight anchor; full ISO timestamps
+  // (e.g. completedAt) already carry their time — appending made them
+  // unparseable and the "completed today" count silently returned 0.
+  const d = typeof a === "string" ? new Date(a.includes("T") ? a : a + "T00:00:00") : a;
   return d.getFullYear() === b.getFullYear() && d.getMonth() === b.getMonth() && d.getDate() === b.getDate();
 }
 
@@ -49,14 +52,16 @@ export default function TodayTab({
   setHabitLogs: React.Dispatch<React.SetStateAction<HabitLog[]>>;
   onNavigate: (tab: string) => void;
 }) {
-  const today = useMemo(() => new Date(), []);
+  // Not memoized — a memoized "now" goes stale across midnight in a session
+  // kept open overnight (wrong header date, wrong "completed today" count).
+  const today = new Date();
   const todayDateStr = todayStr();
 
   // ── Carried over: incomplete homework from yesterday or earlier (not today) ──
   const carriedOver = useMemo(
     () => homework
       .filter((h) => h.status === "pending" && h.dueDate && h.dueDate < todayDateStr)
-      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()),
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
     [homework, todayDateStr],
   );
 
@@ -305,8 +310,9 @@ export default function TodayTab({
   const habitsDone = activeHabits.filter((h) => habitsCompletedToday.has(h.id)).length;
 
   const completedTodayHomework = useMemo(
-    () => homework.filter((h) => h.status === "completed" && h.completedAt && isSameDay(h.completedAt, today)).length,
-    [homework, today],
+    () => homework.filter((h) => h.status === "completed" && h.completedAt && isSameDay(h.completedAt, new Date())).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- todayDateStr forces recompute when an open session crosses midnight
+    [homework, todayDateStr],
   );
 
   const totalDueToday = upcomingHomework.length + carriedOver.length;

@@ -26,6 +26,12 @@ export default function UserStamp({ userId }: { userId: string }) {
           }
           db.close();
         };
+        // The Dexie DB ("waqt-offline-data": events, prayer logs, homework,
+        // analytics…) also belongs to the previous account — same leak as
+        // the SW caches. CLEAR_USER_CACHE doesn't reach it.
+        import("@/lib/offline/db")
+          .then((m) => m.clearOfflineCache())
+          .catch(() => {});
       }
       localStorage.setItem("waqt:uid", userId);
     } catch { /* non-critical */ }

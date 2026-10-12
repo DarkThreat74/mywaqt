@@ -30,6 +30,7 @@ import StudySession from "@/components/study-session";
 import SidebarSalah from "@/components/sidebar-salah";
 import OnboardingGuard from "@/components/onboarding-guard";
 import ShellMode from "@/components/shell-mode";
+import Deferred from "@/components/deferred";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
@@ -171,10 +172,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="app-main flex min-w-0 flex-1 flex-col lg:pl-56">
         {/* Mobile top bar */}
         <header
-          className="app-chrome sticky top-0 z-40 flex items-center justify-between border-b px-4 py-3 lg:hidden backdrop-blur-md"
+          className="app-chrome sticky top-0 z-40 flex items-center justify-between border-b px-4 py-3 lg:hidden"
           style={{
             borderColor: "var(--color-paper-3)",
-            backgroundColor: "color-mix(in oklab, var(--color-paper) 90%, transparent)",
+            // backdrop-blur removed on mobile — iOS Safari pays a real GPU
+            // cost per frame on fixed blurred chrome (the tap-hitch source).
+            backgroundColor: "color-mix(in oklab, var(--color-paper) 96%, transparent)",
             paddingTop: "calc(0.75rem + env(safe-area-inset-top))",
           }}
         >
@@ -199,10 +202,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* ── Mobile bottom nav ── */}
       <nav
-        className="app-chrome fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t lg:hidden backdrop-blur-md"
+        className="app-chrome fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t lg:hidden"
         style={{
           borderColor: "var(--color-paper-3)",
-          backgroundColor: "color-mix(in oklab, var(--color-paper) 90%, transparent)",
+          backgroundColor: "color-mix(in oklab, var(--color-paper) 96%, transparent)",
           paddingBottom: "env(safe-area-inset-bottom)",
         }}
         aria-label="Mobile navigation"
@@ -225,11 +228,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <DeepLinkHandler />
       {/* Floating UI — hidden on bare-shell routes (onboarding, guide) */}
       <div className="app-chrome contents">
-        <PendingInvite />
-        <NotificationTray />
-        <DuaToast />
-        <FunFactPopup />
-        <BirthdayAlerter />
+        {/* Popups/trays render null until triggered — mounting them at idle
+            keeps their hydration cost out of the first-tap window. */}
+        <Deferred>
+          <PendingInvite />
+          <NotificationTray />
+          <DuaToast />
+          <FunFactPopup />
+          <BirthdayAlerter />
+        </Deferred>
         {/* Unified floating dock — study timer, sounds, talks, feedback segments */}
         <FloatingDock feedbackEnabled={await feedbackEnabledP} />
 

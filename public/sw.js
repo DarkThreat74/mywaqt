@@ -26,6 +26,7 @@ const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
+const RSC_CACHE = `${CACHE_VERSION}-rsc`;
 const AUDIO_CACHE = "waqt-audio";
 // AUDIO_CACHE stores talk MP3s for offline playback.
 // It is intentionally not cleaned on logout (talks are shared content).
@@ -262,14 +263,15 @@ async function warmCache() {
   isWarming = true;
   try {
     const cache = await caches.open(PAGE_CACHE);
-    // Prune stale page entries — every ?date= navigation writes one, and
-    // without a cap the cache grows forever. 14 days is plenty.
+    // Prune stale page + RSC entries — every ?date= navigation writes one,
+    // and without a cap the caches grow forever. 14 days is plenty.
     const PRUNE_AFTER = 14 * 24 * 60 * 60 * 1000;
-    for (const key of await cache.keys()) {
-      const res = await cache.match(key);
+    for (const c of [cache, await caches.open(RSC_CACHE)])
+    for (const key of await c.keys()) {
+      const res = await c.match(key);
       const cachedAt = Number(res?.headers.get("x-waqt-cached-at") || 0);
       if (cachedAt && Date.now() - cachedAt > PRUNE_AFTER) {
-        await cache.delete(key);
+        await c.delete(key);
       }
     }
     const results = await Promise.allSettled(
@@ -325,7 +327,7 @@ if ("navigationPreload" in self.registration) {
 
 // ─── Activate: clear old caches, claim clients ───
 self.addEventListener("activate", (event) => {
-  const validCaches = [STATIC_CACHE, RUNTIME_CACHE, API_CACHE, PAGE_CACHE, AUDIO_CACHE];
+  const validCaches = [STATIC_CACHE, RUNTIME_CACHE, API_CACHE, PAGE_CACHE, RSC_CACHE, AUDIO_CACHE];
 
   event.waitUntil(
     caches
@@ -992,21 +994,67 @@ self.addEventListener("fetch", (event) => {
   }
 
   // ── Next.js RSC payload fetches (client-side navigation) ──
-  // RSC/Flight payloads are tied to the build ID and session — caching them
-  // manually causes stale/mismatched data and infinite loading on soft
-  // navigations. Use NetworkOnly; when offline, return 503 so the client
-  // falls back to the cached HTML shell + IndexedDB data.
+  // Every <Link>/router.push tap pays one of these — network-only was the
+  // "tap → ~1s frozen → page switches" bug on mobile data. Strategy mirrors
+  // app pages: a fresh-enough uid-stamped copy answers INSTANTLY while the
+  // network revalidates; beyond the window the network gets a 1.2s budget
+  // before the stale copy wins (lie-fi should degrade data freshness, never
+  // freeze the tap). Proxy stamps x-waqt-uid on page-path requests, so the
+  // same per-account gate applies here as for HTML.
+  // Cache key strips _rsc (a per-request nonce — including it would shard
+  // every entry and never hit) but keeps real params like ?date=.
   if (request.headers.get("RSC") === "1" || url.searchParams.has("_rsc")) {
     event.respondWith(
       (async () => {
-        try {
-          // 6s cap — a hanging RSC fetch is the "tap a tab, nothing happens" bug
-          const response = await timedFetch(request, 6000);
-          return response;
-        } catch {
-          // Offline — return 503 so the client uses cached HTML + IndexedDB
-          return new Response("", { status: 503, headers: { "Content-Type": "text/x-component" } });
+        const cache = await caches.open(RSC_CACHE);
+        const params = new URLSearchParams(url.search);
+        params.delete("_rsc");
+        params.sort();
+        // URLSearchParams.size needs iOS 17+ — toString() works everywhere.
+        const qs = params.toString();
+        const key = qs ? `${url.pathname}?${qs}` : url.pathname;
+        const uid = await requestUid();
+
+        const store = async (res) => {
+          const body = await res.clone().text();
+          const headers = new Headers(res.headers);
+          headers.set("x-waqt-cached-at", String(Date.now()));
+          await cache.put(key, new Response(body, { status: res.status, headers }));
+        };
+
+        const cached = await matchStampedPage(cache, key, uid);
+        if (cached) {
+          const age = Date.now() - Number(cached.headers.get("x-waqt-cached-at") || 0);
+          // Under 2 min old — this is what the server would send anyway.
+          if (age < 2 * 60 * 1000) {
+            event.waitUntil(
+              (async () => {
+                try { const r = await timedFetch(request, 6000); if (r.ok) await store(r); } catch { /* keep cached */ }
+              })()
+            );
+            return cached;
+          }
         }
+
+        const net = (async () => {
+          try {
+            const r = await timedFetch(request, 6000);
+            if (r.ok) await store(r);
+            return r;
+          } catch { return null; }
+        })();
+        event.waitUntil(net.catch(() => {}));
+
+        const budget = new Promise((resolve) =>
+          setTimeout(() => resolve(uid ? cached : null), 1200)
+        );
+        const first = await Promise.race([net, budget]);
+        if (first) return first;
+        const netRes = await net;
+        if (netRes) return netRes;
+        // Offline — stale copy if we have one, else 503 so the client uses
+        // cached HTML + IndexedDB.
+        return cached || new Response("", { status: 503, headers: { "Content-Type": "text/x-component" } });
       })()
     );
     return;
@@ -1043,7 +1091,12 @@ self.addEventListener("fetch", (event) => {
           );
         }
         const cache = await caches.open(API_CACHE);
-        const cached = await cache.match(request);
+        const uid = await requestUid();
+        // Entries are stamped with the uid they were fetched under — an
+        // expired session leaves no CLEAR_USER_CACHE, and without the stamp
+        // the next account on this device would inherit private API data.
+        let cached = await cache.match(request);
+        if (cached && cached.headers.get("x-waqt-uid") !== uid) cached = null;
         if (cached) {
           const cachedAt = Number(cached.headers.get("x-waqt-cached-at") || 0);
           const age = Date.now() - cachedAt;
@@ -1057,6 +1110,7 @@ self.addEventListener("fetch", (event) => {
                   const body = await response.blob();
                   const headers = new Headers(response.headers);
                   headers.set("x-waqt-cached-at", String(Date.now()));
+                  if (uid) headers.set("x-waqt-uid", uid);
                   const cachedRes = new Response(body, {
                     status: response.status,
                     statusText: response.statusText,
@@ -1078,6 +1132,7 @@ self.addEventListener("fetch", (event) => {
             const body = await response.blob();
             const headers = new Headers(response.headers);
             headers.set("x-waqt-cached-at", String(Date.now()));
+            if (uid) headers.set("x-waqt-uid", uid);
             const cachedRes = new Response(body, {
               status: response.status,
               statusText: response.statusText,
@@ -1273,6 +1328,7 @@ self.addEventListener("message", (event) => {
       Promise.all([
         caches.delete(API_CACHE).catch(() => {}),
         caches.delete(PAGE_CACHE).catch(() => {}),
+        caches.delete(RSC_CACHE).catch(() => {}),
         caches.delete(RUNTIME_CACHE).catch(() => {}),
         setMeta("uid", null).catch(() => {}),
         setMeta("hasSession", false).catch(() => {}),

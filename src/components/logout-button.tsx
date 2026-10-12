@@ -35,7 +35,19 @@ export default function LogoutButton() {
       const reg = await navigator.serviceWorker?.getRegistration();
       reg?.active?.postMessage({ type: "CLEAR_USER_CACHE" });
       // Offline IndexedDB (events, prayer logs, outbox) — same leak vector.
-      try { indexedDB.deleteDatabase("waqt-offline-data"); } catch { /* ignore */ }
+      // Dexie's singleton holds a connection that blocks deleteDatabase, so
+      // close it first and await the deletion — a fire-and-forget request
+      // silently survives into the next session.
+      try {
+        const { getOfflineDB } = await import("@/lib/offline/db");
+        getOfflineDB().close();
+      } catch { /* never opened on this page — fine */ }
+      try {
+        await new Promise<void>((resolve) => {
+          const req = indexedDB.deleteDatabase("waqt-offline-data");
+          req.onsuccess = req.onblocked = req.onerror = () => resolve();
+        });
+      } catch { /* ignore */ }
       // LocalStorage app keys (settings cache, session store, seen flags).
       try {
         Object.keys(localStorage)
