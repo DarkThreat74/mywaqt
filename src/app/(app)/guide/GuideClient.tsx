@@ -529,7 +529,7 @@ export const SECTIONS: GuideSection[] = [
       },
       {
         heading: "Shared streaks",
-        body: "Days where you AND a friend both complete all five prayers build a shared streak (🔥) shown on their row.",
+        body: "Days where you AND a friend both complete all five prayers build a shared streak shown on their row.",
       },
       {
         heading: "Live view",

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, MoonStar } from "lucide-react";
-import { openPrayer, prayerDisplayName, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
+import { openPrayer, prayerDisplayName, getPrayerWindowStart, getPrayerWindowEnd, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
+import { shieldNativeAvailable, syncShieldSchedule, shieldMarkPrayed, openShieldSetting } from "@/lib/salah-shield-native";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
 import { useUISFX } from "@/components/uisfx-provider";
@@ -69,6 +70,26 @@ export default function SalahShield() {
       if (!timings) { setDue(null); return; }
 
       const minutes = now.getHours() * 60 + now.getMinutes();
+
+      // Push the day's schedule to the native side every cycle — the
+      // accessibility service reads SharedPreferences, never the network,
+      // so blocking stays correct through offline and app restarts.
+      if (shieldNativeAvailable()) {
+        const enabled = (() => { try { return localStorage.getItem(LS_KEY) === "1"; } catch { return false; } })();
+        const logs = await db.prayerLogs.where("date").equals(today).toArray();
+        const marked = new Set(logs.filter((l) => l.status !== "pending").map((l) => l.prayerName));
+        void syncShieldSchedule({
+          enabled,
+          date: today,
+          windows: (["fajr", "dhuhr", "asr", "maghrib", "isha"] as PrayerKey[]).map((p) => ({
+            name: p,
+            startMin: getPrayerWindowStart(p, timings),
+            endMin: getPrayerWindowEnd(p, timings),
+            marked: marked.has(p),
+          })),
+        });
+      }
+
       const prayer = openPrayer(minutes, timings);
       if (!prayer) { setDue(null); return; }
 
@@ -114,6 +135,9 @@ export default function SalahShield() {
   function arm() {
     try { localStorage.setItem(LS_KEY, "1"); } catch { /* ignore */ }
     setArmed("on");
+    // On Android, arming alone blocks nothing — take them straight to the
+    // accessibility toggle (the only permission the gate can't work without).
+    if (shieldNativeAvailable()) void openShieldSetting("accessibility");
   }
 
   async function markPrayed() {
@@ -133,6 +157,7 @@ export default function SalahShield() {
         invalidateApiCache("/api/prayer-log");
         play("check");
         void hapticNotification("success");
+        void shieldMarkPrayed(due.prayer);
         window.dispatchEvent(new CustomEvent("waqt:prayer-updated", {
           detail: { date: due.logDate, prayerName: due.prayer },
         }));

@@ -12,7 +12,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Moon } from "lucide-react";
+import { Ban, Moon } from "lucide-react";
+import { activeMakruh, makruhWindows, type PrayerTimings } from "@/lib/prayer/checkin";
 
 const LABEL: Record<string, string> = {
   fajr: "Fajr", dhuhr: "Zuhr", asr: "Asr", maghrib: "Maghrib", isha: "Isha",
@@ -28,10 +29,12 @@ function fmtLeft(min: number) {
 }
 
 interface Status {
-  /** "Asr ends in 10m" | "Maghrib starts in 42m" */
+  /** "Asr ends in 10m" | "Maghrib starts in 42m" | "Makruh — ends in 8m" */
   text: string;
   /** Prayer window closing soon — shift to warmth. */
   urgent: boolean;
+  /** Inside a makruh window — red shade, no praying. */
+  makruh?: boolean;
 }
 
 export default function SidebarSalah() {
@@ -69,7 +72,10 @@ export default function SidebarSalah() {
         const logs: { prayerName: string; status: string }[] = logsRes?.ok ? await logsRes.json() : [];
         const unmarked = new Set(
           ORDER.map(([p]) => p).filter(
-            (p) => !logs.some((l) => l.prayerName === p && (l.status === "prayed" || l.status === "excused")),
+            (p) => !logs.some(
+              (l) => l.prayerName === p &&
+                (l.status === "prayed" || l.status === "excused" || l.status === "assumed_prayed"),
+            ),
           ),
         );
         base.current = { dateStr, times, unmarked };
@@ -95,6 +101,31 @@ export default function SidebarSalah() {
       t.setHours(h, m, 0, 0);
       return t.getTime() + dayOffset * 86400000;
     };
+    const minToTs = (mins: number) => {
+      const t = new Date(d);
+      t.setHours(0, mins, 0, 0);
+      return t.getTime();
+    };
+    const cur = new Date(now);
+    const curMin = cur.getHours() * 60 + cur.getMinutes();
+    // Only trust makruh math when every timing it needs is present — a
+    // partial cached row would crash parseMinutes and kill the effect.
+    const timings = (b.times.fajr && b.times.sunrise && b.times.maghrib)
+      ? (b.times as unknown as PrayerTimings)
+      : null;
+
+    // Makruh overrides everything — even an open prayer window pauses for it.
+    const mk = timings ? activeMakruh(curMin, timings) : null;
+    if (mk) {
+      const left = Math.max(1, Math.round((minToTs(mk.end) - now) / 60000));
+      setStatus({ text: `Makruh — ends in ${fmtLeft(left)}`, urgent: true, makruh: true });
+      return;
+    }
+    // Makruh windows as timestamps so an open window can clamp to them.
+    const mkTs = timings
+      ? makruhWindows(timings).map((w) => ({ ...w, sTs: minToTs(w.start) }))
+      : [];
+
     // Open window?
     for (const [p, endKey] of ORDER) {
       const s = toTs(b.times[p]);
@@ -109,8 +140,17 @@ export default function SidebarSalah() {
       if (Number.isNaN(s) || Number.isNaN(e)) continue;
       if (now >= s && now < e) {
         if (b.unmarked.has(p)) {
-          const left = Math.max(1, Math.round((e - now) / 60000));
-          setStatus({ text: `${LABEL[p]} ends in ${fmtLeft(left)}`, urgent: left < 30 });
+          // Count down to the earlier of the window end and the next makruh
+          // window inside it — "Fajr — 20m left (until makruh)".
+          const bound = mkTs.find((w) => w.sTs > now && w.sTs < e);
+          const target = bound ? bound.sTs : e;
+          const left = Math.max(1, Math.round((target - now) / 60000));
+          setStatus({
+            text: bound
+              ? `${LABEL[p]} — ${fmtLeft(left)} left until makruh`
+              : `${LABEL[p]} ends in ${fmtLeft(left)}`,
+            urgent: left < 30,
+          });
         } else {
           // Prayed — count down to the next prayer's start.
           const nextIdx = START_ORDER.indexOf(p) + 1;
@@ -146,13 +186,17 @@ export default function SidebarSalah() {
       href="/prayer"
       className="mb-3 flex items-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-medium tabular-nums transition-colors hover:bg-[var(--color-paper-3)]"
       style={{
-        color: status.urgent ? "var(--color-warmth)" : "var(--color-ink-muted)",
-        backgroundColor: status.urgent ? "var(--color-warmth-faint)" : "var(--color-paper-2)",
+        color: status.makruh ? "var(--color-error)" : status.urgent ? "var(--color-warmth)" : "var(--color-ink-muted)",
+        backgroundColor: status.makruh
+          ? "color-mix(in oklab, var(--color-error) 10%, transparent)"
+          : status.urgent ? "var(--color-warmth-faint)" : "var(--color-paper-2)",
       }}
       aria-live="polite"
       title="Open prayer check-ins"
     >
-      <Moon className="h-3 w-3 shrink-0" />
+      {status.makruh
+        ? <Ban className="h-3 w-3 shrink-0" />
+        : <Moon className="h-3 w-3 shrink-0" />}
       {status.text}
     </Link>
   );

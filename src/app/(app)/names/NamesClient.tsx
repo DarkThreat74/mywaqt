@@ -193,57 +193,36 @@ export default function NamesClient() {
         )}
       </div>
 
-      {/* ── Names grid ── */}
+      {/* ── Names register — a ruled index, not a card grid. Number and
+          transliteration on the left, the Arabic name set large on the
+          right, hairlines between rows like a manuscript folio. ── */}
       {filtered.length > 0 ? (
         <div
-          className="grid grid-cols-1 gap-2.5 sm:grid-cols-2"
           style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
         >
           {filtered.map((name) => (
             <article
               key={name.number}
-              className="group flex items-start gap-3 rounded-2xl border p-3.5 transition-colors hover:border-[var(--color-accent)]"
-              style={{
-                borderColor: "var(--color-paper-3)",
-                backgroundColor: "var(--color-paper)",
-                minHeight: 88,
-              }}
+              className="flex items-center gap-4 border-b px-1 py-4 transition-colors hover:bg-[var(--color-paper-2)] sm:gap-6"
+              style={{ borderColor: "var(--color-paper-3)" }}
             >
-              {/* Number badge */}
-              <div
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-semibold tabular-nums"
-                style={{
-                  backgroundColor: "color-mix(in oklab, var(--color-accent) 12%, transparent)",
-                  color: "var(--color-accent)",
-                }}
+              {/* Register number — quiet, tabular */}
+              <span
+                className="w-7 shrink-0 text-right text-[11px] font-medium tabular-nums"
+                style={{ color: "var(--color-ink-muted)" }}
                 aria-hidden="true"
               >
                 {name.number}
-              </div>
+              </span>
 
-              {/* Text block */}
+              {/* Transliteration + meaning */}
               <div className="min-w-0 flex-1">
-                {/* Arabic — the visual hero */}
                 <p
-                  className="text-2xl leading-[1.4] tracking-wide"
-                  style={{
-                    color: "var(--color-ink)",
-                    fontFamily: "var(--font-arabic, var(--font-amiri, serif))",
-                    direction: "rtl",
-                    textAlign: "right",
-                  }}
-                  lang="ar"
-                >
-                  {name.arabic}
-                </p>
-                {/* Transliteration */}
-                <p
-                  className="mt-1 text-sm font-medium leading-snug"
-                  style={{ color: "var(--color-ink-soft)" }}
+                  className="text-sm font-semibold leading-snug"
+                  style={{ color: "var(--color-ink)" }}
                 >
                   {name.transliteration}
                 </p>
-                {/* Meaning */}
                 <p
                   className="mt-0.5 text-xs leading-snug"
                   style={{ color: "var(--color-ink-muted)" }}
@@ -251,6 +230,20 @@ export default function NamesClient() {
                   {name.meaning}
                 </p>
               </div>
+
+              {/* Arabic — the visual anchor, always largest on the line */}
+              <p
+                className="shrink-0 text-2xl leading-[1.5] tracking-wide sm:text-[1.7rem]"
+                style={{
+                  color: "var(--color-ink)",
+                  fontFamily: "var(--font-arabic, var(--font-amiri, serif))",
+                  direction: "rtl",
+                  textAlign: "right",
+                }}
+                lang="ar"
+              >
+                {name.arabic}
+              </p>
             </article>
           ))}
         </div>

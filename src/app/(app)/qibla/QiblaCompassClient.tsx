@@ -401,7 +401,9 @@ export default function QiblaCompassClient() {
                 transition: "border-color 0.3s ease",
               }}
             >
-              <span className="text-base leading-none">🕋</span>
+              <svg viewBox="0 0 24 24" className="h-5 w-5" style={{ color: "var(--color-paper)" }} fill="currentColor" aria-label="Kaaba">
+                <path d="M4 9l8-3.2L20 9v9l-8 3.2L4 18V9zm8-1.9L6.4 9.6 12 12l5.6-2.4L12 7.1zm-6.4 3.6v6.4l5.4 2.1v-6.7l-5.4-1.8zm7.4 6.2l5.4-2.1v-6.2l-5.4 1.8v6.5z" />
+              </svg>
             </div>
           </div>
         </div>
@@ -443,7 +445,7 @@ export default function QiblaCompassClient() {
 
         {sensorState === "live" && !aligned && (
           <p className="text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            Hold the phone flat and turn until the 🕋 reaches the top marker.
+            Hold the phone flat and turn until the Kaaba marker reaches the top.
             If it drifts, wave the phone in a figure-8 to calibrate.
           </p>
         )}

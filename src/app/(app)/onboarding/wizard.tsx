@@ -3,16 +3,18 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 
-import { MapPin, ArrowRight, ArrowLeft, Check, Loader2, User, Camera, CloudOff } from "lucide-react";
+import { MapPin, ArrowRight, ArrowLeft, Check, Loader2, User, Camera, CloudOff, Flame } from "lucide-react";
 import { readAvatarFile, presetAvatarDataUrl, AVATAR_PRESETS } from "@/lib/avatar";
 import { GuideGate } from "./guide-gate";
 import { ONBOARDING_DONE_KEY } from "@/components/onboarding-guard";
+import SalahShieldSetup from "@/components/salah-shield-setup";
+import { isNativeApp, getPlatform } from "@/lib/native-bridge";
 
-type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "theme" | "location" | "madhab" | "hifidh" | "notifications" | "install" | "tour" | "guide" | "done";
+type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "theme" | "location" | "madhab" | "hifidh" | "notifications" | "install" | "shield" | "tour" | "guide" | "done";
 
 const VALID_STEPS = new Set<Step>([
   "terms", "name", "avatar", "gender", "hayd", "theme", "location",
-  "madhab", "hifidh", "notifications", "install", "tour", "guide", "done",
+  "madhab", "hifidh", "notifications", "install", "shield", "tour", "guide", "done",
 ]);
 
 /** Resume point — the layout's guard redirects here with ?s=<step>. */
@@ -49,7 +51,7 @@ const TOUR_SLIDES: TourSlide[] = [
     points: [
       "The League ranks you and friends weekly — sunnah muakkadah + witr break the tie",
       "Nudge a friend while their salah window is open; they can send a dua back",
-      "Shared streaks (🔥) build on days you both complete all five — privacy toggles in Settings",
+      "Shared streaks build on days you both complete all five — privacy toggles in Settings",
     ],
   },
   {
@@ -133,9 +135,9 @@ function TourVisual({ kind }: { kind: TourVisualKind }) {
 
   if (kind === "league") {
     const rows = [
-      { rank: "1", name: "You", dots: 5, accentRow: true, badge: "🔥12" },
-      { rank: "2", name: "Omar", dots: 4, accentRow: false, badge: "🔥12" },
-      { rank: "3", name: "Aisha", dots: 3, accentRow: false, badge: "" },
+      { rank: "1", name: "You", dots: 5, accentRow: true, streak: 12 },
+      { rank: "2", name: "Omar", dots: 4, accentRow: false, streak: 12 },
+      { rank: "3", name: "Aisha", dots: 3, accentRow: false, streak: 0 },
     ];
     return (
       <div className="mx-auto w-full max-w-xs space-y-1.5" aria-hidden>
@@ -150,7 +152,11 @@ function TourVisual({ kind }: { kind: TourVisualKind }) {
           >
             <span className="w-4 text-xs font-semibold" style={{ color: r.accentRow ? accent : muted }}>{r.rank}</span>
             <span className="min-w-0 flex-1 truncate text-left text-xs font-medium" style={{ color: "var(--color-ink)" }}>{r.name}</span>
-            {r.badge && <span className="text-[10px]">{r.badge}</span>}
+            {r.streak > 0 && (
+              <span className="flex items-center gap-0.5 text-[10px] font-semibold tabular-nums" style={{ color: "var(--color-warmth)" }}>
+                <Flame className="h-3 w-3" />{r.streak}
+              </span>
+            )}
             <div className="flex gap-1">
               {[...Array(5)].map((_, i) => (
                 <div
@@ -706,10 +712,19 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
     }
   }
 
+  // Salah Shield permission walkthrough only exists inside the Android
+  // shell — on web there's nothing to grant, so the step disappears.
+  const showShieldStep = isNativeApp() && getPlatform() === "android";
+  const afterInstall: Step = showShieldStep ? "shield" : "tour";
+
   // Progress dots: hayd step only exists for girls — count it conditionally
-  const steps: Step[] = gender === "female"
-    ? ["terms", "name", "avatar", "gender", "hayd", "theme", "location", "madhab", "hifidh", "notifications", "install", "tour", "guide", "done"]
-    : ["terms", "name", "avatar", "gender", "theme", "location", "madhab", "hifidh", "notifications", "install", "tour", "guide", "done"];
+  const steps: Step[] = [
+    "terms", "name", "avatar", "gender",
+    ...(gender === "female" ? (["hayd"] as Step[]) : []),
+    "theme", "location", "madhab", "hifidh", "notifications", "install",
+    ...(showShieldStep ? (["shield"] as Step[]) : []),
+    "tour", "guide", "done",
+  ];
   const currentIdx = steps.indexOf(step);
 
   if (!mounted) {
@@ -1402,7 +1417,7 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
           <div className="mt-8 w-full max-w-sm space-y-3">
             {installPrompt ? (
               <button
-                onClick={() => { void installPrompt.prompt(); setStep("tour"); }}
+                onClick={() => { void installPrompt.prompt(); setStep(afterInstall); }}
                 className="w-full rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90"
                 style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
               >
@@ -1416,7 +1431,7 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
               </p>
             )}
             <button
-              onClick={() => setStep("tour")}
+              onClick={() => setStep(afterInstall)}
               className="w-full text-sm font-medium transition-opacity hover:opacity-60"
               style={{ color: "var(--color-ink-muted)" }}
             >
@@ -1424,6 +1439,11 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── Salah Shield — Android permission walkthrough (native only) ── */}
+      {step === "shield" && (
+        <SalahShieldSetup onDone={() => setStep("tour")} onSkip={() => setStep("tour")} />
       )}
 
       {/* ── Feature tour — what Waqt can do ── */}

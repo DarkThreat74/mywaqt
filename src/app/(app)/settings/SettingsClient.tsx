@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2, Headphones } from "lucide-react";
+import { MapPin, RefreshCw, Check, AlertCircle, LogOut, Link2, Copy, ExternalLink, Trash2, User, Bell, BellOff, Send, Sun, Moon, Monitor, Fingerprint, Smartphone, ChevronDown, ChevronUp, Pencil, Lightbulb, Settings2 } from "lucide-react";
 import { HIDEABLE_TABS } from "@/lib/nav-tabs";
 import { useHiddenTabs, refreshNavPrefs } from "@/lib/nav-prefs";
 import { invalidateApiCache, clearApiCache } from "@/lib/sw-helpers";
 import { isNativeApp, isIOS as isIOSDevice } from "@/lib/native-bridge";
 import { clearOfflineCache } from "@/lib/offline/db";
-import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
+// Offline-audio helpers moved to settings/misc/OfflineTalksPanel.
 import { HTTP_USER_AGENT } from "@/lib/site-config";
 import { ShareQrButton } from "@/components/share-qr";
 import { clearCachedPrayerSettings, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -506,45 +506,6 @@ export default function SettingsClient({
   const [notifMsg, setNotifMsg] = useState<string | null>(null);
   const [swStatus, setSwStatus] = useState<string>("checking...");
   const [pushStatus, setPushStatus] = useState<string>("checking...");
-
-  // Offline audio storage state
-  const [audioCacheInfo, setAudioCacheInfo] = useState<{ count: number; sizeBytes: number } | null>(null);
-  const [downloadLimitMB, setDownloadLimitMBState] = useState<number>(500);
-
-  // Load audio cache info + download limit on mount, and refresh when
-  // the download manifest changes or when the page is revisited.
-  // Next.js unmounts the component when navigating away, so the custom
-  // event listener won't fire while on another page — the pageshow
-  // listener catches the "navigate back" case.
-  useEffect(() => {
-    let cancelled = false;
-
-    const refresh = async () => {
-      try {
-        const [count, sizeBytes] = await Promise.all([getAudioCacheCount(), getAudioCacheSize()]);
-        if (!cancelled) setAudioCacheInfo({ count, sizeBytes });
-      } catch { /* non-critical */ }
-      if (!cancelled) setDownloadLimitMBState(getDownloadLimitMB());
-    };
-
-    refresh();
-
-    const handleCacheChange = () => refresh();
-    const handlePageShow = () => refresh();
-    window.addEventListener("waqt:audio-cache-changed", handleCacheChange);
-    window.addEventListener("pageshow", handlePageShow);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("waqt:audio-cache-changed", handleCacheChange);
-      window.removeEventListener("pageshow", handlePageShow);
-    };
-  }, []);
-
-  // Handle download limit change
-  const handleDownloadLimitChange = useCallback((mb: number) => {
-    setDownloadLimitMB(mb);
-    setDownloadLimitMBState(mb);
-  }, []);
 
   // Logout state
   const [loggingOut, setLoggingOut] = useState(false);
@@ -1980,97 +1941,7 @@ export default function SettingsClient({
         </CollapsibleSection>
 
 
-        {/* ── Offline Audio Storage — collapsible ── */}
-        <CollapsibleSection
-          icon={<Headphones className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />}
-          title="Offline talks"
-          badge={audioCacheInfo?.count ? `${audioCacheInfo.count}` : undefined}
-          defaultOpen={false}
-        >
-          <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            Downloaded talks are stored on your device for offline listening. When the limit is
-            reached, the oldest-played talks are automatically removed.
-          </p>
-          {audioCacheInfo ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-                <span className="text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>Downloaded talks</span>
-                <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{audioCacheInfo.count}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-                <span className="text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>Total storage used</span>
-                <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
-                  {audioCacheInfo.sizeBytes > 0
-                    ? `${(audioCacheInfo.sizeBytes / 1024 / 1024).toFixed(1)} MB`
-                    : "0 MB"}
-                </span>
-              </div>
-              {/* Progress bar showing usage toward download limit */}
-              {downloadLimitMB > 0 && (
-                <div className="mt-1">
-                  <div className="mb-1 flex items-center justify-between text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                    <span>0 MB</span>
-                    <span>{downloadLimitMB >= 1024 ? `${(downloadLimitMB / 1024).toFixed(0)} GB` : `${downloadLimitMB} MB`} limit</span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-                    <div className="h-full rounded-full transition-all" style={{
-                      width: `${Math.min(100, (audioCacheInfo.sizeBytes / (downloadLimitMB * 1024 * 1024)) * 100)}%`,
-                      backgroundColor: audioCacheInfo.sizeBytes > downloadLimitMB * 1024 * 1024 * 0.9
-                        ? "var(--color-error)"
-                        : "var(--color-accent)",
-                    }} />
-                  </div>
-                </div>
-              )}
-              {audioCacheInfo.count === 0 && (
-                <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  No talks downloaded yet. Tap the download icon next to any talk to save it for offline listening.
-                </p>
-              )}
-
-              {/* Download limit selector */}
-              <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
-                <p className="mb-2 text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>Download limit</p>
-                <p className="mb-3 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                  When the limit is reached, the oldest-played talks are automatically removed to make space.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { label: "500 MB", value: 500 },
-                    { label: "1 GB", value: 1024 },
-                    { label: "2 GB", value: 2048 },
-                    { label: "3 GB", value: 3072 },
-                    { label: "Unlimited", value: 0 },
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => handleDownloadLimitChange(option.value)}
-                      className="rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
-                      style={{
-                        borderColor: downloadLimitMB === option.value
-                          ? "var(--color-accent)"
-                          : "var(--color-paper-3)",
-                        backgroundColor: downloadLimitMB === option.value
-                          ? "color-mix(in oklab, var(--color-accent) 10%, transparent)"
-                          : "transparent",
-                        color: downloadLimitMB === option.value
-                          ? "var(--color-accent)"
-                          : "var(--color-ink-soft)",
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              <span>Loading…</span>
-            </div>
-          )}
-        </CollapsibleSection>
+        {/* Offline talks storage lives under Settings → Miscellaneous → Downloads */}
 
         {/* ── Trusted Devices — collapsible ── */}
         <CollapsibleSection

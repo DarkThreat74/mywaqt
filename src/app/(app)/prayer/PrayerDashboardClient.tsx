@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Flame, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye } from "lucide-react";
+import { Flame, Handshake, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye, Ban } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
-import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer } from "@/lib/prayer/checkin";
+import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer, activeMakruh, makruhWindows } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
@@ -1391,7 +1391,7 @@ export default function PrayerDashboard() {
                         })}
                         {/* Progress fill */}
                         <div
-                          className="h-full rounded-full transition-all"
+                          className="h-full rounded-full transition-[width]"
                           style={{
                             width: `${dayPct}%`,
                             backgroundColor: "var(--color-accent)",
@@ -1401,6 +1401,27 @@ export default function PrayerDashboard() {
                       </div>
                     </div>
                   );
+                })()}
+
+                {(() => {
+                  const mkTimings = {
+                    fajr: prayerTimes.fajr, sunrise: prayerTimes.sunrise,
+                    dhuhr: prayerTimes.dhuhr, asr: prayerTimes.asr,
+                    maghrib: prayerTimes.maghrib, isha: prayerTimes.isha,
+                  };
+                  const mkNow = activeMakruh(nowMinutesInTz, mkTimings);
+                  return mkNow ? (
+                    <div
+                      className="mb-3 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium"
+                      style={{
+                        color: "var(--color-error)",
+                        backgroundColor: "color-mix(in oklab, var(--color-error) 10%, transparent)",
+                      }}
+                    >
+                      <Ban className="h-3 w-3 shrink-0" />
+                      Makruh ({mkNow.label}) — wait until {formatMinutesToTime(mkNow.end)}
+                    </div>
+                  ) : null;
                 })()}
 
                 {PRAYER_ORDER.map((prayer, idx) => {
@@ -1449,6 +1470,18 @@ export default function PrayerDashboard() {
                   const effectiveCurrent = isIshaAfterMidnight ? currentMinutes + 1440 : currentMinutes;
                   const inWindow = timeStarted && effectiveCurrent < windowEndMinutes;
                   const isCurrent = inWindow && !prayed;
+
+                  // Makruh tail: the countdown stops at the makruh window that
+                  // cuts into this prayer window (sunrise for Fajr, sunset for
+                  // Asr) — "20m left · until makruh" — and the row goes red
+                  // while makruh is in effect.
+                  const mkBound = makruhWindows({
+                    fajr: prayerTimes.fajr, sunrise: prayerTimes.sunrise,
+                    dhuhr: prayerTimes.dhuhr, asr: prayerTimes.asr,
+                    maghrib: prayerTimes.maghrib, isha: prayerTimes.isha,
+                  }).find((w) => w.start > prayerMinutes && w.start < windowEndMinutes);
+                  const inMakruhTail = !!mkBound && currentMinutes >= mkBound.start && effectiveCurrent < mkBound.end;
+                  const countdownEnd = mkBound ? mkBound.start : windowEndMinutes;
 
                   // Progress within window (0-100%)
                   const windowDuration = windowEndMinutes - prayerMinutes;
@@ -1573,10 +1606,16 @@ export default function PrayerDashboard() {
                               </span>
                               <span className="mx-1" style={{ color: "var(--color-paper-3)" }}>—</span>
                               <span>{windowEndLabel}</span>
-                              {inWindow && (() => {
+                              {inWindow && inMakruhTail && mkBound && (
+                                <span className="ml-1.5 inline-flex items-center gap-1 font-medium" style={{ color: "var(--color-error)" }}>
+                                  <Ban className="h-3 w-3" />
+                                  makruh until {formatMinutesToTime(mkBound.end)}
+                                </span>
+                              )}
+                              {inWindow && !inMakruhTail && (() => {
                                 // effectiveCurrent is fractional minutes —
                                 // work in whole seconds so nothing decimals.
-                                const totalSec = Math.max(0, Math.floor((windowEndMinutes - effectiveCurrent) * 60));
+                                const totalSec = Math.max(0, Math.floor((countdownEnd - effectiveCurrent) * 60));
                                 const hrs = Math.floor(totalSec / 3600);
                                 const mins = Math.floor((totalSec % 3600) / 60);
                                 const secs = totalSec % 60;
@@ -1585,7 +1624,7 @@ export default function PrayerDashboard() {
                                   : `${hrs > 0 ? `${hrs}h ` : ""}${mins}m left`;
                                 return (
                                   <span className="ml-1.5" style={{ color: prayed ? "var(--color-ink-muted)" : "var(--color-warmth)" }}>
-                                    {label}
+                                    {label}{mkBound ? " until makruh" : ""}
                                   </span>
                                 );
                               })()}
@@ -1601,7 +1640,7 @@ export default function PrayerDashboard() {
                               style={{ backgroundColor: "var(--color-paper-2)" }}
                             >
                               <div
-                                className="h-full rounded-full transition-all"
+                                className="h-full rounded-full transition-[width]"
                                 style={{
                                   width: `${windowProgress}%`,
                                   backgroundColor: color,
@@ -1752,7 +1791,7 @@ export default function PrayerDashboard() {
                 <Trophy className="h-4 w-4" /> League
               </h2>
               <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                Ranked on this week&apos;s fard — sunnah &amp; witr break the tie. 🔥 is your shared streak.
+                Ranked on this week&apos;s fard — sunnah &amp; witr break the tie. The linked-hands mark is your shared streak.
               </p>
             </div>
             <div className="divide-y" style={{ borderColor: "var(--color-paper-3)" }}>
@@ -2062,9 +2101,13 @@ export default function PrayerDashboard() {
             </div>
           )}
 
-          {/* Prayer consistency heatmap (GitHub-style, last 365 days) */}
+          {/* Prayer consistency — range-aware calendar */}
           {analytics?.heatmapData && (
-            <PrayerHeatmap heatmapData={analytics.heatmapData} />
+            <PrayerHistory
+              heatmapData={analytics.heatmapData}
+              range={statsRange}
+              rangeStart={analytics.rangeStart}
+            />
           )}
         </div>
       )}
@@ -3007,8 +3050,8 @@ function ComparisonRow({
           <Flame className="h-3 w-3" style={{ color: "var(--color-warmth)" }} />
           <span className="tabular-nums">{streak}d</span>
           {sharedStreak > 0 && (
-            <span className="tabular-nums" title={`${sharedStreak}-day shared streak`}>
-              🔥{sharedStreak}
+            <span className="flex items-center gap-0.5 tabular-nums" style={{ color: "var(--color-warmth)" }} title={`${sharedStreak}-day shared streak`}>
+              <Handshake className="h-3 w-3" />{sharedStreak}
             </span>
           )}
           {weekSunnah > 0 && (
@@ -3331,136 +3374,184 @@ function PrayerDots({
 
 // ── Prayer Heatmap (GitHub-style, last 365 days) ──
 // Shows daily prayer completion: green = all 5, amber = partial, red = none.
-function PrayerHeatmap({ heatmapData }: { heatmapData: Record<string, number> }) {
-  // Build the last 365 days, grouped into weeks (columns of 7 days)
+/* ── Range-aware prayer history ────────────────────────────────────────────
+ * Weekly → the last 7 days as a strip. Monthly → the current calendar month.
+ * Yearly → every month of this year as mini calendars. All-time → every month
+ * since the user's first logged prayer. Cells share one color scale. */
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+const DOW_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+
+function prayerCellColor(count: number): string {
+  if (count < 0) return "transparent";
+  if (count === 0) return "var(--color-paper-3)";
+  if (count <= 2) return "color-mix(in oklab, var(--color-error) 35%, var(--color-paper-3))";
+  if (count <= 4) return "color-mix(in oklab, var(--color-warmth) 50%, var(--color-paper-3))";
+  return "var(--color-success)";
+}
+
+function prayerCellLabel(count: number): string {
+  if (count === 0) return "No prayers";
+  if (count === 5) return "All 5 prayed";
+  return `${count}/5 prayed`;
+}
+
+/** One month as a 7-column calendar. `mini` shrinks cells for year views. */
+function PrayerMonthGrid({
+  year, month, heatmapData, mini, showYear,
+}: { year: number; month: number; heatmapData: Record<string, number>; mini?: boolean; showYear?: boolean }) {
+  const todayStr = (() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  })();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow = new Date(year, month, 1).getDay();
+  const cells: ({ date: string; count: number; day: number } | null)[] = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    cells.push({ date, count: heatmapData[date] || 0, day });
+  }
+
+  return (
+    <div>
+      <div
+        className={mini ? "mb-1.5 text-[10px] font-semibold" : "mb-2 text-xs font-semibold"}
+        style={{ color: "var(--color-ink-soft)" }}
+      >
+        {MONTH_NAMES[month]} {!mini || showYear ? year : ""}
+      </div>
+      <div
+        className="grid grid-cols-7"
+        style={{ gap: mini ? 2 : 4 }}
+      >
+        {DOW_LETTERS.map((d, i) => (
+          <div
+            key={i}
+            className="text-center font-medium"
+            style={{
+              color: "var(--color-ink-muted)",
+              fontSize: mini ? 7 : 9,
+              height: mini ? 9 : 12,
+            }}
+          >
+            {d}
+          </div>
+        ))}
+        {cells.map((cell, i) => {
+          if (!cell) return <div key={`pad-${i}`} />;
+          const isFuture = cell.date > todayStr;
+          const isToday = cell.date === todayStr;
+          return (
+            <div
+              key={cell.date}
+              className="flex items-center justify-center rounded-[3px] tabular-nums"
+              title={`${cell.date}: ${prayerCellLabel(cell.count)}`}
+              style={{
+                aspectRatio: "1",
+                backgroundColor: isFuture ? "transparent" : prayerCellColor(cell.count),
+                outline: isToday
+                  ? "1.5px solid var(--color-accent)"
+                  : !isFuture ? "0.5px solid color-mix(in oklab, var(--color-ink) 8%, transparent)" : "none",
+                outlineOffset: -1,
+                color: cell.count === 5 ? "var(--color-paper)" : "var(--color-ink-muted)",
+                fontSize: mini ? 7 : 10,
+                opacity: isFuture ? 0.35 : 1,
+              }}
+            >
+              {cell.day}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PrayerHistory({
+  heatmapData, range, rangeStart,
+}: { heatmapData: Record<string, number>; range: StatsRange; rangeStart: string }) {
   const today = new Date();
-  const days: { date: string; count: number; dayOfWeek: number }[] = [];
+  const ty = today.getFullYear();
+  const tm = today.getMonth();
 
-  for (let i = 364; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    days.push({
-      date: dateStr,
-      count: heatmapData[dateStr] || 0,
-      dayOfWeek: d.getDay(),
-    });
-  }
-
-  // Group into weeks (columns). Align so the first column starts on Sunday.
-  const weeks: typeof days[] = [];
-  let currentWeek: typeof days = [];
-
-  // Pad the start so the first day aligns to the correct day-of-week
-  const firstDow = days[0].dayOfWeek;
-  for (let p = 0; p < firstDow; p++) {
-    currentWeek.push({ date: "", count: -1, dayOfWeek: p }); // -1 = padding (no cell)
-  }
-
-  for (const day of days) {
-    currentWeek.push(day);
-    if (currentWeek.length === 7) {
-      weeks.push(currentWeek);
-      currentWeek = [];
+  // Which months to render
+  const months: { y: number; m: number }[] = [];
+  if (range === "monthly") {
+    months.push({ y: ty, m: tm });
+  } else if (range === "yearly") {
+    for (let m = 0; m <= tm; m++) months.push({ y: ty, m });
+  } else if (range === "all-time") {
+    // Start from the earliest logged date (rangeStart is 1970 — useless),
+    // falling back to this month when there's no history yet.
+    const first = Object.keys(heatmapData).sort()[0] ?? rangeStart;
+    const [fy, fm] = first >= "1970-01-02" ? first.split("-").map(Number) : [ty, tm + 1];
+    let y = fy, m = fm - 1;
+    while (y < ty || (y === ty && m <= tm)) {
+      months.push({ y, m });
+      if (++m > 11) { m = 0; y++; }
     }
   }
-  if (currentWeek.length > 0) weeks.push(currentWeek);
 
-  function cellColor(count: number): string {
-    if (count < 0) return "transparent"; // padding
-    if (count === 0) return "var(--color-paper-3)"; // no prayers
-    if (count <= 2) return "color-mix(in oklab, var(--color-error) 35%, var(--color-paper-3))"; // 1-2 prayers
-    if (count <= 4) return "color-mix(in oklab, var(--color-warmth) 50%, var(--color-paper-3))"; // 3-4 prayers
-    return "var(--color-success)"; // all 5
-  }
-
-  function cellLabel(day: { date: string; count: number }): string {
-    if (!day.date) return "";
-    if (day.count === 0) return "No prayers";
-    if (day.count === 5) return "All 5 prayed";
-    return `${day.count}/5 prayed`;
-  }
-
-  const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-  // Determine which weeks have a month boundary for labels
-  const monthBoundaries: { weekIndex: number; label: string }[] = [];
-  let lastMonth = -1;
-  weeks.forEach((week, wi) => {
-    const firstRealDay = week.find((d) => d.date);
-    if (firstRealDay) {
-      const month = parseInt(firstRealDay.date.split("-")[1]) - 1;
-      if (month !== lastMonth) {
-        monthBoundaries.push({ weekIndex: wi, label: monthLabels[month] });
-        lastMonth = month;
-      }
-    }
-  });
+  const subtitle =
+    range === "weekly" ? "Last 7 days — each cell is one day"
+    : range === "monthly" ? "This month — each cell is one day"
+    : range === "yearly" ? `${ty} — every month this year`
+    : "All time — every month since your first prayer";
 
   return (
     <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
       <div className="border-b px-4 py-3 sm:px-5" style={{ borderColor: "var(--color-paper-3)" }}>
         <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Prayer Consistency</h2>
-        <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-          Last 365 days — each cell is one day
-        </p>
+        <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{subtitle}</p>
       </div>
-      <div className="overflow-x-auto px-4 py-4 sm:px-5">
-        <div className="inline-block">
-          {/* Month labels row */}
-          <div className="mb-1 flex gap-[3px] pl-[20px]">
-            {weeks.map((_, wi) => {
-              const boundary = monthBoundaries.find((b) => b.weekIndex === wi);
+      <div className="px-4 py-4 sm:px-5">
+        {range === "weekly" ? (
+          <div className="grid grid-cols-7 gap-1.5">
+            {Array.from({ length: 7 }, (_, i) => {
+              const d = new Date(today);
+              d.setDate(d.getDate() - (6 - i));
+              const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+              const count = heatmapData[dateStr] || 0;
               return (
-                <div
-                  key={wi}
-                  className="w-[11px] text-[8px]"
-                  style={{ color: "var(--color-ink-muted)", minWidth: boundary ? 24 : 11 }}
-                >
-                  {boundary?.label || ""}
+                <div key={dateStr} className="text-center">
+                  <div className="mb-1 text-[9px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                    {DOW_LETTERS[d.getDay()]}
+                  </div>
+                  <div
+                    className="mx-auto flex aspect-square w-full max-w-9 items-center justify-center rounded-md text-[10px] font-semibold tabular-nums"
+                    title={`${dateStr}: ${prayerCellLabel(count)}`}
+                    style={{
+                      backgroundColor: prayerCellColor(count),
+                      color: count === 5 ? "var(--color-paper)" : "var(--color-ink-muted)",
+                      outline: i === 6 ? "1.5px solid var(--color-accent)" : "none",
+                      outlineOffset: -1,
+                    }}
+                  >
+                    {d.getDate()}
+                  </div>
                 </div>
               );
             })}
           </div>
-
-          {/* Heatmap grid: day labels + weeks */}
-          <div className="flex gap-[3px]">
-            {/* Day labels (Mon, Wed, Fri) */}
-            <div className="flex flex-col gap-[3px] pr-1">
-              {["", "Mon", "", "Wed", "", "Fri", ""].map((label, i) => (
-                <div key={i} className="h-[11px] text-[8px] leading-[11px]" style={{ color: "var(--color-ink-muted)", width: 20 }}>
-                  {label}
-                </div>
-              ))}
-            </div>
-
-            {/* Weeks (columns) */}
-            {weeks.map((week, wi) => (
-              <div key={wi} className="flex flex-col gap-[3px]">
-                {week.map((day, di) => (
-                  <div
-                    key={di}
-                    className="h-[11px] w-[11px] rounded-[2px] transition-colors"
-                    style={{
-                      backgroundColor: cellColor(day.count),
-                      outline: day.count >= 0 ? "0.5px solid color-mix(in oklab, var(--color-ink) 8%, transparent)" : "none",
-                    }}
-                    title={day.date ? `${day.date}: ${cellLabel(day)}` : ""}
-                  />
-                ))}
-              </div>
+        ) : range === "monthly" ? (
+          <PrayerMonthGrid year={ty} month={tm} heatmapData={heatmapData} />
+        ) : (
+          <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
+            {months.map(({ y, m }) => (
+              <PrayerMonthGrid key={`${y}-${m}`} year={y} month={m} heatmapData={heatmapData} mini showYear={range === "all-time"} />
             ))}
           </div>
+        )}
 
-          {/* Legend */}
-          <div className="mt-3 flex items-center gap-1.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
-            <span>Less</span>
-            <div className="h-[11px] w-[11px] rounded-[2px]" style={{ backgroundColor: "var(--color-paper-3)" }} />
-            <div className="h-[11px] w-[11px] rounded-[2px]" style={{ backgroundColor: "color-mix(in oklab, var(--color-error) 35%, var(--color-paper-3))" }} />
-            <div className="h-[11px] w-[11px] rounded-[2px]" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 50%, var(--color-paper-3))" }} />
-            <div className="h-[11px] w-[11px] rounded-[2px]" style={{ backgroundColor: "var(--color-success)" }} />
-            <span>More</span>
-          </div>
+        {/* Legend */}
+        <div className="mt-4 flex items-center gap-1.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
+          <span>Less</span>
+          <div className="h-[11px] w-[11px] rounded-[2px]" style={{ backgroundColor: "var(--color-paper-3)" }} />
+          <div className="h-[11px] w-[11px] rounded-[2px]" style={{ backgroundColor: "color-mix(in oklab, var(--color-error) 35%, var(--color-paper-3))" }} />
+          <div className="h-[11px] w-[11px] rounded-[2px]" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 50%, var(--color-paper-3))" }} />
+          <div className="h-[11px] w-[11px] rounded-[2px]" style={{ backgroundColor: "var(--color-success)" }} />
+          <span>More</span>
         </div>
       </div>
     </div>

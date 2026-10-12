@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Check, X, Loader2, MapPin } from "lucide-react";
 import { shouldShowMasjidQuestion, getPrayerWindowState, getPrayerWindowStart, isFridayDate, parseMinutes, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
 import { getSunnahsForFard, type SunnahDefinition } from "@/lib/prayer/sunnahs";
@@ -33,7 +33,7 @@ export default function PrayerCheckinPopup({
   existingStatus,
 }: PrayerCheckinPopup) {
   const { play } = useUISFX();
-  const [step, setStep] = useState<"main" | "masjid" | "sunnah">("main");
+  const [step, setStep] = useState<"main" | "sunnah">("main");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sunnahLogs, setSunnahLogs] = useState<Record<string, boolean>>({});
@@ -78,8 +78,26 @@ export default function PrayerCheckinPopup({
       : rawWindowState;
   const windowOpen = windowState === "open";
   const windowEnded = windowState === "ended";
-  // Treat both "prayed" and "assumed_prayed" as already prayed (benefit of the doubt)
-  const alreadyPrayed = existingStatus === "prayed" || existingStatus === "assumed_prayed";
+
+  // Auto-close the moment the live window ends — a stale "did you pray?"
+  // must never outlive the salah it asked about. windowState only recomputes
+  // on render, so a quiet 30s tick keeps it honest while the popup sits open.
+  const openedLiveRef = useRef(windowOpen && !isPastDay);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    if (windowOpen && !isPastDay) openedLiveRef.current = true;
+    if (openedLiveRef.current && windowEnded && step === "main" && !checkinResult) close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowOpen, windowEnded, step, checkinResult]);
+  // Only a user-confirmed "prayed" is settled. "assumed_prayed" is the cron's
+  // silent default — a late logger MUST still get the "did you forget to log"
+  // flow so the record can be corrected to a real check-in. (Bug: assumed_prayed
+  // here made the popup skip straight to "You prayed" forever.)
+  const alreadyPrayed = existingStatus === "prayed";
   const isExcused = existingStatus === "excused";
 
   // Post-midnight attribution: before Fajr, Isha's window is still open but
@@ -165,7 +183,7 @@ export default function PrayerCheckinPopup({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  async function checkIn(wentToMasjid: boolean | null) {
+  async function checkIn(wentToMasjid: boolean | null, late = isLateLog) {
     setLoading(true);
     setError(null);
     try {
@@ -207,7 +225,7 @@ export default function PrayerCheckinPopup({
         // Only show sunnah step if:
         // 1. There are sunnahs for this prayer
         // 2. This is NOT a late log (window was open when user confirmed)
-        if (sunnahDefs.length > 0 && !isLateLog) {
+        if (sunnahDefs.length > 0 && !late) {
           // The fard is already saved server-side. Remember the result so any
           // close path (backdrop, X, Done) still reports it to the parent —
           // previously closing here left the UI showing the prayer unlogged.
@@ -294,19 +312,11 @@ export default function PrayerCheckinPopup({
     }
   }
 
-  // During the active window: "Did you pray?" → masjid (if in masjid window) → sunnahs
-  function handlePrayedYesDuringWindow() {
-    if (showMasjidDuringWindow) {
-      setStep("masjid");
-    } else {
-      checkIn(null);
-    }
-  }
-
-  // After the window ended: "Did you forget to log?" → always ask masjid → no sunnahs
-  function handleForgotToLogYes() {
+  // Late log — no sunnah step, and checkIn must see the flag in the same tap
+  // (setState wouldn't land before the request body reads it).
+  function lateLog(wentToMasjid: boolean) {
     setIsLateLog(true);
-    setStep("masjid");
+    checkIn(wentToMasjid, true);
   }
 
   function handleUndo() {
@@ -475,24 +485,41 @@ export default function PrayerCheckinPopup({
                 </div>
               </div>
             ) : (
-              <div className="flex gap-2">
-                <button
-                  onClick={handlePrayedYesDuringWindow}
-                  disabled={loading}
-                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
-                  style={{
-                    borderColor: "var(--color-success)",
-                    backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)",
-                    color: "var(--color-success)",
-                  }}
-                >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                  Yes, I prayed
-                </button>
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  {showMasjidDuringWindow && (
+                    <button
+                      onClick={() => checkIn(true)}
+                      disabled={loading}
+                      className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                      style={{
+                        borderColor: "var(--color-accent)",
+                        backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)",
+                        color: "var(--color-accent)",
+                      }}
+                    >
+                      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+                      At the masjid
+                    </button>
+                  )}
+                  <button
+                    onClick={() => checkIn(showMasjidDuringWindow ? false : null)}
+                    disabled={loading}
+                    className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                    style={{
+                      borderColor: "var(--color-success)",
+                      backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)",
+                      color: "var(--color-success)",
+                    }}
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                    {showMasjidDuringWindow ? "Prayed" : "Yes, I prayed"}
+                  </button>
+                </div>
                 <button
                   onClick={close}
                   disabled={loading}
-                  className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                  className="min-h-11 w-full rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
                   style={{
                     borderColor: "var(--color-paper-3)",
                     color: "var(--color-ink-muted)",
@@ -522,24 +549,39 @@ export default function PrayerCheckinPopup({
             <p className="mb-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
               Did you forget to log it?
             </p>
-            <div className="flex gap-2">
-              <button
-                onClick={handleForgotToLogYes}
-                disabled={loading}
-                className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
-                style={{
-                  borderColor: "var(--color-success)",
-                  backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)",
-                  color: "var(--color-success)",
-                }}
-              >
-                <Check className="h-4 w-4" />
-                Yes, I forgot to log
-              </button>
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => lateLog(true)}
+                  disabled={loading}
+                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                  style={{
+                    borderColor: "var(--color-accent)",
+                    backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)",
+                    color: "var(--color-accent)",
+                  }}
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+                  At the masjid
+                </button>
+                <button
+                  onClick={() => lateLog(false)}
+                  disabled={loading}
+                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                  style={{
+                    borderColor: "var(--color-success)",
+                    backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)",
+                    color: "var(--color-success)",
+                  }}
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  I prayed
+                </button>
+              </div>
               <button
                 onClick={close}
                 disabled={loading}
-                className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                className="min-h-11 w-full rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
                 style={{
                   borderColor: "var(--color-paper-3)",
                   color: "var(--color-ink-muted)",
@@ -626,52 +668,6 @@ export default function PrayerCheckinPopup({
               }}
             >
               {loading ? "Undoing..." : "Undo"}
-            </button>
-          </>
-        )}
-
-        {/* ── Step: masjid question ── */}
-        {step === "masjid" && (
-          <>
-            <div className="mb-4 flex items-center gap-2">
-              <MapPin className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
-              <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
-                {isJumuah ? "Did you pray Jumu'ah or Zuhr?" : "Did you pray in the masjid?"}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => checkIn(true)}
-                disabled={loading}
-                className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
-                style={{
-                  borderColor: "var(--color-accent)",
-                  backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)",
-                  color: "var(--color-accent)",
-                }}
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                {isJumuah ? "Jumu'ah" : "Yes, at the masjid"}
-              </button>
-              <button
-                onClick={() => checkIn(false)}
-                disabled={loading}
-                className="min-h-11 flex-1 rounded-lg border py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
-                style={{
-                  borderColor: "var(--color-paper-3)",
-                  color: "var(--color-ink-soft)",
-                }}
-              >
-                {isJumuah ? "Zuhr" : "Prayed at home"}
-              </button>
-            </div>
-            <button
-              onClick={() => setStep("main")}
-              disabled={loading}
-              className="mt-2 min-h-11 w-full text-center text-xs font-medium transition-colors"
-              style={{ color: "var(--color-ink-muted)" }}
-            >
-              Back
             </button>
           </>
         )}

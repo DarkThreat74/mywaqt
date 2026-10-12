@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, Check, CheckCheck, Moon, Sun } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, Landmark, Moon, Sun } from "lucide-react";
 
 /* ── Mock thread ── */
 const FRIEND = "Ahmad";
@@ -295,7 +295,9 @@ function Postcards() {
                   borderRadius: 2,
                 }}
               >
-                {m.own ? "🕌" : "🌙"}
+                {m.own
+                  ? <Landmark className="h-4 w-4" style={{ color: "var(--color-warmth)" }} />
+                  : <Moon className="h-4 w-4" style={{ color: "var(--color-accent)" }} />}
               </span>
               <p className="text-[9px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-muted)" }}>
                 {m.own ? "from you" : `from ${FRIEND.toLowerCase()}`} · {m.time}

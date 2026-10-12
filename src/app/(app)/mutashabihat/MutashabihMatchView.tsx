@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { redirect } from "next/navigation";
-import { Swords, Timer } from "lucide-react";
+import { Handshake, Swords, Timer, Trophy } from "lucide-react";
 import { MatchSurrender } from "@/components/match-surrender";
 import { SURAHS } from "@/lib/content/quran";
 import {
@@ -239,7 +239,7 @@ export default function MutashabihMatchView({
               <p className="mt-1.5 text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>Expires in {inviteClock}</p>
             )}
             <div className="mt-6 flex justify-center gap-3">
-              <button onClick={() => void respond(true)} className="rounded-xl px-5 py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: "var(--color-accent)" }}>Accept</button>
+              <button onClick={() => void respond(true)} className="rounded-xl px-5 py-2.5 text-sm font-semibold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>Accept</button>
               <button onClick={() => void respond(false)} className="rounded-xl border px-5 py-2.5 text-sm font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>Decline</button>
             </div>
           </>
@@ -291,7 +291,13 @@ export default function MutashabihMatchView({
       {/* Done */}
       {st.status === "done" && (
         <div className="mt-6 rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
-          <p className="text-4xl">{meWon ? "🏆" : draw ? "🤝" : "🕌"}</p>
+          <p className="flex justify-center">
+            {meWon
+              ? <Trophy className="h-10 w-10" style={{ color: "var(--color-warmth)" }} />
+              : draw
+                ? <Handshake className="h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />
+                : <Swords className="h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />}
+          </p>
           <h2 className="mt-3 text-xl font-semibold" style={{ color: "var(--color-ink)" }}>
             {meWon ? "You win!" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
           </h2>
@@ -316,16 +322,16 @@ export default function MutashabihMatchView({
               <span
                 className="inline-block rounded-full border px-3 py-1 text-xs font-bold tabular-nums"
                 style={{
-                  borderColor: st.ratingDelta > 0 ? "var(--color-accent)" : "#dc2626",
-                  color: st.ratingDelta > 0 ? "var(--color-accent)" : "#dc2626",
-                  backgroundColor: st.ratingDelta > 0 ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "color-mix(in oklab, #dc2626 6%, transparent)",
+                  borderColor: st.ratingDelta > 0 ? "var(--color-accent)" : "var(--color-error)",
+                  color: st.ratingDelta > 0 ? "var(--color-accent)" : "var(--color-error)",
+                  backgroundColor: st.ratingDelta > 0 ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "color-mix(in oklab, var(--color-error) 6%, transparent)",
                 }}
               >
                 Ranked {st.ratingDelta > 0 ? `+${st.ratingDelta}` : st.ratingDelta} pts
               </span>
             </p>
           )}
-          <button onClick={onExit} className="mt-6 rounded-xl px-5 py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: "var(--color-accent)" }}>
+          <button onClick={onExit} className="mt-6 rounded-xl px-5 py-2.5 text-sm font-semibold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
             Back to Mutashabih
           </button>
         </div>
@@ -339,7 +345,7 @@ export default function MutashabihMatchView({
         return (
           <div className="mt-6">
             <div className="rounded-2xl border p-6 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="text-lg font-semibold" style={{ color: won ? "var(--color-accent)" : drawR ? "var(--color-ink-muted)" : "#dc2626" }}>
+              <p className="text-lg font-semibold" style={{ color: won ? "var(--color-accent)" : drawR ? "var(--color-ink-muted)" : "var(--color-error)" }}>
                 {won ? "Your round!" : drawR ? "No one got it" : `${st.opponentName} got there first`}
               </p>
               <p className="mt-2 text-sm tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
@@ -366,7 +372,7 @@ export default function MutashabihMatchView({
           <div
             className={`mt-5 rounded-2xl border p-5 text-center ${answered === "wrong" ? "waqt-answer-shake" : ""}`}
             style={{
-              borderColor: answered === "correct" ? "var(--color-success)" : answered === "wrong" ? "var(--color-error, #dc2626)" : "var(--color-paper-3)",
+              borderColor: answered === "correct" ? "var(--color-success)" : answered === "wrong" ? "var(--color-error)" : "var(--color-paper-3)",
               backgroundColor: "var(--color-paper)",
               transition: "border-color 0.25s",
             }}

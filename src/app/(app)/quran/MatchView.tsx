@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { redirect } from "next/navigation";
-import { Swords, Timer } from "lucide-react";
+import { Handshake, Swords, Timer, Trophy } from "lucide-react";
 import { MatchSurrender } from "@/components/match-surrender";
 import {
   SURAHS, uniqueFragment,
@@ -298,7 +298,13 @@ export default function MatchView({
       {/* Done */}
       {st.status === "done" && (
         <div className="mt-6 rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
-          <p className="text-4xl">{meWon ? "🏆" : draw ? "🤝" : "🕌"}</p>
+          <p className="flex justify-center">
+            {meWon
+              ? <Trophy className="h-10 w-10" style={{ color: "var(--color-warmth)" }} />
+              : draw
+                ? <Handshake className="h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />
+                : <Swords className="h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />}
+          </p>
           <h2 className="mt-3 text-xl font-semibold" style={{ color: "var(--color-ink)" }}>
             {meWon ? "You win!" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
           </h2>
@@ -323,16 +329,16 @@ export default function MatchView({
               <span
                 className="inline-block rounded-full border px-3 py-1 text-xs font-bold tabular-nums"
                 style={{
-                  borderColor: st.ratingDelta > 0 ? "var(--color-accent)" : "#dc2626",
-                  color: st.ratingDelta > 0 ? "var(--color-accent)" : "#dc2626",
-                  backgroundColor: st.ratingDelta > 0 ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "color-mix(in oklab, #dc2626 6%, transparent)",
+                  borderColor: st.ratingDelta > 0 ? "var(--color-accent)" : "var(--color-error)",
+                  color: st.ratingDelta > 0 ? "var(--color-accent)" : "var(--color-error)",
+                  backgroundColor: st.ratingDelta > 0 ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "color-mix(in oklab, var(--color-error) 6%, transparent)",
                 }}
               >
                 Ranked {st.ratingDelta > 0 ? `+${st.ratingDelta}` : st.ratingDelta} pts
               </span>
             </p>
           )}
-          <button onClick={onExit} className="mt-6 rounded-xl px-5 py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: "var(--color-accent)" }}>
+          <button onClick={onExit} className="mt-6 rounded-xl px-5 py-2.5 text-sm font-semibold" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
             Back to AyaTrace
           </button>
         </div>

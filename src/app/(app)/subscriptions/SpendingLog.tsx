@@ -98,7 +98,8 @@ export default function SpendingLog() {
     const qtyList = list.filter((e) => e.quantity && e.quantity > 0);
     const totalQty = qtyList.reduce((s, e) => s + (e.quantity ?? 0), 0);
     const totalAmt = qtyList.reduce((s, e) => s + e.amountCents, 0);
-    const avgUnit = totalQty > 0 ? totalAmt / totalQty : null;
+    // amountCents → dollars before dividing, or gas reads "$450.70/gal"
+    const avgUnit = totalQty > 0 ? totalAmt / 100 / totalQty : null;
     const unit = qtyList[0]?.unit ?? null;
     if (list.length < 2) return { spent, cur, n: list.length, thisMonth, avgUnit, unit, gapDays: 0, perYear: 0, expectedYear: 0 };
     const gapDays = Math.max(1, daysBetween(list[0].occurredOn, list[list.length - 1].occurredOn) / (list.length - 1));
@@ -226,7 +227,13 @@ export default function SpendingLog() {
         </p>
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setTagsOpen((o) => !o)}
+            onClick={() => {
+              // "Close" must actually close — while a filter is active the
+              // `|| activeTag` render condition kept the chips pinned, so the
+              // button looked dead. Closing clears the filter with it.
+              if (tagsOpen || activeTag) { setTagsOpen(false); setActiveTag(null); }
+              else setTagsOpen(true);
+            }}
             aria-expanded={tagsOpen || activeTag !== null}
             className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 36 }}

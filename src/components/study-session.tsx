@@ -234,16 +234,11 @@ export default function StudySession() {
   // ── Salah awareness ──
   // The open prayer window whose salah is still unmarked — banner + break
   // escalation all key off this. Refreshes every 60s while running.
-  const [salah, setSalah] = useState<{ name: string; date: string; startsAt: number; endsAt: number } | null>(null);
+  const [salah, setSalah] = useState<{ name: string; date: string; startsAt: number; endsAt: number; warnAt: number } | null>(null);
   // Guards so each escalation fires once per prayer window.
   const prayerFiredRef = useRef<string | null>(null);   // <15 min forced break
   const prayerQueuedRef = useRef<string | null>(null);  // <30 min inserted break
-  // "I prayed — go back to studying" → confirm popup → prayer_log write.
-  // Holds the prayer name being confirmed (null = closed).
-  const [confirmPrayer, setConfirmPrayer] = useState<string | null>(null);
-  // Pressed "No" on the confirm — escalate the break message.
-  const [lied, setLied] = useState(false);
-  // Prayers confirmed via the dialog this mount — a periodic refetch must not
+  // Prayers marked via the session UI this mount — a periodic refetch must not
   // resurrect the banner while a queued/slow check-in write lands.
   const markedPrayersRef = useRef(new Set<string>());
   // Salah decision prompt — hushed-until timestamp. The `now` tick re-shows
@@ -335,12 +330,26 @@ export default function StudySession() {
           return wallClockToUtc(y, mo, dd + dayOffset, h, m, 0, tz).getTime();
         };
         const nowMs = Date.now();
-        let found: { name: string; startsAt: number; endsAt: number } | null = null;
+        // Makruh boundary starts — the warning countdown runs to these, not
+        // the window edge. A session may run into makruh, but warnAt is what
+        // "ends in X" means; endsAt stays the hard limit. Fajr's tail is
+        // sunrise−20, Asr's is sunset−20, and zawaal sits just before Zuhr.
+        const sunriseTs = toTs(times.sunrise);
+        const maghribTs = toTs(times.maghrib);
+        const makruhStarts = [sunriseTs - 20 * 60000, maghribTs - 20 * 60000];
+        if (!Number.isNaN(sunriseTs) && !Number.isNaN(maghribTs)) {
+          makruhStarts.push(Math.round((sunriseTs + maghribTs) / 2) - 5 * 60000);
+        }
+        let found: { name: string; startsAt: number; endsAt: number; warnAt: number } | null = null;
         for (const [p, endKey] of order) {
           const s = toTs(times[p]);
           const e = endKey === "fajr" ? toTs(times.fajr, 1) : toTs(times[endKey]);
           if (Number.isNaN(s) || Number.isNaN(e)) continue;
-          if (nowMs >= s && nowMs < e) { found = { name: p, startsAt: s, endsAt: e }; break; }
+          if (nowMs >= s && nowMs < e) {
+            const warnAt = makruhStarts.filter((t) => !Number.isNaN(t) && t > s && t < e).sort((a, b) => a - b)[0];
+            found = { name: p, startsAt: s, endsAt: e, warnAt: warnAt ?? e };
+            break;
+          }
         }
         if (!found) { setSalah(null); return; }
         if (markedPrayersRef.current.has(found.name)) { setSalah(null); return; }
@@ -484,7 +493,6 @@ export default function StudySession() {
     if (progress.index !== lastSegRef.current) {
       lastSegRef.current = progress.index;
       lastBeepRef.current = -1;
-      setLied(false);
       // Two-tone chime on every transition; higher pitch back into study.
       beep(progress.segment.kind === "study" ? 1040 : 660, 0.15);
       setTimeout(() => beep(progress.segment.kind === "study" ? 1320 : 880, 0.15), 160);
@@ -574,8 +582,16 @@ export default function StudySession() {
   // right now (even mid-study, even paused).
   useEffect(() => {
     if (!salah || state.status !== "running" || !progress) return;
-    const remainMin = (salah.endsAt - now) / 60000;
-    if (remainMin <= 0) return; // window closed — next 60s refresh clears it
+    const endMin = (salah.endsAt - now) / 60000;
+    if (endMin <= 0) {
+      // Window's over — drop the banner and any open salah dialogs now, not
+      // whenever the next 60s refetch lands. Microtask-deferred so the effect
+      // doesn't synchronously cascade a render inside the tick loop.
+      queueMicrotask(() => setSalah(null));
+      return;
+    }
+    // Warnings count to makruh, not the window edge — pray BEFORE it turns.
+    const remainMin = (salah.warnAt - now) / 60000;
 
     if (remainMin <= 15 && prayerFiredRef.current !== salah.name) {
       prayerFiredRef.current = salah.name;
@@ -605,7 +621,7 @@ export default function StudySession() {
   // ── Salah decision prompt ──
   // Opens the moment a prayer window arrives mid-session, and again whenever
   // a hush expires while the salah is still unmarked.
-  const salahPrompt = !!salah && state.status === "running" && !confirmPrayer && now >= salahHushedUntil;
+  const salahPrompt = !!salah && state.status === "running" && now >= salahHushedUntil;
 
   // "Pray in next break" — queue a prayer break after the current segment and
   // hush the prompt ~15 min. The escalation effect above still owns the
@@ -958,9 +974,20 @@ export default function StudySession() {
   // when a pending salah window is under 30 min and the break simply arrives
   // in time — either way the messaging escalates.
   const prayerName = isBreak
-    ? (seg.prayer ?? (salah && salah.endsAt - now <= 30 * 60 * 1000 ? salah.name : null))
+    ? (seg.prayer ?? (salah && salah.warnAt - now <= 30 * 60 * 1000 ? salah.name : null))
     : null;
-  const salahLeftMin = salah ? Math.max(0, Math.ceil((salah.endsAt - now) / 60000)) : null;
+  // warnMin counts to makruh (or the window end when no tail applies);
+  // endMin is the prayer's true last minute.
+  const salahLeftMin = salah ? Math.max(0, Math.ceil((salah.warnAt - now) / 60000)) : null;
+  const salahEndMin = salah ? Math.max(0, Math.ceil((salah.endsAt - now) / 60000)) : null;
+  const salahInMakruh = !!salah && now >= salah.warnAt;
+  const salahNote = !salah
+    ? ""
+    : salahInMakruh
+      ? `makruh — ends in ${fmtDur(salahEndMin ?? 0)}`
+      : salah.warnAt < salah.endsAt
+        ? `makruh in ${fmtDur(salahLeftMin ?? 0)}`
+        : `ends in ${fmtDur(salahLeftMin ?? 0)}`;
 
   // Finish check — mandatory checkoff when the timer ends, streak-costed
   // when quitting early. Shown from both the bubble and the full overlay.
@@ -1063,12 +1090,9 @@ export default function StudySession() {
     </div>
   ) : null;
 
-  // "I prayed — go back to studying" confirmation. Yes = real check-in write
-  // then resume; No = stay on the prayer break with the escalation line.
-  const markPrayedAndResume = async () => {
-    const name = confirmPrayer;
-    setConfirmPrayer(null);
-    if (!name) return;
+  // "I prayed" marks directly — one tap, real check-in write, done. A second
+  // confirm screen was the "press it three times" complaint.
+  const markPrayed = async (name: string) => {
     try {
       const d = new Date();
       const dateStr = salah?.date ?? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -1083,35 +1107,8 @@ export default function StudySession() {
       else return;
     } catch { /* check-in is best-effort — the prayer page can still mark it */ }
     setSalah(null);
-    setLied(false);
     endBreakEarly();
   };
-  const prayerDialog = confirmPrayer ? (
-    <div className="fixed inset-0 z-[97] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label={`Mark ${PRAYER_LABEL[confirmPrayer] ?? confirmPrayer} as prayed`}>
-      <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => setConfirmPrayer(null)} aria-label="Back" />
-      <div className="relative w-full max-w-sm rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border" style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
-        <p className="text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
-          Mark {PRAYER_LABEL[confirmPrayer] ?? confirmPrayer} as prayed?
-        </p>
-        <div className="mt-4 flex flex-col gap-2">
-          <button
-            onClick={() => void markPrayedAndResume()}
-            className="flex items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
-            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
-          >
-            <Check className="h-4 w-4" /> Yes
-          </button>
-          <button
-            onClick={() => { setConfirmPrayer(null); setLied(true); }}
-            className="flex items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 48 }}
-          >
-            No
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : null;
 
   // Salah decision sheet — fires when a prayer window opens mid-session.
   // "Pray in next break" vanishes once under 30 min remain: late in the
@@ -1124,11 +1121,11 @@ export default function StudySession() {
           Prayer time
         </p>
         <p className="mt-1.5 text-center text-base font-semibold" style={{ color: "var(--color-ink)" }}>
-          {PRAYER_LABEL[salah.name] ?? salah.name} is here{salahLeftMin !== null ? ` — ends in ${fmtDur(salahLeftMin)}` : ""}
+          {PRAYER_LABEL[salah.name] ?? salah.name} is here{salahNote ? ` — ${salahNote}` : ""}
         </p>
         <div className="mt-4 flex flex-col gap-2">
           <button
-            onClick={() => { setLied(false); setConfirmPrayer(salah.name); }}
+            onClick={() => void markPrayed(salah.name)}
             className="flex items-center justify-center gap-1.5 rounded-full py-3 text-sm font-medium"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 48 }}
           >
@@ -1205,7 +1202,7 @@ export default function StudySession() {
   // While the overlay is closed the unified FloatingDock carries the session
   // pill — the finish and prayer dialogs still need to render here.
   if (!state.overlayOpen) {
-    return <>{finishDialog}{prayerDialog}{salahDialog}</>;
+    return <>{finishDialog}{salahDialog}</>;
   }
 
   // Full overlay
@@ -1268,17 +1265,17 @@ export default function StudySession() {
         {/* Salah banner — the open prayer window still waiting on you */}
         {salah && salahLeftMin !== null && !salahPrompt && (
           <button
-            onClick={() => { setLied(false); setConfirmPrayer(salah.name); }}
+            onClick={() => void markPrayed(salah.name)}
             className="mt-3 flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
             style={{
-              borderColor: salahLeftMin <= 30 ? "color-mix(in oklab, var(--color-warmth) 45%, transparent)" : "var(--color-paper-3)",
-              backgroundColor: salahLeftMin <= 30 ? "color-mix(in oklab, var(--color-warmth) 8%, transparent)" : "transparent",
-              color: salahLeftMin <= 30 ? "var(--color-warmth)" : "var(--color-ink-muted)",
+              borderColor: salahInMakruh || salahLeftMin <= 30 ? "color-mix(in oklab, var(--color-warmth) 45%, transparent)" : "var(--color-paper-3)",
+              backgroundColor: salahInMakruh || salahLeftMin <= 30 ? "color-mix(in oklab, var(--color-warmth) 8%, transparent)" : "transparent",
+              color: salahInMakruh || salahLeftMin <= 30 ? "var(--color-warmth)" : "var(--color-ink-muted)",
             }}
             role="status"
             aria-live="polite"
           >
-            {PRAYER_LABEL[salah.name] ?? salah.name} ends in {fmtDur(salahLeftMin)} — prayed? Tap to mark
+            {PRAYER_LABEL[salah.name] ?? salah.name} {salahNote} — prayed? Tap to mark
           </button>
         )}
 
@@ -1369,9 +1366,7 @@ export default function StudySession() {
           <div className="mb-auto mt-3 flex flex-col items-center pb-2 text-center lg:mb-0 lg:mt-0 lg:items-start lg:text-left">
             {prayerName ? (
               <p className="max-w-[18rem] text-base font-bold uppercase tracking-wide lg:max-w-none lg:text-lg" style={{ color: "var(--color-warmth)" }} role="alert">
-                {lied
-                  ? "Why did you lie? Go pray right now — that's more important."
-                  : `Get up and pray ${PRAYER_LABEL[prayerName] ?? prayerName} salah now`}
+                Get up and pray {PRAYER_LABEL[prayerName] ?? prayerName} salah now
               </p>
             ) : (
               <p className="max-w-[16rem] truncate text-sm font-medium lg:max-w-md lg:text-xl" style={{ color: "var(--color-ink-soft)" }}>
@@ -1516,7 +1511,7 @@ export default function StudySession() {
             {prayerName ? (
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <button
-                  onClick={() => { setLied(false); setConfirmPrayer(prayerName); }}
+                  onClick={() => void markPrayed(prayerName)}
                   className="flex items-center gap-1.5 rounded-full px-4 py-2.5 text-[12px] font-semibold transition-opacity hover:opacity-90"
                   style={{ backgroundColor: "var(--color-warmth)", color: "var(--color-paper)", minHeight: 44 }}
                 >
@@ -1722,7 +1717,6 @@ export default function StudySession() {
       </div>
 
       {finishDialog}
-      {prayerDialog}
       {salahDialog}
       {switchSheet}
     </div>

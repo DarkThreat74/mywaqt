@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, Eye, EyeOff, Loader2, Pencil, Sparkles, X } from "lucide-react";
+import { Check, ChevronLeft, Eye, EyeOff, ListChecks, Loader2, Pencil, X } from "lucide-react";
 import type { Class, Homework, StudyBlock } from "@/lib/db/schema";
 import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/blocks/gaps";
+import { makruhWindows, type PrayerTimings } from "@/lib/prayer/checkin";
 import { formatDueBadge } from "@/lib/homework/due-format";
 import { mergeSessionHistory } from "@/lib/study/session";
 
@@ -79,13 +80,38 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   const [editingBlock, setEditingBlock] = useState<BlockWithAssignments | null>(null);
   // "Draft for me" proposals — nothing is saved until the user confirms.
   const [draft, setDraft] = useState<{ startMin: number; endMin: number; hwIds: string[] }[] | null>(null);
+  // Makruh windows for this date — treated as busy so a proposed study block
+  // can never run into one (sunrise−20, zawaal, sunset−20).
+  const [makruhBusy, setMakruhBusy] = useState<Interval[]>([]);
 
   const gaps = useMemo(() => {
     const blockInts = blocks
       .filter((b) => b.status !== "released")
       .map((b) => ({ start: b.startMin, end: b.endMin }));
-    return freeGaps([...busy, ...blockInts], dayStart, dayEnd);
-  }, [busy, blocks, dayStart, dayEnd]);
+    return freeGaps([...busy, ...blockInts, ...makruhBusy], dayStart, dayEnd);
+  }, [busy, blocks, dayStart, dayEnd, makruhBusy]);
+
+  // Load the day's prayer times (offline cache first) to derive makruh holds.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        let times: Record<string, string> | null = null;
+        try {
+          const { getOfflineDB } = await import("@/lib/offline/db");
+          const cached = await getOfflineDB().prayerTimes.get(date);
+          if (cached?.fajr && cached?.sunrise) times = cached as unknown as Record<string, string>;
+        } catch { /* fall through */ }
+        if (!times) {
+          const r = await fetch(`/api/prayer-times?date=${date}`).catch(() => null);
+          if (r?.ok) times = await r.json();
+        }
+        if (!times || cancelled) return;
+        setMakruhBusy(makruhWindows(times as unknown as PrayerTimings).map((w) => ({ start: w.start, end: w.end })));
+      } catch { /* makruh holds are best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [date]);
 
   const plannedCounts = useMemo(() => {
     const map = new Map<string, { planned: number; worked: number; studied?: number; passed?: number; nextDate?: string; workedIds?: string[] }>();
@@ -285,6 +311,10 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
       setError("Pick a start and end at least 15 minutes apart.");
       return;
     }
+    if (makruhBusy.some((w) => start < w.end && end > w.start)) {
+      setError("That runs into makruh time — pick a slot that ends before it.");
+      return;
+    }
     setBusyAction(true);
     setError(null);
     try {
@@ -444,7 +474,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                 style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
                 title="Draft a plan for me"
               >
-                <Sparkles className="h-3.5 w-3.5" />
+                <ListChecks className="h-3.5 w-3.5" />
                 Draft
               </button>
             )}
@@ -624,7 +654,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                   style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 5%, transparent)" }}
                 >
                   <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-accent)" }}>
-                    <Sparkles className="h-3 w-3" /> Draft — review before saving
+                    <ListChecks className="h-3 w-3" /> Draft — review before saving
                   </p>
                   <div className="flex flex-col gap-1.5">
                     {draft.map((p, i) => (

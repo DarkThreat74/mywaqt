@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { X, LayoutGrid } from "lucide-react";
+import { ChevronRight, X, LayoutGrid } from "lucide-react";
 import { useHiddenTabs } from "@/lib/nav-prefs";
 import { useInbox } from "@/lib/inbox";
 
@@ -363,60 +363,75 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
               </button>
             </div>
 
-            {/* Sections of pictorial tiles */}
+            {/* Sections — an index of instruments: line-art left, label and
+                one-line description, chevron right. Rows, not an app drawer. */}
             {sections.map((section) => (
-              <div key={section.title} className="px-5 pb-4 pt-2">
-                <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
+              <div key={section.title} className="px-5 pb-3 pt-2">
+                <p
+                  className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em]"
+                  style={{ color: "var(--color-ink-muted)" }}
+                >
                   {section.title}
                 </p>
-                <div className="grid grid-cols-4 gap-2 max-[380px]:grid-cols-2">
+                <div>
                   {section.tools.map((tool) => {
                     const Art = tool.art;
-                    const i = tileIdx++;
                     return (
                       <Link
                         key={tool.href}
                         href={tool.href}
                         prefetch
                         onClick={() => setOpen(false)}
-                        className="group relative flex flex-col items-center overflow-hidden rounded-2xl border px-2 pb-2.5 pt-3 text-center transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
+                        className="group flex items-center gap-3.5 border-b px-1 py-3 transition-colors last:border-b-0 hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
                         style={{
                           borderColor: "var(--color-paper-3)",
-                          animation: `tools-item-in 0.34s cubic-bezier(0.16, 1, 0.3, 1) ${0.03 * i + 0.04}s both`,
+                          animation: `tools-item-in 0.28s ease-out ${0.02 * tileIdx++}s both`,
                         }}
                       >
-                        {tool.ranked && (
-                          <span
-                            className="absolute right-0 top-0 rounded-bl-lg px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-[0.1em]"
-                            style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
-                          >
-                            Ranked
-                          </span>
-                        )}
                         <span
-                          className="relative block h-11 w-11 transition-colors group-hover:text-[var(--color-accent)]"
+                          className="relative block h-9 w-9 shrink-0 transition-colors group-hover:text-[var(--color-accent)]"
                           style={{ color: "var(--color-ink-soft)" }}
                         >
                           <Art />
                           {tool.prefKey === "messages" && (inbox.unreadMessages ?? 0) > 0 && (
                             <span
-                              className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[8px] font-bold text-white"
-                              style={{ backgroundColor: "var(--color-accent)" }}
+                              className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[8px] font-bold"
+                              style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
                               aria-label={`${inbox.unreadMessages} unread messages`}
                             >
                               {(inbox.unreadMessages ?? 0) > 99 ? "99+" : inbox.unreadMessages}
                             </span>
                           )}
                         </span>
-                        <span className="mt-1.5 text-[11px] font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>
-                          {tool.label}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline gap-2">
+                            <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                              {tool.label}
+                            </span>
+                            <span
+                              className="text-[13px] leading-none"
+                              style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}
+                            >
+                              {tool.arabic}
+                            </span>
+                            {tool.ranked && (
+                              <span
+                                className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.08em]"
+                                style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+                              >
+                                Ranked
+                              </span>
+                            )}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                            {tool.description}
+                          </span>
                         </span>
-                        <span
-                          className="mt-0.5 text-[11px] leading-none"
-                          style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}
-                        >
-                          {tool.arabic}
-                        </span>
+                        <ChevronRight
+                          className="h-4 w-4 shrink-0 transition-colors group-hover:text-[var(--color-accent)]"
+                          style={{ color: "var(--color-paper-3)" }}
+                          aria-hidden="true"
+                        />
                       </Link>
                     );
                   })}
@@ -424,9 +439,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
               </div>
             ))}
 
-            <p className="px-5 pb-5 pt-1 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              Quiet utilities, made with care
-            </p>
+            <div className="px-5 pb-6 pt-1" />
           </div>
         </div>,
         document.body

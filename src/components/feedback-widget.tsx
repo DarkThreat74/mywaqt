@@ -115,20 +115,19 @@ export default function FeedbackWidget({ docked = false }: { docked?: boolean })
         title="Send feedback"
         className={docked
           ? "flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
-          : "feedback-fab fixed z-40 flex items-center justify-center rounded-full border shadow-lg transition-colors"}
+          : "feedback-fab fixed z-40 flex items-center justify-center rounded-full border transition-colors"}
         style={docked
           ? { width: 26, height: 26, color: "var(--color-ink-muted)" }
           : {
-              width: 36,
-              height: 36,
+              width: 26,
+              height: 26,
               borderColor: "var(--color-paper-3)",
-              backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
+              backgroundColor: "var(--color-paper-2)",
               color: "var(--color-ink-muted)",
-              backdropFilter: "blur(8px)",
-              WebkitBackdropFilter: "blur(8px)",
+              opacity: 0.75,
             }}
       >
-        <MessageSquarePlus className={docked ? "h-3.5 w-3.5" : "h-4 w-4"} style={{ color: "var(--color-accent)" }} />
+        <MessageSquarePlus className={docked ? "h-3.5 w-3.5" : "h-3 w-3"} style={{ color: "var(--color-accent)" }} />
       </button>
 
       {/* Panel */}
@@ -212,7 +211,7 @@ export default function FeedbackWidget({ docked = false }: { docked?: boolean })
                 </button>
               </div>
               {state === "error" && (
-                <p className="mt-1.5 text-[11px]" style={{ color: "#dc2626" }}>
+                <p className="mt-1.5 text-[11px]" style={{ color: "var(--color-error)" }}>
                   Couldn&apos;t send — try again.
                 </p>
               )}
@@ -225,13 +224,14 @@ export default function FeedbackWidget({ docked = false }: { docked?: boolean })
         @keyframes feedback-pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
         /* Mobile: bottom-left, above the bottom nav + gesture bar —
            stays clear of the calendar's "+" FAB on the right */
-        .feedback-fab{left:16px;bottom:calc(76px + env(safe-area-inset-bottom))}
-        .feedback-panel{left:16px;bottom:calc(120px + env(safe-area-inset-bottom));max-height:calc(100dvh - 160px);overflow-y:auto}
+        .feedback-fab{left:14px;bottom:calc(74px + env(safe-area-inset-bottom))}
+        .feedback-fab:hover,.feedback-fab:focus-visible{opacity:1}
+        .feedback-panel{left:16px;bottom:calc(112px + env(safe-area-inset-bottom));max-height:calc(100dvh - 160px);overflow-y:auto}
         /* Desktop: no bottom nav — stack above the calendar's "+" FAB
            (48px circle at right-5 bottom-6) instead of covering it */
         @media(min-width:1024px){
           .feedback-fab{left:auto;right:24px;bottom:84px}
-          .feedback-panel{left:auto;right:24px;bottom:132px}
+          .feedback-panel{left:auto;right:24px;bottom:120px}
         }
       `}</style>
     </>

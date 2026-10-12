@@ -293,6 +293,66 @@ export function getDisplayAsrTime(apiAsrTime: string): string {
   return parseTime(apiAsrTime);
 }
 
+/* ── Makruh windows ────────────────────────────────────────────────────────
+ * Times when praying (and by extension scheduling focused work that would
+ * run into prayer) is disliked:
+ *   sunrise: sunrise−20min → sunrise
+ *   zawaal:  solar noon ±5min — solar noon is approximated as the midpoint
+ *            between sunrise and maghrib (true istiwa)
+ *   sunset:  maghrib−20min → maghrib (sunset)
+ * All values are minutes-since-midnight in the prayer timezone.
+ */
+export interface MakruhWindow {
+  key: "sunrise" | "zawaal" | "sunset";
+  label: string;
+  start: number;
+  end: number;
+}
+
+export function makruhWindows(timings: PrayerTimings): MakruhWindow[] {
+  const sunrise = parseMinutes(timings.sunrise);
+  const maghrib = parseMinutes(timings.maghrib);
+  const zawaal = Math.round((sunrise + maghrib) / 2);
+  return [
+    { key: "sunrise", label: "Sunrise", start: sunrise - 20, end: sunrise },
+    { key: "zawaal", label: "Zawaal", start: zawaal - 5, end: zawaal + 5 },
+    { key: "sunset", label: "Sunset", start: maghrib - 20, end: maghrib },
+  ];
+}
+
+/** The makruh window currently in effect, if any. */
+export function activeMakruh(currentMinutes: number, timings: PrayerTimings): MakruhWindow | null {
+  return makruhWindows(timings).find((w) => currentMinutes >= w.start && currentMinutes < w.end) ?? null;
+}
+
+/** The next makruh window starting after `currentMinutes`, if any today. */
+export function nextMakruh(currentMinutes: number, timings: PrayerTimings): MakruhWindow | null {
+  return makruhWindows(timings).find((w) => w.start > currentMinutes) ?? null;
+}
+
+/**
+ * The effective countdown end for an open prayer window: the earlier of the
+ * window's true end and the start of the next makruh window inside it.
+ * Fajr counts down to sunrise−20 (not sunrise); Asr to maghrib−20.
+ * Returns the raw minute value; `isMakruhBound` flags why it was shortened.
+ */
+export function effectiveWindowEnd(
+  prayer: PrayerKey,
+  currentMinutes: number,
+  timings: PrayerTimings,
+): { end: number; isMakruhBound: boolean } {
+  const end = getPrayerWindowEnd(prayer, timings);
+  const makruh = makruhWindows(timings).find(
+    (w) => w.start > currentMinutes && w.start < end,
+  );
+  return makruh ? { end: makruh.start, isMakruhBound: true } : { end, isMakruhBound: false };
+}
+
+/** Does the [start, end) minute range overlap any makruh window? */
+export function overlapsMakruh(startMin: number, endMin: number, timings: PrayerTimings): boolean {
+  return makruhWindows(timings).some((w) => startMin < w.end && endMin > w.start);
+}
+
 /**
  * Check if a prayer time falls in the "Makruh" (disliked) window.
  * Makruh times for prayer:
