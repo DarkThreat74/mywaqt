@@ -31,6 +31,7 @@ import SidebarSalah from "@/components/sidebar-salah";
 import OnboardingGuard from "@/components/onboarding-guard";
 import ShellMode from "@/components/shell-mode";
 import Deferred from "@/components/deferred";
+import SalahShield from "@/components/salah-shield";
 
 // Force dynamic — prevents static prerender + CSP nonce conflicts
 export const dynamic = "force-dynamic";
@@ -245,6 +246,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
         {/* Vox study session — overlay + floating bubble, survives navigation */}
         <StudySession />
+
+        {/* Salah Shield — holds the app while an unmarked prayer window is
+            open (opt-in per device). Topmost layer, inside app-chrome so it
+            never covers onboarding/guide. */}
+        <SalahShield />
       </div>
     </div>
     </SoundscapeProvider>

@@ -407,6 +407,14 @@ export default function MarketingPage() {
               title="Bot-proof signup"
               body="A claw-machine mini-game verifies you're human — no boring checkbox, no privacy-invading tracking. Falls back automatically if the challenge doesn't load."
             />
+            <Feature
+              title="Your data stays yours"
+              body="Prayer logs, goals, and study sessions are sealed to your account — cached pages and API responses are stamped per-user and wiped on logout, so nothing leaks to anyone else who touches your device. No ads, no tracking, ever."
+            />
+            <Feature
+              title="Salah Shield"
+              body="Optional accountability lock: while a prayer window is open and unmarked, the app holds until you check in. No snoozing your way out — marking it prayed is the only key."
+            />
           </div>
         </div>
       </section>
