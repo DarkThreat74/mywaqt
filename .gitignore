@@ -48,9 +48,16 @@ next-env.d.ts
 .agents/skills/
 skills-lock.json
 
-# Capacitor native projects (generated, not committed)
-/android/
+# Capacitor native projects — SOURCE is committed (our Java/Kotlin lives
+# here); only build artifacts and secrets stay ignored.
 /ios/
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/app/release/
+/android/capacitor-cordova-android-plugins/build/
+/android/local.properties
+/android/.idea/
 /android/app/release-keystore.jks
 /android/keystore.properties
 *.keystore

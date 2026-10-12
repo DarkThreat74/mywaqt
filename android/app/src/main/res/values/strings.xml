@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Waqt</string>
+    <string name="title_activity_main">Waqt</string>
+    <string name="package_name">app.mywaqt.waqt</string>
+    <string name="custom_url_scheme">app.mywaqt.waqt</string>
+    <string name="salah_shield_description">Blocks apps you choose while a prayer window is open and unmarked, so the salah comes first. Nothing is collected or shared — detection stays on your device.</string>
+</resources>
