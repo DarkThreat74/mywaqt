@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import type { Subscription } from "@/lib/db/schema";
+import SpendingLog from "./SpendingLog";
 import {
   type Cycle,
   daysUntil,
@@ -781,6 +782,11 @@ export default function SubscriptionsClient() {
           </div>
         </div>
       )}
+
+      {/* Manual spending — tagged entries (gas, groceries, …) with
+          pattern-based yearly projection. Lives at the bottom of Money
+          rather than its own page. */}
+      <SpendingLog />
     </div>
   );
 }

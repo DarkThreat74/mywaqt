@@ -1166,6 +1166,32 @@ export const subscriptions = pgTable('subscriptions', {
 export type Subscription = typeof subscriptions.$inferSelect;
 export type NewSubscription = typeof subscriptions.$inferInsert;
 
+// ─── Expenses (manual spending entries, tagged — gas, groceries, …) ──
+
+export const expenses = pgTable('expenses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // Small tag, e.g. 'gas' — free-form but short; the UI offers a set
+  tag: text('tag').notNull(),
+  amountCents: integer('amount_cents').notNull(),
+  currency: text('currency').default('USD').notNull(),
+  occurredOn: date('occurred_on').notNull(), // YYYY-MM-DD — the day it was paid
+  // Optional measured quantity — gallons for gas; drives $/unit math
+  quantity: doublePrecision('quantity'),
+  unit: text('unit'),
+  // Where it was bought — station, store, etc.
+  place: text('place'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('expenses_user_id_idx').on(table.userId),
+  userTagIdx: index('expenses_user_tag_idx').on(table.userId, table.tag),
+  userDateIdx: index('expenses_user_date_idx').on(table.userId, table.occurredOn),
+}));
+
+export type Expense = typeof expenses.$inferSelect;
+export type NewExpense = typeof expenses.$inferInsert;
+
 // ─── Birthdays (people's birthdays + reminder windows) ───────────────
 
 export const birthdayCategories = pgTable('birthday_categories', {
