@@ -71,6 +71,16 @@ export default function ServiceWorkerRegister() {
       if (!data) return;
 
       switch (data.type) {
+        case "SW_RELOAD":
+          // The SW served a stale page then revalidated into a NEW build —
+          // the running page's chunk URLs are dead (painted but dead buttons).
+          // Reload into the fresh copy the SW just cached. Keyed by build so
+          // the same deploy can only trigger one reload per tab — no loops.
+          if (data.build && sessionStorage.getItem("waqt:sw-build") !== data.build) {
+            sessionStorage.setItem("waqt:sw-build", data.build);
+            window.location.reload();
+          }
+          break;
         case "SW_UPDATED":
           // SW_UPDATED is sent from activate — only reload if we had a previous SW
           if (navigator.serviceWorker.controller && wasControlled) {

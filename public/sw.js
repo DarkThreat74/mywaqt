@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v65";
+const CACHE_VERSION = "waqt-v66";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -878,10 +878,17 @@ self.addEventListener("fetch", (event) => {
         const cacheKey = url.pathname + url.search;
         const uid = await requestUid();
 
+        // Cached pages are stamped with the deploy's buildId (pulled from
+        // the /_next/static/<build>/ chunk URLs inside the HTML). A stale
+        // page served after a deploy references chunks that no longer
+        // exist — the paint works but hydration dies ("dead buttons").
+        // The stamp lets revalidation detect that and reload the client.
         const store = async (response) => {
-          const body = await response.clone().blob();
+          const body = await response.clone().text();
           const headers = new Headers(response.headers);
           headers.set("x-waqt-cached-at", String(Date.now()));
+          const buildMatch = body.match(/\/_next\/static\/([A-Za-z0-9_-]+)\//);
+          if (buildMatch) headers.set("x-waqt-build", buildMatch[1]);
           await pageCache.put(cacheKey, new Response(body, {
             status: response.status,
             statusText: response.statusText,
@@ -909,7 +916,19 @@ self.addEventListener("fetch", (event) => {
               try {
                 const pre = await event.preloadResponse;
                 const res = pre || await timedFetch(request, 10000);
-                if (res && res.ok) await store(res);
+                if (res && res.ok) {
+                  const freshBody = await res.clone().text();
+                  const freshBuild = (freshBody.match(/\/_next\/static\/([A-Za-z0-9_-]+)\//) || [])[1];
+                  const staleBuild = cachedHit.headers.get("x-waqt-build");
+                  await store(res);
+                  // Deploy shipped new chunks — the page we just served is
+                  // running dead JS. Tell THIS client to reload into the
+                  // fresh copy we just cached (client guards against loops).
+                  if (freshBuild && freshBuild !== staleBuild && event.clientId) {
+                    const client = await self.clients.get(event.clientId);
+                    if (client) client.postMessage({ type: "SW_RELOAD", build: freshBuild });
+                  }
+                }
               } catch { /* offline — cached copy already served */ }
             })()
           );
