@@ -3,7 +3,8 @@
  * 
  * Strategy:
  * - Precache the app shell on install
- * - Network-first for navigation requests (always get fresh HTML when online, cache only when offline)
+ * - Stale-while-revalidate for navigations (instant paint from a ≤12h
+ *   same-account cached page; background revalidate keeps it fresh)
  * - Cache-first for static assets (_next/static, images, fonts)
  * - Stale-while-revalidate for API GET requests (events, prayer times)
  * - Offline event writes: store in IndexedDB, sync when back online
@@ -20,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v63";
+const CACHE_VERSION = "waqt-v65";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -862,74 +863,96 @@ self.addEventListener("fetch", (event) => {
       return; // Let the browser handle it directly — no SW interference
     }
 
-    // ── App pages: network-first (try network, fall back to cache when offline) ──
-    // CRITICAL: This MUST be network-first, not stale-while-revalidate.
-    // Pages like /calendar/day?date=2024-01-07 are force-dynamic — the server
-    // renders different HTML for each query string. If we serve cached HTML
-    // (keyed by pathname only, ignoring the query string), navigating to a
-    // different day serves the WRONG cached page. Network-first ensures the
-    // user always gets fresh HTML when online, and only falls back to cache
-    // when truly offline.
-    //
-    // The cache key is the FULL URL (including query string) so that each
-    // date variant gets its own cached entry for offline use.
+    // ── App pages: serve same-account cache INSTANTLY, revalidate behind ──
+    // The 5-10s cold start was network-first waiting on a cold function +
+    // Neon for every launch. Now any uid-matched copy paints immediately
+    // and the network refresh happens in the background for next time.
+    // No age cap: a stale shell is strictly better than a spinner —
+    // chunks are content-hashed and live in the runtime caches, and page
+    // client components refetch their data on mount anyway.
+    // The cache key is the FULL URL (pathname+search) so ?date= variants
+    // never collide — the stale copy served is always this exact URL's.
     event.respondWith(
       (async () => {
         const pageCache = await caches.open(PAGE_CACHE);
-        // Use the full URL (with query string) as the cache key so different
-        // dates don't collide. For URLs without query strings, this is just
-        // the pathname — same as before.
         const cacheKey = url.pathname + url.search;
+        const uid = await requestUid();
 
-        // Try network first (use navigation preload if available). 10s cap —
-        // beyond that, serve cache rather than let the tap "freeze".
-        try {
-          const preloadResponse = await event.preloadResponse;
-          const response = preloadResponse || await timedFetch(request, 10000);
-          if (response && response.ok) {
-            // Return the response NOW and cache the clone in the background —
-            // buffering the whole body + writing the cache before responding
-            // added avoidable latency to every tab switch.
-            event.waitUntil(
-              (async () => {
-                const body = await response.clone().blob();
-                const headers = new Headers(response.headers);
-                headers.set("x-waqt-cached-at", String(Date.now()));
-                await pageCache.put(cacheKey, new Response(body, {
-                  status: response.status,
-                  statusText: response.statusText,
-                  headers,
-                }));
-              })()
-            );
-            return response;
-          }
-          // Non-ok response (e.g. redirect to /login) — return as-is
-          return response || new Response("Offline", { status: 503 });
-        } catch {
-          // Network failed — fall back to cache (keyed by full URL), but only
-          // if the cached page was rendered for the account in this request.
-          const uid = await requestUid();
-          const cached = await matchStampedPage(pageCache, cacheKey, uid);
-          if (cached) return cached;
+        const store = async (response) => {
+          const body = await response.clone().blob();
+          const headers = new Headers(response.headers);
+          headers.set("x-waqt-cached-at", String(Date.now()));
+          await pageCache.put(cacheKey, new Response(body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          }));
+        };
 
-          // No exact cache match — try pathname-only match (for pages without
-          // query strings that were cached by older SW versions)
+        // Best page we can serve for this account, best-match first.
+        const fallbackPage = async () => {
           const pathnameCached = await matchStampedPage(pageCache, pathname, uid);
           if (pathnameCached) return pathnameCached;
-
-          // No cache at all — serve any cached app page as fallback
-          for (const fallbackPage of APP_PAGES) {
-            const fallback = await matchStampedPage(pageCache, fallbackPage, uid);
+          for (const page of APP_PAGES) {
+            const fallback = await matchStampedPage(pageCache, page, uid);
             if (fallback) return fallback;
           }
-          // Last resort — serve the offline page from precache
-          const offlinePage = await caches.match("/offline.html");
-          return offlinePage || new Response(
-            "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#1a1815;color:#f5f0e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}button{margin-top:20px;padding:10px 24px;background:#f5f0e8;color:#1a1815;border:none;border-radius:8px;font-size:14px;cursor:pointer}</style></head><body><div><h1>You're offline</h1><p>Your cached data will appear when you reopen the app. Try again in a moment.</p><button onclick='location.reload()'>Retry</button></div></body></html>",
-            { status: 200, headers: { "Content-Type": "text/html" } }
+          return caches.match("/offline.html");
+        };
+
+        // Instant path — same-account copy of THIS url: paint now,
+        // revalidate in the background.
+        const cachedHit = await matchStampedPage(pageCache, cacheKey, uid);
+        if (cachedHit) {
+          event.waitUntil(
+            (async () => {
+              try {
+                const pre = await event.preloadResponse;
+                const res = pre || await timedFetch(request, 10000);
+                if (res && res.ok) await store(res);
+              } catch { /* offline — cached copy already served */ }
+            })()
           );
+          return cachedHit;
         }
+
+        // No cached copy of this URL — race the network against a 2.5s
+        // fallback budget. On "lie-fi" (flaky wifi) a fetch hangs with no
+        // error to catch, so without the race the UI stalls the whole
+        // timeout. The fetch keeps running after the timer wins and still
+        // populates the cache for next time.
+        const networkPromise = (async () => {
+          try {
+            const preloadResponse = await event.preloadResponse;
+            const response = preloadResponse || await timedFetch(request, 10000);
+            if (response && response.ok) {
+              event.waitUntil(store(response));
+              return response;
+            }
+            // Non-ok response (e.g. redirect to /login) — return as-is
+            return response;
+          } catch {
+            return null;
+          }
+        })();
+
+        const budgetPromise = new Promise((resolve) =>
+          setTimeout(() => resolve(fallbackPage()), 2500)
+        );
+
+        const first = await Promise.race([networkPromise, budgetPromise]);
+        if (first) return first;
+
+        // Network won the race with nothing (null) or the budget resolved
+        // to nothing — await whatever the network produces, then fall back.
+        const netResult = await networkPromise;
+        if (netResult) return netResult;
+
+        const fallback = await fallbackPage();
+        return fallback || new Response(
+          "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#1a1815;color:#f5f0e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}button{margin-top:20px;padding:10px 24px;background:#f5f0e8;color:#1a1815;border:none;border-radius:8px;font-size:14px;cursor:pointer}</style></head><body><div><h1>You're offline</h1><p>Your cached data will appear when you reopen the app. Try again in a moment.</p><button onclick='location.reload()'>Retry</button></div></body></html>",
+          { status: 200, headers: { "Content-Type": "text/html" } }
+        );
       })()
     );
     return;

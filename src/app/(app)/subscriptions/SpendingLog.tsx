@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Fuel,
   Loader2,
+  Pencil,
   Plus,
   Receipt,
   ShoppingBag,
@@ -53,6 +54,8 @@ export default function SpendingLog() {
   const [error, setError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [tagsOpen, setTagsOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     fetch("/api/expenses")
@@ -62,25 +65,60 @@ export default function SpendingLog() {
       .finally(() => setLoaded(true));
   }, []);
 
-  const shown = useMemo(
-    () => (activeTag ? entries.filter((e) => e.tag === activeTag) : entries).slice(0, 30),
+  const filtered = useMemo(
+    () => (activeTag ? entries.filter((e) => e.tag === activeTag) : entries),
     [entries, activeTag],
   );
 
-  // Pattern stats for the selected tag — spent so far, average gap between
-  // entries, and a yearly projection: avg amount × (365 / avg gap). With
-  // <2 entries there's no pattern yet, just the total.
+  // Entries grouped under month headers — "November 2025" breaks read
+  // better than a flat date column once the log gets long.
+  const groups = useMemo(() => {
+    const cap = expanded ? filtered.length : 20;
+    const out: { label: string; items: Expense[] }[] = [];
+    for (const e of filtered.slice(0, cap)) {
+      const label = new Date(e.occurredOn + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      const last = out[out.length - 1];
+      if (last && last.label === label) last.items.push(e);
+      else out.push({ label, items: [e] });
+    }
+    return out;
+  }, [filtered, expanded]);
+
+  // Pattern stats for the selected tag — spent so far, this month,
+  // average gap between entries, yearly projection (avg × 365/gap),
+  // and weighted avg unit price (Σamount ÷ Σqty) for measured tags.
   const stats = useMemo(() => {
-    const list = (activeTag ? entries.filter((e) => e.tag === activeTag) : entries)
+    const list = filtered
       .slice()
       .sort((a, b) => a.occurredOn.localeCompare(b.occurredOn));
     const spent = list.reduce((s, e) => s + e.amountCents, 0);
     const cur = list[0]?.currency ?? "USD";
-    if (list.length < 2) return { spent, cur, n: list.length, gapDays: 0, perYear: 0, expectedYear: 0 };
+    const monthKey = today().slice(0, 7);
+    const thisMonth = list.filter((e) => e.occurredOn.startsWith(monthKey)).reduce((s, e) => s + e.amountCents, 0);
+    const qtyList = list.filter((e) => e.quantity && e.quantity > 0);
+    const totalQty = qtyList.reduce((s, e) => s + (e.quantity ?? 0), 0);
+    const totalAmt = qtyList.reduce((s, e) => s + e.amountCents, 0);
+    const avgUnit = totalQty > 0 ? totalAmt / totalQty : null;
+    const unit = qtyList[0]?.unit ?? null;
+    if (list.length < 2) return { spent, cur, n: list.length, thisMonth, avgUnit, unit, gapDays: 0, perYear: 0, expectedYear: 0 };
     const gapDays = Math.max(1, daysBetween(list[0].occurredOn, list[list.length - 1].occurredOn) / (list.length - 1));
     const perYear = 365 / gapDays;
-    return { spent, cur, n: list.length, gapDays, perYear, expectedYear: (spent / list.length) * perYear };
-  }, [entries, activeTag]);
+    return { spent, cur, n: list.length, thisMonth, avgUnit, unit, gapDays, perYear, expectedYear: (spent / list.length) * perYear };
+  }, [filtered]);
+
+  // Last 6 months of spend as proportional bars — the shape of the habit.
+  const months = useMemo(() => {
+    const out: { label: string; total: number }[] = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const total = filtered.filter((e) => e.occurredOn.startsWith(key)).reduce((s, e) => s + e.amountCents, 0);
+      out.push({ label: d.toLocaleDateString("en-US", { month: "short" }), total });
+    }
+    return out;
+  }, [filtered]);
+  const monthMax = Math.max(1, ...months.map((m) => m.total));
 
   const tagDef = TAGS.find((t) => t.id === form.tag)!;
   const unitPrice = useMemo(() => {
@@ -99,24 +137,31 @@ export default function SpendingLog() {
     }
     setBusy(true);
     setError(null);
+    const payload = {
+      tag: form.tag,
+      amount,
+      currency: "USD",
+      occurredOn: form.occurredOn,
+      quantity: tagDef.unit ? quantity : null,
+      unit: tagDef.unit && quantity ? tagDef.unit : null,
+      place: form.place.trim() || null,
+    };
     try {
-      const res = await fetch("/api/expenses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tag: form.tag,
-          amount,
-          currency: "USD",
-          occurredOn: form.occurredOn,
-          quantity: tagDef.unit ? quantity : null,
-          unit: tagDef.unit && quantity ? tagDef.unit : null,
-          place: form.place.trim() || null,
-        }),
-      });
+      const res = editingId
+        ? await fetch("/api/expenses", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: editingId, ...payload }),
+          })
+        : await fetch("/api/expenses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
       const data = await res.json().catch(() => ({}));
       if (res.ok && (data.expense || data.offline)) {
         const row: Expense = data.expense ?? {
-          id: data.tempId as string,
+          id: editingId ?? (data.tempId as string),
           userId: "",
           tag: form.tag,
           amountCents: Math.round(amount * 100),
@@ -129,10 +174,12 @@ export default function SpendingLog() {
           updatedAt: new Date(),
         };
         setEntries((prev) =>
-          [row, ...prev].sort((a, b) => b.occurredOn.localeCompare(a.occurredOn)),
+          (editingId ? prev.map((x) => (x.id === editingId ? { ...x, ...row, id: editingId } : x)) : [row, ...prev])
+            .sort((a, b) => b.occurredOn.localeCompare(a.occurredOn)),
         );
         setForm({ ...EMPTY, tag: form.tag });
         setAdding(false);
+        setEditingId(null);
         setActiveTag(form.tag);
       } else {
         setError(data.error || "Could not save");
@@ -142,6 +189,19 @@ export default function SpendingLog() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function startEdit(e: Expense) {
+    setEditingId(e.id);
+    setAdding(true);
+    setForm({
+      tag: (TAGS.some((t) => t.id === e.tag) ? e.tag : "other") as TagId,
+      amount: (e.amountCents / 100).toString(),
+      quantity: e.quantity ? String(e.quantity) : "",
+      place: e.place ?? "",
+      occurredOn: e.occurredOn,
+    });
+    setError(null);
   }
 
   async function remove(id: string) {
@@ -213,7 +273,8 @@ export default function SpendingLog() {
       )}
 
       {/* Pattern stats — editorial figures, same language as the subs band:
-          spent so far, your rhythm, and the year it adds up to. */}
+          spent so far, this month, your rhythm, the year it adds up to,
+          and weighted avg unit price for measured tags (gas → avg $/gal). */}
       {stats.n > 0 && (
         <div className="mt-4 flex flex-wrap items-baseline gap-x-8 gap-y-2">
           <div>
@@ -224,6 +285,16 @@ export default function SpendingLog() {
               {activeTag ? `${activeTag} so far` : "spent so far"}
             </p>
           </div>
+          {stats.thisMonth > 0 && (
+            <div>
+              <p className="text-base font-semibold tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
+                {formatMoney(stats.thisMonth, stats.cur)}
+              </p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                this month
+              </p>
+            </div>
+          )}
           {stats.n >= 2 && (
             <>
               <div>
@@ -244,12 +315,44 @@ export default function SpendingLog() {
               </div>
             </>
           )}
+          {stats.avgUnit !== null && stats.unit && (
+            <div>
+              <p className="text-base font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
+                ${stats.avgUnit.toFixed(2)}<span className="text-xs font-normal" style={{ color: "var(--color-ink-muted)" }}>/{stats.unit} avg</span>
+              </p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                what you&apos;re paying
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Six-month bars — the shape of the habit at a glance */}
+      {stats.n > 0 && (
+        <div className="mt-4 flex items-end gap-1.5" aria-hidden>
+          {months.map((m, i) => (
+            <div key={i} className="flex flex-1 flex-col items-center gap-1">
+              <div
+                className="w-full rounded-sm"
+                style={{
+                  height: Math.max(3, Math.round((m.total / monthMax) * 40)),
+                  backgroundColor: i === months.length - 1 ? "var(--color-accent)" : "var(--color-paper-3)",
+                }}
+                title={`${m.label}: ${formatMoney(m.total, stats.cur)}`}
+              />
+              <span className="text-[9px] font-medium uppercase" style={{ color: "var(--color-ink-muted)" }}>{m.label}</span>
+            </div>
+          ))}
         </div>
       )}
 
       {/* Add-entry form — gas gets gallons + station; others just place */}
       {adding && (
         <form onSubmit={save} className="mt-4 rounded-2xl border p-4 sm:p-5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+          {editingId && (
+            <p className="mb-2 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Editing entry</p>
+          )}
           <div className="flex items-center justify-between">
             <div className="flex flex-wrap gap-1">
               {TAGS.map((t) => {
@@ -276,7 +379,7 @@ export default function SpendingLog() {
             </div>
             <button
               type="button"
-              onClick={() => { setAdding(false); setError(null); }}
+              onClick={() => { setAdding(false); setEditingId(null); setForm(EMPTY); setError(null); }}
               className="rounded-md p-1 transition-colors hover:bg-[var(--color-paper-3)]"
               style={{ color: "var(--color-ink-muted)" }}
               aria-label="Close"
@@ -353,7 +456,7 @@ export default function SpendingLog() {
             className="mt-4 inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 36 }}
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Log it"}
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : editingId ? "Save changes" : "Log it"}
           </button>
         </form>
       )}
@@ -363,13 +466,18 @@ export default function SpendingLog() {
         <div className="flex justify-center py-6">
           <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--color-ink-muted)" }} />
         </div>
-      ) : shown.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <p className="mt-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>
           {entries.length === 0 ? "Nothing logged yet — a fill-up, a receipt, anything." : `No ${activeTag} entries.`}
         </p>
       ) : (
         <div className="mt-1.5 flex flex-col">
-          {shown.map((e) => {
+          {groups.map((g) => (
+            <div key={g.label}>
+              <p className="mt-4 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
+                {g.label}
+              </p>
+              {g.items.map((e) => {
             const t = TAGS.find((x) => x.id === e.tag) ?? TAGS[TAGS.length - 1];
             const Icon = t.icon;
             const per = e.quantity && e.quantity > 0 ? e.amountCents / 100 / e.quantity : null;
@@ -402,18 +510,39 @@ export default function SpendingLog() {
                     Delete?
                   </button>
                 ) : (
-                  <button
-                    onClick={() => setConfirmDeleteId(e.id)}
-                    className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
-                    style={{ color: "var(--color-ink-muted)" }}
-                    aria-label="Delete entry"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => startEdit(e)}
+                      className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                      style={{ color: "var(--color-ink-muted)" }}
+                      aria-label="Edit entry"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(e.id)}
+                      className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                      style={{ color: "var(--color-ink-muted)" }}
+                      aria-label="Delete entry"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
                 )}
               </div>
             );
           })}
+            </div>
+          ))}
+          {filtered.length > 20 && !expanded && (
+            <button
+              onClick={() => setExpanded(true)}
+              className="mt-3 self-start text-xs font-medium"
+              style={{ color: "var(--color-accent)" }}
+            >
+              Show all {filtered.length} entries
+            </button>
+          )}
         </div>
       )}
     </div>
