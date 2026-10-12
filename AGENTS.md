@@ -353,6 +353,19 @@ pnpm exec eslint --max-warnings=0   # Zero warnings enforced
 pnpm run build                      # If structural changes
 ```
 
+**Android (after touching `android/**/*.java`):** the machine has Android
+Studio's SDK + JBR — compile-check natively, no install needed:
+
+```bash
+cd android
+JAVA_HOME="C:\Program Files\Android\Android Studio\jbr" \
+ANDROID_HOME="$LOCALAPPDATA/Android/Sdk" \
+./gradlew.bat compileDebugJavaWithJavac --console=plain
+```
+
+First run downloads Gradle (~3 min); after that it's seconds. The system
+JDK (Temurin 25) is too new for Gradle — always use the bundled JBR.
+
 **"It compiles" is not "it works."** Read your changes back. Check edge cases.
 Grep to verify functions/types you reference actually exist.
 
