@@ -16,8 +16,11 @@ import {
  * - Only locks on app relaunch or a >30s background stint — NOT every
  *   foreground bounce. The system BiometricPrompt itself backgrounds the
  *   app on Android, so re-locking on every appStateChange loops forever.
- * - Auto-prompts ONCE per lock. If the prompt throws or the user cancels,
- *   it waits for a manual tap — it never retries on its own.
+ * - NEVER auto-fires the system prompt. BiometricPrompt invoked while the
+ *   host activity is still resuming crashes the app natively — a lifecycle
+ *   race no JS timer can fully close. Locking shows the "Unlock" button;
+ *   the prompt only fires from a user tap, which guarantees the activity
+ *   is resumed and interactive.
  * - "Skip on this device" opts out permanently — if the prompt crashes on
  *   a given device, that path is the escape hatch, not a boot loop.
  * - Web: pass-through, always.
@@ -36,8 +39,6 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const verifiedRef = useRef(verified);
   const backgroundedAtRef = useRef<number | null>(null);
-  // One auto-prompt per lock — a thrown/cancelled prompt never re-fires itself.
-  const autoPromptedRef = useRef(false);
 
   useEffect(() => {
     verifiedRef.current = verified;
@@ -63,14 +64,13 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
     setLoading(false);
   }, []);
 
-  const lockAndPromptOnce = useCallback(() => {
+  // Lock only — the BiometricPrompt itself fires exclusively from the
+  // "Unlock Waqt" button tap (see file header: auto-firing it races the
+  // activity lifecycle and can crash the app).
+  const lock = useCallback(() => {
     setVerified(false);
     verifiedRef.current = false;
-    if (!autoPromptedRef.current) {
-      autoPromptedRef.current = true;
-      void verify();
-    }
-  }, [verify]);
+  }, []);
 
   useEffect(() => {
     if (!isNativeApp()) return;
@@ -88,9 +88,9 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
           // No biometrics enrolled — don't lock the user out
           return;
         }
-        lockAndPromptOnce();
+        lock();
       });
-    }, 600); // let splash + first paint settle before any system dialog
+    }, 600); // let splash + first paint settle before showing the gate
 
     let unsub: (() => void) | undefined;
     onAppStateChange((isActive) => {
@@ -103,8 +103,7 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
       const away = backgroundedAtRef.current ? Date.now() - backgroundedAtRef.current : 0;
       backgroundedAtRef.current = null;
       if (verifiedRef.current && away > RELOCK_AFTER_MS) {
-        autoPromptedRef.current = false;
-        lockAndPromptOnce();
+        lock();
       }
     }).then((fn) => {
       unsub = fn;
@@ -115,7 +114,7 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
       clearTimeout(timer);
       void unsub?.();
     };
-  }, [verify, lockAndPromptOnce]);
+  }, [lock]);
 
   // Web: pass through immediately
   if (verified) return <>{children}</>;
