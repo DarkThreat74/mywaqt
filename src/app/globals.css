@@ -94,7 +94,9 @@
 }
 
 html {
-  overflow-x: clip;
+  /* NOTE: no overflow-x here — on Android WebView a clipped root element
+     propagates to the viewport and disables scrolling entirely (known
+     WebView bug). Horizontal clipping lives on body instead. */
   /* Prevent iOS Safari text auto-resize on orientation change */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
