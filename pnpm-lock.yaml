@@ -47,6 +47,9 @@ importers:
       '@capacitor/status-bar':
         specifier: ^8.0.3
         version: 8.0.3(@capacitor/core@8.5.0)
+      '@capawesome/capacitor-android-edge-to-edge-support':
+        specifier: ^8.0.8
+        version: 8.0.8(@capacitor/core@8.5.0)
       '@fingerprintjs/fingerprintjs':
         specifier: ^5.2.0
         version: 5.2.0
@@ -379,6 +382,11 @@ packages:
 
   '@capacitor/status-bar@8.0.3':
     resolution: {integrity: sha512-csSpfNeN49Hx9JaQBSJEIiEbOLtXg3kcc2IpScq2fu5L520h3AWEvsxoH8Srk1jxfRKepaJ4S4sqSC3foI4AgA==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+
+  '@capawesome/capacitor-android-edge-to-edge-support@8.0.8':
+    resolution: {integrity: sha512-+eKz15uhfOwft5IRZFL1QQZT/FHeeE5scNnlP9CIMrhW0Ctc9cJM13Ec2vOTd9oYGz3mCF3kf39C2spDDuSUVw==}
     peerDependencies:
       '@capacitor/core': '>=8.0.0'
 
@@ -3942,6 +3950,10 @@ snapshots:
       '@capacitor/core': 8.5.0
 
   '@capacitor/status-bar@8.0.3(@capacitor/core@8.5.0)':
+    dependencies:
+      '@capacitor/core': 8.5.0
+
+  '@capawesome/capacitor-android-edge-to-edge-support@8.0.8(@capacitor/core@8.5.0)':
     dependencies:
       '@capacitor/core': 8.5.0
 

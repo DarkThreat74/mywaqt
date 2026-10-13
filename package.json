@@ -33,6 +33,7 @@
     "@capacitor/share": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.3",
+    "@capawesome/capacitor-android-edge-to-edge-support": "^8.0.8",
     "@fingerprintjs/fingerprintjs": "^5.2.0",
     "@neondatabase/serverless": "^1.1.0",
     "@types/leaflet": "^1.9.22",

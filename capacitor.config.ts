@@ -50,9 +50,15 @@ const config: CapacitorConfig = {
       androidScaleType: "CENTER_CROP",
     },
     StatusBar: {
-      style: "DARK",
-      backgroundColor: "#1a1815",
+      // Light icons — the bar itself is dark (#1a1815) via EdgeToEdge below.
+      style: "LIGHT",
       overlaysWebView: false,
+    },
+    // Android 15+ enforces edge-to-edge: the WebView draws behind a
+    // transparent status bar and StatusBar.backgroundColor is ignored.
+    // This plugin draws a real bar background + applies cutout insets.
+    EdgeToEdge: {
+      backgroundColor: "#1a1815",
     },
     // Enable sound, alert, badge, and haptics for push notifications on iOS/Android.
     // Without presentationOptions, iOS foreground pushes are silently dropped.
