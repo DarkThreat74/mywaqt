@@ -111,11 +111,16 @@ export function AdminFeedback() {
       .catch(() => load());
   }
 
+  function copyText(text: string, id: string) {
+    if (!navigator.clipboard?.writeText) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(id);
+      setTimeout(() => setCopied((c) => (c === id ? null : c)), 1500);
+    }).catch(() => { /* clipboard denied */ });
+  }
+
   function copyPrompt(r: FeedbackRow) {
-    navigator.clipboard.writeText(buildPrompt(r)).then(() => {
-      setCopied(r.id);
-      setTimeout(() => setCopied((c) => (c === r.id ? null : c)), 1500);
-    });
+    copyText(buildPrompt(r), r.id);
   }
 
   const visible = rows?.filter((r) => showResolved || !r.resolved) ?? null;
@@ -136,10 +141,7 @@ export function AdminFeedback() {
       "PWA, desktop (Windows/macOS/Linux). Fix root causes, not symptoms,",
       "then run: pnpm exec tsc --noEmit && pnpm exec eslint --max-warnings=0",
     ];
-    navigator.clipboard.writeText([...parts, ...footer].join("\n\n")).then(() => {
-      setCopied("__all__");
-      setTimeout(() => setCopied((c) => (c === "__all__" ? null : c)), 1500);
-    });
+    copyText([...parts, ...footer].join("\n\n"), "__all__");
   }
 
   return (

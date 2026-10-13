@@ -4,10 +4,11 @@ import { SITE_DOMAIN, APP_BUNDLE_ID, APP_NAME } from "./src/lib/site-config";
 const config: CapacitorConfig = {
   appId: APP_BUNDLE_ID,
   appName: APP_NAME,
-  // Remote-URL mode: webDir only supplies the errorPath fallback page.
-  // "public" always exists in the repo (out/ is gitignored and nothing
-  // generates it, so cap sync broke on fresh clones).
-  webDir: "public",
+  // Remote-URL mode: webDir only supplies the errorPath fallback page —
+  // offline.html is fully self-contained (inline CSS, no assets). Pointing
+  // at public/ mirrored 7.6MB of site assets (quran.json, toy PNGs, icons)
+  // into the APK that the remote site already serves — pure dead weight.
+  webDir: "capacitor-web",
 
   // ── Mode B: Remote URL ──
   // The WebView loads the deployed Next.js app so SSR, API routes,
@@ -62,7 +63,6 @@ const config: CapacitorConfig = {
       // Small icon resource name in res/drawable (Android)
       smallIcon: "icon",
       iconColor: "#1a1815",
-      sound: "adhan.caf",
     },
   },
 };
