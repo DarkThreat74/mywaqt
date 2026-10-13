@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Calendar, Clock, Bell } from "lucide-react";
 import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { instantToWall } from "@/lib/timezone";
+import { sanitizeTimings } from "@/lib/prayer/checkin";
 
 // A Date whose browser-local fields equal the instant's wall clock in the
 // user's stored timezone — grouping/formatting must use this zone or events
@@ -167,16 +168,8 @@ export default function ListViewClient({ today }: { today: string }) {
       if (res.ok) {
         const data = await res.json();
         // API returns flat object with fajr/sunrise/dhuhr/asr/maghrib/isha
-        if (data.fajr) {
-          setPrayerTimes({
-            fajr: data.fajr,
-            sunrise: data.sunrise,
-            dhuhr: data.dhuhr,
-            asr: data.asr,
-            maghrib: data.maghrib,
-            isha: data.isha,
-          });
-        }
+        const safe = sanitizeTimings(data);
+        if (safe) setPrayerTimes(safe);
       }
     } catch { /* non-critical */ }
   }, [weekStart]);

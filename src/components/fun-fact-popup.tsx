@@ -211,22 +211,30 @@ export default function FunFactPopup() {
 
   useEffect(() => {
     // Cards disabled in Settings — don't schedule or show anything.
-    if (localStorage.getItem(STORAGE_KEY_DISABLED) === "1") return;
+    // localStorage can throw outright (storage blocked) — bail out, don't
+    // take the app layout down with it.
+    let disabled = false;
+    try { disabled = localStorage.getItem(STORAGE_KEY_DISABLED) === "1"; } catch { return; }
+    if (disabled) return;
 
     // Live toggle: a card on screen disappears the moment it's switched off.
     function onToggle() {
-      if (localStorage.getItem(STORAGE_KEY_DISABLED) === "1") {
-        setShow(false);
-        setFact(null);
-      }
+      try {
+        if (localStorage.getItem(STORAGE_KEY_DISABLED) === "1") {
+          setShow(false);
+          setFact(null);
+        }
+      } catch { /* storage blocked */ }
     }
     window.addEventListener("waqt:funfact:toggle", onToggle);
 
     // Initialize next show time if not set (first visit)
-    const nextShowStr = localStorage.getItem(STORAGE_KEY_NEXT_SHOW);
-    if (!nextShowStr) {
-      localStorage.setItem(STORAGE_KEY_NEXT_SHOW, getNextScheduledTime().toString());
-    }
+    try {
+      const nextShowStr = localStorage.getItem(STORAGE_KEY_NEXT_SHOW);
+      if (!nextShowStr) {
+        localStorage.setItem(STORAGE_KEY_NEXT_SHOW, getNextScheduledTime().toString());
+      }
+    } catch { /* storage blocked */ }
 
     const initial = getInitialFact();
     if (!initial.shouldShow || !initial.fact) return;
@@ -254,27 +262,31 @@ export default function FunFactPopup() {
     } catch {
       // corrupt or unavailable storage — treat as nothing seen
     }
-    if (factIndex >= 0 && !seen.includes(factIndex)) {
-      seen.push(factIndex);
-      localStorage.setItem(STORAGE_KEY_SEEN, JSON.stringify(seen));
-    }
-    // Advance index
-    localStorage.setItem(STORAGE_KEY_INDEX, factIndex.toString());
-    // Clear current (no reuse possible)
-    localStorage.removeItem(STORAGE_KEY_CURRENT);
-    // Set next show time: 3 hours from now (timer starts on dismiss)
-    localStorage.setItem(STORAGE_KEY_NEXT_SHOW, (Date.now() + INTERVAL_MS).toString());
+    try {
+      if (factIndex >= 0 && !seen.includes(factIndex)) {
+        seen.push(factIndex);
+        localStorage.setItem(STORAGE_KEY_SEEN, JSON.stringify(seen));
+      }
+      // Advance index
+      localStorage.setItem(STORAGE_KEY_INDEX, factIndex.toString());
+      // Clear current (no reuse possible)
+      localStorage.removeItem(STORAGE_KEY_CURRENT);
+      // Set next show time: 3 hours from now (timer starts on dismiss)
+      localStorage.setItem(STORAGE_KEY_NEXT_SHOW, (Date.now() + INTERVAL_MS).toString());
+    } catch { /* storage blocked */ }
   }
 
   // ── X (close): card can come back, don't mark as seen ──
   function handleDismiss() {
     setShow(false);
-    // Keep the current fact index so it can be reused next time
-    if (factIndex >= 0) {
-      localStorage.setItem(STORAGE_KEY_CURRENT, factIndex.toString());
-    }
-    // Set next show time: 3 hours from now (timer starts on dismiss)
-    localStorage.setItem(STORAGE_KEY_NEXT_SHOW, (Date.now() + INTERVAL_MS).toString());
+    try {
+      // Keep the current fact index so it can be reused next time
+      if (factIndex >= 0) {
+        localStorage.setItem(STORAGE_KEY_CURRENT, factIndex.toString());
+      }
+      // Set next show time: 3 hours from now (timer starts on dismiss)
+      localStorage.setItem(STORAGE_KEY_NEXT_SHOW, (Date.now() + INTERVAL_MS).toString());
+    } catch { /* storage blocked */ }
   }
 
   useEffect(() => {

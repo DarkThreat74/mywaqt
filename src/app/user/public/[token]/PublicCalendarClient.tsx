@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { layoutOverlap } from "@/lib/calendar/overlap";
+import { sanitizeTimings } from "@/lib/prayer/checkin";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -297,7 +298,7 @@ function PublicDayView({ token, date, minDate, maxDate, onNavigateToMonth, onDat
 
         if (prayerRes?.ok) {
           const prayerData = await prayerRes.json();
-          if (!cancelled) setPrayerTimes(prayerData);
+          if (!cancelled) setPrayerTimes(sanitizeTimings(prayerData));
         } else {
           if (!cancelled) setPrayerTimes(null);
         }

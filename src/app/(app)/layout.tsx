@@ -8,6 +8,7 @@ import { db, schema } from "@/lib/db/client";
 import { Calendar, Settings, Flame, NotebookPen } from "lucide-react";
 import ServiceWorkerRegister from "@/components/sw-register";
 import NotificationScheduler from "@/components/notification-scheduler";
+import BiometricGate from "@/components/biometric-gate";
 import DeepLinkHandler from "@/components/deep-link-handler";
 import PendingInvite from "@/components/pending-invite";
 import ToolsMenu from "@/components/tools-menu";
@@ -209,7 +210,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             that ID selector anyway. */}
         <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden">
           <OfflineBanner />
-          {children}
+          <BiometricGate>{children}</BiometricGate>
         </main>
       </div>
 

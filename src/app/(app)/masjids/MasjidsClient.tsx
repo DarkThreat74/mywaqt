@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import MasjidFinder from "@/components/masjid-finder";
+import { sanitizeTimings } from "@/lib/prayer/checkin";
 
 interface PrayerTimes {
   fajr: string;
@@ -20,16 +21,8 @@ export default function MasjidsClient() {
     fetch(`/api/prayer-times?date=${todayStr}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data) {
-          setPrayerTimes({
-            fajr: data.fajr,
-            sunrise: data.sunrise,
-            dhuhr: data.dhuhr,
-            asr: data.asr,
-            maghrib: data.maghrib,
-            isha: data.isha,
-          });
-        }
+        const safe = sanitizeTimings(data);
+        if (safe) setPrayerTimes(safe);
       })
       .catch(() => null);
   }, []);

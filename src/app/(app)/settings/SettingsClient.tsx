@@ -199,6 +199,86 @@ export function FunFactToggle() {
   );
 }
 
+// App lock — opt-in biometric gate for the native shell. Enabling runs one
+// verification so we never arm a lock on a device where the prompt fails.
+export function AppLockToggle() {
+  const [on, setOn] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [supported, setSupported] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.resolve().then(async () => {
+      setMounted(true);
+      if (!isNativeApp()) return;
+      const { isAppLockEnabled } = await import("@/components/biometric-gate");
+      setOn(isAppLockEnabled());
+      const { checkBiometricAvailability } = await import("@/lib/native-bridge");
+      const res = await checkBiometricAvailability();
+      setSupported(res.available);
+    });
+  }, []);
+
+  async function toggle() {
+    if (!on) {
+      setBusy(true);
+      setMsg(null);
+      const { biometricVerify } = await import("@/lib/native-bridge");
+      const result = await Promise.race([
+        biometricVerify("Enable app lock"),
+        new Promise<{ verified: boolean; reason: string }>((r) =>
+          setTimeout(() => r({ verified: false, reason: "Timed out" }), 30_000)),
+      ]);
+      setBusy(false);
+      if (!result.verified) {
+        setMsg("Verification failed — app lock stays off.");
+        return;
+      }
+      try { localStorage.setItem("waqt:app-lock", "1"); } catch { /* ignore */ }
+      setOn(true);
+    } else {
+      try { localStorage.removeItem("waqt:app-lock"); } catch { /* ignore */ }
+      setOn(false);
+    }
+  }
+
+  if (!mounted || !isNativeApp()) return null;
+
+  return (
+    <div className="mb-3 rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>App lock</p>
+          <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            {!supported
+              ? "No fingerprint or face set up on this device."
+              : on
+                ? "On — Waqt asks for your fingerprint or face when you open it."
+                : "Off — Waqt opens straight to the app."}
+          </p>
+        </div>
+        <button
+          onClick={toggle}
+          disabled={busy || !supported}
+          className="relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50"
+          style={{ backgroundColor: on ? "var(--color-accent)" : "var(--color-paper-3)" }}
+          aria-label="Toggle app lock"
+          aria-pressed={on}
+        >
+          <span
+            className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform"
+            style={{ left: on ? "18px" : "2px" }}
+          />
+        </button>
+      </div>
+      {msg && (
+        <p className="mt-2 text-[11px]" style={{ color: "var(--color-warmth)" }}>{msg}</p>
+      )}
+    </div>
+  );
+}
+
 // Navigation visibility — toggle which secondary tabs/tools appear.
 // The four mains (Calendar, Prayer, Today, Settings) are fixed.
 export function NavTabsEditor() {
@@ -1950,6 +2030,8 @@ export default function SettingsClient({
           badge={trustedDevices.length > 0 ? `${trustedDevices.length}` : undefined}
           defaultOpen={false}
         >
+          <AppLockToggle />
+
           <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
             Devices you&apos;ve logged in from can sign in without a password.
             Revoke any you don&apos;t recognize.
