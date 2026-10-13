@@ -5,6 +5,14 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
+# Capacitor invokes @PluginMethod functions by reflection from the WebView —
+# obfuscating them silently breaks every JS → native call.
+-keepclassmembers class * extends com.getcapacitor.Plugin {
+    @com.getcapacitor.annotation.PluginMethod public *;
+}
+-keep class app.mywaqt.waqt.** { *; }
+-keepattributes *Annotation*
+
 # If your project uses WebView with JS, uncomment the following
 # and specify the fully qualified class name to the JavaScript interface
 # class:
@@ -16,6 +24,6 @@
 # debugging stack traces.
 #-keepattributes SourceFile,LineNumberTable
 
-# If you keep the line number information, uncomment this to
+# If you keep the line number information, uncomment the following to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
