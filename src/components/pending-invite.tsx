@@ -10,9 +10,14 @@ export default function PendingInvite() {
   const router = useRouter();
 
   useEffect(() => {
-    const token = localStorage.getItem("pendingPrayerInvite");
-    if (!token) return;
-    localStorage.removeItem("pendingPrayerInvite");
+    let token: string | null = null;
+    try {
+      token = localStorage.getItem("pendingPrayerInvite");
+      if (!token) return;
+      localStorage.removeItem("pendingPrayerInvite");
+    } catch {
+      return; // storage disabled/full — link stays valid, user can re-open it
+    }
     fetch("/api/prayer-friends/invite", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
