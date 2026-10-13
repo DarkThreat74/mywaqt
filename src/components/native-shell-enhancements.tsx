@@ -45,14 +45,11 @@ export default function NativeShellEnhancements() {
       .native-shell * {
         -webkit-tap-highlight-color: transparent;
       }
-      html.native-shell body {
-        overflow-x: hidden;
-      }
     `;
     document.head.appendChild(style);
 
     // Configure status bar to match the app's dark theme
-    void setStatusBarStyle("DARK");
+    void setStatusBarStyle("LIGHT");
 
     // Hide splash screen once React has hydrated
     void hideSplashScreen();

@@ -128,7 +128,10 @@ body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
-  overflow-x: clip;
+  /* NOTE: no overflow-x on body either — when html's overflow is visible,
+     the viewport propagates body's overflow instead, and any non-visible
+     root overflow kills ALL panning in Android WebView. Horizontal bleed
+     is clipped on #main-content below. */
   /* Remove iOS tap highlight gray box */
   -webkit-tap-highlight-color: transparent;
   /* Smooth scrolling on iOS */
@@ -199,6 +202,12 @@ html[data-shell="bare"] .app-chrome {
 html[data-shell="bare"] .app-main {
   padding-left: 0 !important;
 }
+/* Horizontal bleed guard lives on the scroll container, not html/body —
+   those propagate to the viewport and break Android WebView scrolling. */
+#main-content {
+  overflow-x: clip;
+}
+
 html[data-shell="bare"] main#main-content {
   padding-bottom: 0 !important;
 }
