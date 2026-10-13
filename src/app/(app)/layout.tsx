@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { unstable_cache } from "next/cache";
 import { getSession } from "@/lib/auth/session";
 import { eq } from "drizzle-orm";
@@ -126,6 +127,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const gate = await gateP;
   const needsSettings = gate.needsSettings;
 
+  // Completion cookie hint — when the cached gate is stale (failed tag
+  // revalidation, replication lag) the DB flag can lag up to 60s. The
+  // cookie is written by /api/onboarding/complete and bound to this uid,
+  // so it can only ever vouch for the account that actually finished.
+  const onbdCookie = (await cookies()).get("waqt-onbd")?.value;
+  const onboardingCompleted =
+    gate.onboardingCompleted || onbdCookie === session.userId;
+
   const navItems = [
     { label: "Calendar", href: "/calendar/day", icon: Calendar, alert: false },
     { label: "Prayer", href: "/prayer", icon: Flame, alert: false },
@@ -136,7 +145,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <AudioPlayerProvider>
     <SoundscapeProvider>
-    <OnboardingGuard completed={gate.onboardingCompleted} step={gate.onboardingStep} userId={session.userId} />
+    <OnboardingGuard completed={onboardingCompleted} step={gate.onboardingStep} userId={session.userId} />
     <ShellMode />
     <div className="flex min-h-dvh w-full overflow-x-hidden" style={{ backgroundColor: "var(--color-paper)" }}>
       {/* ── Skip link for keyboard users (WCAG 2.4.1) ── */}

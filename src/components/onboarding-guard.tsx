@@ -12,6 +12,10 @@ export const ONBOARDING_DONE_KEY = "waqt:onboarding-done";
 
 function isDone(serverCompleted: boolean, userId: string): boolean {
   if (serverCompleted) return true;
+  // Server-set cookie hint (waqt-onbd, written by /api/onboarding/complete) —
+  // survives environments where localStorage is blocked entirely.
+  if (typeof document !== "undefined" &&
+      document.cookie.split("; ").includes(`waqt-onbd=${userId}`)) return true;
   try { return localStorage.getItem(ONBOARDING_DONE_KEY) === userId; } catch { return false; }
 }
 

@@ -69,5 +69,16 @@ export async function POST(request: NextRequest) {
   // completed=false for up to 60s and the guard loops the user back in.
   try { revalidateTag(`user-gate-${session.userId}`, "max"); } catch { /* non-critical */ }
 
-  return NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true });
+  // Server cookie hint: if the tag revalidation fails AND the client's
+  // localStorage hint can't be written/read (private mode, storage disabled),
+  // this is the last line of defense against the /onboarding ↔ app bounce.
+  // Bound to the user id — a second account on the device can't inherit it.
+  // Short-lived: it only needs to outlive the 60s gate cache.
+  res.cookies.set("waqt-onbd", session.userId, {
+    path: "/",
+    maxAge: 60 * 60 * 24,
+    sameSite: "lax",
+  });
+  return res;
 }
