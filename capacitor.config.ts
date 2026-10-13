@@ -1,5 +1,5 @@
 import type { CapacitorConfig } from "@capacitor/cli";
-import { SITE_URL, APP_BUNDLE_ID, APP_NAME } from "./src/lib/site-config";
+import { SITE_DOMAIN, APP_BUNDLE_ID, APP_NAME } from "./src/lib/site-config";
 
 const config: CapacitorConfig = {
   appId: APP_BUNDLE_ID,
@@ -14,7 +14,17 @@ const config: CapacitorConfig = {
   // middleware, and cron all work normally. Native plugins add the
   // features that pass Apple's 4.2 review (biometric, push, haptics, share).
   server: {
-    url: SITE_URL,
+    // MUST be the canonical host. The site 308s apex → www; starting on the
+    // apex made that redirect cross hosts, so the bridge treated it as an
+    // external navigation and bounced to the browser/PWA instead of
+    // staying inside the WebView.
+    url: `https://www.${SITE_DOMAIN.replace(/^www\./, "")}`,
+    // Keep any host drift inside the WebView — apex, www, and any
+    // subdomain of the site are the app, never a browser intent.
+    allowNavigation: [
+      SITE_DOMAIN.replace(/^www\./, ""),
+      `*.${SITE_DOMAIN.replace(/^www\./, "")}`,
+    ],
     // Land on the prayer dashboard — reviewers see populated content
     appStartPath: "/prayer",
     // Offline fallback (unreliable on iOS but better than blank screen)
