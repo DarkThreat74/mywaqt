@@ -10,12 +10,22 @@ import {
 } from "@/lib/native-bridge";
 
 /**
- * Wraps authenticated app content with a Face ID / Touch ID gate.
- * On web, this is a pass-through — no biometric prompt is shown.
- * On native, the user must authenticate on launch and when returning
- * from background. If biometrics are unavailable (older device, not
- * enrolled), the gate is skipped so the user is not locked out.
+ * Wraps authenticated app content with a biometric gate.
+ *
+ * Rules that keep this from bricking the app:
+ * - Only locks on app relaunch or a >30s background stint — NOT every
+ *   foreground bounce. The system BiometricPrompt itself backgrounds the
+ *   app on Android, so re-locking on every appStateChange loops forever.
+ * - Auto-prompts ONCE per lock. If the prompt throws or the user cancels,
+ *   it waits for a manual tap — it never retries on its own.
+ * - "Skip on this device" opts out permanently — if the prompt crashes on
+ *   a given device, that path is the escape hatch, not a boot loop.
+ * - Web: pass-through, always.
  */
+
+const SKIP_KEY = "waqt:biometric-skip";
+const RELOCK_AFTER_MS = 30_000;
+
 export default function BiometricGate({ children }: { children: React.ReactNode }) {
   // SSR renders isNativeApp()=false (no window) while the native client gets
   // true — initializing state from it would hydration-mismatch and flash app
@@ -24,15 +34,17 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
   const [verified, setVerified] = useState(true);
   const [loading, setLoading] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
-  // Use a ref to track verified state so the appStateChange callback
-  // always sees the current value, not a stale closure capture.
   const verifiedRef = useRef(verified);
+  const backgroundedAtRef = useRef<number | null>(null);
+  // One auto-prompt per lock — a thrown/cancelled prompt never re-fires itself.
+  const autoPromptedRef = useRef(false);
 
   useEffect(() => {
     verifiedRef.current = verified;
   }, [verified]);
 
   const verify = useCallback(async () => {
+    if (typeof document !== "undefined" && document.hidden) return;
     setLoading(true);
     const result = await biometricVerify("Authenticate to access Waqt");
     if (result.verified) {
@@ -43,38 +55,48 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
     setLoading(false);
   }, []);
 
+  const lockAndPromptOnce = useCallback(() => {
+    setVerified(false);
+    verifiedRef.current = false;
+    if (!autoPromptedRef.current) {
+      autoPromptedRef.current = true;
+      void verify();
+    }
+  }, [verify]);
+
   useEffect(() => {
     if (!isNativeApp()) return;
     let mounted = true;
 
     const timer = setTimeout(() => {
       if (!mounted) return;
-      // Engage the gate now that we know we're in the native shell — inside
-      // the timer so it isn't a synchronous setState-in-effect.
-      setVerified(false);
-      verifiedRef.current = false;
-      setLoading(true);
+      try {
+        if (localStorage.getItem(SKIP_KEY) === "1") return;
+      } catch { /* storage blocked — still gate */ }
       checkBiometricAvailability().then((result) => {
         if (!mounted) return;
         setBiometricAvailable(result.available);
-        setLoading(false);
         if (!result.available) {
           // No biometrics enrolled — don't lock the user out
-          setVerified(true);
-          verifiedRef.current = true;
-        } else {
-          void verify();
+          return;
         }
+        lockAndPromptOnce();
       });
-    }, 300); // small delay so splash screen hides first
+    }, 600); // let splash + first paint settle before any system dialog
 
     let unsub: (() => void) | undefined;
     onAppStateChange((isActive) => {
-      // Re-prompt on every return from background if previously verified
-      if (isActive && verifiedRef.current) {
-        setVerified(false);
-        verifiedRef.current = false;
-        void verify();
+      if (!isActive) {
+        backgroundedAtRef.current = Date.now();
+        return;
+      }
+      // Only re-lock after a real background stint — the biometric prompt's
+      // own background/foreground pair is ~1s and must not re-trigger.
+      const away = backgroundedAtRef.current ? Date.now() - backgroundedAtRef.current : 0;
+      backgroundedAtRef.current = null;
+      if (verifiedRef.current && away > RELOCK_AFTER_MS) {
+        autoPromptedRef.current = false;
+        lockAndPromptOnce();
       }
     }).then((fn) => {
       unsub = fn;
@@ -85,10 +107,16 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
       clearTimeout(timer);
       void unsub?.();
     };
-  }, [verify]);
+  }, [verify, lockAndPromptOnce]);
 
   // Web: pass through immediately
   if (verified) return <>{children}</>;
+
+  function skipOnThisDevice() {
+    try { localStorage.setItem(SKIP_KEY, "1"); } catch { /* ignore */ }
+    setVerified(true);
+    verifiedRef.current = true;
+  }
 
   // Native: show biometric prompt overlay
   return (
@@ -126,7 +154,7 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
           <p className="mt-1.5 text-sm" style={{ color: "var(--color-ink-muted)" }}>
             {loading
               ? "Waiting for biometric authentication"
-              : "Tap below to authenticate with Face ID or Touch ID"}
+              : "Tap below to unlock with your fingerprint or face"}
           </p>
         </div>
 
@@ -139,7 +167,7 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
               color: "var(--color-paper)",
             }}
           >
-            Authenticate
+            Unlock Waqt
           </button>
         )}
 
@@ -153,6 +181,16 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
             }}
           >
             Continue
+          </button>
+        )}
+
+        {!loading && (
+          <button
+            onClick={skipOnThisDevice}
+            className="text-xs underline underline-offset-4"
+            style={{ color: "var(--color-ink-muted)" }}
+          >
+            Don&apos;t ask on this device
           </button>
         )}
       </div>
