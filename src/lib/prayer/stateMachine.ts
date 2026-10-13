@@ -47,6 +47,13 @@ export function getCheckinStage(
   let start = parseTimeToday(startTime, now);
   let end = parseTimeToday(endTime, now);
 
+  // Malformed window data produces NaN dates — every comparison against
+  // NaN is false, which would report the window as perpetually open and
+  // fire spurious check-ins. Treat it as no stage due.
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    return STAGES.NONE;
+  }
+
   // Handle windows that cross midnight (e.g., Isha ends at next day's Fajr).
   // If end < start, the window crosses midnight. Two cases:
   //   1. now >= start → we're in the evening portion; end is tomorrow → add 24h to end
@@ -104,6 +111,13 @@ export function isWindowClosed(window: PrayerWindow, now: Date, targetDate?: str
   const start = parseTimeToday(window.startTime, baseDate);
   let end = parseTimeToday(window.endTime, baseDate);
 
+  // NaN window → `now >= NaN` is false forever → the prayer would stay
+  // pending and never resolve. Treating unresolvable data as closed matches
+  // the product rule: unmarked resolves to assumed_prayed, never a penalty.
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    return true;
+  }
+
   // Handle windows that cross midnight (e.g., Isha ends at next day's Fajr).
   const DAY_MS = 24 * 60 * 60 * 1000;
   if (end < start) {
@@ -126,6 +140,7 @@ function parseMinutes(time: string): number {
  * Parse "HH:MM" into a Date for today.
  */
 function parseTimeToday(timeStr: string, base: Date): Date {
+  if (!timeStr || typeof timeStr !== "string") return new Date(NaN);
   const [hours, minutes] = timeStr.split(":").map(Number);
   const d = new Date(base);
   d.setHours(hours, minutes, 0, 0);

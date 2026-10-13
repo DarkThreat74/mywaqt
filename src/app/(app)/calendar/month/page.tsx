@@ -14,7 +14,7 @@ export default async function MonthPage({
   searchParams: Promise<{ year?: string; month?: string }>;
 }) {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect("/api/auth/logout");
 
   // "This month" must be computed in the user's timezone — server UTC can be
   // a month ahead/behind near a boundary. Fall back to UTC on any failure.

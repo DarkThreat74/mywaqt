@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function OnboardingPage() {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect("/api/auth/logout");
 
   const [u] = await db
     .select({ onboardingCompleted: schema.users.onboardingCompleted })

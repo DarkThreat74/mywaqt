@@ -10,7 +10,7 @@ export const metadata = { title: "Learn · Waqt" };
 export default async function LearnPage() {
   const session = await getSession();
   if (!session) {
-    redirect("/login");
+    redirect("/api/auth/logout");
     return;
   }
 

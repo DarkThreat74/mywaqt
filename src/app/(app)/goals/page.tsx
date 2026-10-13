@@ -10,7 +10,7 @@ export const metadata = { title: "Planner · Waqt" };
 
 export default async function GoalsPage() {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect("/api/auth/logout");
 
   // Only fetch habit logs from the last 90 days to keep the payload small
   const ninetyDaysAgo = new Date();

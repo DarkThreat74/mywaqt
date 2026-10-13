@@ -15,8 +15,18 @@ import { isNativeApp } from "@/lib/native-bridge";
  */
 export default function ServiceWorkerRegister() {
   useEffect(() => {
-    // Skip SW registration inside native app — it caches stale assets in the WebView
-    if (isNativeApp()) return;
+    // Skip SW registration inside native app — it caches stale assets in the WebView.
+    // Also unregister any worker that ever got registered on this origin in the
+    // WebView (earlier build, future WebView gaining SW support) — a lingering
+    // controller would keep serving stale page caches forever.
+    if (isNativeApp()) {
+      try {
+        void navigator.serviceWorker?.getRegistrations?.().then((regs) => {
+          for (const r of regs) void r.unregister();
+        });
+      } catch { /* no serviceWorker API in WebView */ }
+      return;
+    }
     if (!("serviceWorker" in navigator)) return;
 
     // Register the service worker

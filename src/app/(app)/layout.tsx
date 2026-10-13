@@ -114,7 +114,11 @@ const getUserGate = (userId: string): Promise<UserGate> =>
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
-  if (!session) redirect("/login");
+  // Route through the logout GET — it deletes the cookie before landing on
+  // /login. A plain /login redirect loops forever for server-revoked
+  // sessions (valid JWT, dead sessionsValidAfter): the proxy sees the
+  // still-valid token and bounces back here.
+  if (!session) redirect("/api/auth/logout");
 
   // Kick both cached lookups in parallel instead of serializing round-trips.
   const gateP = getUserGate(session.userId);

@@ -10,7 +10,7 @@ export const metadata = { title: "List · Waqt" };
 
 export default async function ListPage() {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect("/api/auth/logout");
 
   // Get user's timezone — wrap in try/catch to survive DB errors
   let userTimezone = "UTC";

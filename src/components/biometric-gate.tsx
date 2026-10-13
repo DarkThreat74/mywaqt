@@ -46,7 +46,15 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
   const verify = useCallback(async () => {
     if (typeof document !== "undefined" && document.hidden) return;
     setLoading(true);
-    const result = await biometricVerify("Authenticate to access Waqt");
+    // Hard timeout — a BiometricPrompt that dies with its activity can leave
+    // the plugin promise pending forever, which would strand the gate with
+    // no buttons. 30s of silence = treat as cancelled and show the manual
+    // path again.
+    const result = await Promise.race([
+      biometricVerify("Authenticate to access Waqt"),
+      new Promise<{ verified: boolean; reason: string }>((r) =>
+        setTimeout(() => r({ verified: false, reason: "Timed out" }), 30_000)),
+    ]);
     if (result.verified) {
       setVerified(true);
       verifiedRef.current = true;
@@ -184,15 +192,15 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
           </button>
         )}
 
-        {!loading && (
-          <button
-            onClick={skipOnThisDevice}
-            className="text-xs underline underline-offset-4"
-            style={{ color: "var(--color-ink-muted)" }}
-          >
-            Don&apos;t ask on this device
-          </button>
-        )}
+        {/* Always visible — it's the escape hatch; hiding it behind
+            !loading is what could soft-lock the app with no way out. */}
+        <button
+          onClick={skipOnThisDevice}
+          className="text-xs underline underline-offset-4"
+          style={{ color: "var(--color-ink-muted)" }}
+        >
+          Don&apos;t ask on this device
+        </button>
       </div>
     </div>
   );

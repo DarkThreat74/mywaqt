@@ -11,7 +11,7 @@ export const metadata = { title: "Calendar · Waqt" };
 
 export default async function DayPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect("/api/auth/logout");
 
   // Get user's timezone so we compute "today" in their local time, not server UTC.
   // Wrap in try/catch — if the DB query fails (Neon cold start, timeout, etc.)

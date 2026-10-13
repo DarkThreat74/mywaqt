@@ -6,7 +6,7 @@ import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { layoutOverlap } from "@/lib/calendar/overlap";
 import { useUISFX } from "@/components/uisfx-provider";
-import { getDisplayAsrTime, isFridayDate, type PrayerKey } from "@/lib/prayer/checkin";
+import { getDisplayAsrTime, isFridayDate, sanitizeTimings, type PrayerKey } from "@/lib/prayer/checkin";
 import { invalidateApiCache, removeOutboxItem } from "@/lib/sw-helpers";
 import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings, setCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods } from "@/lib/offline/settings-cache";
@@ -350,15 +350,9 @@ export default function DayViewClient({ date }: { date: string }) {
           })));
         }
 
-        if (cachedTimes) {
-          setPrayerTimes({
-            fajr: cachedTimes.fajr,
-            sunrise: cachedTimes.sunrise,
-            dhuhr: cachedTimes.dhuhr,
-            asr: cachedTimes.asr,
-            maghrib: cachedTimes.maghrib,
-            isha: cachedTimes.isha,
-          });
+        const safeCached = sanitizeTimings(cachedTimes);
+        if (safeCached && cachedTimes) {
+          setPrayerTimes(safeCached);
           if (cachedTimes.madhab) setUserMadhab(cachedTimes.madhab);
           if (cachedTimes.locationSet === false) setLocationSet(false);
         }
@@ -518,30 +512,29 @@ export default function DayViewClient({ date }: { date: string }) {
 
         if (prayerRes?.ok) {
           const prayerData = await prayerRes.json();
+          const safeTimings = sanitizeTimings(prayerData);
           if (!cancelled) {
-            setPrayerTimes(prayerData);
+            setPrayerTimes(safeTimings);
             if (prayerData.madhab) setUserMadhab(prayerData.madhab);
             if (prayerData.locationSet === false) setLocationSet(false);
             else setLocationSet(true);
           }
 
-          // Cache prayer times in IndexedDB
-          try {
-            const db = getOfflineDB();
-            await db.prayerTimes.put({
-              date,
-              fajr: prayerData.fajr,
-              sunrise: prayerData.sunrise,
-              dhuhr: prayerData.dhuhr,
-              asr: prayerData.asr,
-              maghrib: prayerData.maghrib,
-              isha: prayerData.isha,
-              madhab: prayerData.madhab || null,
-              locationSet: prayerData.locationSet !== false,
-              _cachedAt: Date.now(),
-            });
-          } catch {
-            // non-critical
+          // Cache prayer times in IndexedDB — only when the payload is
+          // complete; a partial row would poison every render that reads it.
+          if (safeTimings) {
+            try {
+              const db = getOfflineDB();
+              await db.prayerTimes.put({
+                date,
+                ...safeTimings,
+                madhab: prayerData.madhab || null,
+                locationSet: prayerData.locationSet !== false,
+                _cachedAt: Date.now(),
+              });
+            } catch {
+              // non-critical
+            }
           }
         } else {
           // Read locationSet from the 404 response body if available
@@ -575,7 +568,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 if (retryRes.ok) {
                   const retryData = await retryRes.json();
                   if (!cancelled) {
-                    setPrayerTimes(retryData);
+                    setPrayerTimes(sanitizeTimings(retryData));
                     if (retryData.madhab) setUserMadhab(retryData.madhab);
                     setLocationSet(true);
                   }

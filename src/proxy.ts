@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { jwtVerify } from 'jose';
 
 /**
  * Proxy (formerly Middleware in Next.js 15 and earlier).
@@ -6,10 +7,38 @@ import { NextResponse, type NextRequest } from 'next/server';
  * Used for optimistic auth checks — redirect unauthenticated users
  * away from app routes. Full session verification happens server-side
  * in each route/action (defense in depth).
+ *
+ * IMPORTANT: the session cookie is JWT-verified here, not just checked
+ * for presence. A cookie that exists but fails signature verification
+ * (secret rotation, tampering) previously caused an infinite loop:
+ *   /calendar → layout getSession()=null → /login
+ *   /login    → proxy sees cookie       → /calendar → ERR_TOO_MANY_REDIRECTS.
+ * Invalid cookies are stripped in the redirect response so the browser
+ * stops carrying the dead token. Sessions revoked server-side
+ * (sessionsValidAfter — needs DB, can't run here) are handled by the
+ * (app) layout redirecting through /api/auth/logout, which clears the
+ * cookie on the way to /login.
  */
-export function proxy(request: NextRequest) {
+
+// Can't import @/lib/env (marked server-only — unsupported in the proxy
+// bundle). SESSION_SECRET read directly; same fail-closed rule applies.
+const encodedKey = new TextEncoder().encode(process.env.SESSION_SECRET ?? '');
+
+async function hasValidSession(request: NextRequest): Promise<boolean> {
+  const token = request.cookies.get('waqt-session')?.value;
+  if (!token || encodedKey.length === 0) return false;
+  try {
+    await jwtVerify(token, encodedKey, { algorithms: ['HS256'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const sessionCookie = request.cookies.get('waqt-session')?.value;
+  const hasCookie = !!request.cookies.get('waqt-session')?.value;
+  const validSession = await hasValidSession(request);
 
   const protectedPaths = ['/calendar', '/settings', '/onboarding', '/prayer', '/goals', '/learn'];
   const authPaths = ['/login', '/signup'];
@@ -17,20 +46,34 @@ export function proxy(request: NextRequest) {
   const isProtected = protectedPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   const isAuthPage = authPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
-  // Redirect to login if accessing protected route without session
-  if (isProtected && !sessionCookie) {
+  // Redirect to login if accessing protected route without a valid session
+  if (isProtected && !validSession) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('from', pathname);
-    return NextResponse.redirect(loginUrl);
+    const res = NextResponse.redirect(loginUrl);
+    if (hasCookie) {
+      res.cookies.delete('waqt-session');
+      res.cookies.delete('waqt-uid');
+    }
+    return res;
   }
 
-  // Redirect to calendar if accessing auth pages while already logged in
-  if (isAuthPage && sessionCookie) {
-    return NextResponse.redirect(new URL('/calendar/day', request.url));
+  // Auth pages while logged in → calendar. A dead cookie must NOT bounce
+  // (that was the loop) — strip it and let the login form render.
+  if (isAuthPage) {
+    if (validSession) {
+      return NextResponse.redirect(new URL('/calendar/day', request.url));
+    }
+    if (hasCookie) {
+      const res = NextResponse.next();
+      res.cookies.delete('waqt-session');
+      res.cookies.delete('waqt-uid');
+      return res;
+    }
   }
 
   // Redirect to calendar if accessing the marketing page while already logged in
-  if (pathname === '/' && sessionCookie) {
+  if (pathname === '/' && validSession) {
     return NextResponse.redirect(new URL('/calendar/day', request.url));
   }
 

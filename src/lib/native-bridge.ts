@@ -153,15 +153,20 @@ export async function biometricVerify(
 export async function requestPushPermission(): Promise<boolean> {
   if (!isNativeApp()) return false;
   try {
-    const { PushNotifications } = await import(
-      "@capacitor/push-notifications"
-    );
-    let granted = false;
-    await PushNotifications.requestPermissions().then((result) => {
-      granted = result.receive === "granted";
-    });
-    if (granted) await PushNotifications.register();
-    return granted;
+    // Devices without Google Play services / FCM can leave these calls
+    // pending forever instead of rejecting — cap the whole flow.
+    return await Promise.race([
+      (async () => {
+        const { PushNotifications } = await import(
+          "@capacitor/push-notifications"
+        );
+        const result = await PushNotifications.requestPermissions();
+        if (result.receive !== "granted") return false;
+        await PushNotifications.register();
+        return true;
+      })(),
+      new Promise<boolean>((r) => setTimeout(() => r(false), 15_000)),
+    ]);
   } catch {
     return false;
   }

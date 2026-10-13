@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Flame, Handshake, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye, Ban } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
-import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer, activeMakruh, makruhWindows } from "@/lib/prayer/checkin";
+import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer, activeMakruh, makruhWindows, sanitizeTimings } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
@@ -387,14 +387,8 @@ export default function PrayerDashboard() {
       }
       if (timesRes?.ok) {
         const data = await timesRes.json().catch(() => null);
-        if (data) setPrayerTimes({
-          fajr: data.fajr,
-          sunrise: data.sunrise,
-          dhuhr: data.dhuhr,
-          asr: data.asr,
-          maghrib: data.maghrib,
-          isha: data.isha,
-        });
+        const safe = sanitizeTimings(data);
+        if (safe) setPrayerTimes(safe);
       }
       if (analyticsRes?.ok) {
         const data = await analyticsRes.json().catch(() => null);
@@ -497,15 +491,9 @@ export default function PrayerDashboard() {
           setTodaySunnahs(cachedSunnah.filter((l) => l.prayed).map((l) => l.sunnahKey));
           hasAnyCached = true;
         }
-        if (cachedTimes) {
-          setPrayerTimes({
-            fajr: cachedTimes.fajr,
-            sunrise: cachedTimes.sunrise,
-            dhuhr: cachedTimes.dhuhr,
-            asr: cachedTimes.asr,
-            maghrib: cachedTimes.maghrib,
-            isha: cachedTimes.isha,
-          });
+        const safeCached = sanitizeTimings(cachedTimes);
+        if (safeCached) {
+          setPrayerTimes(safeCached);
           hasAnyCached = true;
         }
 
@@ -655,14 +643,8 @@ export default function PrayerDashboard() {
         if (timesRes?.ok) {
           const data = await timesRes.json().catch(() => null);
           if (data) {
-            setPrayerTimes({
-              fajr: data.fajr,
-              sunrise: data.sunrise,
-              dhuhr: data.dhuhr,
-              asr: data.asr,
-              maghrib: data.maghrib,
-              isha: data.isha,
-            });
+            const safe = sanitizeTimings(data);
+            if (safe) setPrayerTimes(safe);
             try {
               await getOfflineDB().prayerTimes.put({
                 date: todayStr,

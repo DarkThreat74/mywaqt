@@ -30,9 +30,25 @@ export interface PrayerTimings {
  * Parse "HH:MM" or "HH:MM:SS" into minutes since midnight.
  */
 export function parseMinutes(time: string): number {
+  if (typeof time !== "string") return NaN;
   const cleaned = time.split(" ")[0].trim();
   const [h, m] = cleaned.split(":").map(Number);
   return h * 60 + m;
+}
+
+/**
+ * All six timing fields present and shaped like a time string, or null.
+ * Gate every prayerTimes write (state + Dexie) through this — a partial
+ * row poisons every downstream .split()/window calc for that day.
+ */
+export function sanitizeTimings(t: Partial<PrayerTimings> | null | undefined): PrayerTimings | null {
+  if (!t) return null;
+  const keys = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"] as const;
+  for (const k of keys) {
+    const v = t[k];
+    if (typeof v !== "string" || !v.includes(":")) return null;
+  }
+  return { fajr: t.fajr!, sunrise: t.sunrise!, dhuhr: t.dhuhr!, asr: t.asr!, maghrib: t.maghrib!, isha: t.isha! };
 }
 
 /**
@@ -191,6 +207,7 @@ export function getPrayerWindowState(
     // Isha window: from isha start today to fajr start tomorrow (crosses midnight)
     const ishaStart = parseMinutes(timings.isha);
     const fajrStart = parseMinutes(timings.fajr);
+    if (!Number.isFinite(ishaStart) || !Number.isFinite(fajrStart)) return "before";
     if (currentMinutes >= ishaStart) {
       // After Isha start tonight — within window
       return "open";
@@ -203,6 +220,11 @@ export function getPrayerWindowState(
     // After Fajr but before Isha start — afternoon/evening, Isha hasn't started yet
     return "before";
   }
+
+  // NaN bounds (malformed timing strings) fail both comparisons below, which
+  // would report the window as permanently "open" — hard-locking the app
+  // behind the Salah Shield gate. Bad data must fail closed, not open.
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "before";
 
   if (currentMinutes < start) return "before";
   if (currentMinutes > end) return "ended";

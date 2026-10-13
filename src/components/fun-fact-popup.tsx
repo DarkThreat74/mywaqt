@@ -36,7 +36,20 @@ function getNextScheduledTime(from: Date = new Date()): number {
 function getInitialFact(): { fact: FunFact | null; shouldShow: boolean; factIndex: number } {
   if (typeof window === "undefined") return { fact: null, shouldShow: false, factIndex: -1 };
 
-  const nextShowStr = localStorage.getItem(STORAGE_KEY_NEXT_SHOW);
+  // localStorage can throw (disabled storage, corrupt JSON) — this mounts on
+  // every app page, so an exception here takes down the whole layout.
+  let nextShowStr: string | null = null;
+  let currentStr: string | null = null;
+  let seenStr: string | null = null;
+  let lastIndexStr: string | null = null;
+  try {
+    nextShowStr = localStorage.getItem(STORAGE_KEY_NEXT_SHOW);
+    currentStr = localStorage.getItem(STORAGE_KEY_CURRENT);
+    seenStr = localStorage.getItem(STORAGE_KEY_SEEN);
+    lastIndexStr = localStorage.getItem(STORAGE_KEY_INDEX);
+  } catch {
+    return { fact: null, shouldShow: false, factIndex: -1 };
+  }
   const nextShow = nextShowStr ? parseInt(nextShowStr, 10) : null;
 
   // If no next show time set, or time hasn't arrived yet, don't show
@@ -45,7 +58,6 @@ function getInitialFact(): { fact: FunFact | null; shouldShow: boolean; factInde
 
   // Time to show! Pick the next fact.
   // Check if there's a "current" fact (from X-out, can be reused)
-  const currentStr = localStorage.getItem(STORAGE_KEY_CURRENT);
   if (currentStr !== null) {
     const currentIndex = parseInt(currentStr, 10);
     const fact = getFunFactByIndex(currentIndex);
@@ -53,10 +65,15 @@ function getInitialFact(): { fact: FunFact | null; shouldShow: boolean; factInde
   }
 
   // Otherwise, pick the next unseen fact
-  const seenStr = localStorage.getItem(STORAGE_KEY_SEEN);
-  const seen: number[] = seenStr ? JSON.parse(seenStr) : [];
+  let seen: number[] = [];
+  if (seenStr) {
+    try {
+      seen = JSON.parse(seenStr);
+    } catch {
+      return { fact: null, shouldShow: false, factIndex: -1 };
+    }
+  }
 
-  const lastIndexStr = localStorage.getItem(STORAGE_KEY_INDEX);
   const lastIndex = lastIndexStr ? parseInt(lastIndexStr, 10) : -1;
 
   // Find next index that hasn't been permanently seen
@@ -229,8 +246,14 @@ export default function FunFactPopup() {
   function handleGotIt() {
     setShow(false);
     // Mark this fact as permanently seen
-    const seenStr = localStorage.getItem(STORAGE_KEY_SEEN);
-    const seen: number[] = seenStr ? JSON.parse(seenStr) : [];
+    let seen: number[] = [];
+    try {
+      const seenStr = localStorage.getItem(STORAGE_KEY_SEEN);
+      const parsed = seenStr ? JSON.parse(seenStr) : [];
+      if (Array.isArray(parsed)) seen = parsed;
+    } catch {
+      // corrupt or unavailable storage — treat as nothing seen
+    }
     if (factIndex >= 0 && !seen.includes(factIndex)) {
       seen.push(factIndex);
       localStorage.setItem(STORAGE_KEY_SEEN, JSON.stringify(seen));

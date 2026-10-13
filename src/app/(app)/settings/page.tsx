@@ -9,7 +9,7 @@ export const metadata = { title: "Settings · Waqt" };
 
 export default async function SettingsPage() {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect("/api/auth/logout");
 
   // Parallelize independent queries (user + prayer settings).
   // Wrapped in try/catch so Neon cold-starts or connection issues

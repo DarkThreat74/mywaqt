@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v68";
+const CACHE_VERSION = "waqt-v69";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -1154,10 +1154,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // ── Static assets: cache-first ──
+  // ── Static assets: cache-first — same-origin only. Matching by extension
+  // on any origin would stash third-party tiles/images/fonts (map tiles,
+  // CDN assets) unboundedly and serve them stale forever.
   if (
-    url.pathname.startsWith("/_next/static/") ||
-    url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|woff2?)$/)
+    url.origin === self.location.origin &&
+    (url.pathname.startsWith("/_next/static/") ||
+      url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|woff2?)$/))
   ) {
     event.respondWith(
       (async () => {

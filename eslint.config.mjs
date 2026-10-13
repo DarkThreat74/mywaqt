@@ -16,6 +16,9 @@ const eslintConfig = defineConfig([
     ".claude/**",
     ".agents/**",
     ".devin/**",
+    // Android Gradle build output (generated JS/native intermediates)
+    "android/**/build/**",
+    "android/.gradle/**",
   ]),
 ]);
 

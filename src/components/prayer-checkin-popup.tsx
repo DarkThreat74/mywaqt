@@ -52,14 +52,20 @@ export default function PrayerCheckinPopup({
     else onClose();
   }
 
-  // Get current time in user's timezone
+  // Get current time in user's timezone. A bad timezone prop (corrupt cache,
+  // non-IANA value) throws RangeError — during RENDER. Fall back to device
+  // time instead of taking the whole page down.
   const now = new Date();
-  const localStr = now.toLocaleString("en-US", { timeZone: timezone, hour12: false });
-  const timeMatch = localStr.match(/(\d+):(\d+)/);
-  const currentMinutes = timeMatch ? (parseInt(timeMatch[1]) % 24) * 60 + parseInt(timeMatch[2]) : now.getHours() * 60 + now.getMinutes();
-
-  // Today's date in the user's timezone (YYYY-MM-DD)
-  const todayInTz = now.toLocaleDateString("en-CA", { timeZone: timezone });
+  let currentMinutes = now.getHours() * 60 + now.getMinutes();
+  let todayInTz = now.toLocaleDateString("en-CA");
+  try {
+    const localStr = now.toLocaleString("en-US", { timeZone: timezone, hour12: false });
+    const timeMatch = localStr.match(/(\d+):(\d+)/);
+    if (timeMatch) currentMinutes = (parseInt(timeMatch[1]) % 24) * 60 + parseInt(timeMatch[2]);
+    todayInTz = now.toLocaleDateString("en-CA", { timeZone: timezone });
+  } catch {
+    // invalid timezone — device-local fallback above
+  }
   // If viewing a past day, the prayer window has already ended — never "before"
   const isPastDay = date < todayInTz;
   // If viewing a future day, the prayer window hasn't started yet — never "ended" or "open"
