@@ -44,6 +44,32 @@ public class SalahShieldPlugin extends Plugin {
 
     static final String PREFS = "salah_shield";
 
+    /**
+     * Whether native push can actually register. Capacitor's
+     * PushNotifications.register() calls FirebaseMessaging.getInstance()
+     * unconditionally — without google-services.json there is no default
+     * FirebaseApp, so it throws IllegalStateException, which the bridge
+     * rethrows as RuntimeException on a Handler thread = process death.
+     * JS must check this BEFORE calling register(). Reflection keeps the
+     * Firebase import optional so the app still builds if the firebase
+     * dependency is ever dropped entirely.
+     */
+    @PluginMethod
+    public void pushReady(PluginCall call) {
+        boolean ready = false;
+        try {
+            Class<?> firebaseApp = Class.forName("com.google.firebase.FirebaseApp");
+            java.lang.reflect.Method getApps = firebaseApp.getMethod("getApps", Context.class);
+            java.util.List<?> apps = (java.util.List<?>) getApps.invoke(null, getContext());
+            ready = apps != null && !apps.isEmpty();
+        } catch (Throwable ignored) {
+            // Firebase classes absent or uninitialized → push cannot work.
+        }
+        JSObject out = new JSObject();
+        out.put("ready", ready);
+        call.resolve(out);
+    }
+
     @PluginMethod
     public void getStatus(PluginCall call) {
         Context ctx = getContext();

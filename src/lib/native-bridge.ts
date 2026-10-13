@@ -150,9 +150,29 @@ export async function biometricVerify(
 
 // ── Push Notifications ──
 
+/**
+ * Is native push actually wired? PushNotifications.register() calls
+ * FirebaseMessaging.getInstance() unconditionally — with no
+ * google-services.json there's no default FirebaseApp, it throws, and the
+ * Capacitor bridge rethrows it as a RuntimeException on a Handler thread:
+ * process death, no JS catch possible. SalahShield.pushReady() checks
+ * FirebaseApp.getApps() natively; call it BEFORE register() every time.
+ */
+async function isNativePushReady(): Promise<boolean> {
+  try {
+    const { registerPlugin } = await import("@capacitor/core");
+    const Shield = registerPlugin<{ pushReady(): Promise<{ ready: boolean }> }>("SalahShield");
+    const res = await Shield.pushReady();
+    return !!res.ready;
+  } catch {
+    return false;
+  }
+}
+
 export async function requestPushPermission(): Promise<boolean> {
   if (!isNativeApp()) return false;
   try {
+    if (!(await isNativePushReady())) return false;
     // Devices without Google Play services / FCM can leave these calls
     // pending forever instead of rejecting — cap the whole flow.
     return await Promise.race([
