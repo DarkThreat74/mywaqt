@@ -16,6 +16,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SalahShieldPlugin.class);
         super.onCreate(savedInstanceState);
 
+        // Serve _next/static bundle assets from the APK instead of the
+        // network — the single biggest cold-load win in remote-URL mode.
+        getBridge().setWebViewClient(new WaqtWebViewClient(getBridge()));
+
         // Remote-URL mode (server.url) has a known WebView measurement bug
         // (capacitor#8431): the page is laid out at the WebView's size, so
         // content taller than the screen is never scrollable — on EVERY
