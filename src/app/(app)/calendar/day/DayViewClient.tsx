@@ -16,6 +16,7 @@ import { isBirthdayOn, turningAge } from "@/lib/birthdays/math";
 import PlanBlocksSheet, { type BlockWithAssignments } from "@/components/plan-blocks-sheet";
 import { freeGaps, fmtDur, fmtMin, DAY_START, DAY_END, type Interval } from "@/lib/blocks/gaps";
 import { beginIntake, getSession, subscribeSession, resumeSession, setOverlayOpen } from "@/lib/study/session";
+import { lockBodyScroll } from "@/lib/body-scroll-lock";
 
 interface CalendarEvent {
   id: string;
@@ -311,11 +312,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const anyModalOpen = showAddForm || !!editingEvent || !!deleteConfirm || !!checkinPopup || showSeriesList;
   useEffect(() => {
     if (!anyModalOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return lockBodyScroll();
   }, [anyModalOpen]);
 
   useEffect(() => {

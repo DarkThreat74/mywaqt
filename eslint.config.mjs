@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     // Android Gradle build output (generated JS/native intermediates)
     "android/**/build/**",
     "android/.gradle/**",
+    // Bundled Next.js assets served locally by the APK (minified, generated)
+    "android/app/src/main/assets/**",
   ]),
 ]);
 

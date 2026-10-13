@@ -5,6 +5,7 @@ import { Focus, X } from "lucide-react";
 import { useUISFX } from "@/components/uisfx-provider";
 import { useSoundscape } from "@/components/soundscape-context";
 import { TECHNIQUES, playTechniqueAudio } from "./refocus-techniques";
+import { lockBodyScroll } from "@/lib/body-scroll-lock";
 
 /**
  * Refocus — a ~15-second visual reset for a wandering mind.
@@ -120,11 +121,10 @@ export default function Refocus({ compact = false }: { compact?: boolean }) {
     window.addEventListener("keydown", onKey);
     // Lock the page behind the overlay — otherwise the background scrolls
     // under your thumb on mobile.
-    const original = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const release = lockBodyScroll();
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = original;
+      release();
     };
   }, [running]);
 

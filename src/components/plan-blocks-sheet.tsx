@@ -7,6 +7,7 @@ import { defaultBlockIn, fmtDur, fmtMin, freeGaps, type Interval } from "@/lib/b
 import { makruhWindows, type PrayerTimings } from "@/lib/prayer/checkin";
 import { formatDueBadge } from "@/lib/homework/due-format";
 import { mergeSessionHistory } from "@/lib/study/session";
+import { lockBodyScroll } from "@/lib/body-scroll-lock";
 
 export interface BlockWithAssignments extends StudyBlock {
   assignments: {
@@ -265,11 +266,10 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
     }
     window.addEventListener("keydown", onKey);
     // Lock the page behind the sheet — otherwise iOS scrolls the timeline.
-    const original = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const release = lockBodyScroll();
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = original;
+      release();
     };
   }, [onClose]);
 
