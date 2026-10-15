@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Loader2, X } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, LayoutGrid, Loader2, X } from "lucide-react";
 import type { Class, Homework } from "@/lib/db/schema";
 import { fmtDur } from "@/lib/blocks/gaps";
 import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/study/session";
@@ -101,8 +101,6 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
   const [classMap, setClassMap] = useState<Map<string, Class>>(new Map());
   // Full homework list — powers the per-class grades rollup.
   const [hwItems, setHwItems] = useState<Homework[]>([]);
-  // Prayer logs for the selected range — powers the salah-timing stat.
-  const [prayerLogs, setPrayerLogs] = useState<{ status: string; checkinStage: number }[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,22 +135,6 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
     })();
     return () => { cancelled = true; };
   }, []);
-
-  // Prayer logs for the selected range (the endpoint caps at 180 days — the
-  // salah stat labels itself "last 180d" on year/all for honesty).
-  useEffect(() => {
-    let cancelled = false;
-    const now = new Date();
-    const from = rangeStart(range, now) ?? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 179);
-    const capped = new Date(now.getTime() - 179 * 24 * 60 * 60 * 1000);
-    const f = from < capped ? capped : from;
-    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    fetch(`/api/prayer-log/range?from=${iso(f)}&to=${iso(now)}`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((rows) => { if (!cancelled && Array.isArray(rows)) setPrayerLogs(rows); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [range]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
@@ -197,17 +179,13 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
 
   const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
-  // Salah stats — "answered at the last call" counts prayers the user marked
-  // `prayed` only once the closing check-in fired (stage 3). Sessions that
-  // paused for salah come from salahBreaks on the session history.
-  const salah = useMemo(() => {
-    const prayed = prayerLogs.filter((l) => l.status === "prayed");
-    const late = prayed.filter((l) => l.checkinStage >= 3).length;
+  // Sessions that paused for salah — from salahBreaks on the session history.
+  const salahPauses = useMemo(() => {
     const from = rangeStart(range, new Date());
-    const rows = history.filter((e) => !from || new Date(`${e.date}T12:00:00`) >= from);
-    const pauses = rows.reduce((s, e) => s + (e.salahBreaks ?? 0), 0);
-    return { prayed: prayed.length, late, pauses };
-  }, [prayerLogs, history, range]);
+    return history
+      .filter((e) => !from || new Date(`${e.date}T12:00:00`) >= from)
+      .reduce((s, e) => s + (e.salahBreaks ?? 0), 0);
+  }, [history, range]);
 
   return (
     <div
@@ -297,10 +275,9 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
                 })}
               </div>
 
-              {/* Range calendar — month shows the whole month, year the whole
-                  year, all-time every month since the first session. Cell
-                  intensity follows minutes studied that day. */}
-              <SessionCalendar history={history} range={range} />
+              {/* Range calendar — key={range} resets the month cursor + view
+                  mode when the range changes. */}
+              <SessionCalendar key={range} history={history} range={range} />
 
               {/* Your rhythm — averages once there's enough data to mean
                   something (5+ tracked sessions in range). */}
@@ -317,21 +294,11 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
                     <p className="tabular-nums">longest single session {fmtDur(stats.longest)}
                       {(() => { const b = stats.weekdayMin.indexOf(Math.max(...stats.weekdayMin)); return stats.weekdayMin[b] > 0 ? ` · ${["Mondays","Tuesdays","Wednesdays","Thursdays","Fridays","Saturdays","Sundays"][b]} are your day` : ""; })()}
                     </p>
-                    {salah.pauses > 0 && <p className="tabular-nums">left the desk for salah ×{salah.pauses}</p>}
+                    {salahPauses > 0 && <p className="tabular-nums">left the desk for salah ×{salahPauses}</p>}
                   </div>
                 </>
               )}
 
-              {/* Salah timing — how often prayers get answered only at the
-                  closing call. Shows even below the 5-session rhythm gate —
-                  it reads prayer logs, not session telemetry. */}
-              {salah.prayed > 0 && (
-                <p className="mt-3 text-xs tabular-nums" style={{ color: salah.late > 0 ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
-                  {salah.late > 0
-                    ? `${salah.late} of ${salah.prayed} prayers marked only at the last call`
-                    : `every one of ${salah.prayed} prayers answered before the last call`}
-                </p>
-              )}
               {stats.methods.length > 0 && (
                 <>
                   <p className="mt-4 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
@@ -405,9 +372,18 @@ export default function StudyStatsSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Minutes compressed to fit a day cell — "45m", "2h", "1.5h". */
+function compactMin(min: number): string {
+  const m = Math.round(min);
+  if (m < 60) return `${m}m`;
+  const h = m / 60;
+  return `${h >= 10 ? Math.round(h) : Math.round(h * 10) / 10}h`;
+}
+
 /** Calendar of study days for the selected range — week = 7-day strip,
- *  month = this month's grid, year = every month this year, all = every
- *  month since the first logged session (years labeled when they differ). */
+ *  month = this month's grid. Year/all-time get a month switcher plus a
+ *  heatmap toggle (every month in range as a mini grid). Colored cells show
+ *  the minutes studied in tiny type instead of the day number. */
 function SessionCalendar({ history, range }: { history: SessionEntry[]; range: StatsRange }) {
   const byDate = useMemo(() => {
     const m = new Map<string, number>();
@@ -415,6 +391,8 @@ function SessionCalendar({ history, range }: { history: SessionEntry[]; range: S
     return m;
   }, [history]);
   const maxMin = useMemo(() => Math.max(1, ...byDate.values()), [byDate]);
+  const [heat, setHeat] = useState(false);
+  const [monthIdx, setMonthIdx] = useState<number | null>(null);
 
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -433,7 +411,7 @@ function SessionCalendar({ history, range }: { history: SessionEntry[]; range: S
           outlineOffset: -1.5,
         }}
       >
-        {dayNum ?? ""}
+        {min > 0 ? compactMin(min) : (dayNum ?? "")}
       </span>
     );
   };
@@ -444,7 +422,7 @@ function SessionCalendar({ history, range }: { history: SessionEntry[]; range: S
     const lead = (first.getDay() + 6) % 7; // Mon-first
     return (
       <div key={`${y}-${mo}`}>
-        <p className="mb-1 text-[10px] font-semibold" style={{ color: "var(--color-ink-muted)" }}>{label}</p>
+        {label && <p className="mb-1 text-[10px] font-semibold" style={{ color: "var(--color-ink-muted)" }}>{label}</p>}
         <div className="grid grid-cols-7 gap-[3px]">
           {Array.from({ length: lead }, (_, i) => <span key={`b${i}`} />)}
           {Array.from({ length: days }, (_, i) => {
@@ -476,7 +454,8 @@ function SessionCalendar({ history, range }: { history: SessionEntry[]; range: S
     return <div className="mt-4">{monthGrid(today.getFullYear(), today.getMonth(), monthName(today.getFullYear(), today.getMonth(), true))}</div>;
   }
 
-  // Year + all-time — every month in range as a mini grid.
+  // Year + all-time — months in range, navigable one at a time or as a
+  // heatmap of mini-grids.
   const firstEntry = history.length ? history.map((e) => e.date).sort()[0] : todayStr;
   const [fy, fm] = range === "all" ? firstEntry.split("-").map(Number) : [today.getFullYear(), 1];
   const months: [number, number][] = [];
@@ -484,9 +463,57 @@ function SessionCalendar({ history, range }: { history: SessionEntry[]; range: S
     months.push([y, mo]);
   }
   const multiYear = months.some(([y]) => y !== months[0][0]);
+  const idx = Math.min(monthIdx ?? months.length - 1, months.length - 1);
+  const [cy, cm] = months[Math.max(0, idx)];
+
   return (
-    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-      {months.map(([y, mo]) => monthGrid(y, mo, monthName(y, mo, multiYear || range === "all")))}
+    <div className="mt-4">
+      {/* Month ‹ › switcher + heatmap toggle */}
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setMonthIdx(Math.max(0, idx - 1))}
+            disabled={heat || idx <= 0}
+            className="rounded-md p-1 transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-30"
+            style={{ color: "var(--color-ink-muted)" }}
+            aria-label="Previous month"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="min-w-16 text-center text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
+            {heat ? "Heatmap" : monthName(cy, cm, true)}
+          </span>
+          <button
+            onClick={() => setMonthIdx(Math.min(months.length - 1, idx + 1))}
+            disabled={heat || idx >= months.length - 1}
+            className="rounded-md p-1 transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-30"
+            style={{ color: "var(--color-ink-muted)" }}
+            aria-label="Next month"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+        <button
+          onClick={() => setHeat((h) => !h)}
+          aria-pressed={heat}
+          className="flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors"
+          style={{
+            borderColor: heat ? "var(--color-accent)" : "var(--color-paper-3)",
+            backgroundColor: heat ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "transparent",
+            color: heat ? "var(--color-accent)" : "var(--color-ink-muted)",
+          }}
+        >
+          <LayoutGrid className="h-3 w-3" /> Heatmap
+        </button>
+      </div>
+
+      {heat ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {months.map(([y, mo]) => monthGrid(y, mo, monthName(y, mo, multiYear || range === "all")))}
+        </div>
+      ) : (
+        monthGrid(cy, cm, "")
+      )}
     </div>
   );
 }

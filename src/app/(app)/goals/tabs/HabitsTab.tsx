@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef } from "react";
-import { Repeat, Plus, Check, Trash2, Flame, GripVertical, BrushCleaning } from "lucide-react";
+import { Repeat, Plus, Check, Trash2, Flame, GripVertical, BrushCleaning, Loader2, X } from "lucide-react";
 import type { Habit, HabitLog, Chore } from "@/lib/db/schema";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { upsertHabitToCache, deleteHabitFromCache, toggleHabitLogInCache } from "@/lib/offline/cache-writers";
@@ -76,6 +76,9 @@ export default function HabitsTab({
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const dragCooldownRef = useRef(false);
+  // Backfill — tapping an empty past-day pill asks "forgot to log?" first.
+  const [backfill, setBackfill] = useState<{ habit: Habit; date: string } | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
 
   const activeHabits = useMemo(
     () => habits
@@ -221,6 +224,37 @@ export default function HabitsTab({
       } else {
         setHabitLogs((prev) => prev.filter((l) => !(l.habitId === habitId && l.date === today)));
       }
+    }
+  };
+
+  // Log a missed past day — the pill only offers this on empty days, so the
+  // POST's toggle always inserts. Optimistic; reverts on failure.
+  const confirmBackfill = async () => {
+    if (!backfill) return;
+    const { habit, date } = backfill;
+    setBackfilling(true);
+    setHabitLogs((prev) => [...prev, {
+      id: `temp_${habit.id}_${date}`,
+      userId: "",
+      habitId: habit.id,
+      date,
+      count: 1,
+      completedAt: new Date(),
+    }]);
+    try {
+      const res = await fetch("/api/habit-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ habitId: habit.id, date }),
+      });
+      if (!res.ok) throw new Error();
+      invalidateApiCache("/api/habits");
+      setBackfill(null);
+    } catch {
+      setHabitLogs((prev) => prev.filter((l) => !(l.habitId === habit.id && l.date === date)));
+      setError("Couldn't log that day — try again");
+    } finally {
+      setBackfilling(false);
     }
   };
 
@@ -481,28 +515,90 @@ export default function HabitsTab({
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                {/* Last 7 days mini heatmap */}
+                {/* Last 7 days mini heatmap — empty past pills are tappable
+                    to backfill a missed day (asks first). */}
                 <div className="flex items-center gap-1 pl-10">
                   {last7Days.map((date) => {
                     const done = logsByHabitAndDate.has(`${habit.id}_${date}`);
                     const isToday = date === today;
-                    return (
-                      <div
+                    const fillable = !done && !isToday;
+                    const style = {
+                      backgroundColor: done ? habit.color : "var(--color-paper-2)",
+                      border: isToday ? `1.5px solid ${habit.color}` : "none",
+                      opacity: done ? 1 : 0.5,
+                    };
+                    return fillable ? (
+                      <button
                         key={date}
-                        className="h-5 w-5 rounded"
-                        style={{
-                          backgroundColor: done ? habit.color : "var(--color-paper-2)",
-                          border: isToday ? `1.5px solid ${habit.color}` : "none",
-                          opacity: done ? 1 : 0.5,
-                        }}
-                        title={date}
+                        onClick={() => setBackfill({ habit, date })}
+                        className="h-5 w-5 rounded transition-colors hover:bg-[var(--color-paper-3)]"
+                        style={style}
+                        title={`${date} — tap to log`}
+                        aria-label={`Log ${habit.name} for ${date}`}
                       />
+                    ) : (
+                      <div key={date} className="h-5 w-5 rounded" style={style} title={date} />
                     );
                   })}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Backfill confirm — "forgot to log?" for a tapped empty past day */}
+      {backfill && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Log missed day">
+          <button
+            className="absolute inset-0"
+            style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }}
+            onClick={() => !backfilling && setBackfill(null)}
+            aria-label="Cancel"
+          />
+          <div
+            className="relative w-full max-w-xs rounded-t-2xl border-t p-5 sm:rounded-2xl sm:border"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+          >
+            <button
+              onClick={() => !backfilling && setBackfill(null)}
+              className="absolute right-3 top-3 rounded-md p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ color: "var(--color-ink-muted)" }}
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-3">
+              <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: backfill.habit.color }} />
+              <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{backfill.habit.name}</p>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              No check-in for{" "}
+              <span className="font-medium" style={{ color: "var(--color-ink)" }}>
+                {new Date(backfill.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+              </span>
+              . Did you do it and forget to log?
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={confirmBackfill}
+                disabled={backfilling}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-60"
+                style={{ backgroundColor: backfill.habit.color, color: "var(--color-paper)", minHeight: 40 }}
+              >
+                {backfilling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Yes, log it
+              </button>
+              <button
+                onClick={() => !backfilling && setBackfill(null)}
+                disabled={backfilling}
+                className="rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)] disabled:opacity-60"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 40 }}
+              >
+                Not really
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
