@@ -29,7 +29,10 @@ export default function DayShell({ date: initialDate }: { date: string }) {
   return (
     <div className="overflow-x-hidden">
       <DayDateHeader date={date} onNavigate={go} />
-      <DayViewClient date={date} />
+      {/* key forces a clean remount per day — otherwise open modals, edit
+          state, and the pending-add draft leak onto the next day. Still
+          instant: no server round-trip, just client refetch. */}
+      <DayViewClient key={date} date={date} />
     </div>
   );
 }

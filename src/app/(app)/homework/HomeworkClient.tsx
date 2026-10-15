@@ -1772,7 +1772,6 @@ export default function HomeworkClient({
               {renderSection("Tomorrow", tomorrow)}
               {renderSection("Today", today)}
               {renderSection("Overdue", overdue)}
-              {renderSection("Done", completed)}
             </>
           ) : (
             // Soonest sort: normal order (Overdue → Today → Tomorrow → This Week → Later)
@@ -1782,10 +1781,11 @@ export default function HomeworkClient({
               {renderSection("Tomorrow", tomorrow)}
               {renderSection("This Week", thisWeek)}
               {renderSection("Later", later)}
-              {renderSection("Done", completed)}
             </>
           )}
-
+          {/* Done — completed-but-not-yet-due items, struck through. Once the
+              deadline passes they're filtered out of `completed` entirely. */}
+          {renderSection("Done", completed)}
         </>
       )}
 
