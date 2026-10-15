@@ -175,6 +175,16 @@ function MessageArt() {
   );
 }
 
+function ShieldArt() {
+  // Shield over a crescent
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M24 5l15 5v11c0 10-6.5 18-15 22-8.5-4-15-12-15-22V10z" />
+      <path d="M29 18a7.5 7.5 0 1 0 4 13.4A9 9 0 1 1 29 18z" fill="currentColor" stroke="none" opacity="0.85" />
+    </svg>
+  );
+}
+
 function HomeworkArt() {
   // Notebook with a checked line
   return (
@@ -206,6 +216,7 @@ const CATEGORIES: { title: string; apps: AppDef[] }[] = [
       { key: "/qibla", href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba, live compass", rating: "4.9", installs: "18K", art: QiblaArt },
       { key: "/dhikr", href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter with sequences", rating: "4.8", installs: "24K", art: DhikrArt },
       { key: "/masjids", href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah times", rating: "4.7", installs: "9K", art: MasjidArt },
+      { key: "/shield", href: "/shield", label: "Salah Shield", arabic: "درع", description: "Locks distracting apps while prayer is due", rating: "4.9", installs: "16K", art: ShieldArt },
     ],
   },
   {

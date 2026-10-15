@@ -119,6 +119,51 @@ export async function consumeShieldPrayer(): Promise<string | null> {
   }
 }
 
+// ── Shield prefs (localStorage, per-device — the block runs on this phone) ──
+
+export const SHIELD_LS_KEY = "waqt:salah-shield";
+const PAUSE_KEY = "waqt:shield-pause"; // "YYYY-MM-DD" — paused that day
+const PRAYERS_KEY = "waqt:shield-prayers"; // JSON array, absent = all five
+
+export function isShieldArmed(): boolean {
+  try { return localStorage.getItem(SHIELD_LS_KEY) === "1"; } catch { return false; }
+}
+export function setShieldArmed(on: boolean): void {
+  try { localStorage.setItem(SHIELD_LS_KEY, on ? "1" : "0"); } catch { /* ignore */ }
+}
+
+export function isShieldPausedToday(): boolean {
+  try {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    return localStorage.getItem(PAUSE_KEY) === today;
+  } catch { return false; }
+}
+export function setShieldPausedToday(on: boolean): void {
+  try {
+    if (!on) { localStorage.removeItem(PAUSE_KEY); return; }
+    const now = new Date();
+    localStorage.setItem(PAUSE_KEY, `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`);
+  } catch { /* ignore */ }
+}
+
+export const SHIELD_PRAYERS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
+export function getShieldPrayers(): Set<string> {
+  try {
+    const raw = localStorage.getItem(PRAYERS_KEY);
+    if (!raw) return new Set(SHIELD_PRAYERS);
+    const arr = JSON.parse(raw);
+    const set = new Set((Array.isArray(arr) ? arr : []).filter((s) => (SHIELD_PRAYERS as readonly string[]).includes(s)));
+    return set.size ? set : new Set(SHIELD_PRAYERS);
+  } catch { return new Set(SHIELD_PRAYERS); }
+}
+export function setShieldPrayers(set: Set<string>): void {
+  try {
+    if (set.size === SHIELD_PRAYERS.length) localStorage.removeItem(PRAYERS_KEY);
+    else localStorage.setItem(PRAYERS_KEY, JSON.stringify([...set]));
+  } catch { /* ignore */ }
+}
+
 // ── Blocked-app list ──
 // Mirrors ShieldAccessibilityService.DEFAULT_BLOCKED — the native side
 // falls back to it when no custom list is synced. The picker stores a

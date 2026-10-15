@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, MoonStar } from "lucide-react";
 import { openPrayer, prayerDisplayName, getPrayerWindowStart, getPrayerWindowEnd, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
-import { shieldNativeAvailable, syncShieldSchedule, shieldMarkPrayed, openShieldSetting, consumeShieldPrayer, getShieldBlockedApps } from "@/lib/salah-shield-native";
+import { shieldNativeAvailable, syncShieldSchedule, shieldMarkPrayed, openShieldSetting, consumeShieldPrayer, getShieldBlockedApps, isShieldPausedToday, setShieldPausedToday, getShieldPrayers, SHIELD_PRAYERS } from "@/lib/salah-shield-native";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { upsertPrayerLogToCache } from "@/lib/offline/cache-writers";
 import { useUISFX } from "@/components/uisfx-provider";
@@ -61,6 +61,12 @@ export default function SalahShield() {
   const [error, setError] = useState<string | null>(null);
 
   const evaluate = useCallback(async () => {
+    // Salah Shield is a native feature — the blocking half lives in the
+    // Android accessibility service. On web/PWA there's nothing real to
+    // arm, so no prompt, no gate, no interval work.
+    if (!shieldNativeAvailable()) { setDue(null); return; }
+    // Paused for today → gate down, native side disarmed too.
+    const paused = isShieldPausedToday();
     try {
       const { getOfflineDB } = await import("@/lib/offline/db");
       const db = getOfflineDB();
@@ -70,18 +76,18 @@ export default function SalahShield() {
       if (!timings) { setDue(null); return; }
 
       const minutes = now.getHours() * 60 + now.getMinutes();
+      const enabledPrayers = getShieldPrayers();
 
       // Push the schedule to the native side every cycle — today AND
       // tomorrow, as absolute epoch ms. The accessibility service reads
       // SharedPreferences, never the network, so blocking stays correct
       // through offline, restarts, and even a full day without opening the
       // app. Windows that have all ended are inert — stale data can't fire.
-      if (shieldNativeAvailable()) {
-        const enabled = (() => { try { return localStorage.getItem(LS_KEY) === "1"; } catch { return false; } })();
+      {
+        const enabled = !paused && (() => { try { return localStorage.getItem(LS_KEY) === "1"; } catch { return false; } })();
         const logs = await db.prayerLogs.where("date").equals(today).toArray();
         const marked = new Set(logs.filter((l) => l.status !== "pending").map((l) => l.prayerName));
         const windows: import("@/lib/salah-shield-native").ShieldWindow[] = [];
-        const PRAYERS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as PrayerKey[];
         for (let dayOff = 0; dayOff <= 1; dayOff++) {
           const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOff);
           const dayStr = localDateStr(d);
@@ -90,7 +96,8 @@ export default function SalahShield() {
             : ((await db.prayerTimes.get(dayStr)) as PrayerTimings | undefined);
           if (!t) continue;
           const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-          for (const p of PRAYERS) {
+          for (const p of SHIELD_PRAYERS) {
+            if (!enabledPrayers.has(p)) continue;
             windows.push({
               name: p,
               startMs: midnight + getPrayerWindowStart(p, t) * 60_000,
@@ -112,8 +119,9 @@ export default function SalahShield() {
         }
       }
 
+      if (paused) { setDue(null); return; }
       const prayer = openPrayer(minutes, timings);
-      if (!prayer) { setDue(null); return; }
+      if (!prayer || !enabledPrayers.has(prayer)) { setDue(null); return; }
 
       // Post-midnight Isha belongs to yesterday's log (same convention as
       // the prayer dashboard — the night stays whole past midnight).
@@ -278,9 +286,15 @@ export default function SalahShield() {
         <Link href="/settings" className="underline underline-offset-2">
           Prayer times look off?
         </Link>
-        <button onClick={decline} className="underline underline-offset-2">
-          Turn off shield
+        <button
+          onClick={() => { setShieldPausedToday(true); setDue(null); }}
+          className="underline underline-offset-2"
+        >
+          Pause for today
         </button>
+        <Link href="/shield" className="underline underline-offset-2">
+          Shield settings
+        </Link>
       </div>
     </div>
   );
