@@ -66,6 +66,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragItem, setDragItem] = useState<LayoutItem | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [pressId, setPressId] = useState<string | null>(null); // tile held down — lifted look
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const editingRef = useRef(editing);
@@ -110,8 +111,11 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     pressTimer.current = setTimeout(() => {
       suppressClick.current = true;
       setEditing(true);
+      setPressId(itemId(item)); // the held icon lifts as jiggle begins
       navigator.vibrate?.(10);
     }, 450);
+    // Already jiggling? The icon lifts under the finger immediately.
+    if (editingRef.current) setPressId(itemId(item));
     drag.current = { item, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, mergeItem: null, mergeTimer: null };
   }
 
@@ -216,6 +220,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
       setDragItem(null);
       setHoverId(null);
       setMergeId(null);
+      setPressId(null);
     }
   }
 
@@ -227,7 +232,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
       const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
       if (dist > 10 && pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
       if (!editingRef.current) return; // not in edit mode yet — just cancelling the long-press
-      if (!d.active && dist > 10) { d.active = true; setDragItem(d.item); }
+      if (!d.active && dist > 8) { d.active = true; setDragItem(d.item); }
       if (!d.active) return;
       setDragPos({ x: e.clientX, y: e.clientY });
       const tgt = pointerTargetIdx(e.clientX, e.clientY);
@@ -264,6 +269,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
       setHoverId(null);
       setDragPos(null);
       setDragItem(null);
+      setPressId(null);
       if (d.active && merge && merge !== d.item) {
         // Drop onto another item → folder.
         const prev = itemsRef.current;
@@ -410,6 +416,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                   const hovered = hoverId === itemId(item);   // pointer is on it
                   const merging = mergeId === itemId(item);   // dwell elapsed — will merge
                   const lifted = dragItem === item;           // being dragged — ghost the slot
+                  const pressed = pressId === itemId(item) && !lifted; // held — icon grows
                   if (item.type === "folder") {
                     return (
                       <button
@@ -417,12 +424,13 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                         type="button"
                         onPointerDown={(e) => onTilePointerDown(e, item)}
                         onClick={() => tileClick(item)}
-                        className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
+                        className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted && !pressed ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
                         style={{
                           animation: editing ? undefined : `drawer-app-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) ${delay} both`,
                           outline: hovered ? "2px solid var(--color-accent)" : "none",
                           outlineOffset: 2,
-                          transform: merging ? "scale(1.12)" : hovered ? "scale(1.05)" : undefined,
+                          transform: merging ? "scale(1.12)" : pressed ? "scale(1.1)" : hovered ? "scale(1.05)" : undefined,
+                          filter: pressed ? "drop-shadow(0 6px 10px color-mix(in oklab, var(--color-ink) 25%, transparent))" : undefined,
                           borderRadius: 16,
                         }}
                         aria-label={`${item.name} folder`}
@@ -465,12 +473,13 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                       type="button"
                       onPointerDown={(e) => onTilePointerDown(e, item)}
                       onClick={() => tileClick(item)}
-                      className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
+                      className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted && !pressed ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
                       style={{
                         animation: editing ? undefined : `drawer-app-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) ${delay} both`,
                         outline: hovered ? "2px solid var(--color-accent)" : "none",
                         outlineOffset: 2,
-                        transform: merging ? "scale(1.12)" : hovered ? "scale(1.05)" : undefined,
+                        transform: merging ? "scale(1.12)" : pressed ? "scale(1.1)" : hovered ? "scale(1.05)" : undefined,
+                        filter: pressed ? "drop-shadow(0 6px 10px color-mix(in oklab, var(--color-ink) 25%, transparent))" : undefined,
                         borderRadius: 16,
                       }}
                       aria-label={app.label}
