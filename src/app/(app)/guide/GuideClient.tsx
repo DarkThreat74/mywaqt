@@ -12,7 +12,9 @@ import {
   Flame,
   GraduationCap,
   Hand,
+  LayoutGrid,
   Moon,
+  Shield,
   NotebookPen,
   Repeat,
   Sparkles,
@@ -686,7 +688,7 @@ export const SECTIONS: GuideSection[] = [
     kicker: "The toolkit",
     title: "Tools & more",
     intro:
-      "Tap the center button in the bottom nav to open the toolkit — small focused instruments, each in the same visual language.",
+      "Tap the grid icon in the header to open My apps — small focused instruments, each in the same visual language.",
     figure: {
       el: (
         <Fig viewBox="0 0 320 64">
@@ -698,7 +700,7 @@ export const SECTIONS: GuideSection[] = [
           ))}
         </Fig>
       ),
-      caption: "The toolkit — hide the ones you don't use in Settings → Navigation.",
+      caption: "My apps — add the ones you use from the Store.",
     },
     items: [
       {
@@ -711,16 +713,146 @@ export const SECTIONS: GuideSection[] = [
       },
       {
         heading: "Messages",
-        body: "Friend messaging lives in the toolkit too — unread counts ride on the tile, so the main nav stays quiet.",
-      },
-      {
-        heading: "Customize",
-        body: "Settings → Navigation lets you hide tools you don't use, including Messages and the center button itself.",
+        body: "Friend messaging lives in the apps drawer too — unread counts ride on the tile, so the main nav stays quiet.",
       },
       {
         heading: "Re-open this guide",
-        body: "The full guide lives at Tools → Guide whenever you need a refresher — same book, same chapters.",
-        tested: "Tools → Guide",
+        body: "The full guide lives in the Store under Help → Guide whenever you need a refresher — same book, same chapters.",
+        tested: "Store → Guide",
+      },
+    ],
+  },
+  {
+    id: "apps",
+    icon: LayoutGrid,
+    kicker: "Your launcher",
+    title: "My apps & the Store",
+    intro:
+      "Waqt is many small apps living under one roof. My apps is your homescreen — the Store is where new ones land.",
+    figure: {
+      el: (
+        <Fig viewBox="0 0 320 64">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <g key={i}>
+              <rect x={18 + i * 48} y={10} width={34} height={34} rx={9} fill="none" stroke={i === 0 ? ACCENT : P3} strokeWidth={1.4} />
+              <circle cx={35 + i * 48} cy={27} r={5} fill="none" stroke={i === 0 ? ACCENT : SOFT} strokeWidth={1.2} />
+            </g>
+          ))}
+          <rect x={256} y={10} width={34} height={34} rx={9} fill={ACF} stroke={ACCENT} strokeWidth={1.4} />
+          <circle cx={263} cy={19} r={3} fill="none" stroke={ACCENT} strokeWidth={1.2} />
+          <circle cx={283} cy={19} r={3} fill="none" stroke={ACCENT} strokeWidth={1.2} />
+          <circle cx={263} cy={35} r={3} fill="none" stroke={ACCENT} strokeWidth={1.2} />
+          <circle cx={283} cy={35} r={3} fill="none" stroke={ACCENT} strokeWidth={1.2} />
+          <text x={160} y={60} textAnchor="middle" fontSize="8" fill={SOFT}>apps · a folder of four</text>
+        </Fig>
+      ),
+      caption: "Hold an icon — everything lifts, drags, and groups.",
+    },
+    items: [
+      {
+        heading: "The Store is an app",
+        body: "It's pinned first in My apps and can't be removed. Open it to browse every app by category — Prayer, Quran, Study, Life, Social — with ratings and one-line descriptions.",
+      },
+      {
+        heading: "Add to My apps",
+        body: "Apps start uninstalled. 'Add to My apps' pins the tile and saves the page on your device so it opens even offline. 'Hide' sends it back — your data inside it is untouched.",
+      },
+      {
+        heading: "Edit like a homescreen",
+        body: "Hold any icon until everything jiggles. Drag tiles to reorder them, drop an app on top of another to build a folder, and tap a folder to rename it. × on a tile hides the app back to the Store.",
+        tested: "drop an app on top of another to build a folder",
+      },
+      {
+        heading: "Arrangement is per device",
+        body: "Your grid order and folders live on this phone — each device can keep its own layout, and another account on the same device never sees yours.",
+      },
+    ],
+  },
+  {
+    id: "shield",
+    icon: Shield,
+    kicker: "Focus",
+    title: "Salah Shield",
+    intro:
+      "An Android feature that holds distracting apps closed while a prayer window is open — until the prayer is marked.",
+    figure: {
+      el: (
+        <Fig viewBox="0 0 320 64">
+          <path d="M160 8l14 5v9c0 8-6 14-14 18-8-4-14-10-14-18v-9z" fill="none" stroke={ACCENT} strokeWidth={1.6} />
+          <circle cx="160" cy="21" r="5" fill="none" stroke={ACCENT} strokeWidth={1.4} />
+          <path d="M157.5 20.5l2 2 3.5-4" stroke={ACCENT} strokeWidth={1.4} fill="none" />
+          {[110, 132, 196, 218].map((x) => (
+            <g key={x}>
+              <rect x={x - 6} y={26} width={12} height={20} rx={3} fill="none" stroke={P3} strokeWidth={1.2} />
+              <line x1={x - 6} y1={46} x2={x + 6} y2={26} stroke={P3} strokeWidth={1.2} />
+            </g>
+          ))}
+          <text x={160} y={60} textAnchor="middle" fontSize="8" fill={SOFT}>distracting apps stay shut while the window is open</text>
+        </Fig>
+      ),
+      caption: "The shield lifts the moment the prayer is marked.",
+    },
+    items: [
+      {
+        heading: "Android only",
+        body: "Blocking other apps needs accessibility access — something a browser tab can't do. On the web and iOS the app simply explains that; nothing fake shows up.",
+      },
+      {
+        heading: "Per-prayer coverage",
+        body: "Pick which windows arm the shield — maybe just Fajr and Isha. Pause for today gives an honest escape that expires at midnight instead of a silent off-switch.",
+      },
+      {
+        heading: "Private by design",
+        body: "The list of apps you block never leaves your phone. Detection happens on-device; we never see what's installed.",
+      },
+      {
+        heading: "Find it",
+        body: "Store → Prayer → Salah Shield. Add it to My apps and its page manages the toggle, permissions, and which apps are covered.",
+      },
+    ],
+  },
+  {
+    id: "orbit",
+    icon: Users,
+    kicker: "People",
+    title: "Friends — your orbit",
+    intro:
+      "A private map of the people in your life. You sit at the center; everyone else orbits at the distance your answers set.",
+    figure: {
+      el: (
+        <Fig viewBox="0 0 320 64">
+          <circle cx={160} cy={32} r={10} fill="none" stroke={P3} strokeWidth={1} />
+          <circle cx={160} cy={32} r={20} fill="none" stroke={P3} strokeWidth={1} />
+          <circle cx={160} cy={32} r={29} fill="none" stroke={P3} strokeWidth={1} />
+          {dot(160, 32, ACCENT, 2.6)}
+          {dot(160, 22, INK, 2)}
+          {dot(174, 40, INK, 2)}
+          {dot(147, 44, INK, 2)}
+          {dot(141, 20, SOFT, 1.8)}
+          {dot(186, 24, SOFT, 1.8)}
+          {dot(160, 61, SOFT, 1.8)}
+          <text x={160} y={58} textAnchor="middle" fontSize="8" fill={SOFT}>inner · close · outer</text>
+        </Fig>
+      ),
+      caption: "Closer friends orbit tighter — shared contexts cluster together.",
+    },
+    items: [
+      {
+        heading: "The map",
+        body: "Friends land on three rings — inner circle, close, outer orbit — computed from two things you set: how often you talk, and where you met. Friends from the same context sit shoulder-to-shoulder, so school friends cluster into a constellation.",
+      },
+      {
+        heading: "The tags",
+        body: "Each card asks: where did you meet (childhood, school, masjid, work, online, family), any detail like which grade, and how often you talk. Those two answers place them on the map — no guessing, no scoring you can't see.",
+      },
+      {
+        heading: "The notes",
+        body: "A description field holds what makes them them — habits, the quotes they always say, the coffee they order. And you can attach a photo, compressed down small and stored privately like haircut photos.",
+        tested: "habits, the quotes they always say",
+      },
+      {
+        heading: "It's yours alone",
+        body: "Nothing in Friends is shared — not with prayer friends, not with anyone. It's a memory aid, not a social network.",
       },
     ],
   },

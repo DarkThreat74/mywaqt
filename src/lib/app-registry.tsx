@@ -138,13 +138,13 @@ export function QuranArt() {
 }
 
 export function MutashabihArt() {
+  // Two near-identical cards overlapping — verses that look alike.
   return (
     <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
-      <path d="M8 20h14c6 0 8 4 14 4" />
-      <path d="M22 20c6 0 8-4 14-4" opacity="0.45" />
-      <path d="M8 30h22" />
-      <path d="M8 30h12c6 0 8 6 14 6" opacity="0.45" />
-      <circle cx="8" cy="20" r="2.2" fill="currentColor" stroke="none" />
+      <rect x="9" y="14" width="22" height="28" rx="3" opacity="0.45" />
+      <rect x="17" y="8" width="22" height="28" rx="3" />
+      <path d="M22 15h12M22 20h12M22 25h8" opacity="0.5" />
+      <path d="M34 30l2.5 2.5L39 30" fill="none" />
     </svg>
   );
 }
@@ -169,13 +169,19 @@ export function MessageArt() {
   );
 }
 
-export function HomeworkArt() {
+export function FriendsArt() {
+  // Orbiting nodes around a center — the friend map.
   return (
     <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
-      <path d="M14 6h20a4 4 0 0 1 4 4v28a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V10a4 4 0 0 1 4-4z" />
-      <path d="M14 6v36" opacity="0.4" />
-      <path d="M20 18l3 3 6-6" />
-      <path d="M20 30h12" opacity="0.5" />
+      <circle cx="24" cy="24" r="4" fill="currentColor" stroke="none" opacity="0.85" />
+      <circle cx="24" cy="24" r="10" opacity="0.35" />
+      <circle cx="24" cy="24" r="16.5" opacity="0.2" />
+      <circle cx="24" cy="14" r="2.4" />
+      <circle cx="34" cy="27" r="2.4" />
+      <circle cx="16" cy="31" r="2.4" />
+      <circle cx="24" cy="40.5" r="2.4" />
+      <circle cx="9.5" cy="18" r="2.4" />
+      <path d="M24 16.4V20M31.7 25.6l-3-1.8M18.3 29.4l2.6-2M24 38.1v-3.5M11.5 19.7l2.4 1.6" opacity="0.4" />
     </svg>
   );
 }
@@ -208,13 +214,13 @@ export const ALL_APPS: AppDef[] = [
   { key: "/quran", href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah from a verse", rating: "4.9", installs: "15K", art: QuranArt, ranked: true },
   { key: "/mutashabihat", href: "/mutashabihat", label: "Mutashabih", arabic: "متشابه", description: "Train on verses that look alike", rating: "4.8", installs: "7K", art: MutashabihArt, ranked: true },
   { key: "/names", href: "/names", label: "99 Names", arabic: "أسماء الله", description: "Names of Allah, one a day", rating: "4.9", installs: "21K", art: NamesArt },
-  { key: "/homework", href: "/homework", label: "Homework", arabic: "واجب", description: "Assignments, deadlines, stats", rating: "4.7", installs: "11K", art: HomeworkArt },
   { key: "/study", href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & ambient sounds", rating: "4.8", installs: "14K", art: StudyArt },
   { key: "/learn", href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge, step by step", rating: "4.6", installs: "6K", art: LearnArt },
   { key: "/talks", href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs", rating: "4.8", installs: "12K", art: TalksArt },
   { key: "/subscriptions", href: "/subscriptions", label: "Money", arabic: "مصاريف", description: "Subscriptions & spending log", rating: "4.7", installs: "8K", art: SubsArt },
   { key: "/birthdays", href: "/birthdays", label: "Birthdays", arabic: "أعياد", description: "Never miss one again", rating: "4.8", installs: "10K", art: BirthdayArt },
   { key: "messages", href: "/messages", label: "Messages", arabic: "رسائل", description: "Prayer-friend chats", rating: "4.8", installs: "13K", art: MessageArt },
+  { key: "/friends", href: "/friends", label: "Friends", arabic: "أصدقاء", description: "Your people, mapped — who, where, how close", rating: "4.9", installs: "8K", art: FriendsArt },
   { key: "/guide", href: "/guide", label: "Guide", arabic: "دليل", description: "How Waqt works", rating: "4.6", installs: "5K", art: GuideArt },
 ];
 
@@ -223,8 +229,8 @@ export const APP_BY_KEY = new Map(ALL_APPS.map((a) => [a.key, a]));
 export const CATEGORIES: { title: string; keys: string[] }[] = [
   { title: "Prayer", keys: ["/qibla", "/dhikr", "/masjids", "/shield"] },
   { title: "Quran", keys: ["/quran", "/mutashabihat", "/names"] },
-  { title: "Study", keys: ["/homework", "/study", "/learn", "/talks"] },
+  { title: "Study", keys: ["/study", "/learn", "/talks"] },
   { title: "Life", keys: ["/subscriptions", "/birthdays"] },
-  { title: "Social", keys: ["messages"] },
+  { title: "Social", keys: ["messages", "/friends"] },
   { title: "Help", keys: ["/guide"] },
 ];

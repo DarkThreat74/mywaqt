@@ -1199,6 +1199,33 @@ export const expenses = pgTable('expenses', {
 export type Expense = typeof expenses.$inferSelect;
 export type NewExpense = typeof expenses.$inferInsert;
 
+// ─── Friends (personal orbit map — private, never shared) ────────────
+
+export const friends = pgTable('friends', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  // Where you met — 'school' | 'childhood' | 'work' | 'online' | 'family' | 'other'
+  metTag: text('met_tag'),
+  // Free-text detail — "grade 9", "masjid youth group", etc.
+  metDetail: text('met_detail'),
+  // How often you talk — 'daily' | 'weekly' | 'monthly' | 'rarely'
+  talkFreq: text('talk_freq'),
+  // Habits, quotes, anything worth remembering about them.
+  notes: text('notes'),
+  // Avatar — client-compressed JPEG as base64 text (TOASTed). Never
+  // selected in list queries — served via /api/friends/[id]/photo.
+  photoData: text('photo_data'),
+  photoMime: text('photo_mime'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('friends_user_id_idx').on(table.userId),
+}));
+
+export type Friend = typeof friends.$inferSelect;
+export type NewFriend = typeof friends.$inferInsert;
+
 // ─── Birthdays (people's birthdays + reminder windows) ───────────────
 
 export const birthdayCategories = pgTable('birthday_categories', {

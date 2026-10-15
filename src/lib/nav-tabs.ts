@@ -16,7 +16,7 @@ export const HIDEABLE_TABS = [
   { key: "/learn", label: "Learn" },
   { key: "/subscriptions", label: "Subscriptions" },
   { key: "/birthdays", label: "Birthdays" },
-  { key: "/homework", label: "Homework" },
+  { key: "/friends", label: "Friends" },
   { key: "/guide", label: "Guide" },
 ] as const;
 

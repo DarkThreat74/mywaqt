@@ -18,9 +18,11 @@ export async function GET(request: NextRequest) {
     .where(eq(schema.users.id, session.userId))
     .limit(1);
 
-  // null = never touched → everything shows except the center tools FAB;
-  // Messages is on by default and lives inside the tools sheet.
-  const hiddenTabs = (row?.hiddenTabs ?? []).filter((k) => HIDEABLE_SET.has(k));
+  // null = never chosen → client applies the default (everything hidden,
+  // My apps starts as just the Store). [] = user explicitly showed all.
+  const hiddenTabs = row?.hiddenTabs == null
+    ? null
+    : row.hiddenTabs.filter((k) => HIDEABLE_SET.has(k));
   return NextResponse.json({ hiddenTabs });
 }
 

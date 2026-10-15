@@ -22,13 +22,19 @@ let fetching: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
 // Seed synchronously from the localStorage cache so hidden items never
-// flash visible while the API fetch is in flight.
+// flash visible while the API fetch is in flight. No cache = fresh
+// install → everything hidden; My apps starts as just the Store tile
+// and the user adds apps deliberately, like a real launcher.
 try {
   const raw = localStorage.getItem(cacheKey());
   const arr = raw ? (JSON.parse(raw) as string[]) : null;
   if (Array.isArray(arr)) {
     hidden = new Set(arr.filter((k) => HIDEABLE_SET.has(k)));
     loaded = true;
+  } else {
+    // Default for the first paint — but loaded stays false so the API
+    // fetch still runs and can override with the real prefs.
+    hidden = new Set(HIDEABLE_SET);
   }
 } catch { /* private mode / SSR */ }
 
@@ -42,7 +48,11 @@ async function load(force = false) {
   fetching = fetch("/api/settings/tabs")
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
-      hidden = new Set(Array.isArray(d?.hiddenTabs) ? d.hiddenTabs.filter((k: string) => HIDEABLE_SET.has(k)) : []);
+      // null/undefined = never chose → default is everything hidden (just
+      // the Store). An explicit [] means the user showed every app.
+      hidden = Array.isArray(d?.hiddenTabs)
+        ? new Set(d.hiddenTabs.filter((k: string) => HIDEABLE_SET.has(k)))
+        : new Set(HIDEABLE_SET);
       loaded = true;
       try { localStorage.setItem(cacheKey(), JSON.stringify([...hidden])); } catch { /* ignore */ }
       emit();
