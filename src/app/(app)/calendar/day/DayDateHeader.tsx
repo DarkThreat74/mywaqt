@@ -22,7 +22,7 @@ import { todayInTimezone } from "@/lib/prayer/checkin";
  * We compute ALL locale-dependent strings in useEffect and render a stable
  * fallback during SSR. This prevents hydration mismatches entirely.
  */
-export default function DayDateHeader({ date }: { date: string }) {
+export default function DayDateHeader({ date, onNavigate }: { date: string; onNavigate?: (date: string) => void }) {
   const [today, setToday] = useState<string | null>(null);
   // Locale-dependent strings — computed AFTER mount to avoid hydration mismatch
   const [formattedDate, setFormattedDate] = useState<string>("");
@@ -108,15 +108,26 @@ export default function DayDateHeader({ date }: { date: string }) {
   return (
     <div className="overflow-x-hidden border-b" style={{ borderColor: "var(--color-paper-3)" }}>
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-4 py-3 sm:px-6 sm:py-4">
-        {/* Prev day */}
-        <Link
-          href={`/calendar/day?date=${prevStr}`}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
-          style={{ color: "var(--color-ink-soft)" }}
-          aria-label="Previous day"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </Link>
+        {/* Prev day — client-side swap when onNavigate is provided */}
+        {onNavigate ? (
+          <button
+            onClick={() => onNavigate(prevStr)}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-ink-soft)" }}
+            aria-label="Previous day"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        ) : (
+          <Link
+            href={`/calendar/day?date=${prevStr}`}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-ink-soft)" }}
+            aria-label="Previous day"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Link>
+        )}
 
         {/* Date + view toggle — mobile: 2 compact rows (date+chips, hijri+toggle) */}
         <div className="flex min-w-0 flex-1 flex-col items-center sm:flex-row sm:justify-center sm:gap-4">
@@ -157,15 +168,26 @@ export default function DayDateHeader({ date }: { date: string }) {
           <div className="hidden sm:flex">{viewToggle}</div>
         </div>
 
-        {/* Next day */}
-        <Link
-          href={`/calendar/day?date=${nextStr}`}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
-          style={{ color: "var(--color-ink-soft)" }}
-          aria-label="Next day"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </Link>
+        {/* Next day — client-side swap when onNavigate is provided */}
+        {onNavigate ? (
+          <button
+            onClick={() => onNavigate(nextStr)}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-ink-soft)" }}
+            aria-label="Next day"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        ) : (
+          <Link
+            href={`/calendar/day?date=${nextStr}`}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-ink-soft)" }}
+            aria-label="Next day"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </Link>
+        )}
       </div>
     </div>
   );

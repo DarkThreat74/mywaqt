@@ -59,6 +59,14 @@ export function daysUntilDate(dueDate: string): number {
  */
 export function isTimeOverdue(dueDate: string, dueTime: string | null, status?: string): boolean {
   if (status === "completed") return false;
+  return deadlinePassed(dueDate, dueTime);
+}
+
+/**
+ * Whether the deadline itself has passed — regardless of completion status.
+ * Completed items stay visible (struck through) until their deadline passes.
+ */
+export function deadlinePassed(dueDate: string, dueTime: string | null): boolean {
   const days = daysUntilDate(dueDate);
   if (days < 0) return true;
   if (days === 0 && dueTime) {

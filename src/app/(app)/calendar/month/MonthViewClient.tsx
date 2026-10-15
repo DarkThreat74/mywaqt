@@ -94,7 +94,24 @@ interface MonthBirthday {
   color: string | null;
 }
 
-export default function MonthViewClient({ year, month }: { year: number; month: number }) {
+export default function MonthViewClient({ year: initialYear, month: initialMonth }: { year: number; month: number }) {
+  // Client-side month state — prev/next and the month picker swap months
+  // instantly (data refetch only, no SSR navigation). URL stays in sync.
+  const [{ year, month }, setYm] = useState({ year: initialYear, month: initialMonth });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState(initialYear);
+  // Adopt a new server-driven y/m prop (adjust-during-render — no effect).
+  const [lastProp, setLastProp] = useState({ year: initialYear, month: initialMonth });
+  if (initialYear !== lastProp.year || initialMonth !== lastProp.month) {
+    setLastProp({ year: initialYear, month: initialMonth });
+    setYm({ year: initialYear, month: initialMonth });
+  }
+  const goTo = (y: number, m: number) => {
+    setPickerOpen(false);
+    if (y === year && m === month) return;
+    setYm({ year: y, month: m });
+    window.history.replaceState(null, "", `/calendar/month?year=${y}&month=${m}`);
+  };
   const [eventsByDate, setEventsByDate] = useState<Record<string, CalendarEvent[]>>({});
   const [prayerLogsByDate, setPrayerLogsByDate] = useState<Record<string, PrayerLogEntry[]>>({});
   const [homeworkByDate, setHomeworkByDate] = useState<Record<string, HomeworkDot[]>>({});
@@ -372,19 +389,68 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
       {/* Month header with day/month toggle */}
       <div className="border-b" style={{ borderColor: "var(--color-paper-3)" }}>
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 overflow-x-hidden px-4 py-3 sm:px-6 sm:py-4">
-          <Link
-            href={`/calendar/month?year=${prevYear}&month=${prevMonth}`}
+          <button
+            onClick={() => goTo(prevYear, prevMonth)}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Previous month"
           >
             <ChevronLeft className="h-5 w-5" />
-          </Link>
+          </button>
 
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1 sm:flex-row sm:justify-center sm:gap-4">
-            <h1 className="truncate text-sm font-semibold tracking-tight sm:text-lg" style={{ color: "var(--color-ink)" }}>
-              {monthNames[month - 1]} {year}
-            </h1>
+          <div className="relative flex min-w-0 flex-1 flex-col items-center gap-1 sm:flex-row sm:justify-center sm:gap-4">
+            {/* Month/year picker — tap the title to jump anywhere */}
+            <button
+              onClick={() => { setPickerYear(year); setPickerOpen((o) => !o); }}
+              className="rounded-md px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
+              aria-label="Jump to month"
+              aria-expanded={pickerOpen}
+            >
+              <h1 className="truncate text-sm font-semibold tracking-tight sm:text-lg" style={{ color: "var(--color-ink)" }}>
+                {monthNames[month - 1]} {year}
+              </h1>
+            </button>
+            {pickerOpen && (
+              <div
+                className="absolute left-1/2 top-full z-50 mt-1 w-64 -translate-x-1/2 rounded-xl border p-3 shadow-lg"
+                style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <button
+                    onClick={() => setPickerYear((y) => y - 1)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ color: "var(--color-ink-soft)" }}
+                    aria-label="Previous year"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="text-sm font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{pickerYear}</span>
+                  <button
+                    onClick={() => setPickerYear((y) => y + 1)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ color: "var(--color-ink-soft)" }}
+                    aria-label="Next year"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {monthNames.map((name, i) => (
+                    <button
+                      key={name}
+                      onClick={() => goTo(pickerYear, i + 1)}
+                      className="rounded-md px-1 py-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                      style={{
+                        color: i + 1 === month && pickerYear === year ? "var(--color-paper)" : "var(--color-ink-soft)",
+                        backgroundColor: i + 1 === month && pickerYear === year ? "var(--color-ink)" : "transparent",
+                      }}
+                    >
+                      {name.slice(0, 3)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div
               className="flex shrink-0 rounded-lg border"
@@ -414,14 +480,14 @@ export default function MonthViewClient({ year, month }: { year: number; month: 
             </div>
           </div>
 
-          <Link
-            href={`/calendar/month?year=${nextYear}&month=${nextMonth}`}
+          <button
+            onClick={() => goTo(nextYear, nextMonth)}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Next month"
           >
             <ChevronRight className="h-5 w-5" />
-          </Link>
+          </button>
         </div>
       </div>
 

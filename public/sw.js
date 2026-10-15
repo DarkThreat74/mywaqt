@@ -1090,6 +1090,15 @@ self.addEventListener("fetch", (event) => {
             })
           );
         }
+        // Client asked for fresh data (focus/mount revalidation) — skip the
+        // cache entirely so cross-device changes land immediately.
+        if (request.cache === "no-store") {
+          return await timedFetch(request, 8000).catch(
+            () => new Response(JSON.stringify({ error: "offline" }), {
+              status: 503, headers: { "Content-Type": "application/json" },
+            })
+          );
+        }
         const cache = await caches.open(API_CACHE);
         const uid = await requestUid();
         // Entries are stamped with the uid they were fetched under — an

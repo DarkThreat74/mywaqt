@@ -12,7 +12,7 @@ import {
   upsertClassToCache,
   deleteClassFromCache,
 } from "@/lib/offline/cache-writers";
-import { formatDueBadge, urgencyColors, urgencyCardTint, isTimeOverdue, daysUntilDate } from "@/lib/homework/due-format";
+import { formatDueBadge, urgencyColors, urgencyCardTint, isTimeOverdue, daysUntilDate, deadlinePassed } from "@/lib/homework/due-format";
 import { HOMEWORK_KINDS, KIND_LABELS, type HomeworkKind } from "@/lib/homework/kinds";
 import { parseHomeworkTitle } from "@/lib/homework/parse";
 import { parseICS, type ICSEntry } from "@/lib/homework/ics";
@@ -200,7 +200,7 @@ export default function HomeworkClient({
 
   const refreshHomework = useCallback(async () => {
     try {
-      const res = await fetch("/api/homework");
+      const res = await fetch("/api/homework", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -267,32 +267,31 @@ export default function HomeworkClient({
         }
       }
 
-      // Only fetch from API if we don't have server-rendered initial data.
-      // The SW API cache (stale-while-revalidate with TTL) handles freshness.
-      if (initialHomework.length === 0 && initialClasses.length === 0) {
-        try {
-          const [hwRes, clsRes] = await Promise.all([
-            fetch("/api/homework"),
-            fetch("/api/classes"),
-          ]);
-          if (cancelled) return;
-          if (hwRes.ok) {
-            const hwData = await hwRes.json();
-            if (Array.isArray(hwData)) {
-              setHomework(hwData);
-              syncHomeworkToCache(hwData);
-            }
+      // Always revalidate from the API — SSR/cached data may be stale
+      // (e.g. a completion made on another device). no-store bypasses the
+      // SW's stale-while-revalidate cache so the list is authoritative.
+      try {
+        const [hwRes, clsRes] = await Promise.all([
+          fetch("/api/homework", { cache: "no-store" }),
+          fetch("/api/classes", { cache: "no-store" }),
+        ]);
+        if (cancelled) return;
+        if (hwRes.ok) {
+          const hwData = await hwRes.json();
+          if (Array.isArray(hwData)) {
+            setHomework(hwData);
+            syncHomeworkToCache(hwData);
           }
-          if (clsRes.ok) {
-            const clsData = await clsRes.json();
-            if (Array.isArray(clsData)) {
-              setClasses(clsData);
-              syncClassesToCache(clsData);
-            }
-          }
-        } catch {
-          // Offline — cached data is already showing
         }
+        if (clsRes.ok) {
+          const clsData = await clsRes.json();
+          if (Array.isArray(clsData)) {
+            setClasses(clsData);
+            syncClassesToCache(clsData);
+          }
+        }
+      } catch {
+        // Offline — cached data is already showing
       }
     })();
     return () => { cancelled = true; };
@@ -303,8 +302,19 @@ export default function HomeworkClient({
     function onSynced() {
       refreshHomework();
     }
+    // Refetch when the tab/app regains focus — picks up changes made on
+    // other devices without needing a reload.
+    function onVisible() {
+      if (document.visibilityState === "visible") refreshHomework();
+    }
     window.addEventListener("waqt:events-synced", onSynced);
-    return () => window.removeEventListener("waqt:events-synced", onSynced);
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("waqt:events-synced", onSynced);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refreshHomework]);
 
   function resetForm() {
@@ -837,7 +847,9 @@ export default function HomeworkClient({
   }, [homework, filterClassId, filterPriority, sortBy, sortTypeKind]);
 
   const pending = filtered.filter((h) => h.status === "pending");
-  const completed = filtered.filter((h) => h.status === "completed");
+  // Completed items stay visible (struck through, in a Done section) until
+  // their deadline actually passes — finishing early shouldn't hide proof.
+  const completed = filtered.filter((h) => h.status === "completed" && !deadlinePassed(h.dueDate, h.dueTime));
 
   // Sort pending based on selected sort mode
   const sortedPending = [...pending].sort((a, b) => {
@@ -1747,6 +1759,7 @@ export default function HomeworkClient({
               {renderSection("Tomorrow", tomorrow)}
               {renderSection("Today", today)}
               {renderSection("Overdue", overdue)}
+              {renderSection("Done", completed)}
             </>
           ) : (
             // Soonest sort: normal order (Overdue → Today → Tomorrow → This Week → Later)
@@ -1756,6 +1769,7 @@ export default function HomeworkClient({
               {renderSection("Tomorrow", tomorrow)}
               {renderSection("This Week", thisWeek)}
               {renderSection("Later", later)}
+              {renderSection("Done", completed)}
             </>
           )}
 

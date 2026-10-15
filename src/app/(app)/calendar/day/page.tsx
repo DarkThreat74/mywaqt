@@ -3,8 +3,7 @@ import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db/client";
 import { eq } from "drizzle-orm";
 import { todayInTimezone } from "@/lib/prayer/checkin";
-import DayViewClient from "./DayViewClient";
-import DayDateHeader from "./DayDateHeader";
+import DayShell from "./DayShell";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Calendar · Waqt" };
@@ -44,11 +43,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
     ? params.date
     : today;
 
-  return (
-    <div className="overflow-x-hidden">
-      {/* Date header is client-side so the cached shell works across days offline */}
-      <DayDateHeader date={date} />
-      <DayViewClient date={date} />
-    </div>
-  );
+  // DayShell owns client-side date state — prev/next day swaps are instant
+  // (refetch only) instead of a full SSR navigation per day.
+  return <DayShell date={date} />;
 }
