@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  ArrowLeft,
   BookOpen,
   CalendarDays,
   CheckCircle2,
@@ -830,6 +831,13 @@ export default function GuideClient() {
         style={{ borderColor: "var(--color-paper-3)" }}
       >
         <div className="px-6 pb-4 pt-8">
+          <Link
+            href="/calendar/day"
+            className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium transition-colors hover:text-[var(--color-ink)]"
+            style={{ color: "var(--color-ink-muted)" }}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Home
+          </Link>
           <p className="text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
             The Waqt Guide
           </p>
@@ -852,14 +860,24 @@ export default function GuideClient() {
             backgroundColor: "color-mix(in oklab, var(--color-paper) 90%, transparent)",
           }}
         >
-          <button
-            onClick={() => setTocOpen(true)}
-            className="flex items-center gap-2 text-sm font-medium"
-            style={{ color: "var(--color-ink)" }}
-          >
-            <BookOpen className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
-            Contents
-          </button>
+          <div className="flex items-center gap-1">
+            <Link
+              href="/calendar/day"
+              className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ color: "var(--color-ink-muted)", minHeight: 40, minWidth: 40 }}
+              aria-label="Back to home"
+            >
+              <ArrowLeft className="h-4.5 w-4.5" />
+            </Link>
+            <button
+              onClick={() => setTocOpen(true)}
+              className="flex items-center gap-2 text-sm font-medium"
+              style={{ color: "var(--color-ink)" }}
+            >
+              <BookOpen className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+              Contents
+            </button>
+          </div>
           <span className="text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
             {idx + 1} / {SECTIONS.length}
           </span>
