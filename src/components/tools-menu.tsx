@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -39,78 +39,16 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
   const installedKeys = [...APP_BY_KEY.keys()].filter((k) => !hiddenTabs.has(k));
   const [items, setItems] = useState<LayoutItem[]>([]);
   const itemsRef = useRef(items);
-  itemsRef.current = items;
 
   // Rebuild the grid when installs change; sanitize through loadLayout.
   const [prevSig, setPrevSig] = useState<string | null>(null);
   const sig = installedKeys.join(",");
   if (prevSig !== sig) {
     setPrevSig(sig);
-    setItems(loadLayout(installedKeys));
+    setItems(loadLayout(installedKeys)); // ref syncs via the [items] effect
   }
 
-  const commit = useCallback((next: LayoutItem[]) => {
-    // A folder holding one app dissolves back into a tile.
-    const norm = next.flatMap((i): LayoutItem[] =>
-      i.type === "folder" && i.keys.length === 1 ? [{ type: "app", key: i.keys[0] }] : [i]
-    ).filter((i) => i.type !== "folder" || i.keys.length > 0);
-    setItems(norm);
-    saveLayout(norm);
-  }, []);
-
-  async function hideApp(key: string) {
-    const app = APP_BY_KEY.get(key);
-    if (!app) return;
-    const next = new Set(hiddenTabs);
-    next.add(key);
-    await fetch("/api/settings/tabs", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hiddenTabs: [...next] }),
-    }).then((r) => { if (r.ok) refreshNavPrefs(); }).catch(() => {});
-    evictRoute(app.href);
-  }
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") dismiss(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-     
-  }, [open]);
-
-  useEffect(() => {
-    const handler = () => setOpen(true);
-    window.addEventListener("open-tools-menu", handler);
-    return () => window.removeEventListener("open-tools-menu", handler);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const original = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = original; };
-  }, [open]);
-
-  // Leaving edit mode mid-gesture must end any drag too.
-  useEffect(() => {
-    if (editing) return;
-    drag.current = null;
-    setDragPos(null);
-    setDragItem(null);
-    setHoverId(null);
-    setMergeId(null);
-  }, [editing]);
-
-  function dismiss() {
-    setClosing(true);
-    setTimeout(() => { setOpen(false); setClosing(false); setEditing(false); setFolderOpen(null); }, 220);
-  }
-
-  // ── Homescreen drag engine ─────────────────────────────────────────
+  // ── Homescreen drag engine refs/state ──────────────────────────────
   // Pointer-based so touch works. Long-press (450ms) enters edit mode;
   // in edit mode a drag >10px starts moving the tile. Dwell 350ms over
   // another tile = merge target (folder). Everything else = reorder.
@@ -131,7 +69,6 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const editingRef = useRef(editing);
-  useEffect(() => { editingRef.current = editing; }, [editing]);
 
   function itemCenter(el: Element) {
     const r = el.getBoundingClientRect();
@@ -154,6 +91,20 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     return best;
   }
 
+  function setMerge(d: NonNullable<typeof drag.current>, item: LayoutItem | null) {
+    if (d.mergeTimer) clearTimeout(d.mergeTimer);
+    if (!item) { d.mergeItem = null; setMergeId(null); return; }
+    d.mergeItem = item;
+    d.mergeTimer = setTimeout(() => setMergeId(itemId(item)), 350);
+  }
+
+  function dismiss() {
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+    drag.current = null;
+    setClosing(true);
+    setTimeout(() => { setOpen(false); setClosing(false); setEditing(false); setFolderOpen(null); }, 220);
+  }
+
   function onTilePointerDown(e: React.PointerEvent, item: LayoutItem) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     pressTimer.current = setTimeout(() => {
@@ -164,96 +115,34 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     drag.current = { item, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, mergeItem: null, mergeTimer: null };
   }
 
-  useEffect(() => {
-    if (!open) return;
-    const move = (e: PointerEvent) => {
-      const d = drag.current;
-      if (!d || e.pointerId !== d.pointerId) return;
-      const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
-      if (dist > 10 && pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
-      if (!editingRef.current) return; // not in edit mode yet — just cancelling the long-press
-      if (!d.active && dist > 10) { d.active = true; setDragItem(d.item); }
-      if (!d.active) return;
-      setDragPos({ x: e.clientX, y: e.clientY });
-      const tgt = pointerTargetIdx(e.clientX, e.clientY);
-      const tgtItem = tgt >= 0 ? itemsRef.current[tgt] : null;
-      setHoverId(tgtItem && tgtItem !== d.item ? itemId(tgtItem) : null);
-      if (!tgtItem || tgtItem === d.item) { setMerge(d, null); return; }
+  function commit(next: LayoutItem[]) {
+    // A folder holding one app dissolves back into a tile.
+    const norm = next.flatMap((i): LayoutItem[] =>
+      i.type === "folder" && i.keys.length === 1 ? [{ type: "app", key: i.keys[0] }] : [i]
+    ).filter((i) => i.type !== "folder" || i.keys.length > 0);
+    itemsRef.current = norm;
+    setItems(norm);
+    saveLayout(norm);
+  }
 
-      // Dwell over a tile → merge candidate (folder create/add). Apps only.
-      if (d.item.type === "app" && d.mergeItem !== tgtItem) setMerge(d, tgtItem);
-      else if (d.item.type === "folder") setMerge(d, null);
-
-      // Reorder live: move the dragged item to the hovered slot.
-      setItems((prev) => {
-        const from = prev.indexOf(d.item);
-        const to = prev.indexOf(tgtItem);
-        if (from === -1 || to === -1 || from === to) return prev;
-        const next = [...prev];
-        const [moved] = next.splice(from, 1);
-        next.splice(to, 0, moved);
-        return next;
-      });
-    };
-    const up = (e: PointerEvent) => {
-      if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
-      const d = drag.current;
-      drag.current = null;
-      if (!d || e.pointerId !== d.pointerId) return;
-      if (d.mergeTimer) clearTimeout(d.mergeTimer);
-      const merge = d.mergeItem;
-      setMergeId(null);
-      setHoverId(null);
-      setDragPos(null);
-      setDragItem(null);
-      if (d.active && merge && merge !== d.item) {
-        // Drop onto another item → folder.
-        setItems((prev) => {
-          const from = prev.indexOf(d.item);
-          const to = prev.indexOf(merge);
-          if (from === -1 || to === -1) return prev;
-          const next = [...prev];
-          const src = next[from];
-          const dst = next[to];
-          if (src.type !== "app") return prev;
-          if (dst.type === "app") {
-            next[to] = { type: "folder", id: `f${Date.now()}`, name: "Folder", keys: [dst.key, src.key] };
-          } else if (!dst.keys.includes(src.key)) {
-            next[to] = { ...dst, keys: [...dst.keys, src.key] };
-          } else {
-            return prev;
-          }
-          next.splice(from, 1);
-          saveLayout(next);
-          return next;
-        });
-      } else {
-        saveLayout(itemsRef.current);
-      }
-      setTimeout(() => { suppressClick.current = false; }, 0);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  function setMerge(d: NonNullable<typeof drag.current>, item: LayoutItem | null) {
-    if (d.mergeTimer) clearTimeout(d.mergeTimer);
-    if (!item) { d.mergeItem = null; setMergeId(null); return; }
-    d.mergeItem = item;
-    d.mergeTimer = setTimeout(() => setMergeId(itemId(item)), 350);
+  async function hideApp(key: string) {
+    const app = APP_BY_KEY.get(key);
+    if (!app) return;
+    const next = new Set(hiddenTabs);
+    next.add(key);
+    await fetch("/api/settings/tabs", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hiddenTabs: [...next] }),
+    }).then((r) => { if (r.ok) refreshNavPrefs(); }).catch(() => {});
+    evictRoute(app.href);
   }
 
   function tileClick(item: LayoutItem) {
     if (suppressClick.current) { suppressClick.current = false; return; }
-    if (editing) return;
+    // Folders open in edit mode too — that's where the rename input lives.
     if (item.type === "folder") { setFolderOpen(item.id); return; }
+    if (editing) return;
     const app = APP_BY_KEY.get(item.key);
     if (app) { setOpen(false); router.push(app.href); }
   }
@@ -284,6 +173,138 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
       </span>
     );
   }
+
+  // ── Effects (declared last: they reference the helpers above) ──────
+
+  useEffect(() => { itemsRef.current = items; }, [items]);
+  useEffect(() => { editingRef.current = editing; }, [editing]);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") dismiss(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+     
+  }, [open]);
+
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener("open-tools-menu", handler);
+    return () => window.removeEventListener("open-tools-menu", handler);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const original = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = original; };
+  }, [open]);
+
+  // Leaving edit mode mid-gesture must end any drag too — ref in the
+  // effect, state via the render-adjust pattern (no sync setState).
+  useEffect(() => {
+    if (!editing) drag.current = null;
+  }, [editing]);
+  const [wasEditing, setWasEditing] = useState(editing);
+  if (wasEditing !== editing) {
+    setWasEditing(editing);
+    if (!editing) {
+      setDragPos(null);
+      setDragItem(null);
+      setHoverId(null);
+      setMergeId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const move = (e: PointerEvent) => {
+      const d = drag.current;
+      if (!d || e.pointerId !== d.pointerId) return;
+      const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
+      if (dist > 10 && pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+      if (!editingRef.current) return; // not in edit mode yet — just cancelling the long-press
+      if (!d.active && dist > 10) { d.active = true; setDragItem(d.item); }
+      if (!d.active) return;
+      setDragPos({ x: e.clientX, y: e.clientY });
+      const tgt = pointerTargetIdx(e.clientX, e.clientY);
+      const tgtItem = tgt >= 0 ? itemsRef.current[tgt] : null;
+      setHoverId(tgtItem && tgtItem !== d.item ? itemId(tgtItem) : null);
+      if (!tgtItem || tgtItem === d.item) { setMerge(d, null); return; }
+
+      // Dwell over a tile → merge candidate (folder create/add). Apps only.
+      if (d.item.type === "app" && d.mergeItem !== tgtItem) setMerge(d, tgtItem);
+      else if (d.item.type === "folder") setMerge(d, null);
+
+      // Reorder live: move the dragged item to the hovered slot. The ref
+      // is authoritative — pointerup may fire before the last setItems
+      // flush, and saving a stale snapshot silently loses the reorder.
+      const prev = itemsRef.current;
+      const from = prev.indexOf(d.item);
+      const to = prev.indexOf(tgtItem);
+      if (from !== -1 && to !== -1 && from !== to) {
+        const next = [...prev];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        itemsRef.current = next;
+        setItems(next);
+      }
+    };
+    const up = (e: PointerEvent) => {
+      if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+      const d = drag.current;
+      drag.current = null;
+      if (!d || e.pointerId !== d.pointerId) return;
+      if (d.mergeTimer) clearTimeout(d.mergeTimer);
+      const merge = d.mergeItem;
+      setMergeId(null);
+      setHoverId(null);
+      setDragPos(null);
+      setDragItem(null);
+      if (d.active && merge && merge !== d.item) {
+        // Drop onto another item → folder.
+        const prev = itemsRef.current;
+        const from = prev.indexOf(d.item);
+        const to = prev.indexOf(merge);
+        if (from !== -1 && to !== -1) {
+          const next = [...prev];
+          const src = next[from];
+          const dst = next[to];
+          if (src.type === "app") {
+            let changed = true;
+            if (dst.type === "app") {
+              next[to] = { type: "folder", id: `f${Date.now()}`, name: "Folder", keys: [dst.key, src.key] };
+            } else if (!dst.keys.includes(src.key)) {
+              next[to] = { ...dst, keys: [...dst.keys, src.key] };
+            } else {
+              changed = false;
+            }
+            if (changed) {
+              next.splice(from, 1);
+              itemsRef.current = next;
+              setItems(next);
+              saveLayout(next);
+            }
+          }
+        }
+      } else {
+        saveLayout(itemsRef.current);
+      }
+      setTimeout(() => { suppressClick.current = false; }, 0);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const openFolder = items.find((i): i is Extract<LayoutItem, { type: "folder" }> => i.type === "folder" && i.id === folderOpen);
 
@@ -372,7 +393,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
 
             {/* Grid — pinned Store tile first, then the user's layout */}
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:px-6">
-              <div ref={gridRef} className={`${GRID} pt-6`} style={{ touchAction: editing ? "none" : undefined }}>
+              <div ref={gridRef} className={`${GRID} pt-6`} style={{ touchAction: dragItem ? "none" : "pan-y" }}>
                 {/* Store — always pinned, first tile */}
                 <Link
                   href="/store"

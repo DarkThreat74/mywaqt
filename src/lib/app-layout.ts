@@ -2,8 +2,10 @@
 
 /**
  * Homescreen layout for the app drawer — grid order + folders, stored
- * per-device in localStorage (like a real launcher, the arrangement is
- * a property of this phone, not the account).
+ * per-device per-account in localStorage (like a real launcher, the
+ * arrangement is a property of this phone, not the account — but it IS
+ * scoped to the signed-in user via the waqt:uid stamp so a second
+ * account on the same device never sees the first user's folders).
  *
  * Shape: [{ type: "app", key } | { type: "folder", id, name, keys: [] }]
  * Validation on load drops unknown/uninstalled keys; apps missing from
@@ -16,12 +18,33 @@ export type LayoutItem =
   | { type: "app"; key: string }
   | { type: "folder"; id: string; name: string; keys: string[] };
 
-const LAYOUT_KEY = "waqt:app-layout";
+const BASE_KEY = "waqt:app-layout";
+
+function layoutKey(): string {
+  try {
+    const uid = localStorage.getItem("waqt:uid");
+    return uid ? `${BASE_KEY}:${uid}` : BASE_KEY;
+  } catch {
+    return BASE_KEY;
+  }
+}
 
 export function loadLayout(installedKeys: string[]): LayoutItem[] {
   const installed = new Set(installedKeys);
   let raw: unknown = null;
-  try { raw = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "null"); } catch { /* ignore */ }
+  const key = layoutKey();
+  try {
+    raw = JSON.parse(localStorage.getItem(key) ?? "null");
+    // One-time migrate a pre-uid layout into this account's slot.
+    if (raw === null && key !== BASE_KEY) {
+      const legacy = localStorage.getItem(BASE_KEY);
+      if (legacy) {
+        raw = JSON.parse(legacy);
+        localStorage.removeItem(BASE_KEY);
+        localStorage.setItem(key, legacy);
+      }
+    }
+  } catch { /* ignore */ }
   const out: LayoutItem[] = [];
   const seen = new Set<string>();
   if (Array.isArray(raw)) {
@@ -47,5 +70,5 @@ export function loadLayout(installedKeys: string[]): LayoutItem[] {
 }
 
 export function saveLayout(items: LayoutItem[]): void {
-  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(items)); } catch { /* ignore */ }
+  try { localStorage.setItem(layoutKey(), JSON.stringify(items)); } catch { /* ignore */ }
 }
