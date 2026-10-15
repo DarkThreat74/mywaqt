@@ -2,16 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CalendarClock, Download, LayoutGrid, Lightbulb, RefreshCw, UserRound } from "lucide-react";
+import { ArrowLeft, CalendarClock, Download, Lightbulb, RefreshCw, UserRound } from "lucide-react";
 import { setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
-import { NavTabsEditor, FunFactToggle, FunFactCountdown, PrayerPersonalization, type PrayerSettings } from "../SettingsClient";
+import { FunFactToggle, FunFactCountdown, PrayerPersonalization, type PrayerSettings } from "../SettingsClient";
 
-type Tab = "planner" | "navigation" | "cards" | "downloads" | "personal";
+type Tab = "planner" | "cards" | "downloads" | "personal";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "planner", label: "Planner" },
-  { id: "navigation", label: "Navigation" },
   { id: "cards", label: "Cards" },
   { id: "downloads", label: "Downloads" },
   { id: "personal", label: "Personal" },
@@ -216,16 +215,6 @@ export default function MiscClient() {
               {msg}
             </p>
           )}
-        </div>
-      )}
-
-      {tab === "navigation" && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-3">
-            <LayoutGrid className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
-            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Navigation tabs</p>
-          </div>
-          <NavTabsEditor />
         </div>
       )}
 

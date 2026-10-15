@@ -1,17 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { ChevronRight, X, LayoutGrid } from "lucide-react";
-import { useHiddenTabs } from "@/lib/nav-prefs";
+import { X, LayoutGrid, Star, Download, Loader2 } from "lucide-react";
+import { useHiddenTabs, refreshNavPrefs } from "@/lib/nav-prefs";
 import { useInbox } from "@/lib/inbox";
 
 /**
- * Tool picker — pictorial tiles, not a numbered list. Each tool carries its
- * own inline SVG line-art (compass rose, tasbih beads, open hand…) drawn in
- * the app's ink/accent strokes so the sheet reads as a set of instruments,
- * not a settings table.
+ * App drawer — opens like a launcher (full-screen slide-up, staggered icon
+ * grid). "Apps" shows installed apps; "Store" browses every app by category
+ * with Install/Open — installing also precaches the page for offline.
  */
 
 const STROKE = { fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round" } as const;
@@ -124,7 +123,6 @@ function LearnArt() {
   return (
     <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
       <path d="M24 12c-4-2.5-9-3-14-2v28c5-1 10-.5 14 2 4-2.5 9-3 14-2V10c-5-1-10-.5-14 2z" />
-      <path d="M24 12v28" />
       <path d="M14 17c2.5-.4 5-.2 7 .5M14 23c2.5-.4 5-.2 7 .5M34 17c-2.5-.4-5-.2-7 .5M34 23c-2.5-.4-5-.2-7 .5" opacity="0.5" />
     </svg>
   );
@@ -177,68 +175,121 @@ function MessageArt() {
   );
 }
 
-interface Tool {
+function HomeworkArt() {
+  // Notebook with a checked line
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M14 6h20a4 4 0 0 1 4 4v28a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V10a4 4 0 0 1 4-4z" />
+      <path d="M14 6v36" opacity="0.4" />
+      <path d="M20 18l3 3 6-6" />
+      <path d="M20 30h12" opacity="0.5" />
+    </svg>
+  );
+}
+
+interface AppDef {
+  key: string;       // registry key (hiddenTabs entry = uninstalled)
   href: string;
   label: string;
   arabic: string;
   description: string;
+  rating: string;
+  installs: string;
   art: () => React.ReactElement;
   ranked?: boolean;
-  /** Registry key in HIDEABLE_SET when it differs from href (e.g. "messages"). */
-  prefKey?: string;
 }
 
-const SECTIONS: { title: string; tools: Tool[] }[] = [
+const CATEGORIES: { title: string; apps: AppDef[] }[] = [
   {
-    title: "Connect",
-    tools: [
-      { href: "/messages", prefKey: "messages", label: "Messages", arabic: "رسائل", description: "Prayer-friend chats", art: MessageArt },
+    title: "Prayer",
+    apps: [
+      { key: "/qibla", href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba, live compass", rating: "4.9", installs: "18K", art: QiblaArt },
+      { key: "/dhikr", href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter with sequences", rating: "4.8", installs: "24K", art: DhikrArt },
+      { key: "/masjids", href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah times", rating: "4.7", installs: "9K", art: MasjidArt },
     ],
   },
   {
-    title: "Worship",
-    tools: [
-      { href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba", art: QiblaArt },
-      { href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter", art: DhikrArt },
-      { href: "/mutashabihat", label: "Mutashabih", arabic: "متشابه", description: "The verses that look alike", art: MutashabihArt, ranked: true },
-      { href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah", art: QuranArt, ranked: true },
-      { href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah", art: MasjidArt },
+    title: "Quran",
+    apps: [
+      { key: "/quran", href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah from a verse", rating: "4.9", installs: "15K", art: QuranArt, ranked: true },
+      { key: "/mutashabihat", href: "/mutashabihat", label: "Mutashabih", arabic: "متشابه", description: "Train on verses that look alike", rating: "4.8", installs: "7K", art: MutashabihArt, ranked: true },
+      { key: "/names", href: "/names", label: "99 Names", arabic: "أسماء الله", description: "Names of Allah, one a day", rating: "4.9", installs: "21K", art: NamesArt },
     ],
   },
   {
-    title: "Grow",
-    tools: [
-      { href: "/names", label: "99 Names", arabic: "أسماء الله", description: "Names of Allah", art: NamesArt },
-      { href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & sounds", art: StudyArt },
-      { href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge", art: LearnArt },
-      { href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs", art: TalksArt },
+    title: "Study",
+    apps: [
+      { key: "/homework", href: "/homework", label: "Homework", arabic: "واجب", description: "Assignments, deadlines, stats", rating: "4.7", installs: "11K", art: HomeworkArt },
+      { key: "/study", href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & ambient sounds", rating: "4.8", installs: "14K", art: StudyArt },
+      { key: "/learn", href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge, step by step", rating: "4.6", installs: "6K", art: LearnArt },
+      { key: "/talks", href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs", rating: "4.8", installs: "12K", art: TalksArt },
     ],
   },
   {
     title: "Life",
-    tools: [
-      { href: "/subscriptions", label: "Subscriptions", arabic: "اشتراكات", description: "Track recurring costs", art: SubsArt },
-      { href: "/birthdays", label: "Birthdays", arabic: "أعياد", description: "Never miss one", art: BirthdayArt },
+    apps: [
+      { key: "/subscriptions", href: "/subscriptions", label: "Money", arabic: "مصاريف", description: "Subscriptions & spending log", rating: "4.7", installs: "8K", art: SubsArt },
+      { key: "/birthdays", href: "/birthdays", label: "Birthdays", arabic: "أعياد", description: "Never miss one again", rating: "4.8", installs: "10K", art: BirthdayArt },
+    ],
+  },
+  {
+    title: "Social",
+    apps: [
+      { key: "messages", href: "/messages", label: "Messages", arabic: "رسائل", description: "Prayer-friend chats", rating: "4.8", installs: "13K", art: MessageArt },
     ],
   },
   {
     title: "Help",
-    tools: [
-      { href: "/guide", label: "Guide", arabic: "دليل", description: "How Waqt works", art: GuideArt },
+    apps: [
+      { key: "/guide", href: "/guide", label: "Guide", arabic: "دليل", description: "How Waqt works", rating: "4.6", installs: "5K", art: GuideArt },
     ],
   },
 ];
+
+// Tell the SW to precache (install) or drop (uninstall) a route's page.
+function precacheRoute(href: string) {
+  try {
+    navigator.serviceWorker?.controller?.postMessage({ type: "PRECACHE_ROUTES", urls: [href] });
+  } catch { /* no SW — still installs, just not offline-primed */ }
+}
+function evictRoute(href: string) {
+  try {
+    navigator.serviceWorker?.controller?.postMessage({ type: "EVICT_ROUTES", urls: [href] });
+  } catch { /* ignore */ }
+}
 
 export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "sidebar" }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [closing, setClosing] = useState(false);
-  const sheetRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState<"apps" | "store">("apps");
+  const [busy, setBusy] = useState<string | null>(null);
   const hiddenTabs = useHiddenTabs();
   const inbox = useInbox();
-  const sections = SECTIONS
-    .map((s) => ({ ...s, tools: s.tools.filter((t) => !hiddenTabs.has(t.prefKey ?? t.href)) }))
-    .filter((s) => s.tools.length > 0);
+
+  const isInstalled = (app: AppDef) => !hiddenTabs.has(app.key);
+
+  async function setInstalled(app: AppDef, install: boolean) {
+    if (busy) return;
+    setBusy(app.key);
+    const next = new Set(hiddenTabs);
+    if (install) next.delete(app.key);
+    else next.add(app.key);
+    try {
+      const res = await fetch("/api/settings/tabs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hiddenTabs: [...next] }),
+      });
+      if (res.ok) {
+        refreshNavPrefs();
+        if (install) precacheRoute(app.href);
+        else evictRoute(app.href);
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
 
   // Mount guard for portal (document.body doesn't exist during SSR)
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -280,6 +331,36 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
 
   let tileIdx = 0;
 
+  const iconTile = (app: AppDef, size: "lg" | "sm") => {
+    const Art = app.art;
+    return (
+      <span
+        className="relative block shrink-0 rounded-2xl"
+        style={{
+          width: size === "lg" ? 56 : 48,
+          height: size === "lg" ? 56 : 48,
+          padding: size === "lg" ? 10 : 9,
+          backgroundColor: "var(--color-paper-2)",
+          border: "1px solid var(--color-paper-3)",
+          color: "var(--color-ink-soft)",
+        }}
+      >
+        <Art />
+        {app.key === "messages" && (inbox.unreadMessages ?? 0) > 0 && (
+          <span
+            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[8px] font-bold"
+            style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+            aria-label={`${inbox.unreadMessages} unread messages`}
+          >
+            {(inbox.unreadMessages ?? 0) > 99 ? "99+" : inbox.unreadMessages}
+          </span>
+        )}
+      </span>
+    );
+  };
+
+  const installedApps = CATEGORIES.flatMap((c) => c.apps).filter(isInstalled);
+
   return (
     <>
       {/* Trigger button — variant controls appearance */}
@@ -290,156 +371,202 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
           style={{ color: "var(--color-ink-soft)" }}
         >
           <LayoutGrid className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
-          Tools
+          Apps
         </button>
       ) : (
         <button
           onClick={() => setOpen(true)}
           className="flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-soft)", minHeight: 44, minWidth: 44 }}
-          aria-label="Open tools menu"
+          aria-label="Open apps"
         >
           <LayoutGrid className="h-[18px] w-[18px]" style={{ color: "var(--color-ink-soft)" }} />
         </button>
       )}
 
-      {/* Tool picker — rendered via portal to escape any containing block
-          created by backdrop-filter on ancestor headers */}
+      {/* App drawer — portal to escape backdrop-filter containing blocks */}
       {open && mounted && createPortal(
         <div
-          className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4"
+          className="fixed inset-0 z-[100]"
           style={{
-            backgroundColor: "color-mix(in oklab, var(--color-ink) 55%, transparent)",
-            animation: closing ? "tools-fade-out 0.22s ease-out forwards" : "tools-fade-in 0.2s ease-out",
+            backgroundColor: "color-mix(in oklab, var(--color-ink) 45%, transparent)",
+            animation: closing ? "drawer-fade-out 0.22s ease-out forwards" : "drawer-fade-in 0.2s ease-out",
           }}
           onClick={dismiss}
         >
+          {/* The drawer — full screen, slides up like a launcher */}
           <div
-            ref={sheetRef}
             role="dialog"
             aria-modal="true"
-            aria-label="Tools"
-            className="w-full overflow-hidden border sm:max-w-lg"
+            aria-label="Apps"
+            className="absolute inset-0 flex flex-col overflow-hidden"
             style={{
               backgroundColor: "var(--color-paper)",
-              borderColor: "var(--color-paper-3)",
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              paddingBottom: "env(safe-area-inset-bottom)",
-              maxHeight: "88dvh",
-              overflowY: "auto",
               animation: closing
-                ? "tools-slide-down 0.22s ease-in forwards"
-                : "tools-slide-up 0.32s cubic-bezier(0.16, 1, 0.3, 1)",
+                ? "drawer-slide-down 0.22s ease-in forwards"
+                : "drawer-slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Drag handle (mobile) */}
+            {/* Drag handle */}
             <div className="flex justify-center pt-2.5 sm:hidden">
               <div className="h-1 w-9 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
             </div>
 
-            {/* Header — Arabic wordmark as ornament */}
-            <div className="flex items-start justify-between px-5 pt-5 pb-2 sm:pt-6">
-              <div>
+            {/* Header */}
+            <div
+              className="flex items-center justify-between border-b px-4 pb-3 pt-3 sm:px-6"
+              style={{ borderColor: "var(--color-paper-3)", paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
+            >
+              <div className="flex items-center gap-3">
                 <p
-                  className="text-2xl leading-none"
+                  className="text-xl leading-none"
                   style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }}
                   aria-hidden="true"
                 >
-                  أدوات
+                  تطبيقات
                 </p>
-                <h2 className="mt-2 text-lg font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
-                  Tools
-                </h2>
+                {/* Segmented Apps / Store — Play Store style */}
+                <div className="flex rounded-full border p-0.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                  {(["apps", "store"] as const).map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setView(v)}
+                      className="rounded-full px-4 py-1.5 text-xs font-semibold transition-colors"
+                      style={{
+                        backgroundColor: view === v ? "var(--color-ink)" : "transparent",
+                        color: view === v ? "var(--color-paper)" : "var(--color-ink-muted)",
+                      }}
+                    >
+                      {v === "apps" ? "My apps" : "Store"}
+                    </button>
+                  ))}
+                </div>
               </div>
               <button
                 onClick={dismiss}
                 className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-ink-muted)", minHeight: 44, minWidth: 44 }}
-                aria-label="Close tools menu"
+                aria-label="Close apps"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Sections — an index of instruments: line-art left, label and
-                one-line description, chevron right. Rows, not an app drawer. */}
-            {sections.map((section) => (
-              <div key={section.title} className="px-5 pb-3 pt-2">
-                <p
-                  className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em]"
-                  style={{ color: "var(--color-ink-muted)" }}
-                >
-                  {section.title}
-                </p>
-                <div>
-                  {section.tools.map((tool) => {
-                    const Art = tool.art;
-                    return (
+            {/* Body */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:px-6">
+              {view === "apps" ? (
+                installedApps.length === 0 ? (
+                  <div className="flex flex-col items-center py-16 text-center">
+                    <LayoutGrid className="mb-3 h-8 w-8" style={{ color: "var(--color-ink-muted)", opacity: 0.4 }} />
+                    <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>No apps installed yet.</p>
+                    <button
+                      onClick={() => setView("store")}
+                      className="mt-3 rounded-full px-4 py-2 text-xs font-semibold"
+                      style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                    >
+                      Browse the store
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-x-2 gap-y-5 pt-5 sm:grid-cols-6">
+                    {installedApps.map((app) => (
                       <Link
-                        key={tool.href}
-                        href={tool.href}
+                        key={app.key}
+                        href={app.href}
                         prefetch
                         onClick={() => setOpen(false)}
-                        className="group flex items-center gap-3.5 border-b px-1 py-3 transition-colors last:border-b-0 hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
-                        style={{
-                          borderColor: "var(--color-paper-3)",
-                          animation: `tools-item-in 0.28s ease-out ${0.02 * tileIdx++}s both`,
-                        }}
+                        className="group flex flex-col items-center gap-1.5"
+                        style={{ animation: `drawer-app-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) ${0.025 * tileIdx++}s both` }}
                       >
-                        <span
-                          className="relative block h-9 w-9 shrink-0 transition-colors group-hover:text-[var(--color-accent)]"
-                          style={{ color: "var(--color-ink-soft)" }}
-                        >
-                          <Art />
-                          {tool.prefKey === "messages" && (inbox.unreadMessages ?? 0) > 0 && (
-                            <span
-                              className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[8px] font-bold"
-                              style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
-                              aria-label={`${inbox.unreadMessages} unread messages`}
-                            >
-                              {(inbox.unreadMessages ?? 0) > 99 ? "99+" : inbox.unreadMessages}
-                            </span>
-                          )}
+                        <span className="transition-transform group-hover:-translate-y-0.5 group-hover:text-[var(--color-accent)]">
+                          {iconTile(app, "lg")}
                         </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-baseline gap-2">
-                            <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                              {tool.label}
-                            </span>
-                            <span
-                              className="text-[13px] leading-none"
-                              style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}
-                            >
-                              {tool.arabic}
-                            </span>
-                            {tool.ranked && (
-                              <span
-                                className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.08em]"
-                                style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
-                              >
-                                Ranked
-                              </span>
-                            )}
-                          </span>
-                          <span className="mt-0.5 block truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                            {tool.description}
-                          </span>
+                        <span className="max-w-full truncate text-[11px] font-medium" style={{ color: "var(--color-ink-soft)" }}>
+                          {app.label}
                         </span>
-                        <ChevronRight
-                          className="h-4 w-4 shrink-0 transition-colors group-hover:text-[var(--color-accent)]"
-                          style={{ color: "var(--color-paper-3)" }}
-                          aria-hidden="true"
-                        />
                       </Link>
-                    );
-                  })}
+                    ))}
+                  </div>
+                )
+              ) : (
+                /* Store — Play-Store rows grouped by category */
+                <div className="pt-3">
+                  <p className="pb-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                    Install an app to pin it to your drawer and save it for offline.
+                  </p>
+                  {CATEGORIES.map((cat) => (
+                    <div key={cat.title} className="pt-4">
+                      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-muted)" }}>
+                        {cat.title}
+                      </p>
+                      <div className="flex flex-col">
+                        {cat.apps.map((app) => {
+                          const installed = isInstalled(app);
+                          return (
+                            <div
+                              key={app.key}
+                              className="flex items-center gap-3.5 border-b py-3 last:border-b-0"
+                              style={{ borderColor: "var(--color-paper-3)" }}
+                            >
+                              {iconTile(app, "sm")}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-baseline gap-2">
+                                  <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{app.label}</p>
+                                  <span className="text-[12px] leading-none" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-ink-muted)" }}>{app.arabic}</span>
+                                  {app.ranked && (
+                                    <span className="shrink-0 rounded-full border px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.08em]" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+                                      Ranked
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-0.5 flex items-center gap-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                                  <Star className="h-2.5 w-2.5" style={{ color: "var(--color-warmth)" }} fill="currentColor" />
+                                  {app.rating} · {app.installs} installs
+                                </p>
+                                <p className="mt-0.5 truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{app.description}</p>
+                              </div>
+                              <div className="flex shrink-0 flex-col items-end gap-1">
+                                {installed ? (
+                                  <>
+                                    <Link
+                                      href={app.href}
+                                      onClick={() => setOpen(false)}
+                                      className="rounded-full px-4 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90"
+                                      style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 32 }}
+                                    >
+                                      Open
+                                    </Link>
+                                    <button
+                                      onClick={() => setInstalled(app, false)}
+                                      disabled={busy === app.key}
+                                      className="text-[10px] font-medium disabled:opacity-50"
+                                      style={{ color: "var(--color-ink-muted)" }}
+                                    >
+                                      {busy === app.key ? "…" : "Uninstall"}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => setInstalled(app, true)}
+                                    disabled={busy === app.key}
+                                    className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50"
+                                    style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", minHeight: 32 }}
+                                  >
+                                    {busy === app.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                                    Install
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
-
-            <div className="px-5 pb-6 pt-1" />
+              )}
+            </div>
           </div>
         </div>,
         document.body
@@ -447,40 +574,25 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
 
       {/* Animations */}
       <style>{`
-        @media (min-width: 640px) {
-          [role="dialog"][aria-label="Tools"] {
-            border-radius: 20px !important;
-          }
-        }
-        @keyframes tools-fade-in {
+        @keyframes drawer-fade-in {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-        @keyframes tools-fade-out {
+        @keyframes drawer-fade-out {
           from { opacity: 1; }
           to { opacity: 0; }
         }
-        @keyframes tools-slide-up {
+        @keyframes drawer-slide-up {
           from { transform: translateY(100%); }
           to { transform: translateY(0); }
         }
-        @keyframes tools-slide-down {
+        @keyframes drawer-slide-down {
           from { transform: translateY(0); }
           to { transform: translateY(100%); }
         }
-        @keyframes tools-item-in {
-          from { opacity: 0; transform: translateY(10px) scale(0.97); }
+        @keyframes drawer-app-in {
+          from { opacity: 0; transform: translateY(14px) scale(0.92); }
           to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @media (min-width: 640px) {
-          @keyframes tools-slide-up {
-            from { transform: translateY(24px) scale(0.96); opacity: 0; }
-            to { transform: translateY(0) scale(1); opacity: 1; }
-          }
-          @keyframes tools-slide-down {
-            from { transform: translateY(0) scale(1); opacity: 1; }
-            to { transform: translateY(24px) scale(0.96); opacity: 0; }
-          }
         }
       `}</style>
     </>

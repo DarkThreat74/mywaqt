@@ -13,7 +13,6 @@ import DeepLinkHandler from "@/components/deep-link-handler";
 import PendingInvite from "@/components/pending-invite";
 import ToolsMenu from "@/components/tools-menu";
 import { NotificationBell, NotificationTray } from "@/components/notification-center";
-import ToolsFab from "@/components/tools-fab";
 import DuaToast from "@/components/dua-toast";
 import FunFactPopup from "@/components/fun-fact-popup";
 import BirthdayAlerter from "@/components/birthday-alerter";
@@ -224,11 +223,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         }}
         aria-label="Mobile navigation"
       >
-        {navItems.slice(0, 2).map((item) => (
-          <MobileNavItem key={item.href} {...item} />
-        ))}
-        <ToolsFab />
-        {navItems.slice(2).map((item) => (
+        {navItems.map((item) => (
           <MobileNavItem key={item.href} {...item} />
         ))}
       </nav>

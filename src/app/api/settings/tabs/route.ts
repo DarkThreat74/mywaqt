@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
   // null = never touched → everything shows except the center tools FAB;
   // Messages is on by default and lives inside the tools sheet.
-  const hiddenTabs = (row?.hiddenTabs ?? ["tools-fab"]).filter((k) => HIDEABLE_SET.has(k));
+  const hiddenTabs = (row?.hiddenTabs ?? []).filter((k) => HIDEABLE_SET.has(k));
   return NextResponse.json({ hiddenTabs });
 }
 

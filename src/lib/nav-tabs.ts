@@ -1,8 +1,8 @@
-// Single registry of user-hideable nav surfaces. The four mains (Calendar,
-// Prayer, Today, Settings) are fixed — hiding them would strand navigation.
-// Keys: 'messages' for the nav item; tool tabs keyed by their href.
+// Single registry of installable "apps" — everything reachable from the
+// tools drawer. The four mains (Calendar, Prayer, Today, Settings) are
+// fixed in the bottom nav and aren't apps.
+// Keys: 'messages' for the nav item; the rest are keyed by href.
 export const HIDEABLE_TABS = [
-  { key: "tools-fab", label: "Center tools button" },
   { key: "messages", label: "Messages" },
   { key: "/masjids", label: "Masjids" },
   { key: "/talks", label: "Talks" },
@@ -15,6 +15,8 @@ export const HIDEABLE_TABS = [
   { key: "/learn", label: "Learn" },
   { key: "/subscriptions", label: "Subscriptions" },
   { key: "/birthdays", label: "Birthdays" },
+  { key: "/homework", label: "Homework" },
+  { key: "/guide", label: "Guide" },
 ] as const;
 
 export type HideableTabKey = (typeof HIDEABLE_TABS)[number]["key"];

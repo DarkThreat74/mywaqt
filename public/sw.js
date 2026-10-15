@@ -1278,6 +1278,48 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+
+  // "Install app" — precache a route's HTML into PAGE_CACHE so it opens
+  // offline. Keys match the navigate handler: pathname+search, uid-stamped.
+  if (event.data?.type === "PRECACHE_ROUTES" && Array.isArray(event.data.urls)) {
+    event.waitUntil((async () => {
+      const pageCache = await caches.open(PAGE_CACHE);
+      const uid = await requestUid();
+      for (const p of event.data.urls.slice(0, 30)) {
+        try {
+          const u = new URL(p, self.location.origin);
+          if (u.origin !== self.location.origin) continue;
+          const res = await fetch(u.href, { credentials: "same-origin" });
+          if (!res.ok) continue;
+          const body = await res.text();
+          const headers = new Headers(res.headers);
+          headers.set("x-waqt-cached-at", String(Date.now()));
+          const b = body.match(/\/_next\/static\/([A-Za-z0-9_-]+)\//);
+          if (b) headers.set("x-waqt-build", b[1]);
+          if (!headers.get("x-waqt-uid") && uid) headers.set("x-waqt-uid", uid);
+          await pageCache.put(u.pathname + u.search, new Response(body, { status: res.status, statusText: res.statusText, headers }));
+        } catch { /* offline — install stays, page caches on next visit */ }
+      }
+    })());
+  }
+
+  // "Uninstall app" — drop its cached pages so it stops holding space.
+  if (event.data?.type === "EVICT_ROUTES" && Array.isArray(event.data.urls)) {
+    event.waitUntil((async () => {
+      const pageCache = await caches.open(PAGE_CACHE);
+      const rscCache = await caches.open(RSC_CACHE);
+      for (const p of event.data.urls.slice(0, 30)) {
+        try {
+          const u = new URL(p, self.location.origin);
+          if (u.origin !== self.location.origin) continue;
+          await pageCache.delete(u.pathname + u.search);
+          await pageCache.delete(u.pathname);
+          await rscCache.delete(u.pathname + u.search);
+          await rscCache.delete(u.pathname);
+        } catch { /* ignore */ }
+      }
+    })());
+  }
   if (event.data && event.data.type === "SYNC_OUTBOX") {
     event.waitUntil(syncOutbox());
   }
