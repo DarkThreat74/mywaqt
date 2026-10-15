@@ -19,7 +19,7 @@ import { parseICS, type ICSEntry } from "@/lib/homework/ics";
 import { computeCushion } from "@/lib/homework/cushion";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { wallClockToUtc } from "@/lib/timezone";
-import { getDiscipline } from "@/lib/study/session";
+import { getDiscipline, mergeSessionHistory, type SessionEntry } from "@/lib/study/session";
 import { fmtDur } from "@/lib/blocks/gaps";
 import StudyStatsSheet, { weekMinutes } from "@/components/study-stats-sheet";
 
@@ -130,7 +130,20 @@ export default function HomeworkClient({
   const [statsOpen, setStatsOpen] = useState(false);
   // Date line + week minutes are localStorage/ICU-dependent — mount-gated.
   const [mounted, setMounted] = useState(false);
-  useEffect(() => { Promise.resolve().then(() => setMounted(true)); }, []);
+  // Session history drives the header's "studied this wk" — starts local,
+  // merges the server copy on mount so it matches across devices.
+  const [studyHistory, setStudyHistory] = useState<SessionEntry[]>([]);
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      setMounted(true);
+      setStudyHistory(getDiscipline().history);
+    });
+    // Merge the server copy so stats/week-minutes match other devices.
+    fetch("/api/study-history", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((rows) => { if (Array.isArray(rows) && rows.length > 0) setStudyHistory(mergeSessionHistory(rows)); })
+      .catch(() => {});
+  }, []);
   const [sortBy, setSortBy] = useState<"soonest" | "latest" | "type">("soonest");
   const [sortTypeKind, setSortTypeKind] = useState<HomeworkItem["kind"]>("homework");
 
@@ -1199,7 +1212,7 @@ export default function HomeworkClient({
             <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] leading-tight tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
               {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
               {(() => {
-                const w = weekMinutes(getDiscipline().history);
+                const w = weekMinutes(studyHistory);
                 return w > 0 ? (
                   <>
                     <span aria-hidden="true">·</span>

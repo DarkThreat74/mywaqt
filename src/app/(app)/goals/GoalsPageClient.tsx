@@ -192,8 +192,8 @@ export default function GoalsPageClient({
   const refreshAll = useCallback(async () => {
     try {
       const [goalsRes, hwRes, clsRes, habitsRes, logsRes, choresRes] = await Promise.all([
-        fetch("/api/goals"), fetch("/api/homework"), fetch("/api/classes"),
-        fetch("/api/habits"), fetch("/api/habit-logs"), fetch("/api/chores"),
+        fetch("/api/goals", { cache: "no-store" }), fetch("/api/homework", { cache: "no-store" }), fetch("/api/classes", { cache: "no-store" }),
+        fetch("/api/habits", { cache: "no-store" }), fetch("/api/habit-logs", { cache: "no-store" }), fetch("/api/chores", { cache: "no-store" }),
       ]);
       if (goalsRes.ok) { const d = await goalsRes.json(); if (d.goals) { setGoals(d.goals); syncGoalsToCache(d.goals); } }
       if (hwRes.ok) { const d = await hwRes.json(); if (Array.isArray(d)) { setHomework(d); syncHomeworkToCache(d); } }
@@ -209,8 +209,16 @@ export default function GoalsPageClient({
   // ── Listen for SW sync events to refetch all data ──
   useEffect(() => {
     function onSynced() { refreshAll(); }
+    // Refocus also revalidates — picks up changes made on other devices.
+    function onVisible() { if (document.visibilityState === "visible") refreshAll(); }
     window.addEventListener("waqt:events-synced", onSynced);
-    return () => window.removeEventListener("waqt:events-synced", onSynced);
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("waqt:events-synced", onSynced);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refreshAll]);
 
   // ── Refetch on mount when online ──
