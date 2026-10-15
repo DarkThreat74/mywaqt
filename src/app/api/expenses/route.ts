@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -22,8 +22,15 @@ interface ExpenseBody {
   quantity?: number | null;
   unit?: string | null;
   place?: string | null;
+  detail?: string | null;
+  // Compressed client-side (canvas → JPEG ≤900px q0.72) → base64, ~60-150KB.
+  photo?: string | null;
+  photoMime?: string | null;
   clientId?: string;
 }
+
+const PHOTO_MIMES = new Set(["image/jpeg", "image/webp", "image/png"]);
+const MAX_PHOTO_B64 = 800_000; // ~600KB decoded — thumbnails shouldn't exceed this
 
 function validateFields(body: ExpenseBody, partial: boolean) {
   const out: Record<string, unknown> = {};
@@ -77,6 +84,27 @@ function validateFields(body: ExpenseBody, partial: boolean) {
     if (p && p.length > 80) errors.push("Place too long");
     else out.place = p;
   }
+  if (body.detail !== undefined) {
+    const d = typeof body.detail === "string" ? body.detail.trim() || null : null;
+    if (d && d.length > 80) errors.push("Detail too long");
+    else out.detail = d;
+  }
+  if (body.photo !== undefined) {
+    if (body.photo === null) {
+      out.photoData = null;
+      out.photoMime = null;
+    } else if (typeof body.photo === "string") {
+      const mime = typeof body.photoMime === "string" ? body.photoMime : "";
+      if (!PHOTO_MIMES.has(mime)) {
+        errors.push("Photo must be jpeg/webp/png");
+      } else if (body.photo.length > MAX_PHOTO_B64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(body.photo)) {
+        errors.push("Photo too large or invalid");
+      } else {
+        out.photoData = body.photo;
+        out.photoMime = mime;
+      }
+    }
+  }
 
   return { out, errors };
 }
@@ -92,7 +120,23 @@ export async function GET(request: NextRequest) {
 
     const tag = request.nextUrl.searchParams.get("tag");
     const rows = await db
-      .select()
+      .select({
+        id: schema.expenses.id,
+        userId: schema.expenses.userId,
+        tag: schema.expenses.tag,
+        amountCents: schema.expenses.amountCents,
+        currency: schema.expenses.currency,
+        occurredOn: schema.expenses.occurredOn,
+        quantity: schema.expenses.quantity,
+        unit: schema.expenses.unit,
+        place: schema.expenses.place,
+        detail: schema.expenses.detail,
+        // photoData stays out of the list payload — fetched per-entry via
+        // /api/expenses/[id]/photo when the thumbnail is in view.
+        hasPhoto: sql<boolean>`${schema.expenses.photoData} IS NOT NULL`,
+        createdAt: schema.expenses.createdAt,
+        updatedAt: schema.expenses.updatedAt,
+      })
       .from(schema.expenses)
       .where(
         tag && TAG_RE.test(tag)
@@ -147,6 +191,9 @@ export async function POST(request: NextRequest) {
         quantity: (out.quantity as number | null) ?? null,
         unit: (out.unit as string | null) ?? null,
         place: (out.place as string | null) ?? null,
+        detail: (out.detail as string | null) ?? null,
+        photoData: (out.photoData as string | null) ?? null,
+        photoMime: (out.photoMime as string | null) ?? null,
       })
       .onConflictDoNothing({ target: schema.expenses.id })
       .returning();

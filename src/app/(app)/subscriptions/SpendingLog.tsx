@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   Fuel,
+  ImagePlus,
   Loader2,
   Pencil,
   Plus,
   Receipt,
+  Scissors,
   ShoppingBag,
   ShoppingBasket,
   Trash2,
@@ -17,17 +19,34 @@ import {
 import type { Expense } from "@/lib/db/schema";
 import { formatMoney } from "@/lib/subscriptions/math";
 
-// Small tag set — "gas" unlocks gallons + $/gal math; the rest are
-// amount + optional place. Tags are stored free-form but the picker
+// Small tag set — "gas" unlocks gallons + $/gal math; "haircut" unlocks
+// barber + photo thumbnail. Tags are stored free-form but the picker
 // keeps the list tight.
 const TAGS = [
-  { id: "gas", label: "Gas", icon: Fuel, unit: "gal", qtyLabel: "Gallons", placeLabel: "Station (optional)" },
-  { id: "groceries", label: "Groceries", icon: ShoppingBasket, unit: null, qtyLabel: null, placeLabel: "Store (optional)" },
-  { id: "dining", label: "Dining", icon: UtensilsCrossed, unit: null, qtyLabel: null, placeLabel: "Restaurant (optional)" },
-  { id: "shopping", label: "Shopping", icon: ShoppingBag, unit: null, qtyLabel: null, placeLabel: "Store (optional)" },
-  { id: "other", label: "Other", icon: Receipt, unit: null, qtyLabel: null, placeLabel: "Where (optional)" },
+  { id: "gas", label: "Gas", icon: Fuel, unit: "gal", qtyLabel: "Gallons", placeLabel: "Station (optional)", detailLabel: null, photo: false },
+  { id: "groceries", label: "Groceries", icon: ShoppingBasket, unit: null, qtyLabel: null, placeLabel: "Store (optional)", detailLabel: null, photo: false },
+  { id: "dining", label: "Dining", icon: UtensilsCrossed, unit: null, qtyLabel: null, placeLabel: "Restaurant (optional)", detailLabel: null, photo: false },
+  { id: "haircut", label: "Haircut", icon: Scissors, unit: null, qtyLabel: null, placeLabel: "Shop (optional)", detailLabel: "Barber (optional)", photo: true },
+  { id: "shopping", label: "Shopping", icon: ShoppingBag, unit: null, qtyLabel: null, placeLabel: "Store (optional)", detailLabel: null, photo: false },
+  { id: "other", label: "Other", icon: Receipt, unit: null, qtyLabel: null, placeLabel: "Where (optional)", detailLabel: null, photo: false },
 ] as const;
 type TagId = (typeof TAGS)[number]["id"];
+
+// The list API omits photo bytes and sends a flag instead.
+type ExpenseRow = Expense & { hasPhoto?: boolean };
+
+// Photo → ≤900px JPEG q0.72, ~60-150KB — small enough to live in the row.
+async function compressPhoto(file: File): Promise<{ b64: string; dataUrl: string }> {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const scale = Math.min(1, 900 / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bmp.width * scale));
+  canvas.height = Math.max(1, Math.round(bmp.height * scale));
+  canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close();
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
+  return { b64: dataUrl.split(",")[1], dataUrl };
+}
 
 function daysBetween(a: string, b: string) {
   return Math.round((new Date(b + "T00:00:00").getTime() - new Date(a + "T00:00:00").getTime()) / 86_400_000);
@@ -38,14 +57,21 @@ interface FormState {
   amount: string;
   quantity: string;
   place: string;
+  barber: string;
   occurredOn: string;
+  // Preview URL (data: or /api/.../photo) for the picker thumbnail.
+  photoUrl: string | null;
+  // Fresh base64 when the user picked a new photo this edit.
+  photoB64: string | null;
+  // True once the user picks/removes — tells PATCH to write the column.
+  photoDirty: boolean;
 }
 
 const today = () => new Date().toLocaleDateString("en-CA");
-const EMPTY: FormState = { tag: "gas", amount: "", quantity: "", place: "", occurredOn: today() };
+const EMPTY: FormState = { tag: "gas", amount: "", quantity: "", place: "", barber: "", occurredOn: today(), photoUrl: null, photoB64: null, photoDirty: false };
 
 export default function SpendingLog() {
-  const [entries, setEntries] = useState<Expense[]>([]);
+  const [entries, setEntries] = useState<ExpenseRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [activeTag, setActiveTag] = useState<TagId | null>(null);
@@ -74,7 +100,7 @@ export default function SpendingLog() {
   // better than a flat date column once the log gets long.
   const groups = useMemo(() => {
     const cap = expanded ? filtered.length : 20;
-    const out: { label: string; items: Expense[] }[] = [];
+    const out: { label: string; items: ExpenseRow[] }[] = [];
     for (const e of filtered.slice(0, cap)) {
       const label = new Date(e.occurredOn + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
       const last = out[out.length - 1];
@@ -138,7 +164,7 @@ export default function SpendingLog() {
     }
     setBusy(true);
     setError(null);
-    const payload = {
+    const payload: Record<string, unknown> = {
       tag: form.tag,
       amount,
       currency: "USD",
@@ -146,7 +172,12 @@ export default function SpendingLog() {
       quantity: tagDef.unit ? quantity : null,
       unit: tagDef.unit && quantity ? tagDef.unit : null,
       place: form.place.trim() || null,
+      detail: form.barber.trim() || null,
     };
+    if (form.photoDirty) {
+      payload.photo = form.photoB64;
+      payload.photoMime = form.photoB64 ? "image/jpeg" : null;
+    }
     try {
       const res = editingId
         ? await fetch("/api/expenses", {
@@ -161,19 +192,27 @@ export default function SpendingLog() {
           });
       const data = await res.json().catch(() => ({}));
       if (res.ok && (data.expense || data.offline)) {
-        const row: Expense = data.expense ?? {
-          id: editingId ?? (data.tempId as string),
-          userId: "",
-          tag: form.tag,
-          amountCents: Math.round(amount * 100),
-          currency: "USD",
-          occurredOn: form.occurredOn,
-          quantity,
-          unit: tagDef.unit ?? null,
-          place: form.place.trim() || null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
+        // POST/PATCH `.returning()` includes photoData — strip it, keep the flag.
+        const exp = (data.expense ?? null) as Expense | null;
+        const row: ExpenseRow = exp
+          ? { ...exp, photoData: null, photoMime: null, hasPhoto: Boolean(exp.photoData) }
+          : {
+              id: editingId ?? (data.tempId as string),
+              userId: "",
+              tag: form.tag,
+              amountCents: Math.round(amount * 100),
+              currency: "USD",
+              occurredOn: form.occurredOn,
+              quantity,
+              unit: tagDef.unit ?? null,
+              place: form.place.trim() || null,
+              detail: form.barber.trim() || null,
+              photoData: null,
+              photoMime: null,
+              hasPhoto: Boolean(form.photoB64 || (form.photoUrl && !form.photoDirty)),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            } as ExpenseRow;
         setEntries((prev) =>
           (editingId ? prev.map((x) => (x.id === editingId ? { ...x, ...row, id: editingId } : x)) : [row, ...prev])
             .sort((a, b) => b.occurredOn.localeCompare(a.occurredOn)),
@@ -192,7 +231,7 @@ export default function SpendingLog() {
     }
   }
 
-  function startEdit(e: Expense) {
+  function startEdit(e: ExpenseRow) {
     setEditingId(e.id);
     setAdding(true);
     setForm({
@@ -200,7 +239,11 @@ export default function SpendingLog() {
       amount: (e.amountCents / 100).toString(),
       quantity: e.quantity ? String(e.quantity) : "",
       place: e.place ?? "",
+      barber: e.detail ?? "",
       occurredOn: e.occurredOn,
+      photoUrl: e.hasPhoto ? `/api/expenses/${e.id}/photo` : null,
+      photoB64: null,
+      photoDirty: false,
     });
     setError(null);
   }
@@ -451,7 +494,68 @@ export default function SpendingLog() {
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
               />
             </label>
+            {tagDef.detailLabel && (
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>{tagDef.detailLabel}</span>
+                <input
+                  value={form.barber}
+                  onChange={(e) => setForm({ ...form, barber: e.target.value })}
+                  placeholder="Sam"
+                  maxLength={80}
+                  className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                />
+              </label>
+            )}
           </div>
+
+          {/* Photo thumbnail — compressed client-side before upload */}
+          {tagDef.photo && (
+            <div className="mt-3 flex items-center gap-3">
+              {form.photoUrl ? (
+                <span className="relative block h-16 w-16 shrink-0 overflow-hidden rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- thumb from canvas/user file */}
+                  <img src={form.photoUrl} alt="Haircut" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, photoUrl: null, photoB64: null, photoDirty: true })}
+                    className="absolute right-0.5 top-0.5 rounded-full p-0.5"
+                    style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 70%, transparent)", color: "var(--color-paper)" }}
+                    aria-label="Remove photo"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : (
+                <label
+                  className="flex h-16 w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed transition-colors hover:bg-[var(--color-paper)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  <span className="text-[9px] font-medium uppercase tracking-wide">Photo</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!f) return;
+                      try {
+                        const { b64, dataUrl } = await compressPhoto(f);
+                        setForm((prev) => ({ ...prev, photoUrl: dataUrl, photoB64: b64, photoDirty: true }));
+                      } catch {
+                        setError("Couldn't read that image");
+                      }
+                    }}
+                  />
+                </label>
+              )}
+              <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                {form.photoUrl ? "Compressed — saved with the entry." : "Optional — a photo of the cut."}
+              </p>
+            </div>
+          )}
 
           {unitPrice !== null && (
             <p className="mt-2 text-sm font-medium tabular-nums" style={{ color: "var(--color-accent)" }}>
@@ -503,10 +607,17 @@ export default function SpendingLog() {
                 >
                   <Icon className="h-3.5 w-3.5" /> <span className="hidden sm:inline">{t.label}</span>
                 </span>
+                {e.hasPhoto && (
+                  <span className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element -- owner-scoped thumb */}
+                    <img src={`/api/expenses/${e.id}/photo`} alt="" loading="lazy" className="h-full w-full object-cover" />
+                  </span>
+                )}
                 <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink-muted)" }}>
                   {e.quantity && e.unit ? `${e.quantity} ${e.unit}` : ""}
                   {per !== null ? ` · $${per.toFixed(2)}/${e.unit}` : ""}
                   {e.place ? `${e.quantity || per ? " · " : ""}${e.place}` : ""}
+                  {e.detail ? `${e.quantity || per || e.place ? " · " : ""}${e.detail}` : ""}
                 </span>
                 <span className="shrink-0 text-sm font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
                   {formatMoney(e.amountCents, e.currency)}

@@ -15,10 +15,10 @@ export default function ToolsFab() {
     () => true,
     () => false,
   );
-  // Pre-hydration: a spacer keeps the nav layout stable. Once the cached
-  // prefs are known, hidden means truly gone — no empty slot.
-  if (!ready) return <div className="min-w-0 flex-1" aria-hidden />;
-  if (hiddenTabs.has("tools-fab")) return null;
+  // Render the button unconditionally pre-hydration (default = shown) so
+  // the raised circle doesn't pop in ~1s after load. The hide pref applies
+  // only post-hydration — for users who disabled it, it drops out once.
+  if (ready && hiddenTabs.has("tools-fab")) return null;
 
   return (
     <button

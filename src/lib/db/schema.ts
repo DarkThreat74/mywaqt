@@ -1181,6 +1181,13 @@ export const expenses = pgTable('expenses', {
   unit: text('unit'),
   // Where it was bought — station, store, etc.
   place: text('place'),
+  // Free-text detail — barber name for haircuts, memo for other tags.
+  detail: text('detail'),
+  // Photo thumbnail — client compresses to a small JPEG, stored as base64
+  // text (TOASTed). Never selected in list queries — served via
+  // /api/expenses/[id]/photo.
+  photoData: text('photo_data'),
+  photoMime: text('photo_mime'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({

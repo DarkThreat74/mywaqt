@@ -297,6 +297,7 @@ function MobileNavItem({ label, href, icon: Icon, alert }: { label: string; href
   return (
     <Link
       href={href}
+      prefetch
       className="flex min-w-0 flex-1 flex-col items-center gap-1 py-3 text-[11px] font-medium"
       style={{ color: "var(--color-ink-muted)", minHeight: 44 }}
     >
