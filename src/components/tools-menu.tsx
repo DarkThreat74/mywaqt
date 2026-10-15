@@ -626,6 +626,12 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
           animation: drawer-jiggle-kf 0.18s ease-in-out infinite alternate !important;
         }
         .drawer-jiggle:nth-child(2n) { animation-direction: alternate-reverse !important; }
+        /* Long-press must not summon iOS's callout / text selection. */
+        [aria-label="My apps"] button, [aria-label="My apps"] button * {
+          -webkit-touch-callout: none;
+          -webkit-user-select: none;
+          user-select: none;
+        }
       `}</style>
     </>
   );
