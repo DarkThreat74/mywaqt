@@ -97,7 +97,12 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
 
   // Leaving edit mode mid-gesture must end any drag too.
   useEffect(() => {
-    if (!editing) drag.current = null;
+    if (editing) return;
+    drag.current = null;
+    setDragPos(null);
+    setDragItem(null);
+    setHoverId(null);
+    setMergeId(null);
   }, [editing]);
 
   function dismiss() {
@@ -120,6 +125,9 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     mergeTimer: ReturnType<typeof setTimeout> | null;
   } | null>(null);
   const [mergeId, setMergeId] = useState<string | null>(null);
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
+  const [dragItem, setDragItem] = useState<LayoutItem | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const editingRef = useRef(editing);
@@ -164,10 +172,12 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
       const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
       if (dist > 10 && pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
       if (!editingRef.current) return; // not in edit mode yet — just cancelling the long-press
-      if (!d.active && dist > 10) d.active = true;
+      if (!d.active && dist > 10) { d.active = true; setDragItem(d.item); }
       if (!d.active) return;
+      setDragPos({ x: e.clientX, y: e.clientY });
       const tgt = pointerTargetIdx(e.clientX, e.clientY);
       const tgtItem = tgt >= 0 ? itemsRef.current[tgt] : null;
+      setHoverId(tgtItem && tgtItem !== d.item ? itemId(tgtItem) : null);
       if (!tgtItem || tgtItem === d.item) { setMerge(d, null); return; }
 
       // Dwell over a tile → merge candidate (folder create/add). Apps only.
@@ -193,6 +203,9 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
       if (d.mergeTimer) clearTimeout(d.mergeTimer);
       const merge = d.mergeItem;
       setMergeId(null);
+      setHoverId(null);
+      setDragPos(null);
+      setDragItem(null);
       if (d.active && merge && merge !== d.item) {
         // Drop onto another item → folder.
         setItems((prev) => {
@@ -373,7 +386,9 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
 
                 {items.map((item) => {
                   const delay = `${0.12 + 0.025 * animIdx++}s`;
-                  const merging = mergeId === itemId(item);
+                  const hovered = hoverId === itemId(item);   // pointer is on it
+                  const merging = mergeId === itemId(item);   // dwell elapsed — will merge
+                  const lifted = dragItem === item;           // being dragged — ghost the slot
                   if (item.type === "folder") {
                     return (
                       <button
@@ -381,10 +396,12 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                         type="button"
                         onPointerDown={(e) => onTilePointerDown(e, item)}
                         onClick={() => tileClick(item)}
-                        className={`flex flex-col items-center gap-1.5 ${editing ? "drawer-jiggle" : ""}`}
+                        className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
                         style={{
                           animation: editing ? undefined : `drawer-app-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) ${delay} both`,
-                          outline: merging ? "2px solid var(--color-accent)" : "none",
+                          outline: hovered ? "2px solid var(--color-accent)" : "none",
+                          outlineOffset: 2,
+                          transform: merging ? "scale(1.12)" : hovered ? "scale(1.05)" : undefined,
                           borderRadius: 16,
                         }}
                         aria-label={`${item.name} folder`}
@@ -427,10 +444,12 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                       type="button"
                       onPointerDown={(e) => onTilePointerDown(e, item)}
                       onClick={() => tileClick(item)}
-                      className={`flex flex-col items-center gap-1.5 ${editing ? "drawer-jiggle" : ""}`}
+                      className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
                       style={{
                         animation: editing ? undefined : `drawer-app-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) ${delay} both`,
-                        outline: merging ? "2px solid var(--color-accent)" : "none",
+                        outline: hovered ? "2px solid var(--color-accent)" : "none",
+                        outlineOffset: 2,
+                        transform: merging ? "scale(1.12)" : hovered ? "scale(1.05)" : undefined,
                         borderRadius: 16,
                       }}
                       aria-label={app.label}
@@ -473,6 +492,33 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
               )}
             </div>
           </div>
+
+          {/* Lifted tile — follows the pointer while dragging */}
+          {dragPos && dragItem && (
+            <div
+              className="pointer-events-none fixed z-[120]"
+              style={{
+                left: dragPos.x - 28,
+                top: dragPos.y - 28,
+                transform: "scale(1.08)",
+                filter: "drop-shadow(0 8px 16px color-mix(in oklab, var(--color-ink) 30%, transparent))",
+              }}
+            >
+              {dragItem.type === "app" ? (
+                iconTile(dragItem.key, 56)
+              ) : (
+                <span
+                  className="grid h-14 w-14 grid-cols-2 place-items-center gap-0.5 rounded-2xl p-2"
+                  style={{ backgroundColor: "var(--color-paper-2)", border: "1px solid var(--color-paper-3)" }}
+                >
+                  {dragItem.keys.slice(0, 4).map((k) => {
+                    const A = APP_BY_KEY.get(k)?.art;
+                    return A ? <span key={k} className="h-4 w-4" style={{ color: "var(--color-ink-soft)" }}><A /></span> : null;
+                  })}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Expanded folder — iOS-style panel above the grid */}
           {openFolder && (
