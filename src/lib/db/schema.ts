@@ -1218,6 +1218,10 @@ export const friends = pgTable('friends', {
   trust: text('trust'),
   // "Can you be fully yourself around them?" — 'always' | 'mostly' | 'rarely'
   openness: text('openness'),
+  // "If they moved away…" — 'gutted' | 'alot' | 'alittle'
+  miss: text('miss'),
+  // "Good news — who do you tell?" — 'first' | 'eventually' | 'rarely'
+  tell: text('tell'),
   // Computed server-side from the questionnaire (0–100).
   score: integer('score'),
   // Phone — optional, imported from device contacts or typed.

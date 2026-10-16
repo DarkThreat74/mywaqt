@@ -24,6 +24,8 @@ interface Friend {
   knownYears: string | null;
   trust: string | null;
   openness: string | null;
+  miss: string | null;
+  tell: string | null;
   score: number | null;
   phone: string | null;
   notes: string | null;
@@ -63,14 +65,24 @@ const YEARS = [
   { id: "y7p", label: "7+ years" },
 ];
 const TRUST = [
-  { id: "definitely", label: "No doubt" },
+  { id: "definitely", label: "They're my first call" },
   { id: "probably", label: "Probably" },
-  { id: "unsure", label: "Not sure" },
+  { id: "unsure", label: "I wouldn't" },
 ];
 const OPENNESS = [
   { id: "always", label: "Completely" },
   { id: "mostly", label: "Mostly" },
   { id: "rarely", label: "I hold back" },
+];
+const MISS = [
+  { id: "gutted", label: "It'd hurt a lot" },
+  { id: "alot", label: "I'd miss them" },
+  { id: "alittle", label: "A little" },
+];
+const TELL = [
+  { id: "first", label: "They're first to know" },
+  { id: "eventually", label: "Eventually" },
+  { id: "rarely", label: "Not really" },
 ];
 
 const TIERS = [
@@ -199,6 +211,8 @@ export default function FriendsClient() {
   const [years, setYears] = useState<string | null>(null);
   const [trust, setTrust] = useState<string | null>(null);
   const [openness, setOpenness] = useState<string | null>(null);
+  const [miss, setMiss] = useState<string | null>(null);
+  const [tell, setTell] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
 
   function openSheet(f: Friend | "new" | "self" | null) {
@@ -213,12 +227,14 @@ export default function FriendsClient() {
       setLastName(parts.slice(1).join(" "));
       setMetTag(f.metTag); setMetDetail(f.metDetail ?? "");
       setFreq(f.talkFreq); setYears(f.knownYears); setTrust(f.trust); setOpenness(f.openness);
+      setMiss(f.miss); setTell(f.tell);
       setPhone(f.phone ?? "");
       setNotes(f.notes ?? "");
     } else {
       setFirstName(""); setLastName("");
       setMetTag(null); setMetDetail(""); setFreq(null);
-      setYears(null); setTrust(null); setOpenness(null); setPhone(""); setNotes("");
+      setYears(null); setTrust(null); setOpenness(null); setMiss(null); setTell(null);
+      setPhone(""); setNotes("");
     }
   }
 
@@ -255,7 +271,8 @@ export default function FriendsClient() {
       const editing = sheet !== "new" && sheet !== "self" && sheet !== null;
       const payload: Record<string, unknown> = {
         name: n, metTag, metDetail: metDetail || null, talkFreq: freq,
-        knownYears: years, trust, openness, phone: phone || null, notes: notes || null,
+        knownYears: metTag === "childhood" ? "y7p" : years,
+        trust, openness, miss, tell, phone: phone || null, notes: notes || null,
       };
       if (photo.dirty) {
         payload.photo = photo.data || null;
@@ -300,7 +317,7 @@ export default function FriendsClient() {
     display: "block",
   };
 
-  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, metTag });
+  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, metTag });
   const previewTier = TIERS[friendTier(previewScore)];
 
   return (
@@ -529,8 +546,10 @@ export default function FriendsClient() {
                 f.metTag ? ["Met", [metLabel(f.metTag), f.metDetail].filter(Boolean).join(" · ")] : null,
                 f.knownYears ? ["Known", YEARS.find((y) => y.id === f.knownYears)?.label ?? f.knownYears] : null,
                 f.talkFreq ? ["Talk", freqLabel(f.talkFreq) ?? f.talkFreq] : null,
-                f.trust ? ["3am test", TRUST.find((x) => x.id === f.trust)?.label ?? f.trust] : null,
+                f.trust ? ["3am call", TRUST.find((x) => x.id === f.trust)?.label ?? f.trust] : null,
                 f.openness ? ["Yourself around them", OPENNESS.find((x) => x.id === f.openness)?.label ?? f.openness] : null,
+                f.miss ? ["If they moved away", MISS.find((x) => x.id === f.miss)?.label ?? f.miss] : null,
+                f.tell ? ["Big news", TELL.find((x) => x.id === f.tell)?.label ?? f.tell] : null,
               ].filter((r): r is [string, string] => !!r);
               return (
                 <div>
@@ -632,7 +651,7 @@ export default function FriendsClient() {
                   {photo.dirty || (sheet !== "new" && (sheet as Friend).hasPhoto) ? "Change" : "Add one"}
                 </button>
                 <button onClick={pickFromContacts} className="ml-3 inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>
-                  <ContactRound className="h-3 w-3" /> From contacts
+                  <ContactRound className="h-3 w-3" /> {editing ? "Connect to contacts" : "From contacts"}
                 </button>
                 {(photo.dirty || (sheet !== "new" && (sheet as Friend).hasPhoto)) && (
                   <button onClick={() => setPhoto({ data: "", mime: "", dirty: true })} className="ml-3 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -703,14 +722,16 @@ export default function FriendsClient() {
               />
             )}
 
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>How long have you known them?</label>
-            <div className="mb-4 flex flex-wrap gap-1.5">
-              {YEARS.map((y) => (
-                <button key={y.id} onClick={() => setYears(years === y.id ? null : y.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(years === y.id)}>
-                  {y.label}
-                </button>
-              ))}
-            </div>
+            {metTag !== "childhood" && (<>
+              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>How long have you known them?</label>
+              <div className="mb-4 flex flex-wrap gap-1.5">
+                {YEARS.map((y) => (
+                  <button key={y.id} onClick={() => setYears(years === y.id ? null : y.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(years === y.id)}>
+                    {y.label}
+                  </button>
+                ))}
+              </div>
+            </>)}
 
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>How often do you talk?</label>
             <div className="mb-4 flex flex-wrap gap-1.5">
@@ -721,7 +742,7 @@ export default function FriendsClient() {
               ))}
             </div>
 
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>If you needed them at 3am, would they show up?</label>
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>If you needed help at 3am, would you call them?</label>
             <div className="mb-4 flex flex-wrap gap-1.5">
               {TRUST.map((tr) => (
                 <button key={tr.id} onClick={() => setTrust(trust === tr.id ? null : tr.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(trust === tr.id)}>
@@ -731,10 +752,28 @@ export default function FriendsClient() {
             </div>
 
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>Can you be fully yourself around them?</label>
-            <div className="mb-3 flex flex-wrap gap-1.5">
+            <div className="mb-4 flex flex-wrap gap-1.5">
               {OPENNESS.map((o) => (
                 <button key={o.id} onClick={() => setOpenness(openness === o.id ? null : o.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(openness === o.id)}>
                   {o.label}
+                </button>
+              ))}
+            </div>
+
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>If they moved far away, how much would you miss them?</label>
+            <div className="mb-4 flex flex-wrap gap-1.5">
+              {MISS.map((m) => (
+                <button key={m.id} onClick={() => setMiss(miss === m.id ? null : m.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(miss === m.id)}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>When something big happens in your life, do you tell them?</label>
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {TELL.map((t) => (
+                <button key={t.id} onClick={() => setTell(tell === t.id ? null : t.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(tell === t.id)}>
+                  {t.label}
                 </button>
               ))}
             </div>
