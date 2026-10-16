@@ -1211,6 +1211,15 @@ export const friends = pgTable('friends', {
   metDetail: text('met_detail'),
   // How often you talk — 'daily' | 'weekly' | 'monthly' | 'rarely'
   talkFreq: text('talk_freq'),
+  // Closeness questionnaire — see src/lib/friends-score.ts.
+  // 'lt1' | 'y1_3' | 'y3_7' | 'y7p'
+  knownYears: text('known_years'),
+  // "Would they show up at 3am?" — 'definitely' | 'probably' | 'unsure'
+  trust: text('trust'),
+  // "Can you be fully yourself around them?" — 'always' | 'mostly' | 'rarely'
+  openness: text('openness'),
+  // Computed server-side from the questionnaire (0–100).
+  score: integer('score'),
   // Habits, quotes, anything worth remembering about them.
   notes: text('notes'),
   // Avatar — client-compressed JPEG as base64 text (TOASTed). Never

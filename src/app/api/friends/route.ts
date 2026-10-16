@@ -5,11 +5,15 @@ import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
+import { friendScore } from "@/lib/friends-score";
 
 export const dynamic = "force-dynamic";
 
 const MET_TAGS = new Set(["school", "childhood", "work", "online", "family", "masjid", "other"]);
 const TALK_FREQS = new Set(["daily", "weekly", "monthly", "rarely"]);
+const KNOWN_YEARS = new Set(["lt1", "y1_3", "y3_7", "y7p"]);
+const TRUST = new Set(["definitely", "probably", "unsure"]);
+const OPENNESS = new Set(["always", "mostly", "rarely"]);
 const PHOTO_MIMES = new Set(["image/jpeg", "image/webp", "image/png"]);
 const MAX_PHOTO_B64 = 800_000;
 
@@ -19,6 +23,9 @@ interface FriendBody {
   metTag?: string | null;
   metDetail?: string | null;
   talkFreq?: string | null;
+  knownYears?: string | null;
+  trust?: string | null;
+  openness?: string | null;
   notes?: string | null;
   photo?: string | null;
   photoMime?: string | null;
@@ -48,6 +55,21 @@ function validateFields(body: FriendBody, partial: boolean) {
     const f = typeof body.talkFreq === "string" ? body.talkFreq.trim().toLowerCase() : null;
     if (f && !TALK_FREQS.has(f)) errors.push("Invalid talk frequency");
     else out.talkFreq = f;
+  }
+  if (body.knownYears !== undefined) {
+    const v = typeof body.knownYears === "string" ? body.knownYears.trim().toLowerCase() : null;
+    if (v && !KNOWN_YEARS.has(v)) errors.push("Invalid known duration");
+    else out.knownYears = v;
+  }
+  if (body.trust !== undefined) {
+    const v = typeof body.trust === "string" ? body.trust.trim().toLowerCase() : null;
+    if (v && !TRUST.has(v)) errors.push("Invalid trust answer");
+    else out.trust = v;
+  }
+  if (body.openness !== undefined) {
+    const v = typeof body.openness === "string" ? body.openness.trim().toLowerCase() : null;
+    if (v && !OPENNESS.has(v)) errors.push("Invalid openness answer");
+    else out.openness = v;
   }
   if (body.notes !== undefined) {
     const n = typeof body.notes === "string" ? body.notes.trim() || null : null;
@@ -90,6 +112,10 @@ export async function GET(request: NextRequest) {
         metTag: schema.friends.metTag,
         metDetail: schema.friends.metDetail,
         talkFreq: schema.friends.talkFreq,
+        knownYears: schema.friends.knownYears,
+        trust: schema.friends.trust,
+        openness: schema.friends.openness,
+        score: schema.friends.score,
         notes: schema.friends.notes,
         hasPhoto: sql<boolean>`${schema.friends.photoData} IS NOT NULL`,
         createdAt: schema.friends.createdAt,
@@ -140,6 +166,10 @@ export async function POST(request: NextRequest) {
         metTag: (out.metTag as string | null) ?? null,
         metDetail: (out.metDetail as string | null) ?? null,
         talkFreq: (out.talkFreq as string | null) ?? null,
+        knownYears: (out.knownYears as string | null) ?? null,
+        trust: (out.trust as string | null) ?? null,
+        openness: (out.openness as string | null) ?? null,
+        score: friendScore(out as Parameters<typeof friendScore>[0]),
         notes: (out.notes as string | null) ?? null,
         photoData: (out.photoData as string | null) ?? null,
         photoMime: (out.photoMime as string | null) ?? null,
@@ -192,6 +222,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
+    const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness"].some((k) => k in out);
     const [row] = await db
       .update(schema.friends)
       .set({ ...out, updatedAt: new Date() })
@@ -199,6 +230,14 @@ export async function PATCH(request: NextRequest) {
       .returning();
 
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (scored) {
+      const [rescored] = await db
+        .update(schema.friends)
+        .set({ score: friendScore(row) })
+        .where(eq(schema.friends.id, row.id))
+        .returning();
+      return NextResponse.json({ friend: rescored });
+    }
     return NextResponse.json({ friend: row });
   } catch (err) {
     logError(err, { route: "friends/PATCH" });
