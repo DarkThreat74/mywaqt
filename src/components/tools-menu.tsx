@@ -61,6 +61,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     active: boolean;
     mergeItem: LayoutItem | null;
     mergeTimer: ReturnType<typeof setTimeout> | null;
+    dropIdx: number; // last hovered items[] slot — reorder target on drop
   } | null>(null);
   const [mergeId, setMergeId] = useState<string | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
@@ -116,7 +117,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     }, 450);
     // Already jiggling? The icon lifts under the finger immediately.
     if (editingRef.current) setPressId(itemId(item));
-    drag.current = { item, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, mergeItem: null, mergeTimer: null };
+    drag.current = { item, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, mergeItem: null, mergeTimer: null, dropIdx: -1 };
   }
 
   function commit(next: LayoutItem[]) {
@@ -238,25 +239,15 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
       const tgt = pointerTargetIdx(e.clientX, e.clientY);
       const tgtItem = tgt >= 0 ? itemsRef.current[tgt] : null;
       setHoverId(tgtItem && tgtItem !== d.item ? itemId(tgtItem) : null);
-      if (!tgtItem || tgtItem === d.item) { setMerge(d, null); return; }
+      if (!tgtItem || tgtItem === d.item) { setMerge(d, null); d.dropIdx = -1; return; }
 
+      d.dropIdx = tgt;
       // Dwell over a tile → merge candidate (folder create/add). Apps only.
+      // No live reorder here — moving the dragged tile into the hovered
+      // slot makes the next hit-test return the dragged item itself,
+      // which instantly cancels the merge. Commit happens on drop.
       if (d.item.type === "app" && d.mergeItem !== tgtItem) setMerge(d, tgtItem);
       else if (d.item.type === "folder") setMerge(d, null);
-
-      // Reorder live: move the dragged item to the hovered slot. The ref
-      // is authoritative — pointerup may fire before the last setItems
-      // flush, and saving a stale snapshot silently loses the reorder.
-      const prev = itemsRef.current;
-      const from = prev.indexOf(d.item);
-      const to = prev.indexOf(tgtItem);
-      if (from !== -1 && to !== -1 && from !== to) {
-        const next = [...prev];
-        const [moved] = next.splice(from, 1);
-        next.splice(to, 0, moved);
-        itemsRef.current = next;
-        setItems(next);
-      }
     };
     const up = (e: PointerEvent) => {
       if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
@@ -265,6 +256,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
       if (!d || e.pointerId !== d.pointerId) return;
       if (d.mergeTimer) clearTimeout(d.mergeTimer);
       const merge = d.mergeItem;
+      const dropIdx = d.dropIdx;
       setMergeId(null);
       setHoverId(null);
       setDragPos(null);
@@ -296,6 +288,19 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
             }
           }
         }
+      } else if (d.active && dropIdx >= 0) {
+        // Reorder on drop — the ref is authoritative; saving before the
+        // last setItems flush would silently lose the move.
+        const prev = itemsRef.current;
+        const from = prev.indexOf(d.item);
+        if (from !== -1 && from !== dropIdx) {
+          const next = [...prev];
+          const [moved] = next.splice(from, 1);
+          next.splice(dropIdx, 0, moved);
+          itemsRef.current = next;
+          setItems(next);
+        }
+        saveLayout(itemsRef.current);
       } else {
         saveLayout(itemsRef.current);
       }
