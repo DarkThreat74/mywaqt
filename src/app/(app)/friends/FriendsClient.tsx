@@ -236,7 +236,7 @@ export default function FriendsClient() {
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-24 sm:px-6">
         {/* ── The map ── */}
-        {friends.length > 0 && (
+        {(friends.length > 0 || loaded) && (
           <div className="relative mx-auto mt-4 aspect-square w-full max-w-md">
             <svg viewBox="0 0 100 100" className="h-full w-full">
               {TIERS.map((t, i) => (
@@ -308,14 +308,8 @@ export default function FriendsClient() {
         })}
 
         {loaded && friends.length === 0 && (
-          <div className="flex flex-col items-center py-20 text-center">
-            <div className="mb-4 grid h-16 w-16 grid-cols-2 place-items-center gap-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-ink-muted)" }} />
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-ink-muted)" }} />
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-ink-muted)" }} />
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-ink-muted)" }} />
-            </div>
-            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>No one on the map yet</p>
+          <div className="flex flex-col items-center pt-6 pb-14 text-center">
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>It's just you out here</p>
             <p className="mt-1 max-w-52 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
               Add the people who matter — the closer they are, the tighter their orbit.
             </p>
