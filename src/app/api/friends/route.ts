@@ -12,10 +12,11 @@ export const dynamic = "force-dynamic";
 const MET_TAGS = new Set(["school", "childhood", "work", "online", "family", "masjid", "neighbor", "mutual", "sports", "travel", "other"]);
 const TALK_FREQS = new Set(["daily", "weekly", "monthly", "rarely"]);
 const KNOWN_YEARS = new Set(["lt1", "y1_3", "y3_7", "y7p"]);
-const TRUST = new Set(["definitely", "probably", "unsure"]);
+const TRUST = new Set(["definitely", "topfew", "probably", "depends", "unsure"]);
 const OPENNESS = new Set(["always", "mostly", "rarely"]);
 const MISS = new Set(["gutted", "alot", "alittle"]);
 const TELL = new Set(["first", "eventually", "rarely"]);
+const PHASE = new Set(["steady", "wascloser", "distant"]);
 const PHOTO_MIMES = new Set(["image/jpeg", "image/webp", "image/png"]);
 const MAX_PHOTO_B64 = 800_000;
 
@@ -30,6 +31,7 @@ interface FriendBody {
   openness?: string | null;
   miss?: string | null;
   tell?: string | null;
+  phase?: string | null;
   phone?: string | null;
   notes?: string | null;
   photo?: string | null;
@@ -86,6 +88,11 @@ function validateFields(body: FriendBody, partial: boolean) {
     if (v && !TELL.has(v)) errors.push("Invalid tell answer");
     else out.tell = v;
   }
+  if (body.phase !== undefined) {
+    const v = typeof body.phase === "string" ? body.phase.trim().toLowerCase() : null;
+    if (v && !PHASE.has(v)) errors.push("Invalid phase answer");
+    else out.phase = v;
+  }
   if (body.phone !== undefined) {
     const p = typeof body.phone === "string" ? body.phone.trim() || null : null;
     if (p && (p.length > 40 || !/^[\d+\-()\s.]+$/.test(p))) errors.push("Invalid phone number");
@@ -138,6 +145,7 @@ export async function GET(request: NextRequest) {
         score: schema.friends.score,
         miss: schema.friends.miss,
         tell: schema.friends.tell,
+        phase: schema.friends.phase,
         phone: schema.friends.phone,
         notes: schema.friends.notes,
         hasPhoto: sql<boolean>`${schema.friends.photoData} IS NOT NULL`,
@@ -195,6 +203,7 @@ export async function POST(request: NextRequest) {
         score: friendScore(out as Parameters<typeof friendScore>[0]),
         miss: (out.miss as string | null) ?? null,
         tell: (out.tell as string | null) ?? null,
+        phase: (out.phase as string | null) ?? null,
         phone: (out.phone as string | null) ?? null,
         notes: (out.notes as string | null) ?? null,
         photoData: (out.photoData as string | null) ?? null,
@@ -248,7 +257,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
-    const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell"].some((k) => k in out);
+    const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell", "phase"].some((k) => k in out);
     const [row] = await db
       .update(schema.friends)
       .set({ ...out, updatedAt: new Date() })

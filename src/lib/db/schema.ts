@@ -1222,6 +1222,8 @@ export const friends = pgTable('friends', {
   miss: text('miss'),
   // "Good news — who do you tell?" — 'first' | 'eventually' | 'rarely'
   tell: text('tell'),
+  // "Where does this friendship stand?" — 'steady' | 'wascloser' | 'distant'
+  phase: text('phase'),
   // Computed server-side from the questionnaire (0–100).
   score: integer('score'),
   // Phone — optional, imported from device contacts or typed.

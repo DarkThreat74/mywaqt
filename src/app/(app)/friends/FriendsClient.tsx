@@ -26,6 +26,7 @@ interface Friend {
   openness: string | null;
   miss: string | null;
   tell: string | null;
+  phase: string | null;
   score: number | null;
   phone: string | null;
   notes: string | null;
@@ -74,7 +75,8 @@ const YEARS = [
 ];
 const TRUST = [
   { id: "definitely", label: "They're my first call" },
-  { id: "probably", label: "Probably" },
+  { id: "topfew", label: "In my top few" },
+  { id: "depends", label: "Depends on the situation" },
   { id: "unsure", label: "I wouldn't" },
 ];
 const OPENNESS = [
@@ -82,15 +84,15 @@ const OPENNESS = [
   { id: "mostly", label: "Mostly" },
   { id: "rarely", label: "I hold back" },
 ];
-const MISS = [
-  { id: "gutted", label: "It'd hurt a lot" },
-  { id: "alot", label: "I'd miss them" },
-  { id: "alittle", label: "A little" },
+const PHASE = [
+  { id: "steady", label: "As tight as ever" },
+  { id: "wascloser", label: "We were closer once" },
+  { id: "distant", label: "Friendly but distant" },
 ];
 const TELL = [
-  { id: "first", label: "They're first to know" },
-  { id: "eventually", label: "Eventually" },
-  { id: "rarely", label: "Not really" },
+  { id: "first", label: "They'd hear it from me" },
+  { id: "eventually", label: "They'd find out eventually" },
+  { id: "rarely", label: "I wouldn't go out of my way" },
 ];
 
 const TIERS = [
@@ -221,6 +223,7 @@ export default function FriendsClient() {
   const [openness, setOpenness] = useState<string | null>(null);
   const [miss, setMiss] = useState<string | null>(null);
   const [tell, setTell] = useState<string | null>(null);
+  const [phase, setPhase] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [notes, setNotes] = useState("");
 
@@ -237,13 +240,13 @@ export default function FriendsClient() {
       setLastName(parts.slice(1).join(" "));
       setMetTag(f.metTag); setMetDetail(f.metDetail ?? "");
       setFreq(f.talkFreq); setYears(f.knownYears); setTrust(f.trust); setOpenness(f.openness);
-      setMiss(f.miss); setTell(f.tell);
+      setMiss(f.miss); setTell(f.tell); setPhase(f.phase);
       setPhone(f.phone ?? "");
       setNotes(f.notes ?? "");
     } else {
       setFirstName(""); setLastName("");
       setMetTag(null); setMetDetail(""); setFreq(null);
-      setYears(null); setTrust(null); setOpenness(null); setMiss(null); setTell(null);
+      setYears(null); setTrust(null); setOpenness(null); setMiss(null); setTell(null); setPhase(null);
       setPhone(""); setNotes("");
     }
   }
@@ -282,7 +285,7 @@ export default function FriendsClient() {
       const payload: Record<string, unknown> = {
         name: n, metTag, metDetail: metDetail || null, talkFreq: freq,
         knownYears: metTag === "childhood" ? "y7p" : years,
-        trust, openness, miss, tell, phone: phone || null, notes: notes || null,
+        trust, openness, miss, tell, phase, phone: phone || null, notes: notes || null,
       };
       if (photo.dirty) {
         payload.photo = photo.data || null;
@@ -327,7 +330,7 @@ export default function FriendsClient() {
     display: "block",
   };
 
-  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, metTag });
+  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, phase, metTag });
   const previewTier = TIERS[friendTier(previewScore)];
 
   // ── Stepped questionnaire — one question at a time ───────────────
@@ -336,9 +339,9 @@ export default function FriendsClient() {
     ...(metTag === "childhood" ? [] : [{ id: "years", q: "How long have you known them?", answered: !!years }]),
     { id: "freq", q: "How often do you talk?", answered: !!freq },
     { id: "trust", q: "If you needed help at 3am, would you call them?", answered: !!trust },
-    { id: "open", q: "Can you be fully yourself around them?", answered: !!openness },
-    { id: "miss", q: "If they moved far away, how much would you miss them?", answered: !!miss },
-    { id: "tell", q: "When something big happens in your life, do you tell them?", answered: !!tell },
+    { id: "open", q: "Can you be fully yourself around them — jokes, problems, the real stuff?", answered: !!openness },
+    { id: "tell", q: "When something big happens in your life, do they hear it from you?", answered: !!tell },
+    { id: "phase", q: "Where does this friendship stand right now?", answered: !!phase },
   ];
   const cur = Math.min(step, steps.length - 1);
   const nextStep = () => setTimeout(() => setStep(Math.min(cur + 1, steps.length - 1)), 240);
@@ -584,8 +587,9 @@ export default function FriendsClient() {
                 f.talkFreq ? ["Talk", freqLabel(f.talkFreq) ?? f.talkFreq] : null,
                 f.trust ? ["3am call", TRUST.find((x) => x.id === f.trust)?.label ?? f.trust] : null,
                 f.openness ? ["Yourself around them", OPENNESS.find((x) => x.id === f.openness)?.label ?? f.openness] : null,
-                f.miss ? ["If they moved away", MISS.find((x) => x.id === f.miss)?.label ?? f.miss] : null,
                 f.tell ? ["Big news", TELL.find((x) => x.id === f.tell)?.label ?? f.tell] : null,
+                f.phase ? ["Right now", PHASE.find((x) => x.id === f.phase)?.label ?? f.phase] : null,
+                f.miss ? ["If they moved away", f.miss] : null,
               ].filter((r): r is [string, string] => !!r);
               return (
                 <div>
@@ -778,8 +782,8 @@ export default function FriendsClient() {
                 {steps[cur].id === "freq" && chipsRow(FREQS, freq, setFreq)}
                 {steps[cur].id === "trust" && chipsRow(TRUST, trust, setTrust)}
                 {steps[cur].id === "open" && chipsRow(OPENNESS, openness, setOpenness)}
-                {steps[cur].id === "miss" && chipsRow(MISS, miss, setMiss)}
                 {steps[cur].id === "tell" && chipsRow(TELL, tell, setTell)}
+                {steps[cur].id === "phase" && chipsRow(PHASE, phase, setPhase)}
 
                 <div className="mt-3 flex items-center justify-between">
                   {cur > 0 ? (
