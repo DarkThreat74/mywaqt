@@ -38,6 +38,10 @@ const MET_TAGS = [
   { id: "school", label: "School" },
   { id: "masjid", label: "Masjid" },
   { id: "work", label: "Work" },
+  { id: "neighbor", label: "Neighbor" },
+  { id: "mutual", label: "Through a friend" },
+  { id: "sports", label: "Sports / gym" },
+  { id: "travel", label: "Travel" },
   { id: "online", label: "Online" },
   { id: "other", label: "Other" },
 ];
@@ -49,6 +53,10 @@ const MET_FOLLOWUP: Record<string, { q: string; options: string[] }> = {
   school: { q: "When in school?", options: ["Elementary", "Middle school", "High school", "College"] },
   work: { q: "How did you work together?", options: ["Coworker", "Manager", "Client", "Same field"] },
   masjid: { q: "Where at the masjid?", options: ["Prayer line", "Youth group", "Class / circle", "Volunteering"] },
+  neighbor: { q: "Where?", options: ["Same street", "Building", "Neighborhood"] },
+  mutual: { q: "Through who?", options: ["Best friend", "Family", "Friend group"] },
+  sports: { q: "What do you play?", options: ["Football", "Basketball", "Gym", "Other sport"] },
+  travel: { q: "Where did you meet?", options: ["On a trip", "Abroad", "Airport / transit"] },
   online: { q: "Where online?", options: ["Game", "Social media", "Community", "Mutual friend"] },
 };
 
@@ -213,11 +221,13 @@ export default function FriendsClient() {
   const [openness, setOpenness] = useState<string | null>(null);
   const [miss, setMiss] = useState<string | null>(null);
   const [tell, setTell] = useState<string | null>(null);
+  const [step, setStep] = useState(0);
   const [notes, setNotes] = useState("");
 
   function openSheet(f: Friend | "new" | "self" | null) {
     setSheet(f);
     setEditing(f === "new"); // existing friends open in view mode
+    setStep(0);
     setError(null);
     setContactHint(null);
     setPhoto({ data: "", mime: "", dirty: false });
@@ -319,6 +329,32 @@ export default function FriendsClient() {
 
   const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, metTag });
   const previewTier = TIERS[friendTier(previewScore)];
+
+  // ── Stepped questionnaire — one question at a time ───────────────
+  const steps = [
+    { id: "met", q: "How do you know them?", answered: !!metTag },
+    ...(metTag === "childhood" ? [] : [{ id: "years", q: "How long have you known them?", answered: !!years }]),
+    { id: "freq", q: "How often do you talk?", answered: !!freq },
+    { id: "trust", q: "If you needed help at 3am, would you call them?", answered: !!trust },
+    { id: "open", q: "Can you be fully yourself around them?", answered: !!openness },
+    { id: "miss", q: "If they moved far away, how much would you miss them?", answered: !!miss },
+    { id: "tell", q: "When something big happens in your life, do you tell them?", answered: !!tell },
+  ];
+  const cur = Math.min(step, steps.length - 1);
+  const nextStep = () => setTimeout(() => setStep(Math.min(cur + 1, steps.length - 1)), 240);
+  const pick = (set: (v: string | null) => void, curVal: string | null, v: string) => () => {
+    set(curVal === v ? null : v);
+    if (curVal !== v) nextStep();
+  };
+  const chipsRow = (options: { id: string; label: string }[], curVal: string | null, set: (v: string | null) => void) => (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => (
+        <button key={o.id} onClick={pick(set, curVal, o.id)} className="rounded-full px-3.5 py-2 text-xs font-semibold" style={chip(curVal === o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div className="min-h-dvh" style={{ backgroundColor: "var(--color-paper)" }}>
@@ -693,89 +729,69 @@ export default function FriendsClient() {
               />
             </div>
 
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>How do you know them?</label>
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {MET_TAGS.map((m) => (
-                <button key={m.id} onClick={() => { setMetTag(metTag === m.id ? null : m.id); setMetDetail(""); }} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(metTag === m.id)}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            {metTag && MET_FOLLOWUP[metTag] ? (
-              <div className="mb-4">
-                <p className="mb-1.5 text-[11px] font-medium" style={{ color: "var(--color-ink-soft)" }}>{MET_FOLLOWUP[metTag].q}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {MET_FOLLOWUP[metTag].options.map((o) => (
-                    <button key={o} onClick={() => setMetDetail(metDetail === o ? "" : o)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(metDetail === o)}>
-                      {o}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <input
-                value={metDetail}
-                onChange={(e) => setMetDetail(e.target.value.slice(0, 80))}
-                placeholder={metTag ? "Any detail — optional" : "Pick a context above — optional detail here"}
-                className="mb-4 w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                style={inputStyle}
-              />
-            )}
-
-            {metTag !== "childhood" && (<>
-              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>How long have you known them?</label>
-              <div className="mb-4 flex flex-wrap gap-1.5">
-                {YEARS.map((y) => (
-                  <button key={y.id} onClick={() => setYears(years === y.id ? null : y.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(years === y.id)}>
-                    {y.label}
-                  </button>
+            {/* ── Questions — one at a time, progress pills on top ── */}
+            <div className="mb-4 rounded-2xl p-3.5" style={{ backgroundColor: "var(--color-paper-2)", border: "1px solid var(--color-paper-3)" }}>
+              <div className="mb-3 flex items-center gap-1" role="tablist" aria-label="Questionnaire progress">
+                {steps.map((s, i) => (
+                  <button
+                    key={s.id}
+                    role="tab"
+                    aria-selected={i === cur}
+                    aria-label={`Question ${i + 1}${s.answered ? " (answered)" : ""}`}
+                    onClick={() => setStep(i)}
+                    className="h-1.5 flex-1 rounded-full transition-colors"
+                    style={{ backgroundColor: i === cur ? "var(--color-accent)" : s.answered ? "var(--color-ink)" : "var(--color-paper-3)" }}
+                  />
                 ))}
               </div>
-            </>)}
+              <div key={steps[cur].id} style={{ animation: "drawer-app-in 0.22s ease-out" }}>
+                <p className="mb-2.5 text-sm font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
+                  {steps[cur].q}
+                </p>
 
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>How often do you talk?</label>
-            <div className="mb-4 flex flex-wrap gap-1.5">
-              {FREQS.map((fr) => (
-                <button key={fr.id} onClick={() => setFreq(freq === fr.id ? null : fr.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(freq === fr.id)}>
-                  {fr.label}
-                </button>
-              ))}
-            </div>
+                {steps[cur].id === "met" && (<>
+                  <div className="flex flex-wrap gap-1.5">
+                    {MET_TAGS.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => {
+                          const on = metTag !== m.id;
+                          setMetTag(on ? m.id : null);
+                          setMetDetail("");
+                          if (on && !MET_FOLLOWUP[m.id]) nextStep();
+                        }}
+                        className="rounded-full px-3.5 py-2 text-xs font-semibold"
+                        style={chip(metTag === m.id)}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  {metTag && MET_FOLLOWUP[metTag] && (
+                    <div className="mt-3" style={{ animation: "drawer-app-in 0.2s ease-out" }}>
+                      <p className="mb-1.5 text-[11px] font-medium" style={{ color: "var(--color-ink-soft)" }}>{MET_FOLLOWUP[metTag].q}</p>
+                      {chipsRow(MET_FOLLOWUP[metTag].options.map((o) => ({ id: o, label: o })), metDetail || null, (v) => setMetDetail(v ?? ""))}
+                    </div>
+                  )}
+                </>)}
+                {steps[cur].id === "years" && chipsRow(YEARS, years, setYears)}
+                {steps[cur].id === "freq" && chipsRow(FREQS, freq, setFreq)}
+                {steps[cur].id === "trust" && chipsRow(TRUST, trust, setTrust)}
+                {steps[cur].id === "open" && chipsRow(OPENNESS, openness, setOpenness)}
+                {steps[cur].id === "miss" && chipsRow(MISS, miss, setMiss)}
+                {steps[cur].id === "tell" && chipsRow(TELL, tell, setTell)}
 
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>If you needed help at 3am, would you call them?</label>
-            <div className="mb-4 flex flex-wrap gap-1.5">
-              {TRUST.map((tr) => (
-                <button key={tr.id} onClick={() => setTrust(trust === tr.id ? null : tr.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(trust === tr.id)}>
-                  {tr.label}
-                </button>
-              ))}
-            </div>
-
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>Can you be fully yourself around them?</label>
-            <div className="mb-4 flex flex-wrap gap-1.5">
-              {OPENNESS.map((o) => (
-                <button key={o.id} onClick={() => setOpenness(openness === o.id ? null : o.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(openness === o.id)}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
-
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>If they moved far away, how much would you miss them?</label>
-            <div className="mb-4 flex flex-wrap gap-1.5">
-              {MISS.map((m) => (
-                <button key={m.id} onClick={() => setMiss(miss === m.id ? null : m.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(miss === m.id)}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>When something big happens in your life, do you tell them?</label>
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {TELL.map((t) => (
-                <button key={t.id} onClick={() => setTell(tell === t.id ? null : t.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(tell === t.id)}>
-                  {t.label}
-                </button>
-              ))}
+                <div className="mt-3 flex items-center justify-between">
+                  {cur > 0 ? (
+                    <button onClick={() => setStep(cur - 1)} className="text-[11px] font-semibold" style={{ color: "var(--color-ink-muted)" }}>
+                      ← Back
+                    </button>
+                  ) : <span />}
+                  <button onClick={() => setStep(Math.min(cur + 1, steps.length - 1))} className="text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>
+                    {cur === steps.length - 1 ? "Done" : "Skip"}
+                  </button>
+                </div>
+              </div>
             </div>
 
             {previewScore > 0 && (

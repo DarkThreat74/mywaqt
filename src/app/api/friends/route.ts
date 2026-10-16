@@ -9,7 +9,7 @@ import { friendScore } from "@/lib/friends-score";
 
 export const dynamic = "force-dynamic";
 
-const MET_TAGS = new Set(["school", "childhood", "work", "online", "family", "masjid", "other"]);
+const MET_TAGS = new Set(["school", "childhood", "work", "online", "family", "masjid", "neighbor", "mutual", "sports", "travel", "other"]);
 const TALK_FREQS = new Set(["daily", "weekly", "monthly", "rarely"]);
 const KNOWN_YEARS = new Set(["lt1", "y1_3", "y3_7", "y7p"]);
 const TRUST = new Set(["definitely", "probably", "unsure"]);

@@ -21,7 +21,8 @@ export const OPEN_PTS: Record<string, number> = { always: 14, mostly: 8, rarely:
 export const MISS_PTS: Record<string, number> = { gutted: 10, alot: 6, alittle: 2 };
 export const TELL_PTS: Record<string, number> = { first: 8, eventually: 4, rarely: 1 };
 export const MET_PTS: Record<string, number> = {
-  childhood: 10, family: 10, school: 6, masjid: 6, work: 6, online: 2, other: 2,
+  childhood: 10, family: 10, masjid: 7, school: 6, work: 6, neighbor: 6,
+  mutual: 5, sports: 5, travel: 4, online: 2, other: 2,
 };
 
 export function friendScore(f: {
