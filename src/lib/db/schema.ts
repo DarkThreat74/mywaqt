@@ -1220,6 +1220,8 @@ export const friends = pgTable('friends', {
   openness: text('openness'),
   // Computed server-side from the questionnaire (0–100).
   score: integer('score'),
+  // Phone — optional, imported from device contacts or typed.
+  phone: varchar('phone', { length: 40 }),
   // Habits, quotes, anything worth remembering about them.
   notes: text('notes'),
   // Avatar — client-compressed JPEG as base64 text (TOASTed). Never

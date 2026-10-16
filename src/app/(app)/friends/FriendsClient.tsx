@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound } from "lucide-react";
+import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, Phone } from "lucide-react";
 import { friendScore, friendTier } from "@/lib/friends-score";
 
 /**
@@ -25,6 +25,7 @@ interface Friend {
   trust: string | null;
   openness: string | null;
   score: number | null;
+  phone: string | null;
   notes: string | null;
   hasPhoto: boolean;
 }
@@ -110,6 +111,7 @@ async function compressSelfie(file: Blob): Promise<string> {
 interface DeviceContact {
   name?: string[];
   icon?: Blob[];
+  tel?: string[];
 }
 const contactsApi = () =>
   (navigator as Navigator & { contacts?: { select: (p: string[], o: { multiple: boolean }) => Promise<DeviceContact[]> } }).contacts;
@@ -138,7 +140,9 @@ function Avatar({ f, size }: { f: Friend; size: number }) {
 export default function FriendsClient() {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [sheet, setSheet] = useState<null | Friend | "new">(null);
+  const [sheet, setSheet] = useState<null | Friend | "new" | "self">(null);
+  const [editing, setEditing] = useState(false); // view card → edit form
+  const [me, setMe] = useState<{ name: string; avatarUrl: string | null } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const selfRef = useRef<HTMLInputElement>(null);
   const [photo, setPhoto] = useState<{ data: string; mime: string; dirty: boolean }>({ data: "", mime: "", dirty: false });
@@ -158,7 +162,10 @@ export default function FriendsClient() {
     void refresh();
     fetch("/api/profile", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setSelfie(d?.profile?.avatarUrl ?? d?.avatarUrl ?? null))
+      .then((d) => {
+        setSelfie(d?.avatarUrl ?? null);
+        setMe({ name: d?.name ?? "You", avatarUrl: d?.avatarUrl ?? null });
+      })
       .catch(() => {});
   }, []);
 
@@ -187,28 +194,31 @@ export default function FriendsClient() {
   const [lastName, setLastName] = useState("");
   const [metTag, setMetTag] = useState<string | null>(null);
   const [metDetail, setMetDetail] = useState("");
+  const [phone, setPhone] = useState("");
   const [freq, setFreq] = useState<string | null>(null);
   const [years, setYears] = useState<string | null>(null);
   const [trust, setTrust] = useState<string | null>(null);
   const [openness, setOpenness] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
 
-  function openSheet(f: Friend | "new" | null) {
+  function openSheet(f: Friend | "new" | "self" | null) {
     setSheet(f);
+    setEditing(f === "new"); // existing friends open in view mode
     setError(null);
     setContactHint(null);
     setPhoto({ data: "", mime: "", dirty: false });
-    if (f && f !== "new") {
+    if (f && f !== "new" && f !== "self") {
       const parts = f.name.split(" ");
       setFirstName(parts[0] ?? "");
       setLastName(parts.slice(1).join(" "));
       setMetTag(f.metTag); setMetDetail(f.metDetail ?? "");
       setFreq(f.talkFreq); setYears(f.knownYears); setTrust(f.trust); setOpenness(f.openness);
+      setPhone(f.phone ?? "");
       setNotes(f.notes ?? "");
     } else {
       setFirstName(""); setLastName("");
       setMetTag(null); setMetDetail(""); setFreq(null);
-      setYears(null); setTrust(null); setOpenness(null); setNotes("");
+      setYears(null); setTrust(null); setOpenness(null); setPhone(""); setNotes("");
     }
   }
 
@@ -219,7 +229,7 @@ export default function FriendsClient() {
       return;
     }
     try {
-      const [c] = await api.select(["name", "icon"], { multiple: false });
+      const [c] = await api.select(["name", "icon", "tel"], { multiple: false });
       if (!c) return;
       const full = (c.name?.[0] ?? "").trim();
       if (full) {
@@ -227,6 +237,8 @@ export default function FriendsClient() {
         setFirstName(parts[0] ?? "");
         setLastName(parts.slice(1).join(" "));
       }
+      const tel = c.tel?.[0]?.trim();
+      if (tel) setPhone(tel.slice(0, 40));
       const icon = c.icon?.[0];
       if (icon) setPhoto({ ...(await compressPhoto(icon)), dirty: true });
     } catch {
@@ -240,10 +252,10 @@ export default function FriendsClient() {
     setSaving(true);
     setError(null);
     try {
-      const editing = sheet !== "new" && sheet !== null;
+      const editing = sheet !== "new" && sheet !== "self" && sheet !== null;
       const payload: Record<string, unknown> = {
         name: n, metTag, metDetail: metDetail || null, talkFreq: freq,
-        knownYears: years, trust, openness, notes: notes || null,
+        knownYears: years, trust, openness, phone: phone || null, notes: notes || null,
       };
       if (photo.dirty) {
         payload.photo = photo.data || null;
@@ -265,7 +277,7 @@ export default function FriendsClient() {
   }
 
   async function remove() {
-    if (sheet === "new" || !sheet) return;
+    if (sheet === "new" || sheet === "self" || !sheet) return;
     setSaving(true);
     await fetch(`/api/friends?id=${sheet.id}`, { method: "DELETE" }).catch(() => {});
     openSheet(null);
@@ -337,8 +349,8 @@ export default function FriendsClient() {
                   stroke="var(--color-paper-3)" strokeWidth="0.25"
                 />
               ))}
-              {/* You — tap to set your photo */}
-              <g onClick={() => selfRef.current?.click()} style={{ cursor: "pointer" }}>
+              {/* You — tap opens your card */}
+              <g onClick={() => openSheet("self")} style={{ cursor: "pointer" }}>
                 <clipPath id="self-clip"><circle cx="50" cy="50" r="4" /></clipPath>
                 {selfie ? (
                   <image href={selfie} x="46" y="46" width="8" height="8" clipPath="url(#self-clip)" preserveAspectRatio="xMidYMid slice" />
@@ -462,10 +474,10 @@ export default function FriendsClient() {
           >
             <div className="mb-4 flex items-center justify-between">
               <p className="text-base font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
-                {sheet === "new" ? "New friend" : `${firstName} ${lastName}`.trim() || "Friend"}
+                {sheet === "new" ? "New friend" : sheet === "self" ? "You" : `${firstName} ${lastName}`.trim() || "Friend"}
               </p>
               <div className="flex items-center gap-1">
-                {sheet !== "new" && (
+                {sheet !== "new" && sheet !== "self" && editing && (
                   <button onClick={remove} disabled={saving} className="flex items-center justify-center rounded-full" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Remove friend">
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -476,6 +488,126 @@ export default function FriendsClient() {
               </div>
             </div>
 
+            {/* ── Self card ── */}
+            {sheet === "self" && (
+              <div className="flex flex-col items-center pb-2 pt-1 text-center">
+                <button
+                  onClick={() => selfRef.current?.click()}
+                  className="relative mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full"
+                  style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)", border: "1px solid var(--color-paper-3)" }}
+                  aria-label="Change your photo"
+                >
+                  {selfie ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={selfie} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <Camera className="h-6 w-6" />
+                  )}
+                </button>
+                <p className="text-lg font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>{me?.name ?? "You"}</p>
+                <p className="mt-1 max-w-56 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                  This is you — everyone on the map orbits around you.
+                </p>
+                <button
+                  onClick={() => selfRef.current?.click()}
+                  className="mt-3 rounded-full px-4 py-1.5 text-xs font-semibold"
+                  style={{ backgroundColor: "var(--color-paper-2)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+                >
+                  {selfie ? "Change photo" : "Add your photo"}
+                </button>
+                <p className="mt-4 text-[10px] uppercase tracking-widest" style={{ color: "var(--color-ink-muted)" }}>
+                  Private — only you can see this map
+                </p>
+              </div>
+            )}
+
+            {/* ── Friend profile card (view mode) ── */}
+            {sheet !== "new" && sheet !== "self" && !editing && (() => {
+              const f = sheet as Friend;
+              const t = TIERS[tierOf(f)];
+              const rows: [string, string][] = [
+                f.metTag ? ["Met", [metLabel(f.metTag), f.metDetail].filter(Boolean).join(" · ")] : null,
+                f.knownYears ? ["Known", YEARS.find((y) => y.id === f.knownYears)?.label ?? f.knownYears] : null,
+                f.talkFreq ? ["Talk", freqLabel(f.talkFreq) ?? f.talkFreq] : null,
+                f.trust ? ["3am test", TRUST.find((x) => x.id === f.trust)?.label ?? f.trust] : null,
+                f.openness ? ["Yourself around them", OPENNESS.find((x) => x.id === f.openness)?.label ?? f.openness] : null,
+              ].filter((r): r is [string, string] => !!r);
+              return (
+                <div>
+                  <div className="mb-4 flex flex-col items-center text-center">
+                    <span
+                      className="mb-2 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full text-2xl font-bold"
+                      style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                    >
+                      {f.hasPhoto ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={`/api/friends/${f.id}/photo`} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        f.name.charAt(0).toUpperCase()
+                      )}
+                    </span>
+                    <p className="text-lg font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>{f.name}</p>
+                    {f.score != null && (
+                      <span
+                        className="mt-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+                        style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                      >
+                        {t.label} · {f.score}
+                      </span>
+                    )}
+                  </div>
+
+                  {rows.length > 0 && (
+                    <div className="mb-3 rounded-xl px-3 py-1" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                      {rows.map(([k, v]) => (
+                        <div key={k} className="flex items-baseline justify-between gap-3 border-b py-2 last:border-b-0" style={{ borderColor: "var(--color-paper-3)" }}>
+                          <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>{k}</span>
+                          <span className="text-right text-xs font-medium" style={{ color: "var(--color-ink)" }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {f.phone && (
+                    <a
+                      href={`tel:${f.phone}`}
+                      className="mb-3 flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold"
+                      style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-accent)" }}
+                    >
+                      <Phone className="h-4 w-4" /> {f.phone}
+                    </a>
+                  )}
+
+                  {f.notes && (
+                    <p className="mb-4 whitespace-pre-wrap rounded-xl px-3 py-2.5 text-sm leading-relaxed" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }}>
+                      {f.notes}
+                    </p>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setEditing(true)}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-bold"
+                      style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </button>
+                    <button
+                      onClick={remove}
+                      disabled={saving}
+                      className="flex items-center justify-center rounded-xl px-4"
+                      style={{ backgroundColor: "var(--color-paper-2)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                      aria-label="Remove friend"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Edit form ── */}
+            {(sheet === "new" || (sheet !== "self" && editing)) && (<>
             {/* Avatar + contacts import */}
             <div className="mb-4 flex items-center gap-3">
               <button
@@ -614,6 +746,16 @@ export default function FriendsClient() {
               </p>
             )}
 
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>Phone — optional</label>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value.slice(0, 40))}
+              placeholder="Number — imported via “From contacts”"
+              inputMode="tel"
+              className="mb-4 w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+              style={inputStyle}
+            />
+
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>About them</label>
             <textarea
               value={notes}
@@ -634,6 +776,7 @@ export default function FriendsClient() {
             >
               {saving ? "Saving…" : sheet === "new" ? "Add to your orbit" : "Save"}
             </button>
+            </>)}
           </div>
         </div>
       )}

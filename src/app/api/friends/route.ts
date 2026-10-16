@@ -26,6 +26,7 @@ interface FriendBody {
   knownYears?: string | null;
   trust?: string | null;
   openness?: string | null;
+  phone?: string | null;
   notes?: string | null;
   photo?: string | null;
   photoMime?: string | null;
@@ -70,6 +71,11 @@ function validateFields(body: FriendBody, partial: boolean) {
     const v = typeof body.openness === "string" ? body.openness.trim().toLowerCase() : null;
     if (v && !OPENNESS.has(v)) errors.push("Invalid openness answer");
     else out.openness = v;
+  }
+  if (body.phone !== undefined) {
+    const p = typeof body.phone === "string" ? body.phone.trim() || null : null;
+    if (p && (p.length > 40 || !/^[\d+\-()\s.]+$/.test(p))) errors.push("Invalid phone number");
+    else out.phone = p;
   }
   if (body.notes !== undefined) {
     const n = typeof body.notes === "string" ? body.notes.trim() || null : null;
@@ -116,6 +122,7 @@ export async function GET(request: NextRequest) {
         trust: schema.friends.trust,
         openness: schema.friends.openness,
         score: schema.friends.score,
+        phone: schema.friends.phone,
         notes: schema.friends.notes,
         hasPhoto: sql<boolean>`${schema.friends.photoData} IS NOT NULL`,
         createdAt: schema.friends.createdAt,
@@ -170,6 +177,7 @@ export async function POST(request: NextRequest) {
         trust: (out.trust as string | null) ?? null,
         openness: (out.openness as string | null) ?? null,
         score: friendScore(out as Parameters<typeof friendScore>[0]),
+        phone: (out.phone as string | null) ?? null,
         notes: (out.notes as string | null) ?? null,
         photoData: (out.photoData as string | null) ?? null,
         photoMime: (out.photoMime as string | null) ?? null,
