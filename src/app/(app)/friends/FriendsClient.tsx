@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, Phone } from "lucide-react";
+import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, Phone, EyeOff, Eye } from "lucide-react";
 import { friendScore, friendTier } from "@/lib/friends-score";
 
 /**
@@ -181,6 +181,8 @@ export default function FriendsClient() {
   const [selfie, setSelfie] = useState<string | null>(null);
   const [contactHint, setContactHint] = useState<string | null>(null);
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
+  const [crews, setCrews] = useState<{ id: string; name: string; hiddenFromAll: boolean }[]>([]);
+  const [newCrew, setNewCrew] = useState<{ open: boolean; name: string; hidden: boolean; saving: boolean }>({ open: false, name: "", hidden: false, saving: false });
 
   const refresh = () =>
     fetch("/api/friends", { cache: "no-store" })
@@ -191,6 +193,10 @@ export default function FriendsClient() {
 
   useEffect(() => {
     void refresh();
+    fetch("/api/crews", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.crews) setCrews(d.crews); })
+      .catch(() => {});
     fetch("/api/profile", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -203,8 +209,13 @@ export default function FriendsClient() {
   // ── Groups + orbit layout ────────────────────────────────────────
   // Crews are user-named groups; the constellation key falls back to
   // met context so ungrouped friends still cluster sensibly.
-  const groups = [...new Set(friends.map((f) => f.groupLabel).filter((g): g is string => !!g))].sort();
-  const shown = groupFilter ? friends.filter((f) => f.groupLabel === groupFilter) : friends;
+  const crewNames = crews.map((c) => c.name);
+  const groups = [...new Set([...crewNames, ...friends.map((f) => f.groupLabel)].filter((g): g is string => !!g))].sort();
+  const hiddenCrews = new Set(crews.filter((c) => c.hiddenFromAll).map((c) => c.name));
+  // All view hides members of hidden crews; selecting the crew shows them.
+  const shown = groupFilter
+    ? friends.filter((f) => f.groupLabel === groupFilter)
+    : friends.filter((f) => !f.groupLabel || !hiddenCrews.has(f.groupLabel));
   const clusterOf = (f: Friend) => f.groupLabel ?? f.metTag ?? "";
 
   const byTier: Friend[][] = [[], [], []];
@@ -416,11 +427,12 @@ export default function FriendsClient() {
           <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
             {["__all__", ...groups].map((g) => {
               const on = (g === "__all__") === !groupFilter;
+              const crew = g !== "__all__" ? crews.find((c) => c.name === g) : null;
               return (
                 <button
                   key={g}
                   onClick={() => setGroupFilter(g === "__all__" ? null : g)}
-                  className="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold"
+                  className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold"
                   style={{
                     backgroundColor: on ? "var(--color-ink)" : "var(--color-paper-2)",
                     color: on ? "var(--color-paper)" : "var(--color-ink-soft)",
@@ -428,9 +440,34 @@ export default function FriendsClient() {
                   }}
                 >
                   {g === "__all__" ? "All" : g}
+                  {crew?.hiddenFromAll && <EyeOff className="h-3 w-3 opacity-70" />}
                 </button>
               );
             })}
+            {/* Toggle the selected crew's All-view visibility */}
+            {groupFilter && (() => {
+              const crew = crews.find((c) => c.name === groupFilter);
+              if (!crew) return null;
+              return (
+                <button
+                  onClick={async () => {
+                    const next = !crew.hiddenFromAll;
+                    setCrews((cs) => cs.map((c) => (c.id === crew.id ? { ...c, hiddenFromAll: next } : c)));
+                    const r = await fetch("/api/crews", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ id: crew.id, hiddenFromAll: next }),
+                    }).catch(() => null);
+                    if (!r?.ok) setCrews((cs) => cs.map((c) => (c.id === crew.id ? { ...c, hiddenFromAll: !next } : c)));
+                  }}
+                  className="flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold"
+                  style={{ color: "var(--color-ink-muted)", border: "1px solid var(--color-paper-3)" }}
+                >
+                  {crew.hiddenFromAll ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  {crew.hiddenFromAll ? "Hidden from All" : "Hide from All"}
+                </button>
+              );
+            })()}
           </div>
         )}
 
@@ -862,22 +899,74 @@ export default function FriendsClient() {
             />
 
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>Their crew — optional</label>
-            {groups.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {groups.map((g) => (
-                  <button key={g} onClick={() => setGroupLabel(groupLabel === g ? "" : g)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(groupLabel === g)}>
-                    {g}
-                  </button>
-                ))}
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              {crewNames.map((g) => (
+                <button key={g} onClick={() => setGroupLabel(groupLabel === g ? "" : g)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(groupLabel === g)}>
+                  {g}
+                </button>
+              ))}
+              <button
+                onClick={() => setNewCrew({ open: !newCrew.open, name: "", hidden: false, saving: false })}
+                className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold"
+                style={{ backgroundColor: "var(--color-paper-2)", border: "1px dashed var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+              >
+                <Plus className="h-3 w-3" /> New crew
+              </button>
+            </div>
+            {newCrew.open && (
+              <div className="mb-4 rounded-xl p-3" style={{ backgroundColor: "var(--color-paper-2)", border: "1px solid var(--color-paper-3)", animation: "drawer-app-in 0.2s ease-out" }}>
+                <input
+                  value={newCrew.name}
+                  onChange={(e) => setNewCrew({ ...newCrew, name: e.target.value.slice(0, 60) })}
+                  placeholder="Crew name — school crew, the guys…"
+                  className="mb-2.5 w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  style={{ backgroundColor: "var(--color-paper)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink)" }}
+                  autoFocus
+                />
+                <button
+                  onClick={() => setNewCrew({ ...newCrew, hidden: !newCrew.hidden })}
+                  className="mb-2.5 flex w-full items-center justify-between text-left"
+                  role="switch"
+                  aria-checked={newCrew.hidden}
+                >
+                  <span className="text-xs font-medium" style={{ color: "var(--color-ink-soft)" }}>Hide from All view</span>
+                  <span
+                    className="relative h-5 w-9 rounded-full transition-colors"
+                    style={{ backgroundColor: newCrew.hidden ? "var(--color-accent)" : "var(--color-paper-3)" }}
+                  >
+                    <span
+                      className="absolute top-0.5 h-4 w-4 rounded-full transition-all"
+                      style={{ left: newCrew.hidden ? 18 : 2, backgroundColor: "var(--color-paper)" }}
+                    />
+                  </span>
+                </button>
+                <button
+                  disabled={!newCrew.name.trim() || newCrew.saving}
+                  onClick={async () => {
+                    setNewCrew({ ...newCrew, saving: true });
+                    const r = await fetch("/api/crews", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ name: newCrew.name.trim(), hiddenFromAll: newCrew.hidden }),
+                    }).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+                    setNewCrew({ open: false, name: "", hidden: false, saving: false });
+                    if (r?.crew) {
+                      setCrews((cs) => [...cs.filter((c) => c.id !== r.crew.id), r.crew].sort((a, b) => a.name.localeCompare(b.name)));
+                      setGroupLabel(r.crew.name);
+                    }
+                  }}
+                  className="w-full rounded-lg py-2 text-xs font-bold disabled:opacity-50"
+                  style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                >
+                  {newCrew.saving ? "Creating…" : "Create crew"}
+                </button>
               </div>
             )}
-            <input
-              value={groupLabel}
-              onChange={(e) => setGroupLabel(e.target.value.slice(0, 60))}
-              placeholder="e.g. school crew, the guys — or pick above"
-              className="mb-4 w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-              style={inputStyle}
-            />
+            {groupLabel && !crewNames.includes(groupLabel) && (
+              <p className="mb-4 -mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                “{groupLabel}” isn&rsquo;t a crew yet — hit + to make it one.
+              </p>
+            )}
 
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>About them</label>
             <textarea

@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS "friend_crews" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"name" varchar(60) NOT NULL,
+	"hidden_from_all" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "friend_crews_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action
+);
+CREATE INDEX IF NOT EXISTS "friend_crews_user_id_idx" ON "friend_crews" USING btree ("user_id");

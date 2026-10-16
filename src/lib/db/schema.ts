@@ -1226,7 +1226,8 @@ export const friends = pgTable('friends', {
   phase: text('phase'),
   // What kind of friend — 'person' | 'goodtime' | 'easygoing' | 'new'
   vibe: text('vibe'),
-  // User-named group — "school crew", "the guys". One group per friend.
+  // User-named group — "school crew", "the guys". One group per friend;
+  // matches friend_crews.name.
   groupLabel: varchar('group_label', { length: 60 }),
   // Computed server-side from the questionnaire (0–100).
   score: integer('score'),
@@ -1246,6 +1247,20 @@ export const friends = pgTable('friends', {
 
 export type Friend = typeof friends.$inferSelect;
 export type NewFriend = typeof friends.$inferInsert;
+
+// ─── Friend Crews (named friend groups; hidden crews don't show in All) ───
+
+export const friendCrews = pgTable('friend_crews', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 60 }).notNull(),
+  // Members are hidden from the unfiltered "All" view — visible only when
+  // the crew is explicitly selected.
+  hiddenFromAll: boolean('hidden_from_all').default(false).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('friend_crews_user_id_idx').on(table.userId),
+}));
 
 // ─── Birthdays (people's birthdays + reminder windows) ───────────────
 
