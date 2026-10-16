@@ -27,6 +27,8 @@ interface Friend {
   miss: string | null;
   tell: string | null;
   phase: string | null;
+  vibe: string | null;
+  groupLabel: string | null;
   score: number | null;
   phone: string | null;
   notes: string | null;
@@ -93,6 +95,12 @@ const TELL = [
   { id: "first", label: "They'd hear it from me" },
   { id: "eventually", label: "They'd find out eventually" },
   { id: "rarely", label: "I wouldn't go out of my way" },
+];
+const VIBE = [
+  { id: "person", label: "One of my people" },
+  { id: "goodtime", label: "A good time — always down" },
+  { id: "easygoing", label: "Easy company — always around" },
+  { id: "new", label: "Still figuring it out" },
 ];
 
 const TIERS = [
@@ -172,6 +180,7 @@ export default function FriendsClient() {
   const [error, setError] = useState<string | null>(null);
   const [selfie, setSelfie] = useState<string | null>(null);
   const [contactHint, setContactHint] = useState<string | null>(null);
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
 
   const refresh = () =>
     fetch("/api/friends", { cache: "no-store" })
@@ -191,12 +200,18 @@ export default function FriendsClient() {
       .catch(() => {});
   }, []);
 
-  // ── Orbit layout ─────────────────────────────────────────────────
+  // ── Groups + orbit layout ────────────────────────────────────────
+  // Crews are user-named groups; the constellation key falls back to
+  // met context so ungrouped friends still cluster sensibly.
+  const groups = [...new Set(friends.map((f) => f.groupLabel).filter((g): g is string => !!g))].sort();
+  const shown = groupFilter ? friends.filter((f) => f.groupLabel === groupFilter) : friends;
+  const clusterOf = (f: Friend) => f.groupLabel ?? f.metTag ?? "";
+
   const byTier: Friend[][] = [[], [], []];
-  friends.forEach((f) => byTier[tierOf(f)].push(f));
+  shown.forEach((f) => byTier[tierOf(f)].push(f));
   const nodes: { f: Friend; x: number; y: number; tier: number }[] = [];
   byTier.forEach((ring, tier) => {
-    const sorted = [...ring].sort((a, b) => (a.metTag ?? "").localeCompare(b.metTag ?? ""));
+    const sorted = [...ring].sort((a, b) => clusterOf(a).localeCompare(clusterOf(b)));
     const r = TIERS[tier].r * 50;
     sorted.forEach((f, i) => {
       const a = (i / sorted.length) * Math.PI * 2 + tier * 0.6 - Math.PI / 2;
@@ -207,7 +222,7 @@ export default function FriendsClient() {
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       if (edges.length >= 48) break;
-      if (nodes[i].f.metTag && nodes[i].f.metTag === nodes[j].f.metTag) edges.push([i, j]);
+      if (clusterOf(nodes[i].f) && clusterOf(nodes[i].f) === clusterOf(nodes[j].f)) edges.push([i, j]);
     }
   }
 
@@ -224,6 +239,8 @@ export default function FriendsClient() {
   const [miss, setMiss] = useState<string | null>(null);
   const [tell, setTell] = useState<string | null>(null);
   const [phase, setPhase] = useState<string | null>(null);
+  const [vibe, setVibe] = useState<string | null>(null);
+  const [groupLabel, setGroupLabel] = useState("");
   const [step, setStep] = useState(0);
   const [notes, setNotes] = useState("");
 
@@ -240,13 +257,14 @@ export default function FriendsClient() {
       setLastName(parts.slice(1).join(" "));
       setMetTag(f.metTag); setMetDetail(f.metDetail ?? "");
       setFreq(f.talkFreq); setYears(f.knownYears); setTrust(f.trust); setOpenness(f.openness);
-      setMiss(f.miss); setTell(f.tell); setPhase(f.phase);
+      setMiss(f.miss); setTell(f.tell); setPhase(f.phase); setVibe(f.vibe);
+      setGroupLabel(f.groupLabel ?? "");
       setPhone(f.phone ?? "");
       setNotes(f.notes ?? "");
     } else {
       setFirstName(""); setLastName("");
       setMetTag(null); setMetDetail(""); setFreq(null);
-      setYears(null); setTrust(null); setOpenness(null); setMiss(null); setTell(null); setPhase(null);
+      setYears(null); setTrust(null); setOpenness(null); setMiss(null); setTell(null); setPhase(null); setVibe(null); setGroupLabel("");
       setPhone(""); setNotes("");
     }
   }
@@ -285,7 +303,8 @@ export default function FriendsClient() {
       const payload: Record<string, unknown> = {
         name: n, metTag, metDetail: metDetail || null, talkFreq: freq,
         knownYears: metTag === "childhood" ? "y7p" : years,
-        trust, openness, miss, tell, phase, phone: phone || null, notes: notes || null,
+        trust, openness, miss, tell, phase, vibe,
+        groupLabel: groupLabel.trim() || null, phone: phone || null, notes: notes || null,
       };
       if (photo.dirty) {
         payload.photo = photo.data || null;
@@ -330,14 +349,15 @@ export default function FriendsClient() {
     display: "block",
   };
 
-  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, phase, metTag });
+  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, phase, vibe, metTag });
   const previewTier = TIERS[friendTier(previewScore)];
 
   // ── Stepped questionnaire — one question at a time ───────────────
   const steps = [
     { id: "met", q: "How do you know them?", answered: !!metTag },
+    { id: "vibe", q: "What are they to you, really?", answered: !!vibe },
     ...(metTag === "childhood" ? [] : [{ id: "years", q: "How long have you known them?", answered: !!years }]),
-    { id: "freq", q: "How often do you talk?", answered: !!freq },
+    { id: "freq", q: "How often do you actually hang out or talk?", answered: !!freq },
     { id: "trust", q: "If you needed help at 3am, would you call them?", answered: !!trust },
     { id: "open", q: "Can you be fully yourself around them — jokes, problems, the real stuff?", answered: !!openness },
     { id: "tell", q: "When something big happens in your life, do they hear it from you?", answered: !!tell },
@@ -391,6 +411,29 @@ export default function FriendsClient() {
       </div>
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-24 sm:px-6">
+        {/* ── Group filter ── */}
+        {groups.length > 0 && (
+          <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+            {["__all__", ...groups].map((g) => {
+              const on = (g === "__all__") === !groupFilter;
+              return (
+                <button
+                  key={g}
+                  onClick={() => setGroupFilter(g === "__all__" ? null : g)}
+                  className="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold"
+                  style={{
+                    backgroundColor: on ? "var(--color-ink)" : "var(--color-paper-2)",
+                    color: on ? "var(--color-paper)" : "var(--color-ink-soft)",
+                    border: `1px solid ${on ? "var(--color-ink)" : "var(--color-paper-3)"}`,
+                  }}
+                >
+                  {g === "__all__" ? "All" : g}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* ── The map ── */}
         {(friends.length > 0 || loaded) && (
           <div className="relative mx-auto mt-4 aspect-square w-full max-w-md">
@@ -485,7 +528,7 @@ export default function FriendsClient() {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{f.name}</span>
                       <span className="block truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                        {[metLabel(f.metTag), f.metDetail, freqLabel(f.talkFreq) && `talks ${freqLabel(f.talkFreq)?.toLowerCase()}`]
+                        {[f.groupLabel, metLabel(f.metTag), f.metDetail, freqLabel(f.talkFreq) && `talks ${freqLabel(f.talkFreq)?.toLowerCase()}`]
                           .filter(Boolean).join(" · ") || "no details yet"}
                       </span>
                     </span>
@@ -582,7 +625,9 @@ export default function FriendsClient() {
               const f = sheet as Friend;
               const t = TIERS[tierOf(f)];
               const rows: [string, string][] = [
+                f.groupLabel ? ["Crew", f.groupLabel] : null,
                 f.metTag ? ["Met", [metLabel(f.metTag), f.metDetail].filter(Boolean).join(" · ")] : null,
+                f.vibe ? ["They're", VIBE.find((x) => x.id === f.vibe)?.label ?? f.vibe] : null,
                 f.knownYears ? ["Known", YEARS.find((y) => y.id === f.knownYears)?.label ?? f.knownYears] : null,
                 f.talkFreq ? ["Talk", freqLabel(f.talkFreq) ?? f.talkFreq] : null,
                 f.trust ? ["3am call", TRUST.find((x) => x.id === f.trust)?.label ?? f.trust] : null,
@@ -778,6 +823,7 @@ export default function FriendsClient() {
                     </div>
                   )}
                 </>)}
+                {steps[cur].id === "vibe" && chipsRow(VIBE, vibe, setVibe)}
                 {steps[cur].id === "years" && chipsRow(YEARS, years, setYears)}
                 {steps[cur].id === "freq" && chipsRow(FREQS, freq, setFreq)}
                 {steps[cur].id === "trust" && chipsRow(TRUST, trust, setTrust)}
@@ -811,6 +857,24 @@ export default function FriendsClient() {
               onChange={(e) => setPhone(e.target.value.slice(0, 40))}
               placeholder="Number — imported via “From contacts”"
               inputMode="tel"
+              className="mb-4 w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+              style={inputStyle}
+            />
+
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>Their crew — optional</label>
+            {groups.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {groups.map((g) => (
+                  <button key={g} onClick={() => setGroupLabel(groupLabel === g ? "" : g)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(groupLabel === g)}>
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
+            <input
+              value={groupLabel}
+              onChange={(e) => setGroupLabel(e.target.value.slice(0, 60))}
+              placeholder="e.g. school crew, the guys — or pick above"
               className="mb-4 w-full rounded-xl px-3 py-2.5 text-sm outline-none"
               style={inputStyle}
             />

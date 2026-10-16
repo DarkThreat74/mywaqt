@@ -1224,6 +1224,10 @@ export const friends = pgTable('friends', {
   tell: text('tell'),
   // "Where does this friendship stand?" — 'steady' | 'wascloser' | 'distant'
   phase: text('phase'),
+  // What kind of friend — 'person' | 'goodtime' | 'easygoing' | 'new'
+  vibe: text('vibe'),
+  // User-named group — "school crew", "the guys". One group per friend.
+  groupLabel: varchar('group_label', { length: 60 }),
   // Computed server-side from the questionnaire (0–100).
   score: integer('score'),
   // Phone — optional, imported from device contacts or typed.

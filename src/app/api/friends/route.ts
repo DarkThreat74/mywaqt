@@ -17,6 +17,7 @@ const OPENNESS = new Set(["always", "mostly", "rarely"]);
 const MISS = new Set(["gutted", "alot", "alittle"]);
 const TELL = new Set(["first", "eventually", "rarely"]);
 const PHASE = new Set(["steady", "wascloser", "distant"]);
+const VIBE = new Set(["person", "goodtime", "easygoing", "new"]);
 const PHOTO_MIMES = new Set(["image/jpeg", "image/webp", "image/png"]);
 const MAX_PHOTO_B64 = 800_000;
 
@@ -32,6 +33,8 @@ interface FriendBody {
   miss?: string | null;
   tell?: string | null;
   phase?: string | null;
+  vibe?: string | null;
+  groupLabel?: string | null;
   phone?: string | null;
   notes?: string | null;
   photo?: string | null;
@@ -93,6 +96,16 @@ function validateFields(body: FriendBody, partial: boolean) {
     if (v && !PHASE.has(v)) errors.push("Invalid phase answer");
     else out.phase = v;
   }
+  if (body.vibe !== undefined) {
+    const v = typeof body.vibe === "string" ? body.vibe.trim().toLowerCase() : null;
+    if (v && !VIBE.has(v)) errors.push("Invalid vibe answer");
+    else out.vibe = v;
+  }
+  if (body.groupLabel !== undefined) {
+    const g = typeof body.groupLabel === "string" ? body.groupLabel.trim() || null : null;
+    if (g && g.length > 60) errors.push("Group name too long");
+    else out.groupLabel = g;
+  }
   if (body.phone !== undefined) {
     const p = typeof body.phone === "string" ? body.phone.trim() || null : null;
     if (p && (p.length > 40 || !/^[\d+\-()\s.]+$/.test(p))) errors.push("Invalid phone number");
@@ -146,6 +159,8 @@ export async function GET(request: NextRequest) {
         miss: schema.friends.miss,
         tell: schema.friends.tell,
         phase: schema.friends.phase,
+        vibe: schema.friends.vibe,
+        groupLabel: schema.friends.groupLabel,
         phone: schema.friends.phone,
         notes: schema.friends.notes,
         hasPhoto: sql<boolean>`${schema.friends.photoData} IS NOT NULL`,
@@ -204,6 +219,8 @@ export async function POST(request: NextRequest) {
         miss: (out.miss as string | null) ?? null,
         tell: (out.tell as string | null) ?? null,
         phase: (out.phase as string | null) ?? null,
+        vibe: (out.vibe as string | null) ?? null,
+        groupLabel: (out.groupLabel as string | null) ?? null,
         phone: (out.phone as string | null) ?? null,
         notes: (out.notes as string | null) ?? null,
         photoData: (out.photoData as string | null) ?? null,
@@ -257,7 +274,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
-    const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell", "phase"].some((k) => k in out);
+    const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell", "phase", "vibe"].some((k) => k in out);
     const [row] = await db
       .update(schema.friends)
       .set({ ...out, updatedAt: new Date() })
