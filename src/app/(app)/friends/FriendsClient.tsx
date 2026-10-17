@@ -28,6 +28,12 @@ interface Friend {
   tell: string | null;
   phase: string | null;
   vibe: string | null;
+  sacrifice: string | null;
+  loyalty: string | null;
+  gap: string | null;
+  plans: string | null;
+  hangout: string | null;
+  shortlist: string | null;
   groupLabel: string | null;
   score: number | null;
   phone: string | null;
@@ -64,10 +70,10 @@ const MET_FOLLOWUP: Record<string, { q: string; options: string[] }> = {
 };
 
 const FREQS = [
-  { id: "daily", label: "Every day" },
-  { id: "weekly", label: "Weekly" },
-  { id: "monthly", label: "Monthly" },
-  { id: "rarely", label: "Rarely" },
+  { id: "daily", label: "Basically daily" },
+  { id: "weekly", label: "A few times a week" },
+  { id: "monthly", label: "A few times a month" },
+  { id: "rarely", label: "Every few months or less" },
 ];
 const YEARS = [
   { id: "lt1", label: "Under a year" },
@@ -75,16 +81,53 @@ const YEARS = [
   { id: "y3_7", label: "3–7 years" },
   { id: "y7p", label: "7+ years" },
 ];
+const HANGOUT = [
+  { id: "doing", label: "Doing something — gym, games, food" },
+  { id: "mix", label: "A mix of both" },
+  { id: "talking", label: "Actually sitting and talking" },
+  { id: "texting", label: "Mostly just texts" },
+];
+const PLANS = [
+  { id: "both", label: "We both hit each other up" },
+  { id: "easy", label: "Whoever — it's easy, no keeping score" },
+  { id: "them", label: "Usually them" },
+  { id: "me", label: "Usually me" },
+];
 const TRUST = [
   { id: "definitely", label: "They're my first call" },
   { id: "topfew", label: "In my top few" },
   { id: "depends", label: "Depends on the situation" },
   { id: "unsure", label: "I wouldn't" },
 ];
+const SACRIFICE = [
+  { id: "noask", label: "They don't even have to ask" },
+  { id: "asked", label: "I'd show up if they asked" },
+  { id: "cost", label: "Depends what it costs me" },
+  { id: "excuse", label: "I'd find a reason not to" },
+];
 const OPENNESS = [
-  { id: "always", label: "Completely" },
-  { id: "mostly", label: "Mostly" },
-  { id: "rarely", label: "I hold back" },
+  { id: "everything", label: "Everything — even what nobody else knows" },
+  { id: "most", label: "Most of it" },
+  { id: "light", label: "We keep it light" },
+  { id: "notmuch", label: "Honestly not much" },
+];
+const LOYALTY = [
+  { id: "absolutely", label: "Absolutely" },
+  { id: "probably", label: "Probably" },
+  { id: "unsure", label: "I honestly don't know" },
+  { id: "no", label: "No" },
+];
+const GAP = [
+  { id: "notime", label: "Like no time passed" },
+  { id: "backup", label: "We'd pick back up fine" },
+  { id: "awkward", label: "A little awkward at first" },
+  { id: "strangers", label: "Basically strangers" },
+];
+const SHORTLIST = [
+  { id: "definitely", label: "Definitely" },
+  { id: "probably", label: "Probably" },
+  { id: "unsure", label: "Not sure" },
+  { id: "no", label: "No" },
 ];
 const PHASE = [
   { id: "steady", label: "As tight as ever" },
@@ -96,6 +139,10 @@ const TELL = [
   { id: "eventually", label: "They'd find out eventually" },
   { id: "rarely", label: "I wouldn't go out of my way" },
 ];
+
+const OPENNESS_LEGACY_LABELS: Record<string, string> = { always: "Completely", mostly: "Mostly", rarely: "I hold back" };
+const openLabel = (v: string | null) =>
+  (v && (OPENNESS.find((x) => x.id === v)?.label ?? OPENNESS_LEGACY_LABELS[v])) ?? null;
 const VIBE = [
   { id: "person", label: "One of my people" },
   { id: "goodtime", label: "A good time — always down" },
@@ -251,6 +298,12 @@ export default function FriendsClient() {
   const [tell, setTell] = useState<string | null>(null);
   const [phase, setPhase] = useState<string | null>(null);
   const [vibe, setVibe] = useState<string | null>(null);
+  const [sacrifice, setSacrifice] = useState<string | null>(null);
+  const [loyalty, setLoyalty] = useState<string | null>(null);
+  const [gap, setGap] = useState<string | null>(null);
+  const [plans, setPlans] = useState<string | null>(null);
+  const [hangout, setHangout] = useState<string | null>(null);
+  const [shortlist, setShortlist] = useState<string | null>(null);
   const [groupLabel, setGroupLabel] = useState("");
   const [step, setStep] = useState(0);
   const [notes, setNotes] = useState("");
@@ -269,6 +322,8 @@ export default function FriendsClient() {
       setMetTag(f.metTag); setMetDetail(f.metDetail ?? "");
       setFreq(f.talkFreq); setYears(f.knownYears); setTrust(f.trust); setOpenness(f.openness);
       setMiss(f.miss); setTell(f.tell); setPhase(f.phase); setVibe(f.vibe);
+      setSacrifice(f.sacrifice); setLoyalty(f.loyalty); setGap(f.gap);
+      setPlans(f.plans); setHangout(f.hangout); setShortlist(f.shortlist);
       setGroupLabel(f.groupLabel ?? "");
       setPhone(f.phone ?? "");
       setNotes(f.notes ?? "");
@@ -276,6 +331,7 @@ export default function FriendsClient() {
       setFirstName(""); setLastName("");
       setMetTag(null); setMetDetail(""); setFreq(null);
       setYears(null); setTrust(null); setOpenness(null); setMiss(null); setTell(null); setPhase(null); setVibe(null); setGroupLabel("");
+      setSacrifice(null); setLoyalty(null); setGap(null); setPlans(null); setHangout(null); setShortlist(null);
       setPhone(""); setNotes("");
     }
   }
@@ -315,6 +371,7 @@ export default function FriendsClient() {
         name: n, metTag, metDetail: metDetail || null, talkFreq: freq,
         knownYears: metTag === "childhood" ? "y7p" : years,
         trust, openness, miss, tell, phase, vibe,
+        sacrifice, loyalty, gap, plans, hangout, shortlist,
         groupLabel: groupLabel.trim() || null, phone: phone || null, notes: notes || null,
       };
       if (photo.dirty) {
@@ -360,7 +417,7 @@ export default function FriendsClient() {
     display: "block",
   };
 
-  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, phase, vibe, metTag });
+  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, phase, vibe, metTag, sacrifice, loyalty, gap, plans, hangout, shortlist });
   const previewTier = TIERS[friendTier(previewScore)];
 
   // ── Stepped questionnaire — one question at a time ───────────────
@@ -368,10 +425,16 @@ export default function FriendsClient() {
     { id: "met", q: "How do you know them?", answered: !!metTag },
     { id: "vibe", q: "What are they to you, really?", answered: !!vibe },
     ...(metTag === "childhood" ? [] : [{ id: "years", q: "How long have you known them?", answered: !!years }]),
-    { id: "freq", q: "How often do you actually hang out or talk?", answered: !!freq },
-    { id: "trust", q: "If you needed help at 3am, would you call them?", answered: !!trust },
-    { id: "open", q: "Can you be fully yourself around them — jokes, problems, the real stuff?", answered: !!openness },
+    { id: "freq", q: "How often do you actually see or talk?", answered: !!freq },
+    { id: "hangout", q: "When you hang out, what's it usually?", answered: !!hangout },
+    { id: "plans", q: "Who usually makes the plans?", answered: !!plans },
+    { id: "trust", q: "It's 3am and you actually need help — do they get the call?", answered: !!trust },
+    { id: "sacrifice", q: "They need something real — moving day, a ride, help with money.", answered: !!sacrifice },
+    { id: "open", q: "How much of your real life do they know — problems, family, what you're actually dealing with?", answered: !!openness },
     { id: "tell", q: "When something big happens in your life, do they hear it from you?", answered: !!tell },
+    { id: "loyalty", q: "Would they back you in a room you're not in?", answered: !!loyalty },
+    { id: "gap", q: "If you didn't speak for two months, then saw them — what would it be?", answered: !!gap },
+    { id: "shortlist", q: "The short list — the people who actually matter. Do they make it?", answered: !!shortlist },
     { id: "phase", q: "Where does this friendship stand right now?", answered: !!phase },
   ];
   const cur = Math.min(step, steps.length - 1);
@@ -668,8 +731,14 @@ export default function FriendsClient() {
                 f.knownYears ? ["Known", YEARS.find((y) => y.id === f.knownYears)?.label ?? f.knownYears] : null,
                 f.talkFreq ? ["Talk", freqLabel(f.talkFreq) ?? f.talkFreq] : null,
                 f.trust ? ["3am call", TRUST.find((x) => x.id === f.trust)?.label ?? f.trust] : null,
-                f.openness ? ["Yourself around them", OPENNESS.find((x) => x.id === f.openness)?.label ?? f.openness] : null,
+                f.sacrifice ? ["If they needed real help", SACRIFICE.find((x) => x.id === f.sacrifice)?.label ?? f.sacrifice] : null,
+                f.hangout ? ["Hanging out is", HANGOUT.find((x) => x.id === f.hangout)?.label ?? f.hangout] : null,
+                f.plans ? ["Plans", PLANS.find((x) => x.id === f.plans)?.label ?? f.plans] : null,
+                f.openness ? ["They know", openLabel(f.openness) ?? f.openness] : null,
                 f.tell ? ["Big news", TELL.find((x) => x.id === f.tell)?.label ?? f.tell] : null,
+                f.loyalty ? ["Backs you up", LOYALTY.find((x) => x.id === f.loyalty)?.label ?? f.loyalty] : null,
+                f.gap ? ["After 2 months apart", GAP.find((x) => x.id === f.gap)?.label ?? f.gap] : null,
+                f.shortlist ? ["The short list", SHORTLIST.find((x) => x.id === f.shortlist)?.label ?? f.shortlist] : null,
                 f.phase ? ["Right now", PHASE.find((x) => x.id === f.phase)?.label ?? f.phase] : null,
                 f.miss ? ["If they moved away", f.miss] : null,
               ].filter((r): r is [string, string] => !!r);
@@ -863,9 +932,15 @@ export default function FriendsClient() {
                 {steps[cur].id === "vibe" && chipsRow(VIBE, vibe, setVibe)}
                 {steps[cur].id === "years" && chipsRow(YEARS, years, setYears)}
                 {steps[cur].id === "freq" && chipsRow(FREQS, freq, setFreq)}
+                {steps[cur].id === "hangout" && chipsRow(HANGOUT, hangout, setHangout)}
+                {steps[cur].id === "plans" && chipsRow(PLANS, plans, setPlans)}
                 {steps[cur].id === "trust" && chipsRow(TRUST, trust, setTrust)}
+                {steps[cur].id === "sacrifice" && chipsRow(SACRIFICE, sacrifice, setSacrifice)}
                 {steps[cur].id === "open" && chipsRow(OPENNESS, openness, setOpenness)}
                 {steps[cur].id === "tell" && chipsRow(TELL, tell, setTell)}
+                {steps[cur].id === "loyalty" && chipsRow(LOYALTY, loyalty, setLoyalty)}
+                {steps[cur].id === "gap" && chipsRow(GAP, gap, setGap)}
+                {steps[cur].id === "shortlist" && chipsRow(SHORTLIST, shortlist, setShortlist)}
                 {steps[cur].id === "phase" && chipsRow(PHASE, phase, setPhase)}
 
                 <div className="mt-3 flex items-center justify-between">

@@ -1226,6 +1226,18 @@ export const friends = pgTable('friends', {
   phase: text('phase'),
   // What kind of friend — 'person' | 'goodtime' | 'easygoing' | 'new'
   vibe: text('vibe'),
+  // "Moving day, real help — what happens?" — 'noask' | 'asked' | 'cost' | 'excuse'
+  sacrifice: text('sacrifice'),
+  // "Would they back you in a room you're not in?" — 'absolutely' | 'probably' | 'unsure' | 'no'
+  loyalty: text('loyalty'),
+  // "2 months of silence, then you see them" — 'notime' | 'backup' | 'awkward' | 'strangers'
+  gap: text('gap'),
+  // "Who makes the plans?" — 'both' | 'easy' | 'them' | 'me'
+  plans: text('plans'),
+  // "What is hanging out usually?" — 'doing' | 'mix' | 'talking' | 'texting'
+  hangout: text('hangout'),
+  // "The people who actually matter — do they make it?" — 'definitely' | 'probably' | 'unsure' | 'no'
+  shortlist: text('shortlist'),
   // User-named group — "school crew", "the guys". One group per friend;
   // matches friend_crews.name.
   groupLabel: varchar('group_label', { length: 60 }),

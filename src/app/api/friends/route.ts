@@ -13,11 +13,17 @@ const MET_TAGS = new Set(["school", "childhood", "work", "online", "family", "ma
 const TALK_FREQS = new Set(["daily", "weekly", "monthly", "rarely"]);
 const KNOWN_YEARS = new Set(["lt1", "y1_3", "y3_7", "y7p"]);
 const TRUST = new Set(["definitely", "topfew", "probably", "depends", "unsure"]);
-const OPENNESS = new Set(["always", "mostly", "rarely"]);
+const OPENNESS = new Set(["always", "mostly", "rarely", "everything", "most", "light", "notmuch"]);
 const MISS = new Set(["gutted", "alot", "alittle"]);
 const TELL = new Set(["first", "eventually", "rarely"]);
 const PHASE = new Set(["steady", "wascloser", "distant"]);
 const VIBE = new Set(["person", "goodtime", "easygoing", "new"]);
+const SACRIFICE = new Set(["noask", "asked", "cost", "excuse"]);
+const LOYALTY = new Set(["absolutely", "probably", "unsure", "no"]);
+const GAP = new Set(["notime", "backup", "awkward", "strangers"]);
+const PLANS = new Set(["both", "easy", "them", "me"]);
+const HANGOUT = new Set(["doing", "mix", "talking", "texting"]);
+const SHORTLIST = new Set(["definitely", "probably", "unsure", "no"]);
 const PHOTO_MIMES = new Set(["image/jpeg", "image/webp", "image/png"]);
 const MAX_PHOTO_B64 = 800_000;
 
@@ -34,6 +40,12 @@ interface FriendBody {
   tell?: string | null;
   phase?: string | null;
   vibe?: string | null;
+  sacrifice?: string | null;
+  loyalty?: string | null;
+  gap?: string | null;
+  plans?: string | null;
+  hangout?: string | null;
+  shortlist?: string | null;
   groupLabel?: string | null;
   phone?: string | null;
   notes?: string | null;
@@ -101,6 +113,21 @@ function validateFields(body: FriendBody, partial: boolean) {
     if (v && !VIBE.has(v)) errors.push("Invalid vibe answer");
     else out.vibe = v;
   }
+  for (const [key, allowed] of [
+    ["sacrifice", SACRIFICE],
+    ["loyalty", LOYALTY],
+    ["gap", GAP],
+    ["plans", PLANS],
+    ["hangout", HANGOUT],
+    ["shortlist", SHORTLIST],
+  ] as const) {
+    const raw = body[key];
+    if (raw !== undefined) {
+      const v = typeof raw === "string" ? raw.trim().toLowerCase() : null;
+      if (v && !allowed.has(v)) errors.push(`Invalid ${key} answer`);
+      else out[key] = v;
+    }
+  }
   if (body.groupLabel !== undefined) {
     const g = typeof body.groupLabel === "string" ? body.groupLabel.trim() || null : null;
     if (g && g.length > 60) errors.push("Group name too long");
@@ -160,6 +187,12 @@ export async function GET(request: NextRequest) {
         tell: schema.friends.tell,
         phase: schema.friends.phase,
         vibe: schema.friends.vibe,
+        sacrifice: schema.friends.sacrifice,
+        loyalty: schema.friends.loyalty,
+        gap: schema.friends.gap,
+        plans: schema.friends.plans,
+        hangout: schema.friends.hangout,
+        shortlist: schema.friends.shortlist,
         groupLabel: schema.friends.groupLabel,
         phone: schema.friends.phone,
         notes: schema.friends.notes,
@@ -220,6 +253,12 @@ export async function POST(request: NextRequest) {
         tell: (out.tell as string | null) ?? null,
         phase: (out.phase as string | null) ?? null,
         vibe: (out.vibe as string | null) ?? null,
+        sacrifice: (out.sacrifice as string | null) ?? null,
+        loyalty: (out.loyalty as string | null) ?? null,
+        gap: (out.gap as string | null) ?? null,
+        plans: (out.plans as string | null) ?? null,
+        hangout: (out.hangout as string | null) ?? null,
+        shortlist: (out.shortlist as string | null) ?? null,
         groupLabel: (out.groupLabel as string | null) ?? null,
         phone: (out.phone as string | null) ?? null,
         notes: (out.notes as string | null) ?? null,
@@ -274,7 +313,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
-    const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell", "phase", "vibe"].some((k) => k in out);
+    const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell", "phase", "vibe", "sacrifice", "loyalty", "gap", "plans", "hangout", "shortlist"].some((k) => k in out);
     const [row] = await db
       .update(schema.friends)
       .set({ ...out, updatedAt: new Date() })
