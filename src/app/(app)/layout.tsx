@@ -17,6 +17,7 @@ import DuaToast from "@/components/dua-toast";
 import FunFactPopup from "@/components/fun-fact-popup";
 import BirthdayAlerter from "@/components/birthday-alerter";
 import FloatingDock from "@/components/floating-dock";
+import GlobalReciteToast from "@/features/quran-tester/GlobalReciteToast";
 import { isFeedbackEnabled } from "@/lib/app-settings";
 import OfflineBanner from "@/components/offline-banner";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
@@ -230,6 +231,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* Service worker + notification scheduler + deep links + fun fact popup */}
       <ServiceWorkerRegister />
+      <GlobalReciteToast />
       <UserStamp userId={session.userId} />
       <ThemeGuard />
       <SyncStatus />

@@ -6,6 +6,7 @@ import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, ListChecks, Loa
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
 import { loadAyahPages, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
 import { listMistakes, removeMistake, saveMistake, type Mistake } from "./mistakes";
+import { qtPost, qtState, startQt, stopQt, subscribeQt } from "./session";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on a real
@@ -18,17 +19,10 @@ import { listMistakes, removeMistake, saveMistake, type Mistake } from "./mistak
 type ListenState = "idle" | "warming" | "listening";
 const PAGE_COUNT = 604;
 
-/** Inline AudioWorklet: posts mono Float32 frames to its port. */
-const CAPTURE_WORKLET = `
-class Capture extends AudioWorkletProcessor {
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (ch && ch.length) { const c = ch.slice(0); this.port.postMessage(c, [c.buffer]); }
-    return true;
-  }
-}
-registerProcessor("qt-capture", Capture);
-`;
+/** Standard Madani mushaf juz → start page (604-page edition). */
+const JUZ_PAGES = [1,22,42,62,82,102,121,142,162,182,201,222,242,262,282,302,322,342,362,382,402,422,442,462,482,502,522,542,562,582];
+
+interface SurahMeta { s: number; name: string; page: number }
 
 export default function QuranTesterClient() {
   const [ayahPages, setAyahPages] = useState<AyahPages | null>(null);
@@ -42,7 +36,7 @@ export default function QuranTesterClient() {
   const [search, setSearch] = useState("");
   const [setupOpen, setSetupOpen] = useState(false);
 
-  const [listen, setListen] = useState<ListenState>("idle");
+  const [listen, setListen] = useState<ListenState>(() => qtState());
   const [status, setStatus] = useState<string | null>(null);
   const [loc, setLoc] = useState<{ surah: number; ayah: number } | null>(null);
   const [wordIdx, setWordIdx] = useState<number | null>(null);
@@ -61,16 +55,19 @@ export default function QuranTesterClient() {
   const [memorize, setMemorize] = useState(false);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerMode, setPickerMode] = useState<"surah" | "juz">("surah");
+  const [surahMeta, setSurahMeta] = useState<SurahMeta[] | null>(null);
 
   // Swipe
   const [dragX, setDragX] = useState(0);
   const [snapping, setSnapping] = useState(false);
   const dragRef = useRef<{ x0: number; active: boolean }>({ x0: 0, active: false });
 
-  const workerRef = useRef<Worker | null>(null);
-  const audioRef = useRef<{ ctx: AudioContext; stream: MediaStream } | null>(null);
   const pageRef = useRef(page);
   pageRef.current = page;
+  const handlerRef = useRef(onEngineEvent);
+  handlerRef.current = onEngineEvent;
   const ayahPagesRef = useRef(ayahPages);
   ayahPagesRef.current = ayahPages;
 
@@ -80,7 +77,9 @@ export default function QuranTesterClient() {
     listMistakes()
       .then((ms) => setConfirmed(new Map(ms.map((m) => [`${m.surah}:${m.ayah}:${m.word}`, m]))))
       .catch(() => {});
-    return () => { void stopRecite(); };
+    // Subscribe to the global session — navigating away keeps it alive;
+    // this page just re-attaches to whatever state it's in.
+    return subscribeQt((ev) => handlerRef.current(ev));
   }, []);
 
   // Fetch page + font, keep a ±1 window warm
@@ -143,88 +142,28 @@ export default function QuranTesterClient() {
 
   async function startRecite() {
     setMicError(null);
+    setMicDenied(false);
     setLoc(null);
     setWordIdx(null);
-
-    if (!workerRef.current) {
-      const w = new Worker(new URL("./recite.worker.ts", import.meta.url));
-      w.onmessage = (e) => onEngineEvent(e.data);
-      w.onerror = (e) => {
-        setMicError("Engine failed to start.");
-        setListen("idle");
-        e.preventDefault();
-      };
-      workerRef.current = w;
-    }
-
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-      });
-    } catch (err) {
-      const name = err instanceof DOMException ? err.name : "";
-      setMicDenied(true);
-      setMicError(
-        name === "NotFoundError"
-          ? "No microphone found on this device."
-          : !navigator.mediaDevices
-            ? "Microphone needs a secure (https) context."
-            : "Microphone access is blocked.",
-      );
-      return;
-    }
-    setMicDenied(false);
-
-    const ctx = new AudioContext();
-    const workletUrl = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
-    try {
-      await ctx.audioWorklet.addModule(workletUrl);
-    } finally {
-      URL.revokeObjectURL(workletUrl);
-    }
-    const src = ctx.createMediaStreamSource(stream);
-    const node = new AudioWorkletNode(ctx, "qt-capture");
-    let buf = new Float32Array(0);
-    node.port.onmessage = (e) => {
-      const chunk: Float32Array = e.data;
-      const merged = new Float32Array(buf.length + chunk.length);
-      merged.set(buf);
-      merged.set(chunk, buf.length);
-      buf = merged;
-      if (buf.length >= ctx.sampleRate / 4) {
-        workerRef.current?.postMessage({ type: "audio", samples: buf }, [buf.buffer]);
-        buf = new Float32Array(0);
-      }
-    };
-    src.connect(node);
-    node.connect(ctx.destination);
-    audioRef.current = { ctx, stream };
-
-    setListen("warming");
-    setStatus("Warming up the engine…");
-    workerRef.current.postMessage({ type: "init", sampleRate: ctx.sampleRate });
+    await startQt();
   }
 
   async function stopRecite() {
-    workerRef.current?.postMessage({ type: "stop" });
-    const a = audioRef.current;
-    if (a) {
-      a.stream.getTracks().forEach((t) => t.stop());
-      void a.ctx.close();
-      audioRef.current = null;
-    }
-    setListen("idle");
+    await stopQt();
     setStatus(null);
     setWordIdx(null);
   }
 
   function onEngineEvent(ev: Record<string, unknown>) {
-    if (ev.type === "ready") {
-      setListen("listening");
-      setStatus("Listening — recite anywhere in the Quran");
-    } else if (ev.type === "loading_status") {
-      setStatus(String(ev.message ?? "Loading…"));
+    if (ev.type === "ui-listen") {
+      setListen(ev.state as ListenState);
+    } else if (ev.type === "ui-status") {
+      setStatus(String(ev.message));
+    } else if (ev.type === "ui-mic-denied") {
+      setMicDenied(true);
+      setMicError(String(ev.message));
+    } else if (ev.type === "ui-error") {
+      setMicError(String(ev.message));
     } else if (ev.type === "verse_match") {
       const s = ev.surah as number, a = ev.ayah as number;
       setLoc({ surah: s, ayah: a });
@@ -247,9 +186,6 @@ export default function QuranTesterClient() {
           return next;
         });
       }
-    } else if (ev.type === "error") {
-      setMicError(String(ev.message ?? "Engine error"));
-      void stopRecite();
     }
   }
 
@@ -276,7 +212,7 @@ export default function QuranTesterClient() {
     const key = `${m.surah}:${m.ayah}:${m.word}`;
     setConfirmed((prev) => new Map(prev).set(key, { ...m }));
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
-    workerRef.current?.postMessage({ type: "correction-act", action: "continue" });
+    qtPost({ type: "correction-act", action: "continue" });
     setPending(null);
   }
 
@@ -284,7 +220,7 @@ export default function QuranTesterClient() {
     if (!pending) return;
     const key = `${pending.s}:${pending.a}:${pending.w}`;
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
-    workerRef.current?.postMessage({ type: "correction-act", action: "dismiss" });
+    qtPost({ type: "correction-act", action: "dismiss" });
     setPending(null);
   }
 
@@ -507,9 +443,18 @@ export default function QuranTesterClient() {
             </span>
           )}
         </button>
-        <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+        <button
+          onClick={() => {
+            setPickerOpen(true);
+            if (!surahMeta)
+              fetch("/data/surah-meta.json").then((r) => r.json()).then(setSurahMeta).catch(() => {});
+          }}
+          className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+          aria-label="Open surah and juz picker"
+        >
           {page} / {PAGE_COUNT}
-        </span>
+        </button>
       </div>
 
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden px-3 sm:px-6">
@@ -682,6 +627,84 @@ export default function QuranTesterClient() {
               qualified teacher. Confirmed mistakes only are saved, and only on
               this device.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Surah / Juz picker */}
+      {pickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 45%, transparent)" }}
+          onClick={() => setPickerOpen(false)}
+        >
+          <div
+            className="flex max-h-[70dvh] w-full max-w-lg flex-col rounded-t-3xl border p-5"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
+            {/* Surah / Juz toggle */}
+            <div
+              className="mx-auto flex rounded-full border p-1"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+            >
+              {(["surah", "juz"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setPickerMode(m)}
+                  className="rounded-full px-6 py-1.5 text-xs font-bold capitalize transition-colors"
+                  style={
+                    pickerMode === m
+                      ? { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }
+                      : { color: "var(--color-ink-muted)" }
+                  }
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+              {pickerMode === "surah" ? (
+                surahMeta ? (
+                  surahMeta.map((s) => (
+                    <button
+                      key={s.s}
+                      onClick={() => { setPage(s.page); setPickerOpen(false); }}
+                      className="flex w-full items-center gap-3 border-b px-2 py-2.5 text-left transition-colors last:border-b-0 hover:bg-[var(--color-paper-2)]"
+                      style={{ borderColor: "var(--color-paper-3)" }}
+                    >
+                      <span
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold tabular-nums"
+                        style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
+                      >
+                        {s.s}
+                      </span>
+                      <span className="flex-1 text-base font-semibold" style={{ color: "var(--color-ink)", fontFamily: "var(--font-arabic, serif)" }}>
+                        {s.name}
+                      </span>
+                      <span className="text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>p. {s.page}</span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="py-8 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>
+                )
+              ) : (
+                <div className="grid grid-cols-5 gap-2 pb-2 pt-1">
+                  {JUZ_PAGES.map((p, i) => (
+                    <button
+                      key={p}
+                      onClick={() => { setPage(p); setPickerOpen(false); }}
+                      className="rounded-2xl border py-3 text-center transition-colors hover:bg-[var(--color-paper-2)]"
+                      style={{ borderColor: "var(--color-paper-3)" }}
+                    >
+                      <span className="block text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{i + 1}</span>
+                      <span className="block text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>p. {p}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
