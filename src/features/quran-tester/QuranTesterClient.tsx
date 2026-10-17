@@ -34,6 +34,7 @@ export default function QuranTesterClient() {
   const [ayahPages, setAyahPages] = useState<AyahPages | null>(null);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState<Map<number, MushafPage>>(new Map());
+  const [failedPages, setFailedPages] = useState<Set<number>>(new Set());
   const [fonts, setFonts] = useState<Set<number>>(new Set());
   const [installed, setInstalled] = useState<boolean | null>(null);
   const [dl, setDl] = useState<{ done: number; total: number } | null>(null);
@@ -88,8 +89,11 @@ export default function QuranTesterClient() {
     for (const p of want) {
       if (!pages.has(p)) {
         loadPage(p)
-          .then((d) => setPages((prev) => new Map(prev).set(p, d)))
-          .catch(() => {});
+          .then((d) => {
+            setPages((prev) => new Map(prev).set(p, d));
+            setFailedPages((prev) => { const n = new Set(prev); n.delete(p); return n; });
+          })
+          .catch(() => setFailedPages((prev) => new Set(prev).add(p)));
       }
       if (!fonts.has(p)) {
         loadPageFont(p)
@@ -352,8 +356,24 @@ export default function QuranTesterClient() {
     const fontReady = fonts.has(p);
     if (!data) {
       return (
-        <div className="flex h-full items-center justify-center">
-          <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading page…</p>
+        <div className="flex h-full flex-col items-center justify-center gap-2">
+          {failedPages.has(p) ? (
+            <>
+              <p className="text-xs" style={{ color: "#b34a3a" }}>Page failed to load.</p>
+              <button
+                onClick={() => {
+                  setFailedPages((prev) => { const n = new Set(prev); n.delete(p); return n; });
+                  setPages((prev) => { const n = new Map(prev); n.delete(p); return n; });
+                }}
+                className="rounded-full border px-4 py-1.5 text-xs font-semibold"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading page…</p>
+          )}
         </div>
       );
     }

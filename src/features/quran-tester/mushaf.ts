@@ -48,12 +48,22 @@ export async function loadAyahPages(): Promise<AyahPages> {
 }
 
 async function cachedAsset(path: string, url: string): Promise<Response> {
-  const cache = await caches.open(ENGINE_CACHE);
-  const hit = await cache.match(path);
-  if (hit) return hit;
+  // CacheStorage only exists in secure contexts — fall back to a plain
+  // fetch (HTTP dev over LAN, older WebViews) so pages still load.
+  if (typeof caches !== "undefined") {
+    try {
+      const cache = await caches.open(ENGINE_CACHE);
+      const hit = await cache.match(path);
+      if (hit) return hit;
+      const res = await fetch(url);
+      if (res.ok) await cache.put(path, res.clone());
+      return res;
+    } catch {
+      // fall through to plain fetch below
+    }
+  }
   const res = await fetch(url);
   if (!res.ok) throw new Error(`mushaf asset ${path}: ${res.status}`);
-  await cache.put(path, res.clone());
   return res;
 }
 
@@ -65,6 +75,9 @@ export function loadPage(n: number): Promise<MushafPage> {
   if (!pending) {
     const key = `/qt/page-${String(p).padStart(3, "0")}.json`;
     pending = cachedAsset(key, `${PAGE_BASE}/page-${String(p).padStart(3, "0")}.json`).then((r) => r.json());
+    // Don't pin a rejected promise in the map — a failed fetch must be
+    // retryable on the next attempt instead of being "Loading…" forever.
+    pending.catch(() => pageCache.delete(p));
     pageCache.set(p, pending);
   }
   return pending;
