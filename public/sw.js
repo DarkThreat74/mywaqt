@@ -40,6 +40,7 @@ const PRECACHE_URLS = [
   "/icon-badge.png",
   "/offline.html",
   "/data/ayah-pages.json",
+  "/worklets/qt-capture.js",
 ];
 
 // Core app pages — prefetched on install for offline boot.

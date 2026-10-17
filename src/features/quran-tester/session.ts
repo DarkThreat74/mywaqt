@@ -21,17 +21,6 @@ function emit(ev: QtEvent) {
   for (const fn of listeners) fn(ev);
 }
 
-const CAPTURE_WORKLET = `
-class Capture extends AudioWorkletProcessor {
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (ch && ch.length) { const c = ch.slice(0); this.port.postMessage(c, [c.buffer]); }
-    return true;
-  }
-}
-registerProcessor("qt-capture", Capture);
-`;
-
 let worker: Worker | null = null;
 let audio: { ctx: AudioContext; stream: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode } | null = null;
 let listen: QtListen = "idle";
@@ -97,12 +86,8 @@ export async function startQt(): Promise<void> {
   if (ctx.state === "suspended") {
     try { await ctx.resume(); } catch {}
   }
-  const workletUrl = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
-  try {
-    await ctx.audioWorklet.addModule(workletUrl);
-  } finally {
-    URL.revokeObjectURL(workletUrl);
-  }
+  // Same-origin file — the CSP's script-src blocks blob: module scripts.
+  await ctx.audioWorklet.addModule("/worklets/qt-capture.js");
   const src = ctx.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(ctx, "qt-capture");
   let buf = new Float32Array(0);
