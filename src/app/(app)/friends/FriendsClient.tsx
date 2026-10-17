@@ -87,16 +87,20 @@ const YEARS = [
   { id: "y7p", label: "7+ years" },
 ];
 const HANGOUT = [
-  { id: "doing", label: "Doing something — gym, games, food" },
+  { id: "doing", label: "Something to do — gym, games, food" },
+  { id: "talking", label: "Real talks — life, problems, plans" },
   { id: "mix", label: "A mix of both" },
-  { id: "talking", label: "Actually sitting and talking" },
-  { id: "texting", label: "Mostly just texts" },
+  { id: "chilling", label: "Chilling — same room, our own thing" },
+  { id: "group", label: "Group thing — never just us two" },
+  { id: "texting", label: "Mostly just texts and memes" },
 ];
 const PLANS = [
   { id: "both", label: "We both hit each other up" },
-  { id: "easy", label: "Whoever — it's easy, no keeping score" },
-  { id: "them", label: "Usually them" },
   { id: "me", label: "Usually me" },
+  { id: "them", label: "Usually them" },
+  { id: "itag", label: "I tag along to their plans" },
+  { id: "theytag", label: "They tag along to mine" },
+  { id: "bump", label: "No plans — we just bump into each other" },
 ];
 const TRUST = [
   { id: "definitely", label: "They're my first call" },
@@ -131,13 +135,15 @@ const GAP = [
 const SHORTLIST = [
   { id: "definitely", label: "Definitely" },
   { id: "probably", label: "Probably" },
-  { id: "unsure", label: "Not sure" },
+  { id: "between", label: "In between" },
+  { id: "almost", label: "Almost — not quite" },
   { id: "no", label: "No" },
 ];
 const VOLITION = [
-  { id: "choose", label: "We choose to — we'd link anyway" },
-  { id: "mix", label: "A bit of both" },
-  { id: "context", label: "Same place mostly — class, work, whatever" },
+  { id: "choose", label: "Yes — we'd plan meetups" },
+  { id: "occasional", label: "I'd plan occasional meetups" },
+  { id: "touch", label: "We'd stay in touch, rarely link" },
+  { id: "context", label: "We wouldn't really hang out" },
 ];
 const ATTUNE = [
   { id: "notice", label: "They'd notice before I said anything" },
@@ -146,15 +152,25 @@ const ATTUNE = [
   { id: "wouldnt", label: "They wouldn't" },
 ];
 const PHASE = [
-  { id: "steady", label: "As tight as ever" },
-  { id: "wascloser", label: "We were closer once" },
+  { id: "steady", label: "Very close" },
+  { id: "wascloser", label: "We used to be closer" },
   { id: "distant", label: "Friendly but distant" },
+  { id: "acquaintance", label: "More of an acquaintance" },
 ];
 const TELL = [
   { id: "first", label: "They'd hear it from me" },
   { id: "eventually", label: "They'd find out eventually" },
   { id: "rarely", label: "I wouldn't go out of my way" },
 ];
+
+// Answers saved by older questionnaire versions that no longer appear as
+// chips — still render readable on the profile card.
+const LEGACY_LABELS: Record<string, string> = {
+  mix: "A bit of both", easy: "Whoever — it's easy, no keeping score",
+  unsure: "Not sure",
+};
+const optLabel = (list: { id: string; label: string }[], id: string | null) =>
+  id ? list.find((x) => x.id === id)?.label ?? LEGACY_LABELS[id] ?? id : null;
 
 const OPENNESS_LEGACY_LABELS: Record<string, string> = { always: "Completely", mostly: "Mostly", rarely: "I hold back" };
 const openLabel = (v: string | null) =>
@@ -167,15 +183,16 @@ const VIBE = [
 ];
 
 const TIERS = [
-  { label: "Inner circle", r: 0.3 },
-  { label: "Close", r: 0.58 },
-  { label: "Outer orbit", r: 0.86 },
+  { label: "Inner circle", r: 0.22 },
+  { label: "Close friends", r: 0.45 },
+  { label: "Friends", r: 0.68 },
+  { label: "Acquaintances", r: 0.88 },
 ];
 const metLabel = (t: string | null) => MET_TAGS.find((m) => m.id === t)?.label ?? null;
 const freqLabel = (f: string | null) => FREQS.find((x) => x.id === f)?.label ?? null;
 
 const scoreOf = (f: Friend) => f.score ?? friendScore(f);
-const tierOf = (f: Friend): 0 | 1 | 2 => friendTier(scoreOf(f));
+const tierOf = (f: Friend): 0 | 1 | 2 | 3 => friendTier(scoreOf(f));
 
 // Friend photo: 1024px WebP q0.82 (~80-200KB) — big enough to stay sharp in
 // the full-screen viewer, small enough for the 800KB server cap.
@@ -281,7 +298,7 @@ export default function FriendsClient() {
     setCrewDraft(c.name);
   };
 
-  const byTier: Friend[][] = [[], [], []];
+  const byTier: Friend[][] = [[], [], [], []];
   shown.forEach((f) => byTier[tierOf(f)].push(f));
   byTier.forEach((ring) => ring.sort((a, b) => scoreOf(b) - scoreOf(a)));
   const nodes: { f: Friend; x: number; y: number; tier: number }[] = [];
@@ -502,12 +519,12 @@ export default function FriendsClient() {
     { id: "freq", q: "How often do you actually see or talk?", answered: !!freq },
     { id: "hangout", q: "When you hang out, what's it usually?", answered: !!hangout },
     { id: "plans", q: "Who usually makes the plans?", answered: !!plans },
-    { id: "volition", q: "If you stopped sharing the same place — class, work, the block — would you still see them?", answered: !!volition },
+    { id: "volition", q: "If you stopped sharing the same place — class, work, the block — what would happen?", answered: !!volition },
     { id: "trust", q: "It's 3am and you actually need help — do they get the call?", answered: !!trust },
     { id: "sacrifice", q: "They need something real — moving day, a ride, help with money.", answered: !!sacrifice },
     { id: "open", q: "How much of your real life do they know — problems, family, what you're actually dealing with?", answered: !!openness },
     { id: "tell", q: "When something big happens in your life, do they hear it from you?", answered: !!tell },
-    { id: "loyalty", q: "Would they back you in a room you're not in?", answered: !!loyalty },
+    { id: "loyalty", q: "If people were talking about you behind your back — would they defend you?", answered: !!loyalty },
     { id: "attune", q: "If you were having a rough week and didn't say anything — would they notice?", answered: !!attune },
     { id: "gap", q: "If you didn't speak for two months, then saw them — what would it be?", answered: !!gap },
     { id: "shortlist", q: "The short list — the people who actually matter. Do they make it?", answered: !!shortlist },
@@ -951,21 +968,21 @@ export default function FriendsClient() {
               const rows: [string, string][] = [
                 f.groupLabel ? ["Crew", f.groupLabel] : null,
                 f.metTag ? ["Met", [metLabel(f.metTag), f.metDetail].filter(Boolean).join(" · ")] : null,
-                f.vibe ? ["They're", VIBE.find((x) => x.id === f.vibe)?.label ?? f.vibe] : null,
+                f.vibe ? ["They're", optLabel(VIBE, f.vibe)] : null,
                 f.knownYears ? ["Known", YEARS.find((y) => y.id === f.knownYears)?.label ?? f.knownYears] : null,
                 f.talkFreq ? ["Talk", freqLabel(f.talkFreq) ?? f.talkFreq] : null,
-                f.trust ? ["3am call", TRUST.find((x) => x.id === f.trust)?.label ?? f.trust] : null,
-                f.sacrifice ? ["If they needed real help", SACRIFICE.find((x) => x.id === f.sacrifice)?.label ?? f.sacrifice] : null,
-                f.hangout ? ["Hanging out is", HANGOUT.find((x) => x.id === f.hangout)?.label ?? f.hangout] : null,
-                f.plans ? ["Plans", PLANS.find((x) => x.id === f.plans)?.label ?? f.plans] : null,
-                f.volition ? ["If the context ended", VOLITION.find((x) => x.id === f.volition)?.label ?? f.volition] : null,
+                f.trust ? ["3am call", optLabel(TRUST, f.trust)] : null,
+                f.sacrifice ? ["If they needed real help", optLabel(SACRIFICE, f.sacrifice)] : null,
+                f.hangout ? ["Hanging out is", optLabel(HANGOUT, f.hangout)] : null,
+                f.plans ? ["Plans", optLabel(PLANS, f.plans)] : null,
+                f.volition ? ["If the context ended", optLabel(VOLITION, f.volition)] : null,
                 f.openness ? ["They know", openLabel(f.openness) ?? f.openness] : null,
-                f.tell ? ["Big news", TELL.find((x) => x.id === f.tell)?.label ?? f.tell] : null,
-                f.loyalty ? ["Backs you up", LOYALTY.find((x) => x.id === f.loyalty)?.label ?? f.loyalty] : null,
-                f.attune ? ["If you're off", ATTUNE.find((x) => x.id === f.attune)?.label ?? f.attune] : null,
-                f.gap ? ["After 2 months apart", GAP.find((x) => x.id === f.gap)?.label ?? f.gap] : null,
-                f.shortlist ? ["The short list", SHORTLIST.find((x) => x.id === f.shortlist)?.label ?? f.shortlist] : null,
-                f.phase ? ["Right now", PHASE.find((x) => x.id === f.phase)?.label ?? f.phase] : null,
+                f.tell ? ["Big news", optLabel(TELL, f.tell)] : null,
+                f.loyalty ? ["Backs you up", optLabel(LOYALTY, f.loyalty)] : null,
+                f.attune ? ["If you're off", optLabel(ATTUNE, f.attune)] : null,
+                f.gap ? ["After 2 months apart", optLabel(GAP, f.gap)] : null,
+                f.shortlist ? ["The short list", optLabel(SHORTLIST, f.shortlist)] : null,
+                f.phase ? ["Right now", optLabel(PHASE, f.phase)] : null,
                 f.miss ? ["If they moved away", f.miss] : null,
               ].filter((r): r is [string, string] => !!r);
               return (
