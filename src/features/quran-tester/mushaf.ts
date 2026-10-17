@@ -12,9 +12,11 @@
 
 import { ENGINE_CACHE } from "./engine";
 
-// Page data + fonts proxy through /qt-dl/ — the CSP is self-only for
-// connect-src, so cross-origin fetches from the client are blocked.
-const BASE = "/qt-dl";
+// Vendored in-repo (scripts/fetch-mushaf.mjs) — same-origin static files,
+// additionally cached into the engine bucket so pages work offline forever
+// once seen.
+const PAGE_BASE = "/data/mushaf/QPC2";
+const FONT_BASE = "/fonts/qpc2";
 const PAGE_COUNT = 604;
 
 export interface MushafWord {
@@ -62,7 +64,7 @@ export function loadPage(n: number): Promise<MushafPage> {
   let pending = pageCache.get(p);
   if (!pending) {
     const key = `/qt/page-${String(p).padStart(3, "0")}.json`;
-    pending = cachedAsset(key, `${BASE}/page-${String(p).padStart(3, "0")}.json`).then((r) => r.json());
+    pending = cachedAsset(key, `${PAGE_BASE}/page-${String(p).padStart(3, "0")}.json`).then((r) => r.json());
     pageCache.set(p, pending);
   }
   return pending;
@@ -75,7 +77,7 @@ export async function loadPageFont(n: number): Promise<string> {
   const family = `QPC2-p${n}`;
   if (loadedFonts.has(n)) return family;
   const file = `p${String(n).padStart(3, "0")}.woff2`;
-  const res = await cachedAsset(`/qt/${file}`, `${BASE}/${file}`);
+  const res = await cachedAsset(`/qt/${file}`, `${FONT_BASE}/${file}`);
   const font = new FontFace(family, await res.arrayBuffer());
   await font.load();
   document.fonts.add(font);

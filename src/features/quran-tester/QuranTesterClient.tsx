@@ -358,7 +358,7 @@ export default function QuranTesterClient() {
       );
     }
     return (
-      <div className="flex h-full flex-col justify-between px-5 py-4" dir="rtl">
+      <div className="flex h-full flex-col justify-between px-3 py-3 sm:px-5" dir="rtl">
         {data.lines.map((line, li) => {
           if (line.type === "surah-header") {
             return (
@@ -386,7 +386,7 @@ export default function QuranTesterClient() {
           }
           const centered = line.centered ?? line.is_centered;
           return (
-            <div key={li} className={`flex flex-wrap items-baseline ${centered ? "justify-center" : "justify-between"} gap-x-1.5`}>
+            <div key={li} className={`flex flex-nowrap items-baseline overflow-hidden ${centered ? "justify-center" : "justify-between"} gap-x-1`}>
               {(line.words ?? []).map((w, wi) => {
                 const [s, a, wiN] = w.location.split(":").map(Number);
                 const key = `${s}:${a}:${wiN}`;
@@ -402,7 +402,7 @@ export default function QuranTesterClient() {
                     className={`rounded px-0.5 transition-colors duration-150${isSuspect || isConfirmed ? " cursor-pointer" : ""}`}
                     style={{
                       ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
-                      fontSize: "1.35rem",
+                      fontSize: "clamp(0.95rem, 4.3vw, 1.45rem)",
                       lineHeight: 1.9,
                       color: hidden ? "transparent" : "var(--color-ink)",
                       ...(hidden
@@ -422,154 +422,117 @@ export default function QuranTesterClient() {
   }
 
   return (
-    <div className="flex h-dvh flex-col" style={{ backgroundColor: "var(--color-paper)" }}>
-      {/* Header */}
-      <div
-        className="z-20 border-b backdrop-blur-md"
-        style={{
-          borderColor: "var(--color-paper-3)",
-          backgroundColor: "color-mix(in oklab, var(--color-paper) 82%, transparent)",
-          paddingTop: "env(safe-area-inset-top)",
-        }}
-      >
-        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-3 sm:px-6">
-          <Link
-            href="/calendar/day"
-            className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
-            style={{ color: "var(--color-ink-muted)", minHeight: 40, minWidth: 40 }}
-            aria-label="Back"
-          >
-            <ArrowLeft className="h-4.5 w-4.5" />
-          </Link>
-          <h1 className="flex-1 text-xl font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
-            Quran Tester
-          </h1>
-          {installed === false && (
-            <button
-              onClick={() => setSetupOpen(true)}
-              className="relative flex items-center justify-center rounded-full font-bold transition-transform active:scale-95"
-              style={{
-                minHeight: 34, minWidth: 34,
-                backgroundColor: "color-mix(in oklab, #c9a227 18%, transparent)",
-                color: "#c9a227",
-                border: "1.5px solid color-mix(in oklab, #c9a227 45%, transparent)",
-                fontSize: 15,
-              }}
-              aria-label="Engine not downloaded — open setup"
-            >
-              !
-              <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#c9a227" }} />
-            </button>
-          )}
+    // Fits exactly inside the app chrome — top bar (~49px) + bottom nav
+    // (4rem) + safe areas — so the whole mushaf screen never scrolls.
+    <div
+      className="flex flex-col lg:h-dvh"
+      style={{
+        backgroundColor: "var(--color-paper)",
+        height: "calc(100dvh - 49px - 4rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))",
+      }}
+    >
+      {/* Toolbar — icon-only, one row, no title */}
+      <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-3 pt-2 sm:px-6">
+        <Link
+          href="/calendar/day"
+          className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ color: "var(--color-ink-muted)", minHeight: 34, minWidth: 34 }}
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-4.5 w-4.5" />
+        </Link>
+        {installed === false && (
           <button
-            onClick={() => setReviewOpen(true)}
-            className="relative flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
-            style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }}
-            aria-label="Review mistakes"
+            onClick={() => setSetupOpen(true)}
+            className="relative flex items-center justify-center rounded-full font-bold transition-transform active:scale-95"
+            style={{
+              minHeight: 32, minWidth: 32,
+              backgroundColor: "color-mix(in oklab, #c9a227 18%, transparent)",
+              color: "#c9a227",
+              border: "1.5px solid color-mix(in oklab, #c9a227 45%, transparent)",
+              fontSize: 14,
+            }}
+            aria-label="Engine not downloaded — open setup"
           >
-            <ListChecks className="h-4.5 w-4.5" />
-            {confirmed.size > 0 && (
-              <span
-                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold"
-                style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
-              >
-                {confirmed.size}
-              </span>
-            )}
+            !
+            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#c9a227" }} />
           </button>
-          <span className="text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-            {page} / {PAGE_COUNT}
-          </span>
-          {installed && !listening && (
+        )}
+        <div
+          className="flex flex-1 items-center gap-2 rounded-full border px-3 py-1.5"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+        >
+          <Search className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+          <input
+            value={search}
+            onChange={(e) => onSearch(e.target.value)}
+            placeholder="Jump — 2:255"
+            className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--color-ink-muted)]"
+            style={{ color: "var(--color-ink)" }}
+          />
+        </div>
+        <button
+          onClick={() => setReviewOpen(true)}
+          className="relative flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ color: "var(--color-ink-muted)", minHeight: 34, minWidth: 34 }}
+          aria-label="Review mistakes"
+        >
+          <ListChecks className="h-4.5 w-4.5" />
+          {confirmed.size > 0 && (
             <span
-              className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
-              style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+              className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold"
+              style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
             >
-              <Mic className="h-3 w-3" /> Ready
+              {confirmed.size}
             </span>
           )}
-        </div>
+        </button>
+        <span className="shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+          {page} / {PAGE_COUNT}
+        </span>
       </div>
 
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden px-4 sm:px-6">
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden px-3 sm:px-6">
         {/* Engine not installed — the page still browses; recite needs setup */}
         {installed === false && (
           <button
             onClick={() => setSetupOpen(true)}
-            className="mt-3 flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors"
+            className="mt-2 flex w-full items-center gap-2.5 rounded-2xl border px-3.5 py-2 text-left transition-colors"
             style={{ borderColor: "color-mix(in oklab, #c9a227 35%, transparent)", backgroundColor: "color-mix(in oklab, #c9a227 8%, transparent)" }}
           >
-            <span
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold"
-              style={{ backgroundColor: "#c9a227", color: "var(--color-paper)" }}
-            >
-              !
-            </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+              <span className="block text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
                 Recitation engine not downloaded
               </span>
-              <span className="block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              <span className="block text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                 Tap to set up — ~85MB, once, fully offline after.
               </span>
             </span>
           </button>
         )}
 
-        {installed && !listening && (
-          <div className="mt-3 flex items-center justify-between">
-            <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              Swipe pages · tap the mic and recite anywhere
-            </p>
-            <button
-              onClick={() => void remove()}
-              className="shrink-0 text-[10px] font-medium transition-opacity hover:opacity-70"
-              style={{ color: "var(--color-ink-muted)" }}
-            >
-              Remove engine
-            </button>
-          </div>
-        )}
-
         {/* Live status */}
         {listening && (
           <div
-            className="mt-3 flex items-center gap-3 rounded-2xl border px-4 py-2.5"
+            className="mt-2 flex items-center gap-2.5 rounded-full border px-3.5 py-1.5"
             style={{ borderColor: "var(--color-accent-faint)", backgroundColor: "var(--color-paper-2)" }}
           >
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="relative flex h-2 w-2 shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60" style={{ backgroundColor: "var(--color-accent)" }} />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "var(--color-accent)" }} />
+              <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: "var(--color-accent)" }} />
             </span>
-            <p className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+            <p className="truncate text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
               {status ?? "Listening…"}
             </p>
           </div>
         )}
         {micError && !micDenied && (
-          <p className="mt-2 text-xs font-medium" style={{ color: "#b34a3a" }}>{micError}</p>
+          <p className="mt-1.5 text-xs font-medium" style={{ color: "#b34a3a" }}>{micError}</p>
         )}
-
-        {/* Jump bar */}
-        <div className="mt-3 flex items-center gap-2">
-          <div
-            className="flex flex-1 items-center gap-2 rounded-full border px-3.5 py-2"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
-          >
-            <Search className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
-            <input
-              value={search}
-              onChange={(e) => onSearch(e.target.value)}
-              placeholder="Jump — 2:255"
-              className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--color-ink-muted)]"
-              style={{ color: "var(--color-ink)" }}
-            />
-          </div>
-        </div>
 
         {/* Mushaf page — swipe */}
         <div
-          className="relative mt-3 min-h-0 flex-1 touch-pan-y select-none overflow-hidden rounded-3xl border"
+          className="relative mt-2 min-h-0 flex-1 touch-pan-y select-none overflow-hidden rounded-2xl border"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -604,8 +567,7 @@ export default function QuranTesterClient() {
       {/* Mistake confirm bar */}
       {pending && (
         <div
-          className="fixed inset-x-0 z-40 flex justify-center px-4"
-          style={{ bottom: "calc(env(safe-area-inset-bottom) + 108px)" }}
+          className="qt-confirm-bar fixed inset-x-0 z-40 flex justify-center px-4"
         >
           <div
             className="w-full max-w-sm rounded-2xl border p-4 shadow-lg"
@@ -807,6 +769,15 @@ export default function QuranTesterClient() {
                 ))}
               </div>
             )}
+            {installed && (
+              <button
+                onClick={() => { setReviewOpen(false); void remove(); }}
+                className="mt-4 w-full rounded-full border py-2 text-[11px] font-medium transition-opacity hover:opacity-70"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+              >
+                Remove recitation engine (~85MB)
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -814,9 +785,9 @@ export default function QuranTesterClient() {
       {/* Recite bar */}
       {installed && (
         <div
-          className="fixed inset-x-0 bottom-0 z-30"
+          className="qt-recite-bar fixed inset-x-0 z-30"
           style={{
-            paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
+            paddingBottom: 10,
             background: "linear-gradient(to top, var(--color-paper) 55%, transparent)",
           }}
         >

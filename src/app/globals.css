@@ -195,6 +195,23 @@ main#main-content {
   }
 }
 
+/* Quran Tester floating controls — sit above the mobile bottom nav (4rem +
+   safe area); on desktop there's no nav so they hug the bottom. */
+.qt-recite-bar {
+  bottom: calc(4rem + env(safe-area-inset-bottom));
+}
+.qt-confirm-bar {
+  bottom: calc(4rem + env(safe-area-inset-bottom) + 128px);
+}
+@media (min-width: 1024px) {
+  .qt-recite-bar {
+    bottom: 12px;
+  }
+  .qt-confirm-bar {
+    bottom: 140px;
+  }
+}
+
 /* Bare-shell routes (onboarding, guide): no app chrome, full viewport. */
 html[data-shell="bare"] .app-chrome {
   display: none !important;
