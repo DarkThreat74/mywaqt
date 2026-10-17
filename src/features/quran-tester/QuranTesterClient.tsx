@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, ListChecks, Mic, Search, Square, Trash2, X } from "lucide-react";
+import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, ListChecks, Loader2, Mic, MicOff, Search, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
 import { loadAyahPages, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
 import { listMistakes, removeMistake, saveMistake, type Mistake } from "./mistakes";
@@ -46,6 +46,8 @@ export default function QuranTesterClient() {
   const [loc, setLoc] = useState<{ surah: number; ayah: number } | null>(null);
   const [wordIdx, setWordIdx] = useState<number | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
+  const [micDenied, setMicDenied] = useState(false);
+  const [micHelp, setMicHelp] = useState(false);
 
   // Mistake layer: engine-raised suspects render yellow; only a confirmed
   // suspect turns red and persists. Nothing else about recitation is stored.
@@ -156,10 +158,19 @@ export default function QuranTesterClient() {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
       });
-    } catch {
-      setMicError("Microphone access was denied.");
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : "";
+      setMicDenied(true);
+      setMicError(
+        name === "NotFoundError"
+          ? "No microphone found on this device."
+          : !navigator.mediaDevices
+            ? "Microphone needs a secure (https) context."
+            : "Microphone access is blocked.",
+      );
       return;
     }
+    setMicDenied(false);
 
     const ctx = new AudioContext();
     const workletUrl = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
@@ -535,7 +546,7 @@ export default function QuranTesterClient() {
             </p>
           </div>
         )}
-        {micError && (
+        {micError && !micDenied && (
           <p className="mt-2 text-xs font-medium" style={{ color: "#b34a3a" }}>{micError}</p>
         )}
 
@@ -693,6 +704,57 @@ export default function QuranTesterClient() {
         </div>
       )}
 
+      {/* Mic help modal */}
+      {micHelp && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-5"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
+          onClick={() => setMicHelp(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl border p-6"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-full"
+                style={{ backgroundColor: "color-mix(in oklab, #b34a3a 12%, transparent)", color: "#b34a3a" }}
+              >
+                <MicOff className="h-5 w-5" />
+              </div>
+              <button
+                onClick={() => setMicHelp(false)}
+                className="rounded-full p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-ink-muted)" }}
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-3 text-lg font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
+              {micError ?? "Microphone access is blocked"}
+            </p>
+            <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Quran Tester only listens while you recite — audio never leaves
+              this device. To allow it:
+            </p>
+            <ol className="mt-3 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              <li>Tap the lock/site icon in your browser&rsquo;s address bar.</li>
+              <li>Set <strong>Microphone</strong> to <strong>Allow</strong>.</li>
+              <li>Come back and try again.</li>
+            </ol>
+            <button
+              onClick={() => { setMicHelp(false); void startRecite(); }}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold transition-opacity hover:opacity-80"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+            >
+              <Mic className="h-4 w-4" /> Try again
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Mistake review sheet */}
       {reviewOpen && (
         <div
@@ -784,24 +846,38 @@ export default function QuranTesterClient() {
               )}
             </div>
             <button
-              onClick={() => (listening ? void stopRecite() : void startRecite())}
-              className="relative flex items-center justify-center rounded-full transition-transform active:scale-95"
+              onClick={() => (listening ? void stopRecite() : micDenied ? setMicHelp(true) : void startRecite())}
+              className="relative flex items-center justify-center rounded-full transition-transform active:scale-90"
               style={{
-                width: 64,
-                height: 64,
-                backgroundColor: listening ? "var(--color-accent)" : "var(--color-ink)",
+                width: 68,
+                height: 68,
+                backgroundColor: listening ? "var(--color-accent)" : micDenied ? "#b34a3a" : "var(--color-ink)",
                 color: "var(--color-paper)",
-                boxShadow: "0 8px 24px color-mix(in oklab, var(--color-ink) 25%, transparent)",
+                boxShadow: listening
+                  ? "0 10px 32px color-mix(in oklab, var(--color-accent) 45%, transparent)"
+                  : "0 10px 28px color-mix(in oklab, var(--color-ink) 30%, transparent)",
+                border: "3px solid var(--color-paper)",
               }}
               aria-label={listening ? "Stop reciting" : "Start reciting"}
             >
               {listening && (
-                <span className="absolute inset-0 animate-ping rounded-full opacity-25" style={{ backgroundColor: "var(--color-accent)" }} />
+                <>
+                  <span className="absolute -inset-1.5 animate-ping rounded-full opacity-30" style={{ backgroundColor: "var(--color-accent)", animationDuration: "1.8s" }} />
+                  <span className="absolute -inset-1.5 animate-ping rounded-full opacity-20" style={{ backgroundColor: "var(--color-accent)", animationDuration: "1.8s", animationDelay: "0.9s" }} />
+                </>
               )}
-              {listen === "listening" ? <Square className="h-5 w-5" fill="currentColor" /> : <Mic className="h-6 w-6" />}
+              {listen === "listening" ? (
+                <Square className="h-5 w-5" fill="currentColor" />
+              ) : listen === "warming" ? (
+                <Loader2 className="h-6 w-6 animate-spin" />
+              ) : micDenied ? (
+                <MicOff className="h-6 w-6" />
+              ) : (
+                <Mic className="h-6 w-6" />
+              )}
             </button>
             <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--color-ink-muted)" }}>
-              {listen === "listening" ? "Tap to stop" : listen === "warming" ? "Warming up" : "Tap to recite"}
+              {listen === "listening" ? "Listening — tap to stop" : listen === "warming" ? "Warming up" : micDenied ? "Mic blocked — tap for help" : "Tap to recite"}
             </p>
           </div>
         </div>

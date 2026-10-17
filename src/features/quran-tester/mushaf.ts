@@ -62,7 +62,7 @@ export function loadPage(n: number): Promise<MushafPage> {
   let pending = pageCache.get(p);
   if (!pending) {
     const key = `/qt/page-${String(p).padStart(3, "0")}.json`;
-    pending = cachedAsset(key, `${BASE}/mushaf/QPC2/page-${String(p).padStart(3, "0")}.json`).then((r) => r.json());
+    pending = cachedAsset(key, `${BASE}/page-${String(p).padStart(3, "0")}.json`).then((r) => r.json());
     pageCache.set(p, pending);
   }
   return pending;
@@ -75,10 +75,12 @@ export async function loadPageFont(n: number): Promise<string> {
   const family = `QPC2-p${n}`;
   if (loadedFonts.has(n)) return family;
   const file = `p${String(n).padStart(3, "0")}.woff2`;
-  const res = await cachedAsset(`/qt/${file}`, `${BASE}/fonts/QPC2/${file}`);
+  const res = await cachedAsset(`/qt/${file}`, `${BASE}/${file}`);
   const font = new FontFace(family, await res.arrayBuffer());
   await font.load();
   document.fonts.add(font);
   loadedFonts.add(n);
   return family;
 }
+
+

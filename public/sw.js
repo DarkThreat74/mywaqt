@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v78";
+const CACHE_VERSION = "waqt-v79";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -39,6 +39,7 @@ const PRECACHE_URLS = [
   "/icon.svg",
   "/icon-badge.png",
   "/offline.html",
+  "/data/ayah-pages.json",
 ];
 
 // Core app pages — prefetched on install for offline boot.
@@ -52,6 +53,7 @@ const APP_PAGES = [
   "/settings",
   "/subscriptions",
   "/birthdays",
+  "/quran-tester",
 ];
 
 // ─── IndexedDB helpers for offline event outbox ───
@@ -327,7 +329,9 @@ if ("navigationPreload" in self.registration) {
 
 // ─── Activate: clear old caches, claim clients ───
 self.addEventListener("activate", (event) => {
-  const validCaches = [STATIC_CACHE, RUNTIME_CACHE, API_CACHE, PAGE_CACHE, RSC_CACHE, AUDIO_CACHE];
+  // quran-tester-engine-v1: on-demand model/mushaf assets, owned by the
+  // feature — versioned independently, never wiped on SW updates.
+  const validCaches = [STATIC_CACHE, RUNTIME_CACHE, API_CACHE, PAGE_CACHE, RSC_CACHE, AUDIO_CACHE, "quran-tester-engine-v1"];
 
   event.waitUntil(
     caches
