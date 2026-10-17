@@ -91,6 +91,12 @@ export async function startQt(): Promise<void> {
   }
 
   const ctx = new AudioContext();
+  // iOS/Android browsers often create the context suspended even inside a
+  // tap handler — mic shows "recording" but the worklet never runs and the
+  // engine starves silently. Resume before wiring anything.
+  if (ctx.state === "suspended") {
+    try { await ctx.resume(); } catch {}
+  }
   const workletUrl = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
   try {
     await ctx.audioWorklet.addModule(workletUrl);

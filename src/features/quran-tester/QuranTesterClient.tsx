@@ -149,7 +149,11 @@ export default function QuranTesterClient() {
     setMicDenied(false);
     setLoc(null);
     setWordIdx(null);
-    await startQt();
+    try {
+      await startQt();
+    } catch (err) {
+      setMicError(err instanceof Error ? err.message : "Failed to start the engine.");
+    }
   }
 
   async function stopRecite() {
