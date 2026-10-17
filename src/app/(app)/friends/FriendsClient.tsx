@@ -989,7 +989,7 @@ export default function FriendsClient() {
 
             {/* ── Friend profile card (view mode) ── */}
             {sheet !== "new" && sheet !== "self" && !editing && (() => {
-              const f = sheet as Friend;
+              const f = friends.find((x) => x.id === (sheet as Friend).id) ?? (sheet as Friend);
               const t = TIERS[tierOf(f)];
               const rows: [string, string][] = [
                 f.groupLabel ? ["Crew", f.groupLabel] : null,
@@ -1103,7 +1103,7 @@ export default function FriendsClient() {
                   <img src={`data:${photo.mime};base64,${photo.data}`} alt="" className="h-full w-full object-cover" />
                 ) : sheet !== "new" && (sheet as Friend).hasPhoto ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={`/api/friends/${(sheet as Friend).id}/photo`} alt="" className="h-full w-full object-cover" />
+                  <img src={photoSrc(friends.find((x) => x.id === (sheet as Friend).id) ?? (sheet as Friend))} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <Camera className="h-5 w-5" />
                 )}

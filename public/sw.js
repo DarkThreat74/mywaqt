@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v75";
+const CACHE_VERSION = "waqt-v76";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -796,6 +796,10 @@ self.addEventListener("fetch", (event) => {
 
   // Don't intercept cron API
   if (url.pathname.startsWith("/api/cron/")) return;
+
+  // Uploaded photos are private binary payloads — a 5-min cached copy shows
+  // the OLD picture after an upload until the TTL lapses. Always fresh.
+  if (url.pathname.endsWith("/photo")) return;
 
   // ── Navigation requests: stale-while-revalidate ──
   // Serve cached HTML instantly (offline-first), then update in background.

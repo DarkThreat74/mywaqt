@@ -168,7 +168,7 @@ export default function PhotoCropper({
           step={minScale / 50}
           value={scale}
           onChange={(e) => zoomTo(parseFloat(e.target.value))}
-          className="w-full accent-[var(--color-accent)]"
+          className="w-full accent-[var(--color-paper)]"
           aria-label="Zoom"
         />
         <Plus className="h-4 w-4 shrink-0" style={{ color: "var(--color-paper)" }} />
@@ -178,7 +178,11 @@ export default function PhotoCropper({
         <button
           onClick={onCancel}
           className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
-          style={{ backgroundColor: "color-mix(in oklab, var(--color-paper) 14%, transparent)", color: "var(--color-paper)" }}
+          style={{
+            backgroundColor: "color-mix(in oklab, var(--color-paper) 42%, transparent)",
+            color: "var(--color-paper)",
+            border: "1px solid color-mix(in oklab, var(--color-paper) 60%, transparent)",
+          }}
         >
           <X className="h-4 w-4" /> Cancel
         </button>
