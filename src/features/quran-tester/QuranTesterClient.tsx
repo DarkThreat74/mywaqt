@@ -43,6 +43,7 @@ export default function QuranTesterClient() {
   const [micError, setMicError] = useState<string | null>(null);
   const [micDenied, setMicDenied] = useState(false);
   const [micHelp, setMicHelp] = useState(false);
+  const [level, setLevel] = useState(0);
 
   // Mistake layer: engine-raised suspects render yellow; only a confirmed
   // suspect turns red and persists. Nothing else about recitation is stored.
@@ -160,11 +161,14 @@ export default function QuranTesterClient() {
   function onEngineEvent(ev: Record<string, unknown>) {
     if (ev.type === "ui-listen") {
       setListen(ev.state as ListenState);
+      if (ev.state === "idle") setLevel(0);
     } else if (ev.type === "ui-status") {
       setStatus(String(ev.message));
     } else if (ev.type === "ui-mic-denied") {
       setMicDenied(true);
       setMicError(String(ev.message));
+    } else if (ev.type === "ui-level") {
+      setLevel(ev.value as number);
     } else if (ev.type === "ui-error") {
       setMicError(String(ev.message));
     } else if (ev.type === "verse_match") {
@@ -498,9 +502,17 @@ export default function QuranTesterClient() {
             className="mt-2 flex items-center gap-2.5 rounded-full border px-3.5 py-1.5"
             style={{ borderColor: "var(--color-accent-faint)", backgroundColor: "var(--color-paper-2)" }}
           >
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60" style={{ backgroundColor: "var(--color-accent)" }} />
-              <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: "var(--color-accent)" }} />
+            <span className="flex h-3.5 items-end gap-[2px]">
+              {[0.35, 0.6, 1, 0.8, 0.5, 0.9, 0.4].map((f, i) => (
+                <span
+                  key={i}
+                  className="w-[3px] rounded-full transition-[height] duration-100"
+                  style={{
+                    height: `${Math.max(15, level * f * 100)}%`,
+                    backgroundColor: level > 0.03 ? "var(--color-accent)" : "var(--color-ink-muted)",
+                  }}
+                />
+              ))}
             </span>
             <p className="truncate text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
               {status ?? "Listening…"}

@@ -107,6 +107,12 @@ export async function startQt(): Promise<void> {
     merged.set(chunk, buf.length);
     buf = merged;
     if (buf.length >= ctx.sampleRate / 4) {
+      // Mic level for the UI meter — proves audio is flowing before the
+      // model says anything.
+      let sum = 0;
+      for (let i = 0; i < buf.length; i += 8) sum += buf[i] * buf[i];
+      const rms = Math.sqrt(sum / (buf.length / 8));
+      emit({ type: "ui-level", value: Math.min(1, rms * 6) });
       worker?.postMessage({ type: "audio", samples: buf }, [buf.buffer]);
       buf = new Float32Array(0);
     }
