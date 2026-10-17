@@ -20,25 +20,25 @@ export interface EngineAsset {
   bytes: number; // expected size, for progress + integrity sanity
 }
 
-// shortcut: third-party release/CDN URLs. Move to our own CDN (R2) before
-// shipping publicly — a popular install would hammer someone else's host,
-// and GitHub release links can change.
+// Assets come through our own /qt-dl/ proxy — the upstream hosts (GitHub
+// release assets) send no CORS headers, so direct browser fetch fails.
+// Swap upstream to our own CDN (R2) inside the proxy route when volume grows.
 export const ENGINE_ASSETS: EngineAsset[] = [
   {
     file: "model.onnx",
-    url: "https://github.com/yazinsai/tilawa/releases/download/zipformer-a0w-ep1-a0.5/zipformer_a0w_ep1_a05.int8.onnx",
+    url: "/qt-dl/model.onnx",
     bytes: 66_000_000,
   },
   {
     file: "corpus.json",
-    url: "https://github.com/yazinsai/tilawa/releases/download/v0.3.0/zipformer_quran.json",
+    url: "/qt-dl/corpus.json",
     bytes: 5_500_000,
   },
   {
     // onnxruntime-web WASM backend — served from our cache via the SW so the
     // model engine never needs network after install. numThreads=1 path.
     file: "ort-wasm-simd-threaded.wasm",
-    url: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort-wasm-simd-threaded.wasm",
+    url: "/qt-dl/ort-wasm-simd-threaded.wasm",
     bytes: 14_300_000,
   },
 ];
