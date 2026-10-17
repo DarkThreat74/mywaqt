@@ -1,0 +1,111 @@
+/**
+ * Quran Tester — on-device engine assets.
+ *
+ * Everything this feature needs lives under src/features/quran-tester/ so the
+ * whole feature can be lifted into a standalone app later. The recognition
+ * model (~66MB) and phoneme corpus (~5MB) are NOT bundled — they download on
+ * demand when the user taps "Install engine" and live in a dedicated
+ * CacheStorage bucket + IndexedDB flag, so uninstalling frees the space.
+ *
+ * Model: Quran-Lab zipformer_p-arabic (INT8 ONNX, streaming phoneme CTC).
+ * License: NPL-1.2 — free to use/redistribute, never charge for features it
+ * powers, and the app must state that automatic tajweed feedback can be wrong
+ * and is not a substitute for a qualified teacher.
+ */
+
+export interface EngineAsset {
+  /** Cache key + URL path component */
+  id: string;
+  url: string;
+  bytes: number; // expected size, for progress + integrity sanity
+}
+
+// shortcut: third-party release URLs. Move to our own CDN (R2) before shipping
+// publicly — GitHub release links can change and add a redirect hop.
+export const ENGINE_ASSETS: EngineAsset[] = [
+  {
+    id: "model",
+    url: "https://github.com/yazinsai/tilawa/releases/download/zipformer-a0w-ep1-a0.5/zipformer_a0w_ep1_a05.int8.onnx",
+    bytes: 66_000_000,
+  },
+  {
+    id: "corpus",
+    url: "https://github.com/yazinsai/tilawa/releases/download/v0.3.0/zipformer_quran.json",
+    bytes: 5_500_000,
+  },
+];
+
+const CACHE_NAME = "quran-tester-engine-v1";
+const LS_KEY = "qt:engine-installed";
+
+export async function engineInstalled(): Promise<boolean> {
+  if (typeof caches === "undefined") return false;
+  if (localStorage.getItem(LS_KEY) !== "1") return false;
+  const cache = await caches.open(CACHE_NAME);
+  for (const a of ENGINE_ASSETS) {
+    if (!(await cache.match(engineKey(a)))) return false;
+  }
+  return true;
+}
+
+function engineKey(a: EngineAsset) {
+  return `/qt-engine/${a.id}`;
+}
+
+/** Fetch a cached asset body. Returns null when not installed. */
+export async function engineAsset(id: string): Promise<Response | null> {
+  const a = ENGINE_ASSETS.find((x) => x.id === id);
+  if (!a) return null;
+  const cache = await caches.open(CACHE_NAME);
+  return (await cache.match(engineKey(a))) ?? null;
+}
+
+/**
+ * Download all engine assets into CacheStorage with byte-level progress.
+ * Resumable-ish: already-cached assets are skipped.
+ */
+export async function downloadEngine(
+  onProgress: (doneBytes: number, totalBytes: number, current: string) => void,
+): Promise<void> {
+  const total = ENGINE_ASSETS.reduce((s, a) => s + a.bytes, 0);
+  let done = 0;
+  const cache = await caches.open(CACHE_NAME);
+
+  for (const a of ENGINE_ASSETS) {
+    if (await cache.match(engineKey(a))) {
+      done += a.bytes;
+      continue;
+    }
+    onProgress(done, total, a.id);
+    const res = await fetch(a.url);
+    if (!res.ok || !res.body) throw new Error(`download failed: ${a.id}`);
+
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { done: fin, value } = await reader.read();
+      if (fin) break;
+      chunks.push(value);
+      onProgress(
+        Math.min(done + chunks.reduce((s, c) => s + c.length, 0), total),
+        total,
+        a.id,
+      );
+    }
+    const blob = new Blob(chunks as BlobPart[]);
+    await cache.put(
+      engineKey(a),
+      new Response(blob, {
+        headers: { "content-type": res.headers.get("content-type") ?? "application/octet-stream" },
+      }),
+    );
+    done += blob.size;
+    onProgress(done, total, a.id);
+  }
+  localStorage.setItem(LS_KEY, "1");
+}
+
+export async function uninstallEngine(): Promise<void> {
+  localStorage.removeItem(LS_KEY);
+  if (typeof caches !== "undefined") await caches.delete(CACHE_NAME);
+}

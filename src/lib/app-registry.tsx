@@ -206,12 +206,26 @@ export function StoreArt() {
   );
 }
 
+export function QuranTesterArt() {
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M24 6a7 7 0 0 1 7 7v10a7 7 0 0 1-14 0V13a7 7 0 0 1 7-7z" />
+      <path d="M13 21a11 11 0 0 0 22 0" />
+      <path d="M24 32v7" />
+      <path d="M17 42h14" />
+      <circle cx="38" cy="13" r="3.4" opacity="0.6" />
+      <path d="M36.6 12.4l2.8 2.8" opacity="0.6" />
+    </svg>
+  );
+}
+
 export const ALL_APPS: AppDef[] = [
   { key: "/qibla", href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba, live compass", rating: "4.9", installs: "18K", art: QiblaArt },
   { key: "/dhikr", href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter with sequences", rating: "4.8", installs: "24K", art: DhikrArt },
   { key: "/masjids", href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah times", rating: "4.7", installs: "9K", art: MasjidArt },
   { key: "/shield", href: "/shield", label: "Salah Shield", arabic: "درع", description: "Locks distracting apps while prayer is due", rating: "4.9", installs: "16K", art: ShieldArt },
   { key: "/quran", href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah from a verse", rating: "4.9", installs: "15K", art: QuranArt, ranked: true },
+  { key: "/quran-tester", href: "/quran-tester", label: "Quran Tester", arabic: "تلاوة", description: "Recite from memory — it follows and catches mistakes", rating: "5.0", installs: "1K", art: QuranTesterArt },
   { key: "/mutashabihat", href: "/mutashabihat", label: "Mutashabih", arabic: "متشابه", description: "Train on verses that look alike", rating: "4.8", installs: "7K", art: MutashabihArt, ranked: true },
   { key: "/names", href: "/names", label: "99 Names", arabic: "أسماء الله", description: "Names of Allah, one a day", rating: "4.9", installs: "21K", art: NamesArt },
   { key: "/study", href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & ambient sounds", rating: "4.8", installs: "14K", art: StudyArt },
@@ -228,7 +242,7 @@ export const APP_BY_KEY = new Map(ALL_APPS.map((a) => [a.key, a]));
 
 export const CATEGORIES: { title: string; keys: string[] }[] = [
   { title: "Prayer", keys: ["/qibla", "/dhikr", "/masjids", "/shield"] },
-  { title: "Quran", keys: ["/quran", "/mutashabihat", "/names"] },
+  { title: "Quran", keys: ["/quran", "/quran-tester", "/mutashabihat", "/names"] },
   { title: "Study", keys: ["/study", "/learn", "/talks"] },
   { title: "Life", keys: ["/subscriptions", "/birthdays"] },
   { title: "Social", keys: ["messages", "/friends"] },
