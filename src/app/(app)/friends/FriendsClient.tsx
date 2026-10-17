@@ -35,6 +35,7 @@ interface Friend {
   hangout: string | null;
   shortlist: string | null;
   volition: string | null;
+  attune: string | null;
   groupLabel: string | null;
   score: number | null;
   phone: string | null;
@@ -135,6 +136,12 @@ const VOLITION = [
   { id: "choose", label: "We choose to — we'd link anyway" },
   { id: "mix", label: "A bit of both" },
   { id: "context", label: "Same place mostly — class, work, whatever" },
+];
+const ATTUNE = [
+  { id: "notice", label: "They'd notice before I said anything" },
+  { id: "eventually", label: "They'd pick up on it eventually" },
+  { id: "told", label: "Only if I told them" },
+  { id: "wouldnt", label: "They wouldn't" },
 ];
 const PHASE = [
   { id: "steady", label: "As tight as ever" },
@@ -323,6 +330,7 @@ export default function FriendsClient() {
   const [hangout, setHangout] = useState<string | null>(null);
   const [shortlist, setShortlist] = useState<string | null>(null);
   const [volition, setVolition] = useState<string | null>(null);
+  const [attune, setAttune] = useState<string | null>(null);
   const [groupLabel, setGroupLabel] = useState("");
   const [step, setStep] = useState(0);
   const [notes, setNotes] = useState("");
@@ -343,7 +351,7 @@ export default function FriendsClient() {
       setMiss(f.miss); setTell(f.tell); setPhase(f.phase); setVibe(f.vibe);
       setSacrifice(f.sacrifice); setLoyalty(f.loyalty); setGap(f.gap);
       setPlans(f.plans); setHangout(f.hangout); setShortlist(f.shortlist);
-      setVolition(f.volition);
+      setVolition(f.volition); setAttune(f.attune);
       setGroupLabel(f.groupLabel ?? "");
       setPhone(f.phone ?? "");
       setNotes(f.notes ?? "");
@@ -352,7 +360,7 @@ export default function FriendsClient() {
       setMetTag(null); setMetDetail(""); setFreq(null);
       setYears(null); setTrust(null); setOpenness(null); setMiss(null); setTell(null); setPhase(null); setVibe(null); setGroupLabel("");
       setSacrifice(null); setLoyalty(null); setGap(null); setPlans(null); setHangout(null); setShortlist(null);
-      setVolition(null);
+      setVolition(null); setAttune(null);
       setPhone(""); setNotes("");
     }
   }
@@ -397,12 +405,14 @@ export default function FriendsClient() {
       if (!picked?.length) return;
       const norm = (p?: string) => (p ?? "").replace(/\D/g, "").slice(-10);
       const existing = new Set(friends.map((f) => norm(f.phone ?? "")).filter(Boolean));
+      const existingNames = new Set(friends.map((f) => f.name.trim().toLowerCase()));
       const report: { name: string; linked: boolean }[] = [];
       for (const c of picked.slice(0, 25)) {
         const name = (c.name?.[0] ?? "").trim().slice(0, 80);
         if (!name) continue;
         const tel = c.tel?.[0]?.trim().slice(0, 40) ?? null;
-        if (tel && existing.has(norm(tel))) {
+        // Phone match when available, name fallback for number-less contacts.
+        if ((tel && existing.has(norm(tel))) || existingNames.has(name.toLowerCase())) {
           report.push({ name, linked: true });
           continue;
         }
@@ -443,7 +453,7 @@ export default function FriendsClient() {
         name: n, metTag, metDetail: metDetail || null, talkFreq: freq,
         knownYears: metTag === "childhood" ? "y7p" : years,
         trust, openness, miss, tell, phase, vibe,
-        sacrifice, loyalty, gap, plans, hangout, shortlist, volition,
+        sacrifice, loyalty, gap, plans, hangout, shortlist, volition, attune,
         groupLabel: groupLabel.trim() || null, phone: phone || null, notes: notes || null,
       };
       if (photo.dirty) {
@@ -489,7 +499,7 @@ export default function FriendsClient() {
     display: "block",
   };
 
-  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, phase, vibe, metTag, sacrifice, loyalty, gap, plans, hangout, shortlist, volition });
+  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, phase, vibe, metTag, sacrifice, loyalty, gap, plans, hangout, shortlist, volition, attune });
   const previewTier = TIERS[friendTier(previewScore)];
 
   // ── Stepped questionnaire — one question at a time ───────────────
@@ -506,6 +516,7 @@ export default function FriendsClient() {
     { id: "open", q: "How much of your real life do they know — problems, family, what you're actually dealing with?", answered: !!openness },
     { id: "tell", q: "When something big happens in your life, do they hear it from you?", answered: !!tell },
     { id: "loyalty", q: "Would they back you in a room you're not in?", answered: !!loyalty },
+    { id: "attune", q: "If you were having a rough week and didn't say anything — would they notice?", answered: !!attune },
     { id: "gap", q: "If you didn't speak for two months, then saw them — what would it be?", answered: !!gap },
     { id: "shortlist", q: "The short list — the people who actually matter. Do they make it?", answered: !!shortlist },
     { id: "phase", q: "Where does this friendship stand right now?", answered: !!phase },
@@ -566,6 +577,9 @@ export default function FriendsClient() {
       </div>
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-24 sm:px-6">
+        {contactHint && !sheet && (
+          <p className="mt-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>{contactHint}</p>
+        )}
         {/* ── Group filter ── */}
         {groups.length > 0 && (
           <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
@@ -956,6 +970,7 @@ export default function FriendsClient() {
                 f.openness ? ["They know", openLabel(f.openness) ?? f.openness] : null,
                 f.tell ? ["Big news", TELL.find((x) => x.id === f.tell)?.label ?? f.tell] : null,
                 f.loyalty ? ["Backs you up", LOYALTY.find((x) => x.id === f.loyalty)?.label ?? f.loyalty] : null,
+                f.attune ? ["If you're off", ATTUNE.find((x) => x.id === f.attune)?.label ?? f.attune] : null,
                 f.gap ? ["After 2 months apart", GAP.find((x) => x.id === f.gap)?.label ?? f.gap] : null,
                 f.shortlist ? ["The short list", SHORTLIST.find((x) => x.id === f.shortlist)?.label ?? f.shortlist] : null,
                 f.phase ? ["Right now", PHASE.find((x) => x.id === f.phase)?.label ?? f.phase] : null,
@@ -1159,6 +1174,7 @@ export default function FriendsClient() {
                 {steps[cur].id === "open" && chipsRow(OPENNESS, openness, setOpenness)}
                 {steps[cur].id === "tell" && chipsRow(TELL, tell, setTell)}
                 {steps[cur].id === "loyalty" && chipsRow(LOYALTY, loyalty, setLoyalty)}
+                {steps[cur].id === "attune" && chipsRow(ATTUNE, attune, setAttune)}
                 {steps[cur].id === "gap" && chipsRow(GAP, gap, setGap)}
                 {steps[cur].id === "shortlist" && chipsRow(SHORTLIST, shortlist, setShortlist)}
                 {steps[cur].id === "phase" && chipsRow(PHASE, phase, setPhase)}

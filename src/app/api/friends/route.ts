@@ -25,6 +25,7 @@ const PLANS = new Set(["both", "easy", "them", "me"]);
 const HANGOUT = new Set(["doing", "mix", "talking", "texting"]);
 const SHORTLIST = new Set(["definitely", "probably", "unsure", "no"]);
 const VOLITION = new Set(["choose", "mix", "context"]);
+const ATTUNE = new Set(["notice", "eventually", "told", "wouldnt"]);
 const PHOTO_MIMES = new Set(["image/jpeg", "image/webp", "image/png"]);
 const MAX_PHOTO_B64 = 800_000;
 
@@ -48,6 +49,7 @@ interface FriendBody {
   hangout?: string | null;
   shortlist?: string | null;
   volition?: string | null;
+  attune?: string | null;
   groupLabel?: string | null;
   phone?: string | null;
   notes?: string | null;
@@ -123,6 +125,7 @@ function validateFields(body: FriendBody, partial: boolean) {
     ["hangout", HANGOUT],
     ["shortlist", SHORTLIST],
     ["volition", VOLITION],
+    ["attune", ATTUNE],
   ] as const) {
     const raw = body[key];
     if (raw !== undefined) {
@@ -197,6 +200,7 @@ export async function GET(request: NextRequest) {
         hangout: schema.friends.hangout,
         shortlist: schema.friends.shortlist,
         volition: schema.friends.volition,
+        attune: schema.friends.attune,
         groupLabel: schema.friends.groupLabel,
         phone: schema.friends.phone,
         notes: schema.friends.notes,
@@ -264,6 +268,7 @@ export async function POST(request: NextRequest) {
         hangout: (out.hangout as string | null) ?? null,
         shortlist: (out.shortlist as string | null) ?? null,
         volition: (out.volition as string | null) ?? null,
+        attune: (out.attune as string | null) ?? null,
         groupLabel: (out.groupLabel as string | null) ?? null,
         phone: (out.phone as string | null) ?? null,
         notes: (out.notes as string | null) ?? null,
@@ -318,7 +323,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
-    const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell", "phase", "vibe", "sacrifice", "loyalty", "gap", "plans", "hangout", "shortlist", "volition"].some((k) => k in out);
+    const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell", "phase", "vibe", "sacrifice", "loyalty", "gap", "plans", "hangout", "shortlist", "volition", "attune"].some((k) => k in out);
     const [row] = await db
       .update(schema.friends)
       .set({ ...out, updatedAt: new Date() })

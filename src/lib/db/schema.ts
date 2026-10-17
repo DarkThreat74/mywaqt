@@ -1241,6 +1241,9 @@ export const friends = pgTable('friends', {
   // "Would you see them outside the context that made you meet?" — voluntary
   // vs circumstantial contact (propinquity). 'choose' | 'mix' | 'context'
   volition: text('volition'),
+  // "Rough week and you didn't say anything — would they notice?" —
+  // 'notice' | 'eventually' | 'told' | 'wouldnt'
+  attune: text('attune'),
   // User-named group — "school crew", "the guys". One group per friend;
   // matches friend_crews.name.
   groupLabel: varchar('group_label', { length: 60 }),

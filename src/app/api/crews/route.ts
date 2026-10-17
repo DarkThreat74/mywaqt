@@ -101,6 +101,17 @@ export async function PATCH(request: NextRequest) {
     if (body.name !== undefined && !newName) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
+    if (newName && newName.toLowerCase() !== existing.name.toLowerCase()) {
+      const [dupe] = await db
+        .select({ id: schema.friendCrews.id })
+        .from(schema.friendCrews)
+        .where(and(
+          eq(schema.friendCrews.userId, session.userId),
+          sql`lower(${schema.friendCrews.name}) = lower(${newName})`,
+        ))
+        .limit(1);
+      if (dupe) return NextResponse.json({ error: "A crew with that name already exists" }, { status: 409 });
+    }
 
     const [crew] = await db
       .update(schema.friendCrews)

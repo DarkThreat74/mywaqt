@@ -42,13 +42,16 @@ export const SACRIFICE_PTS: Record<string, number> = { noask: 13, asked: 9, cost
 export const LOYALTY_PTS: Record<string, number> = { absolutely: 9, probably: 5, unsure: 2, no: 0 };
 export const GAP_PTS: Record<string, number> = { notime: 13, backup: 9, awkward: 4, strangers: 0 };
 export const PLANS_PTS: Record<string, number> = { both: 7, easy: 7, them: 4, me: 3 };
-export const HANGOUT_PTS: Record<string, number> = { doing: 4, mix: 4, talking: 3, texting: 1 };
+export const HANGOUT_PTS: Record<string, number> = { doing: 4, mix: 4, talking: 3, texting: 2 };
 export const SHORTLIST_PTS: Record<string, number> = { definitely: 6, probably: 3, unsure: 1, no: 0 };
 // Propinquity control — "do you see them because you choose to, or because
 // you're in the same place?" Contact forced by shared context (same class,
 // same job) shouldn't earn full frequency/hangout credit. Scales the
 // interaction terms only — every other dimension still counts.
 export const VOLITION_FACTOR: Record<string, number> = { choose: 1, mix: 0.8, context: 0.5 };
+// Attunement — noticing without being told (McGill "knows when I'm upset").
+// The strongest covert-intimacy signal for friendships that run side-by-side.
+export const ATTUNE_PTS: Record<string, number> = { notice: 8, eventually: 5, told: 2, wouldnt: 0 };
 export const MET_PTS: Record<string, number> = {
   childhood: 3, family: 3, masjid: 2, school: 2, work: 2, neighbor: 2,
   mutual: 2, sports: 2, travel: 1, online: 1, other: 1,
@@ -71,6 +74,7 @@ export function friendScore(f: {
   hangout?: string | null;
   shortlist?: string | null;
   volition?: string | null;
+  attune?: string | null;
 }): number {
   // Childhood met-context implies a long history — no duration question asked.
   const years = f.knownYears ?? (f.metTag === "childhood" ? "y7p" : null);
@@ -88,6 +92,7 @@ export function friendScore(f: {
     (GAP_PTS[f.gap ?? ""] ?? 0) +
     (PLANS_PTS[f.plans ?? ""] ?? 0) +
     (SHORTLIST_PTS[f.shortlist ?? ""] ?? 0) +
+    (ATTUNE_PTS[f.attune ?? ""] ?? 0) +
     (MET_PTS[f.metTag ?? ""] ?? 0) +
     // Legacy rows answered "miss"/"vibe" instead of the new probes — keep
     // them contributing a little so old entries don't rescore to ~outer.
