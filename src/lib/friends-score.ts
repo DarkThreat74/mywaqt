@@ -43,7 +43,11 @@ export const SACRIFICE_PTS: Record<string, number> = { noask: 13, asked: 9, cost
 export const LOYALTY_PTS: Record<string, number> = { absolutely: 9, probably: 5, unsure: 2, no: 0 };
 export const GAP_PTS: Record<string, number> = { notime: 13, backup: 9, awkward: 4, strangers: 0 };
 export const PLANS_PTS: Record<string, number> = { both: 7, easy: 7, theytag: 5, them: 5, me: 4, itag: 4, bump: 2 };
-export const HANGOUT_PTS: Record<string, number> = { doing: 4, talking: 4, mix: 4, chilling: 3, group: 2, texting: 2 };
+export const HANGOUT_PTS: Record<string, number> = {
+  meetup: 4, realtalk: 4, chill: 3, outside: 3, group: 2, texting: 2,
+  // Legacy ids
+  doing: 4, talking: 4, mix: 4, chilling: 3,
+};
 export const SHORTLIST_PTS: Record<string, number> = { definitely: 6, probably: 4, between: 2, unsure: 2, almost: 1, no: 0 };
 // Propinquity control — "do you see them because you choose to, or because
 // you're in the same place?" Contact forced by shared context (same class,
@@ -79,29 +83,42 @@ export function friendScore(f: {
 }): number {
   // Childhood met-context implies a long history — no duration question asked.
   const years = f.knownYears ?? (f.metTag === "childhood" ? "y7p" : null);
-  const interaction =
-    ((FREQ_PTS[f.talkFreq ?? ""] ?? 0) + (HANGOUT_PTS[f.hangout ?? ""] ?? 0)) *
-    (VOLITION_FACTOR[f.volition ?? "choose"] ?? 1);
-  const raw =
-    interaction +
-    (YEARS_PTS[years ?? ""] ?? 0) +
-    (TRUST_PTS[f.trust ?? ""] ?? 0) +
-    (OPEN_PTS[f.openness ?? ""] ?? 0) +
-    (TELL_PTS[f.tell ?? ""] ?? 0) +
-    (SACRIFICE_PTS[f.sacrifice ?? ""] ?? 0) +
-    (LOYALTY_PTS[f.loyalty ?? ""] ?? 0) +
-    (GAP_PTS[f.gap ?? ""] ?? 0) +
-    (PLANS_PTS[f.plans ?? ""] ?? 0) +
-    (SHORTLIST_PTS[f.shortlist ?? ""] ?? 0) +
-    (ATTUNE_PTS[f.attune ?? ""] ?? 0) +
-    (MET_PTS[f.metTag ?? ""] ?? 0) +
-    // Legacy rows answered "miss"/"vibe" instead of the new probes — keep
-    // them contributing a little so old entries don't rescore to ~outer.
-    Math.round(((MISS_PTS[f.miss ?? ""] ?? 0) + (VIBE_PTS[f.vibe ?? ""] ?? 0)) / 2);
+  // Normalized scoring: each dimension earns pts/max of the questions
+  // actually answered, so skipping a step can't silently crater the score.
+  // The result is a percentage — strong answers on a partial questionnaire
+  // still rank, weak answers on a full one don't.
+  let raw = 0;
+  let maxRaw = 0;
+  const add = (pts: number, max: number, answered: boolean) => {
+    if (answered) { raw += pts; maxRaw += max; }
+  };
+  // Interaction terms scale by volition — forced contact earns partial credit.
+  if (f.talkFreq || f.hangout) {
+    const v = VOLITION_FACTOR[f.volition ?? "choose"] ?? 1;
+    raw += ((FREQ_PTS[f.talkFreq ?? ""] ?? 0) + (HANGOUT_PTS[f.hangout ?? ""] ?? 0)) * v;
+    maxRaw += 15;
+  }
+  add(YEARS_PTS[years ?? ""] ?? 0, 4, !!years);
+  add(TRUST_PTS[f.trust ?? ""] ?? 0, 13, !!f.trust);
+  add(OPEN_PTS[f.openness ?? ""] ?? 0, 11, !!f.openness);
+  add(TELL_PTS[f.tell ?? ""] ?? 0, 6, !!f.tell);
+  add(SACRIFICE_PTS[f.sacrifice ?? ""] ?? 0, 13, !!f.sacrifice);
+  add(LOYALTY_PTS[f.loyalty ?? ""] ?? 0, 9, !!f.loyalty);
+  add(GAP_PTS[f.gap ?? ""] ?? 0, 13, !!f.gap);
+  add(PLANS_PTS[f.plans ?? ""] ?? 0, 7, !!f.plans);
+  add(SHORTLIST_PTS[f.shortlist ?? ""] ?? 0, 6, !!f.shortlist);
+  add(ATTUNE_PTS[f.attune ?? ""] ?? 0, 8, !!f.attune);
+  add(MET_PTS[f.metTag ?? ""] ?? 0, 3, !!f.metTag);
+  // Legacy rows answered "miss"/"vibe" instead of the new probes — keep
+  // them contributing a little so old entries don't rescore to ~outer.
+  if (f.miss || f.vibe) {
+    raw += ((MISS_PTS[f.miss ?? ""] ?? 0) + (VIBE_PTS[f.vibe ?? ""] ?? 0)) / 2;
+    maxRaw += 9;
+  }
   const mult = PHASE_PTS[f.phase ?? "steady"] ?? 1;
-  return Math.min(100, Math.round(raw * mult));
+  return maxRaw === 0 ? 0 : Math.min(100, Math.round((raw / maxRaw) * 100 * mult));
 }
 
 export function friendTier(score: number): 0 | 1 | 2 | 3 {
-  return score >= 80 ? 0 : score >= 58 ? 1 : score >= 32 ? 2 : 3;
+  return score >= 78 ? 0 : score >= 55 ? 1 : score >= 32 ? 2 : 3;
 }

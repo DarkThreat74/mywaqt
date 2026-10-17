@@ -89,12 +89,12 @@ const YEARS = [
   { id: "y7p", label: "7+ years" },
 ];
 const HANGOUT = [
-  { id: "doing", label: "Something to do — gym, games, food" },
-  { id: "talking", label: "Real talks — life, problems, plans" },
-  { id: "mix", label: "A mix of both" },
-  { id: "chilling", label: "Chilling — same room, our own thing" },
-  { id: "group", label: "Group thing — never just us two" },
-  { id: "texting", label: "Mostly just texts and memes" },
+  { id: "meetup", label: "We plan actual meetups" },
+  { id: "realtalk", label: "Real talks — life, problems, what's going on" },
+  { id: "chill", label: "Chill and talk — no agenda" },
+  { id: "outside", label: "Hang out — food, walks, errands" },
+  { id: "group", label: "Hang out as a group — never just us" },
+  { id: "texting", label: "Mostly through texts" },
 ];
 const PLANS = [
   { id: "both", label: "We both hit each other up" },
@@ -113,8 +113,8 @@ const TRUST = [
 const SACRIFICE = [
   { id: "noask", label: "They don't even have to ask" },
   { id: "asked", label: "I'd show up if they asked" },
-  { id: "cost", label: "Depends what it costs me" },
-  { id: "excuse", label: "I'd find a reason not to" },
+  { id: "cost", label: "I would — if I had no other priorities" },
+  { id: "excuse", label: "I'd probably find a reason not to" },
 ];
 const OPENNESS = [
   { id: "everything", label: "Everything — even what nobody else knows" },
@@ -170,6 +170,9 @@ const TELL = [
 const LEGACY_LABELS: Record<string, string> = {
   mix: "A bit of both", easy: "Whoever — it's easy, no keeping score",
   unsure: "Not sure",
+  doing: "Something to do — gym, games, food",
+  talking: "Actually sitting and talking",
+  chilling: "Chilling — same room, our own thing",
 };
 const optLabel = (list: { id: string; label: string }[], id: string | null) =>
   id ? list.find((x) => x.id === id)?.label ?? LEGACY_LABELS[id] ?? id : null;
@@ -555,7 +558,7 @@ export default function FriendsClient() {
     { id: "plans", q: "Who usually makes the plans?", answered: !!plans },
     { id: "volition", q: "If you stopped sharing the same place — class, work, the block — what would happen?", answered: !!volition },
     { id: "trust", q: "It's 3am and you actually need help — do they get the call?", answered: !!trust },
-    { id: "sacrifice", q: "They need something real — moving day, a ride, help with money.", answered: !!sacrifice },
+    { id: "sacrifice", q: "They need real help — moving day, a ride, a favor that costs you. What happens?", answered: !!sacrifice },
     { id: "open", q: "How much of your real life do they know — problems, family, what you're actually dealing with?", answered: !!openness },
     { id: "tell", q: "When something big happens in your life, do they hear it from you?", answered: !!tell },
     { id: "loyalty", q: "If people were talking about you behind your back — would they defend you?", answered: !!loyalty },
