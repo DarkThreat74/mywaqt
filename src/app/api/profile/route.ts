@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
 // (client downscales to 128px webp) — kept in the users row, no object
 // storage. Send { avatar: null } to remove.
 const AVATAR_RE = /^data:image\/(webp|jpeg|png);base64,/;
-const AVATAR_MAX_CHARS = 90_000; // ~65KB decoded — generous for 128px webp
+const AVATAR_MAX_CHARS = 220_000; // ~160KB decoded — generous for 384px webp
 
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, Phone, EyeOff } from "lucide-react";
 import { friendScore, friendTier } from "@/lib/friends-score";
+import { compressImage } from "@/lib/image";
 import PhotoLightbox from "@/components/photo-lightbox";
 
 /**
@@ -176,27 +177,16 @@ const freqLabel = (f: string | null) => FREQS.find((x) => x.id === f)?.label ?? 
 const scoreOf = (f: Friend) => f.score ?? friendScore(f);
 const tierOf = (f: Friend): 0 | 1 | 2 => friendTier(scoreOf(f));
 
-// Friend avatar pixels: ≤320px JPEG q0.75 → ~15-40KB base64.
+// Friend photo: 1024px WebP q0.82 (~80-200KB) — big enough to stay sharp in
+// the full-screen viewer, small enough for the 800KB server cap.
 async function compressPhoto(file: Blob): Promise<{ data: string; mime: string }> {
-  const bmp = await createImageBitmap(file);
-  const scale = Math.min(1, 320 / Math.max(bmp.width, bmp.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bmp.width * scale);
-  canvas.height = Math.round(bmp.height * scale);
-  canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  const url = canvas.toDataURL("image/jpeg", 0.75);
-  return { data: url.split(",")[1], mime: "image/jpeg" };
+  const { data, mime } = await compressImage(file, 1024, 0.82);
+  return { data, mime };
 }
 
-// Profile avatar: 128px webp data URL — the shape /api/profile expects.
+// Profile avatar: 384px webp data URL — the shape /api/profile expects.
 async function compressSelfie(file: Blob): Promise<string> {
-  const bmp = await createImageBitmap(file);
-  const scale = Math.min(1, 128 / Math.max(bmp.width, bmp.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bmp.width * scale);
-  canvas.height = Math.round(bmp.height * scale);
-  canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/webp", 0.8);
+  return (await compressImage(file, 384, 0.82)).dataUrl;
 }
 
 // Contacts Picker API (Android Chrome / WebView). Feature-detected.

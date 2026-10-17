@@ -30,7 +30,7 @@ interface ExpenseBody {
 }
 
 const PHOTO_MIMES = new Set(["image/jpeg", "image/webp", "image/png"]);
-const MAX_PHOTO_B64 = 800_000; // ~600KB decoded — thumbnails shouldn't exceed this
+const MAX_PHOTO_B64 = 1_200_000; // ~900KB decoded
 
 function validateFields(body: ExpenseBody, partial: boolean) {
   const out: Record<string, unknown> = {};

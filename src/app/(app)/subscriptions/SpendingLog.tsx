@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { Expense } from "@/lib/db/schema";
 import PhotoLightbox from "@/components/photo-lightbox";
+import { compressImage } from "@/lib/image";
 import { formatMoney } from "@/lib/subscriptions/math";
 
 // Small tag set — "gas" unlocks gallons + $/gal math; "haircut" unlocks
@@ -38,17 +39,8 @@ type ExpenseRow = Expense & { hasPhoto?: boolean };
 
 // Photo → ≤900px JPEG q0.72, ~60-150KB — small enough to live in the row.
 async function compressPhoto(file: File): Promise<{ b64: string; dataUrl: string }> {
-  // Decode straight to ~900px wide (browsers that support resize options use
-  // fast DCT scaling; others ignore it and we scale on the canvas anyway).
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image", resizeWidth: 900, resizeQuality: "high" } as ImageBitmapOptions);
-  const scale = Math.min(1, 900 / Math.max(bmp.width, bmp.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bmp.width * scale));
-  canvas.height = Math.max(1, Math.round(bmp.height * scale));
-  canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  bmp.close();
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
-  return { b64: dataUrl.split(",")[1], dataUrl };
+  const { data, dataUrl } = await compressImage(file, 1280, 0.8);
+  return { b64: data, dataUrl };
 }
 
 function daysBetween(a: string, b: string) {

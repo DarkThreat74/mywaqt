@@ -27,7 +27,7 @@ const SHORTLIST = new Set(["definitely", "probably", "unsure", "no"]);
 const VOLITION = new Set(["choose", "mix", "context"]);
 const ATTUNE = new Set(["notice", "eventually", "told", "wouldnt"]);
 const PHOTO_MIMES = new Set(["image/jpeg", "image/webp", "image/png"]);
-const MAX_PHOTO_B64 = 800_000;
+const MAX_PHOTO_B64 = 1_200_000;
 
 interface FriendBody {
   id?: string;

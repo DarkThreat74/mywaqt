@@ -1,5 +1,5 @@
-/** Client-side avatar helpers — uploads are center-cropped to a 128px webp
- *  data URL (~6KB) so they store inline in users.avatar_url, no object
+/** Client-side avatar helpers — uploads are center-cropped to a 384px webp
+ *  data URL so they store inline in users.avatar_url, no object
  *  storage needed. Presets render emoji-on-color through the same pipeline
  *  so uploaded and picked avatars are indistinguishable downstream. */
 
@@ -9,9 +9,9 @@ export function readAvatarFile(file: File): Promise<string> {
     const img = new Image();
     img.onload = () => {
       const c = document.createElement("canvas");
-      c.width = c.height = 128;
+      c.width = c.height = 384;
       const s = Math.min(img.width, img.height);
-      c.getContext("2d")!.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 128, 128);
+      c.getContext("2d")!.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 384, 384);
       URL.revokeObjectURL(url);
       resolve(c.toDataURL("image/webp", 0.82));
     };
