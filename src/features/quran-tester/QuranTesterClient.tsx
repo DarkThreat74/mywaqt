@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpen, Download, Mic, Search, Square } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Download, Mic, Search, Square, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
+import { listMistakes, saveMistake, type Mistake } from "./mistakes";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on the
@@ -44,6 +45,12 @@ export default function QuranTesterClient() {
   const [wordIdx, setWordIdx] = useState<number | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
 
+  // Mistake layer: engine-raised suspects render yellow; only a confirmed
+  // suspect turns red and persists. Nothing else about recitation is stored.
+  const [suspects, setSuspects] = useState<Map<string, string>>(new Map());
+  const [confirmed, setConfirmed] = useState<Map<string, Mistake>>(new Map());
+  const [pending, setPending] = useState<{ s: number; a: number; w: number; kind: string } | null>(null);
+
   const workerRef = useRef<Worker | null>(null);
   const audioRef = useRef<{ ctx: AudioContext; stream: MediaStream } | null>(null);
   const surahIdxRef = useRef(surahIdx);
@@ -52,6 +59,9 @@ export default function QuranTesterClient() {
   useEffect(() => {
     fetch("/data/quran.json").then((r) => r.json()).then(setQuran).catch(() => {});
     engineInstalled().then(setInstalled).catch(() => setInstalled(false));
+    listMistakes()
+      .then((ms) => setConfirmed(new Map(ms.map((m) => [`${m.surah}:${m.ayah}:${m.word}`, m]))))
+      .catch(() => {});
     return () => { void stopRecite(); };
   }, []);
 
@@ -183,12 +193,58 @@ export default function QuranTesterClient() {
       setLoc({ surah: s, ayah: a });
       setWordIdx(ev.word_index as number);
       if (quran && surahIdxRef.current !== s - 1) setSurahIdx(s - 1);
+    } else if (ev.type === "correction" || ev.type === "correction_note") {
+      const issue = (ev as { state?: { issue?: { surah: number; ayah: number; word: number; kind: string } }; issue?: { surah: number; ayah: number; word: number; kind: string } });
+      const i = issue.state?.issue ?? issue.issue;
+      if (i && typeof i.surah === "number") {
+        setSuspects((prev) => {
+          const next = new Map(prev);
+          next.set(`${i.surah}:${i.ayah}:${i.word}`, i.kind);
+          return next;
+        });
+        if (quran && surahIdxRef.current !== i.surah - 1) setSurahIdx(i.surah - 1);
+      }
     } else if (ev.type === "error") {
       setMicError(String(ev.message ?? "Engine error"));
       void stopRecite();
     } else if (ev.type === "stopped") {
       // flushed
     }
+  }
+
+  const issueLabel = (kind: string) =>
+    ({
+      possible_omission: "possible missed word",
+      possible_substitution: "possible wrong word",
+      possible_vowel: "possible vowel slip",
+      possible_repetition: "possible repetition",
+      possible_skipped_ayah: "possible skipped ayah",
+      unclear_ayah: "unclear ayah",
+    })[kind] ?? "possible mistake";
+
+  function onWordTap(s: number, a: number, w: number) {
+    const key = `${s}:${a}:${w}`;
+    const kind = suspects.get(key);
+    if (kind) setPending({ s, a, w, kind });
+  }
+
+  async function confirmMistake() {
+    if (!pending) return;
+    const m: Omit<Mistake, "id"> = { surah: pending.s, ayah: pending.a, word: pending.w, kind: pending.kind, confirmedAt: Date.now() };
+    await saveMistake(m).catch(() => {});
+    const key = `${m.surah}:${m.ayah}:${m.word}`;
+    setConfirmed((prev) => new Map(prev).set(key, { ...m }));
+    setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
+    workerRef.current?.postMessage({ type: "correction-act", action: "continue" });
+    setPending(null);
+  }
+
+  async function dismissMistake() {
+    if (!pending) return;
+    const key = `${pending.s}:${pending.a}:${pending.w}`;
+    setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
+    workerRef.current?.postMessage({ type: "correction-act", action: "dismiss" });
+    setPending(null);
   }
 
   const listening = listen !== "idle";
@@ -366,22 +422,32 @@ export default function QuranTesterClient() {
                     style={active ? { backgroundColor: "var(--color-accent-faint)" } : undefined}
                   >
                     <p className="text-[22px] leading-[2.1]" style={{ color: "var(--color-ink)" }}>
-                      {ar.split(" ").map((w, wi) => (
-                        <span
-                          key={wi}
-                          data-word={wi}
-                          className="inline-block rounded px-0.5 transition-colors duration-150"
-                          style={
-                            active && wordIdx === wi
-                              ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
-                              : active && wordIdx !== null && wi < wordIdx
-                                ? { color: "var(--color-accent)" }
-                                : undefined
-                          }
-                        >
-                          {w}
-                        </span>
-                      ))}
+                      {ar.split(" ").map((w, wi) => {
+                        const wkey = `${surah!.s}:${n}:${wi}`;
+                        const isSuspect = suspects.has(wkey);
+                        const isConfirmed = confirmed.has(wkey);
+                        return (
+                          <span
+                            key={wi}
+                            data-word={wi}
+                            onClick={isSuspect ? () => onWordTap(surah!.s, n, wi) : undefined}
+                            className={`inline-block rounded px-0.5 transition-colors duration-150${isSuspect ? " cursor-pointer" : ""}`}
+                            style={
+                              isConfirmed
+                                ? { backgroundColor: "color-mix(in oklab, #b34a3a 22%, transparent)", boxShadow: "inset 0 -2px 0 #b34a3a" }
+                                : isSuspect
+                                  ? { backgroundColor: "color-mix(in oklab, #c9a227 22%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" }
+                                  : active && wordIdx === wi
+                                    ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
+                                    : active && wordIdx !== null && wi < wordIdx
+                                      ? { color: "var(--color-accent)" }
+                                      : undefined
+                            }
+                          >
+                            {w}
+                          </span>
+                        );
+                      })}
                       <span
                         className="mx-2 inline-flex h-7 w-7 items-center justify-center rounded-full border align-middle text-[11px] font-semibold"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", fontFamily: "inherit" }}
@@ -399,6 +465,42 @@ export default function QuranTesterClient() {
           </div>
         )}
       </div>
+
+      {/* Mistake confirm bar */}
+      {pending && (
+        <div
+          className="fixed inset-x-0 z-40 flex justify-center px-4"
+          style={{ bottom: "calc(env(safe-area-inset-bottom) + 108px)" }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border p-4 shadow-lg"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", animation: "drawer-app-in 0.18s ease-out" }}
+          >
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+              {issueLabel(pending.kind)} — {pending.s}:{pending.a}, word {pending.w + 1}
+            </p>
+            <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              Only confirmed mistakes are saved.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => void confirmMistake()}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold transition-opacity hover:opacity-80"
+                style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
+              >
+                <Check className="h-4 w-4" /> Confirm
+              </button>
+              <button
+                onClick={() => void dismissMistake()}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full border px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-80"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+              >
+                <X className="h-4 w-4" /> Not a mistake
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Recite bar */}
       {installed && (

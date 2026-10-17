@@ -49,6 +49,10 @@ async function init(sampleRate: number) {
     model,
     corpus,
   });
+  // Correction mode: word-level suspects (omission / substitution / vowel /
+  // repetition / skipped ayah) stream out as `correction` events. The page
+  // turns them into yellow suspects; only user-confirmed mistakes persist.
+  session.zipformer?.correction.setMode("correction");
   postMessage({ type: "ready" });
 }
 
@@ -82,6 +86,8 @@ self.onmessage = (e: MessageEvent) => {
         postMessage({ type: "stopped" });
       } else if (m.type === "reset" && session) {
         session.reset();
+      } else if (m.type === "correction-act" && session) {
+        session.zipformer?.correction.act(m.action);
       }
     } catch (err) {
       postMessage({ type: "error", message: err instanceof Error ? err.message : String(err) });
