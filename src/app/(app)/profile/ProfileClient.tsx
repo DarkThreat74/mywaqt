@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronDown, Swords, Camera, Flame, Check, MapPin, Link2, 
 import { RANKS, MATCH_WIN_PTS, MATCH_LOSS_PTS } from "@/lib/quran-rank";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { readAvatarFile } from "@/lib/avatar";
+import PhotoLightbox from "@/components/photo-lightbox";
 
 /** Rank medallion — tone deepens as you climb; Shaykh carries warmth + glow. */
 const BADGE_TONE: Record<string, { bg: string; ring: string; glow: boolean }> = {
@@ -83,6 +84,7 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
   const [barIn, setBarIn] = useState(false);
   const [ladderOpen, setLadderOpen] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
   const [salah, setSalah] = useState<FriendSalah | null | undefined>(undefined);
   const [confirmUnfriend, setConfirmUnfriend] = useState(false);
   const [unfriendBusy, setUnfriendBusy] = useState(false);
@@ -211,32 +213,48 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
           style={{ background: "radial-gradient(ellipse 65% 90% at 50% 0%, color-mix(in oklab, var(--color-accent) 9%, transparent), transparent)" }}
         />
         {userId ? (
-          <div
-            className="waqt-scale-in h-24 w-24 overflow-hidden rounded-full"
+          <button
+            className="waqt-scale-in block h-24 w-24 overflow-hidden rounded-full"
             style={{ boxShadow: "0 0 0 4px var(--color-paper), 0 0 0 5px var(--color-paper-3)" }}
+            onClick={() => p.avatarUrl && setLightbox(true)}
+            disabled={!p.avatarUrl}
+            aria-label={p.avatarUrl ? `View ${p.name}'s photo` : undefined}
           >
             {avatar}
-          </div>
+          </button>
         ) : (
-          <>
+          <div className="relative">
             <button
-              onClick={() => fileRef.current?.click()}
+              onClick={() => (p.avatarUrl ? setLightbox(true) : fileRef.current?.click())}
               disabled={avatarBusy}
               className="waqt-scale-in group relative block h-24 w-24 overflow-hidden rounded-full transition-opacity hover:opacity-90 disabled:opacity-60"
               style={{ boxShadow: "0 0 0 4px var(--color-paper), 0 0 0 5px var(--color-paper-3)" }}
-              aria-label="Change profile photo"
-              title="Change profile photo"
+              aria-label={p.avatarUrl ? "View your profile photo" : "Add a profile photo"}
+              title={p.avatarUrl ? "View photo" : "Add a profile photo"}
             >
               {avatar}
-              <span
-                className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 pb-1.5 pt-5 text-[8px] font-semibold uppercase tracking-wider"
-                style={{ background: "linear-gradient(transparent, color-mix(in oklab, var(--color-ink) 70%, transparent))", color: "var(--color-paper)" }}
-              >
-                <Camera className="h-2.5 w-2.5" /> {avatarBusy ? "…" : p.avatarUrl ? "Edit" : "Photo"}
-              </span>
+              {!p.avatarUrl && (
+                <span
+                  className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 pb-1.5 pt-5 text-[8px] font-semibold uppercase tracking-wider"
+                  style={{ background: "linear-gradient(transparent, color-mix(in oklab, var(--color-ink) 70%, transparent))", color: "var(--color-paper)" }}
+                >
+                  <Camera className="h-2.5 w-2.5" /> Photo
+                </span>
+              )}
             </button>
+            {p.avatarUrl && (
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={avatarBusy}
+                className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", border: "2px solid var(--color-paper)" }}
+                aria-label="Change profile photo"
+              >
+                {avatarBusy ? <Camera className="h-3 w-3 animate-pulse" /> : <Camera className="h-3 w-3" />}
+              </button>
+            )}
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickAvatar} />
-          </>
+          </div>
         )}
         <h1 className="mt-4 text-2xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>{p.name}</h1>
         {p.isHifidh && (
@@ -540,6 +558,10 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
             </button>
           )}
         </div>
+      )}
+
+      {lightbox && p.avatarUrl && (
+        <PhotoLightbox src={p.avatarUrl} alt={p.name} onClose={() => setLightbox(false)} />
       )}
     </div>
   );

@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import type { Expense } from "@/lib/db/schema";
+import PhotoLightbox from "@/components/photo-lightbox";
 import { formatMoney } from "@/lib/subscriptions/math";
 
 // Small tag set — "gas" unlocks gallons + $/gal math; "haircut" unlocks
@@ -37,7 +38,9 @@ type ExpenseRow = Expense & { hasPhoto?: boolean };
 
 // Photo → ≤900px JPEG q0.72, ~60-150KB — small enough to live in the row.
 async function compressPhoto(file: File): Promise<{ b64: string; dataUrl: string }> {
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  // Decode straight to ~900px wide (browsers that support resize options use
+  // fast DCT scaling; others ignore it and we scale on the canvas anyway).
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image", resizeWidth: 900, resizeQuality: "high" } as ImageBitmapOptions);
   const scale = Math.min(1, 900 / Math.max(bmp.width, bmp.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bmp.width * scale));
@@ -69,14 +72,18 @@ interface FormState {
 
 const today = () => new Date().toLocaleDateString("en-CA");
 const EMPTY: FormState = { tag: "gas", amount: "", quantity: "", place: "", barber: "", occurredOn: today(), photoUrl: null, photoB64: null, photoDirty: false };
+// Row shown in the list — `localPhoto` is the canvas data-URL used to render
+// the photo before the server row id exists (optimistic save).
+type Row = ExpenseRow & { localPhoto?: string };
 
 export default function SpendingLog() {
-  const [entries, setEntries] = useState<ExpenseRow[]>([]);
+  const [entries, setEntries] = useState<Row[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [activeTag, setActiveTag] = useState<TagId | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
-  const [busy, setBusy] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [tagsOpen, setTagsOpen] = useState(false);
@@ -100,7 +107,7 @@ export default function SpendingLog() {
   // better than a flat date column once the log gets long.
   const groups = useMemo(() => {
     const cap = expanded ? filtered.length : 20;
-    const out: { label: string; items: ExpenseRow[] }[] = [];
+    const out: { label: string; items: Row[] }[] = [];
     for (const e of filtered.slice(0, cap)) {
       const label = new Date(e.occurredOn + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
       const last = out[out.length - 1];
@@ -162,7 +169,6 @@ export default function SpendingLog() {
       setError("An amount and a date are required.");
       return;
     }
-    setBusy(true);
     setError(null);
     const payload: Record<string, unknown> = {
       tag: form.tag,
@@ -178,56 +184,69 @@ export default function SpendingLog() {
       payload.photo = form.photoB64;
       payload.photoMime = form.photoB64 ? "image/jpeg" : null;
     }
+
+    // Optimistic commit — the row lands immediately (photo preview included)
+    // and the upload syncs in the background instead of holding the form open.
+    const prevRow = editingId ? entries.find((x) => x.id === editingId) : undefined;
+    const tempId = editingId ?? `tmp-${crypto.randomUUID()}`;
+    const optimistic: Row = {
+      id: tempId,
+      userId: "",
+      tag: form.tag,
+      amountCents: Math.round(amount * 100),
+      currency: "USD",
+      occurredOn: form.occurredOn,
+      quantity,
+      unit: tagDef.unit && quantity ? tagDef.unit : null,
+      place: form.place.trim() || null,
+      detail: form.barber.trim() || null,
+      photoData: null,
+      photoMime: null,
+      hasPhoto: Boolean(form.photoB64 || (form.photoUrl && !form.photoDirty)),
+      localPhoto: form.photoDirty ? (form.photoUrl ?? undefined) : undefined,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as Row;
+    const sortDesc = (a: Row, b: Row) => b.occurredOn.localeCompare(a.occurredOn);
+    setEntries((prev) =>
+      (editingId ? prev.map((x) => (x.id === editingId ? { ...x, ...optimistic, id: editingId } : x)) : [optimistic, ...prev]).sort(sortDesc),
+    );
+    const tag = form.tag;
+    setForm({ ...EMPTY, tag });
+    setAdding(false);
+    setEditingId(null);
+    setActiveTag(tag);
+
+    const revert = () =>
+      setEntries((prev) =>
+        (editingId && prevRow
+          ? prev.map((x) => (x.id === tempId ? prevRow : x))
+          : prev.filter((x) => x.id !== tempId)
+        ).sort(sortDesc),
+      );
     try {
-      const res = editingId
-        ? await fetch("/api/expenses", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: editingId, ...payload }),
-          })
-        : await fetch("/api/expenses", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+      const res = await fetch("/api/expenses", {
+        method: editingId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editingId ? { id: editingId, ...payload } : payload),
+      });
       const data = await res.json().catch(() => ({}));
       if (res.ok && (data.expense || data.offline)) {
-        // POST/PATCH `.returning()` includes photoData — strip it, keep the flag.
         const exp = (data.expense ?? null) as Expense | null;
-        const row: ExpenseRow = exp
-          ? { ...exp, photoData: null, photoMime: null, hasPhoto: Boolean(exp.photoData) }
-          : {
-              id: editingId ?? (data.tempId as string),
-              userId: "",
-              tag: form.tag,
-              amountCents: Math.round(amount * 100),
-              currency: "USD",
-              occurredOn: form.occurredOn,
-              quantity,
-              unit: tagDef.unit ?? null,
-              place: form.place.trim() || null,
-              detail: form.barber.trim() || null,
-              photoData: null,
-              photoMime: null,
-              hasPhoto: Boolean(form.photoB64 || (form.photoUrl && !form.photoDirty)),
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            } as ExpenseRow;
-        setEntries((prev) =>
-          (editingId ? prev.map((x) => (x.id === editingId ? { ...x, ...row, id: editingId } : x)) : [row, ...prev])
-            .sort((a, b) => b.occurredOn.localeCompare(a.occurredOn)),
-        );
-        setForm({ ...EMPTY, tag: form.tag });
-        setAdding(false);
-        setEditingId(null);
-        setActiveTag(form.tag);
+        if (exp) {
+          // POST/PATCH `.returning()` includes photoData — strip it, keep the flag.
+          const real: Row = { ...exp, photoData: null, photoMime: null, hasPhoto: Boolean(exp.photoData) };
+          setEntries((prev) => prev.map((x) => (x.id === tempId ? real : x)).sort(sortDesc));
+        } else if (data.tempId) {
+          setEntries((prev) => prev.map((x) => (x.id === tempId ? { ...x, id: data.tempId as string } : x)));
+        }
       } else {
+        revert();
         setError(data.error || "Could not save");
       }
     } catch {
-      setError("Network error — try again");
-    } finally {
-      setBusy(false);
+      revert();
+      setError("Network error — entry not saved");
     }
   }
 
@@ -541,18 +560,21 @@ export default function SpendingLog() {
                       const f = e.target.files?.[0];
                       e.target.value = "";
                       if (!f) return;
+                      setPhotoBusy(true);
                       try {
                         const { b64, dataUrl } = await compressPhoto(f);
                         setForm((prev) => ({ ...prev, photoUrl: dataUrl, photoB64: b64, photoDirty: true }));
                       } catch {
                         setError("Couldn't read that image");
+                      } finally {
+                        setPhotoBusy(false);
                       }
                     }}
                   />
                 </label>
               )}
               <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                {form.photoUrl ? "Compressed — saved with the entry." : "Optional — a photo of the cut."}
+                {photoBusy ? "Processing photo…" : form.photoUrl ? "Compressed — saved with the entry." : "Optional — a photo of the cut."}
               </p>
             </div>
           )}
@@ -566,11 +588,10 @@ export default function SpendingLog() {
 
           <button
             type="submit"
-            disabled={busy}
-            className="mt-4 inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="mt-4 inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 36 }}
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : editingId ? "Save changes" : "Log it"}
+            {editingId ? "Save changes" : "Log it"}
           </button>
         </form>
       )}
@@ -607,11 +628,16 @@ export default function SpendingLog() {
                 >
                   <Icon className="h-3.5 w-3.5" /> <span className="hidden sm:inline">{t.label}</span>
                 </span>
-                {e.hasPhoto && (
-                  <span className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
+                {(e.hasPhoto || e.localPhoto) && (
+                  <button
+                    className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border"
+                    style={{ borderColor: "var(--color-paper-3)" }}
+                    onClick={() => setLightbox({ src: e.localPhoto ?? `/api/expenses/${e.id}/photo`, alt: e.place ?? t.label })}
+                    aria-label="View photo"
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element -- owner-scoped thumb */}
-                    <img src={`/api/expenses/${e.id}/photo`} alt="" loading="lazy" className="h-full w-full object-cover" />
-                  </span>
+                    <img src={e.localPhoto ?? `/api/expenses/${e.id}/photo`} alt="" loading="lazy" className="h-full w-full object-cover" />
+                  </button>
                 )}
                 <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--color-ink-muted)" }}>
                   {e.quantity && e.unit ? `${e.quantity} ${e.unit}` : ""}
@@ -666,6 +692,8 @@ export default function SpendingLog() {
           )}
         </div>
       )}
+
+      {lightbox && <PhotoLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </div>
   );
 }

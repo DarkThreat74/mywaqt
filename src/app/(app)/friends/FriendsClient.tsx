@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, Phone, EyeOff } from "lucide-react";
 import { friendScore, friendTier } from "@/lib/friends-score";
+import PhotoLightbox from "@/components/photo-lightbox";
 
 /**
  * Friends — your people, mapped. An orbit view puts you at the center;
@@ -237,6 +238,7 @@ export default function FriendsClient() {
   const fileRef = useRef<HTMLInputElement>(null);
   const selfRef = useRef<HTMLInputElement>(null);
   const [photo, setPhoto] = useState<{ data: string; mime: string; dirty: boolean }>({ data: "", mime: "", dirty: false });
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selfie, setSelfie] = useState<string | null>(null);
@@ -923,10 +925,10 @@ export default function FriendsClient() {
             {sheet === "self" && (
               <div className="flex flex-col items-center pb-2 pt-1 text-center">
                 <button
-                  onClick={() => selfRef.current?.click()}
+                  onClick={() => (selfie ? setLightbox({ src: selfie, alt: me?.name ?? "You" }) : selfRef.current?.click())}
                   className="relative mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full"
                   style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)", border: "1px solid var(--color-paper-3)" }}
-                  aria-label="Change your photo"
+                  aria-label={selfie ? "View your photo" : "Change your photo"}
                 >
                   {selfie ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -979,9 +981,12 @@ export default function FriendsClient() {
               return (
                 <div>
                   <div className="mb-4 flex flex-col items-center text-center">
-                    <span
+                    <button
                       className="mb-2 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full text-2xl font-bold"
                       style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                      onClick={() => f.hasPhoto && setLightbox({ src: photoSrc(f), alt: f.name })}
+                      disabled={!f.hasPhoto}
+                      aria-label={f.hasPhoto ? `View ${f.name}'s photo` : undefined}
                     >
                       {f.hasPhoto ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -989,7 +994,7 @@ export default function FriendsClient() {
                       ) : (
                         f.name.charAt(0).toUpperCase()
                       )}
-                    </span>
+                    </button>
                     <p className="text-lg font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>{f.name}</p>
                     {f.score != null && (
                       <span
@@ -1303,6 +1308,8 @@ export default function FriendsClient() {
           </div>
         </div>
       )}
+
+      {lightbox && <PhotoLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </div>
   );
 }
