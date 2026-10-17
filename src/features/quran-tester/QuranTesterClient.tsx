@@ -106,6 +106,31 @@ export default function QuranTesterClient() {
     }
   }, [page, pages, fonts]);
 
+  // Keep the engine anchored to what's on screen while listening.
+  useEffect(() => {
+    if (listen !== "idle") expectForPage(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pages, listen]);
+
+  /** Anchor the engine to the ayah range on screen — it locks in seconds
+   *  instead of searching all 6,236 ayahs. */
+  function expectForPage(p: number) {
+    const data = pages.get(p);
+    if (!data) return;
+    const bySurah = new Map<number, { min: number; max: number; words: number }>();
+    for (const line of data.lines) {
+      for (const w of line.words ?? []) {
+        const [s, a] = w.location.split(":").map(Number);
+        const e = bySurah.get(s) ?? { min: a, max: a, words: 0 };
+        e.min = Math.min(e.min, a); e.max = Math.max(e.max, a); e.words++;
+        bySurah.set(s, e);
+      }
+    }
+    let best: { s: number; min: number; max: number } | null = null;
+    for (const [s, e] of bySurah) if (!best || e.words > bySurah.get(best.s)!.words) best = { s, min: e.min, max: e.max };
+    if (best) qtPost({ type: "expect", passage: { surah: best.s, ayah: best.min, ayahEnd: best.max } });
+  }
+
   function ayahPage(s: number, a: number): number | null {
     return ayahPagesRef.current?.[String(s)]?.[String(a)] ?? null;
   }
@@ -168,6 +193,9 @@ export default function QuranTesterClient() {
       if (ev.state === "idle") setLevel(0);
     } else if (ev.type === "ui-status") {
       setStatus(String(ev.message));
+    } else if (ev.type === "ready") {
+      setListen("listening");
+      expectForPage(pageRef.current);
     } else if (ev.type === "ui-mic-denied") {
       setMicDenied(true);
       setMicError(String(ev.message));

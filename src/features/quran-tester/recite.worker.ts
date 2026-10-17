@@ -48,8 +48,9 @@ async function init(sampleRate: number) {
     ort,
     model,
     corpus,
-    // Debug events flow through feed() so the page can show what the engine
-    // hears while we validate on real voices.
+    // Deliver events via the callback — feed()'s return carries the same
+    // messages, but callback delivery can't be lost to a stalled promise.
+    onEvent: (m: unknown) => postMessage(m),
     debug: true,
   } as Parameters<typeof createRecognitionSession>[0]);
   // Correction mode: word-level suspects (omission / substitution / vowel /
@@ -81,11 +82,11 @@ self.onmessage = (e: MessageEvent) => {
       if (m.type === "init") {
         await init(m.sampleRate);
       } else if (m.type === "audio" && session) {
-        const events = await session.feed(resample(m.samples, sourceRate));
-        for (const ev of events) postMessage(ev);
+        await session.feed(resample(m.samples, sourceRate));
+      } else if (m.type === "expect" && session) {
+        session.zipformer?.setExpected(m.passage ?? null);
       } else if (m.type === "stop" && session) {
-        const events = await session.stop();
-        for (const ev of events) postMessage(ev);
+        await session.stop(); // events flow through onEvent
         postMessage({ type: "stopped" });
       } else if (m.type === "reset" && session) {
         session.reset();
