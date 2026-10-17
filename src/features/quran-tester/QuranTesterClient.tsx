@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, Download, Mic, Search, Square, X } from "lucide-react";
+import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, ListChecks, Mic, Search, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
 import { loadAyahPages, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
-import { listMistakes, saveMistake, type Mistake } from "./mistakes";
+import { listMistakes, removeMistake, saveMistake, type Mistake } from "./mistakes";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on a real
@@ -51,6 +51,12 @@ export default function QuranTesterClient() {
   const [suspects, setSuspects] = useState<Map<string, string>>(new Map());
   const [confirmed, setConfirmed] = useState<Map<string, Mistake>>(new Map());
   const [pending, setPending] = useState<{ s: number; a: number; w: number; kind: string } | null>(null);
+
+  // Memorize mode: words hide until recited past or peeked. Peeks are logged
+  // so weak spots are reviewable — same idea as Tarteel's Verse Peeking.
+  const [memorize, setMemorize] = useState(false);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   // Swipe
   const [dragX, setDragX] = useState(0);
@@ -217,9 +223,10 @@ export default function QuranTesterClient() {
       const e = ev as { state?: { issue?: { surah: number; ayah: number; word: number; kind: string } }; issue?: { surah: number; ayah: number; word: number; kind: string } };
       const i = e.state?.issue ?? e.issue;
       if (i && typeof i.surah === "number") {
+        const ayahLevel = i.kind === "possible_skipped_ayah" || i.kind === "unclear_ayah";
         setSuspects((prev) => {
           const next = new Map(prev);
-          next.set(`${i.surah}:${i.ayah}:${i.word}`, i.kind);
+          next.set(`${i.surah}:${i.ayah}:${ayahLevel ? 0 : i.word}`, i.kind);
           return next;
         });
       }
@@ -284,11 +291,39 @@ export default function QuranTesterClient() {
 
   const listening = listen !== "idle";
 
+  function peek() {
+    // Reveal the next hidden word in the tracked ayah and log the peek —
+    // peeked words are weak spots worth reviewing later.
+    if (!loc) return;
+    const data = pages.get(pageRef.current);
+    if (!data) return;
+    for (const line of data.lines) {
+      for (const w of line.words ?? []) {
+        const [s, a, wiN] = w.location.split(":").map(Number);
+        if (s !== loc.surah || a !== loc.ayah) continue;
+        const key = `${s}:${a}:${wiN}`;
+        const heard = wordIdx !== null && wiN <= wordIdx;
+        if (!heard && !revealed.has(key)) {
+          setRevealed((prev) => new Set(prev).add(key));
+          void saveMistake({ surah: s, ayah: a, word: wiN, kind: "peek", confirmedAt: Date.now() }).catch(() => {});
+          return;
+        }
+      }
+    }
+  }
+
+  async function deleteMistake(m: Mistake) {
+    if (m.id) await removeMistake(m.id).catch(() => {});
+    const key = `${m.surah}:${m.ayah}:${m.word}`;
+    setConfirmed((prev) => { const n = new Map(prev); n.delete(key); return n; });
+  }
+
   function wordMark(s: number, a: number, w: number) {
     const key = `${s}:${a}:${w}`;
-    if (confirmed.has(key))
+    const ayahFlag = `${s}:${a}:0`;
+    if (confirmed.has(key) || confirmed.has(ayahFlag))
       return { backgroundColor: "color-mix(in oklab, #b34a3a 22%, transparent)", boxShadow: "inset 0 -2px 0 #b34a3a" } as const;
-    if (suspects.has(key))
+    if (suspects.has(key) || suspects.has(ayahFlag))
       return { backgroundColor: "color-mix(in oklab, #c9a227 25%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" } as const;
     if (loc && loc.surah === s && loc.ayah === a) {
       if (wordIdx === w)
@@ -342,8 +377,10 @@ export default function QuranTesterClient() {
               {(line.words ?? []).map((w, wi) => {
                 const [s, a, wiN] = w.location.split(":").map(Number);
                 const key = `${s}:${a}:${wiN}`;
-                const isSuspect = suspects.has(key);
-                const isConfirmed = confirmed.has(key);
+                const isSuspect = suspects.has(key) || suspects.has(`${s}:${a}:0`);
+                const isConfirmed = confirmed.has(key) || confirmed.has(`${s}:${a}:0`);
+                const heard = loc && loc.surah === s && loc.ayah === a && wordIdx !== null && wiN <= wordIdx;
+                const hidden = memorize && !heard && !revealed.has(key);
                 return (
                   <span
                     key={wi}
@@ -354,8 +391,10 @@ export default function QuranTesterClient() {
                       ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
                       fontSize: "1.35rem",
                       lineHeight: 1.9,
-                      color: "var(--color-ink)",
-                      ...wordMark(s, a, wiN),
+                      color: hidden ? "transparent" : "var(--color-ink)",
+                      ...(hidden
+                        ? { backgroundColor: "color-mix(in oklab, var(--color-ink) 10%, transparent)" }
+                        : wordMark(s, a, wiN)),
                     }}
                   >
                     {fontReady && w.qpcV2 ? w.qpcV2 : w.word}
@@ -392,6 +431,22 @@ export default function QuranTesterClient() {
           <h1 className="flex-1 text-xl font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
             Quran Tester
           </h1>
+          <button
+            onClick={() => setReviewOpen(true)}
+            className="relative flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }}
+            aria-label="Review mistakes"
+          >
+            <ListChecks className="h-4.5 w-4.5" />
+            {confirmed.size > 0 && (
+              <span
+                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold"
+                style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
+              >
+                {confirmed.size}
+              </span>
+            )}
+          </button>
           <span className="text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
             {page} / {PAGE_COUNT}
           </span>
@@ -576,6 +631,62 @@ export default function QuranTesterClient() {
         </div>
       )}
 
+      {/* Mistake review sheet */}
+      {reviewOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 45%, transparent)" }}
+          onClick={() => setReviewOpen(false)}
+        >
+          <div
+            className="max-h-[70dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border p-5"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
+            <h2 className="text-base font-bold" style={{ color: "var(--color-ink)" }}>Review</h2>
+            <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              Confirmed mistakes and peeked words — your weak spots.
+            </p>
+            {confirmed.size === 0 ? (
+              <p className="mt-6 text-center text-sm" style={{ color: "var(--color-ink-muted)" }}>
+                Nothing yet. Recite — mistakes you confirm land here.
+              </p>
+            ) : (
+              <div className="mt-3">
+                {[...confirmed.values()].map((m) => (
+                  <div
+                    key={`${m.surah}:${m.ayah}:${m.word}`}
+                    className="flex items-center gap-3 border-b py-2.5 last:border-b-0"
+                    style={{ borderColor: "var(--color-paper-3)" }}
+                  >
+                    <button
+                      onClick={() => { goToAyah(m.surah, m.ayah); setReviewOpen(false); }}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                        {m.surah}:{m.ayah} · word {m.word}
+                      </p>
+                      <p className="text-[11px]" style={{ color: m.kind === "peek" ? "var(--color-accent)" : "#b34a3a" }}>
+                        {m.kind === "peek" ? "peeked" : issueLabel(m.kind)}
+                      </p>
+                    </button>
+                    <button
+                      onClick={() => void deleteMistake(m)}
+                      className="rounded-full p-2 transition-colors hover:bg-[var(--color-paper-2)]"
+                      style={{ color: "var(--color-ink-muted)" }}
+                      aria-label="Remove"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Recite bar */}
       {installed && (
         <div
@@ -586,6 +697,30 @@ export default function QuranTesterClient() {
           }}
         >
           <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-2 px-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setMemorize((m) => !m)}
+                className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-bold transition-colors"
+                style={
+                  memorize
+                    ? { borderColor: "var(--color-accent)", backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }
+                    : { borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }
+                }
+              >
+                {memorize ? <EyeOff className="h-3.5 w-3.5" /> : <BookOpenCheck className="h-3.5 w-3.5" />}
+                {memorize ? "Words hidden" : "Hide words"}
+              </button>
+              {memorize && (
+                <button
+                  onClick={peek}
+                  disabled={!loc}
+                  className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-bold transition-opacity disabled:opacity-40"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+                >
+                  <Eye className="h-3.5 w-3.5" /> Peek
+                </button>
+              )}
+            </div>
             <button
               onClick={() => (listening ? void stopRecite() : void startRecite())}
               className="relative flex items-center justify-center rounded-full transition-transform active:scale-95"
