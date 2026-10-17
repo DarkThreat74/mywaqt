@@ -44,6 +44,8 @@ interface Friend {
   updatedAt?: string | null;
   notes: string | null;
   hasPhoto: boolean;
+  // Just-uploaded pixels shown instantly while the server's copy loads.
+  localPhoto?: string | null;
 }
 
 const MET_TAGS = [
@@ -194,10 +196,10 @@ const freqLabel = (f: string | null) => FREQS.find((x) => x.id === f)?.label ?? 
 const scoreOf = (f: Friend) => f.score ?? friendScore(f);
 const tierOf = (f: Friend): 0 | 1 | 2 | 3 => friendTier(scoreOf(f));
 
-// Friend photo: 1024px WebP q0.82 (~80-200KB) — big enough to stay sharp in
-// the full-screen viewer, small enough for the 800KB server cap.
+// Friend photo: 1280px WebP q0.82 (~150-350KB) — sharp in the full-screen
+// viewer, still well under the 1.2MB server cap.
 async function compressPhoto(file: Blob): Promise<{ data: string; mime: string }> {
-  const { data, mime } = await compressImage(file, 1024, 0.82);
+  const { data, mime } = await compressImage(file, 1280, 0.82);
   return { data, mime };
 }
 
@@ -226,9 +228,9 @@ function Avatar({ f, size }: { f: Friend; size: number }) {
         fontSize: size * 0.42,
       }}
     >
-      {f.hasPhoto ? (
+      {f.hasPhoto || f.localPhoto ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/friends/${f.id}/photo?v=${Date.parse(f.updatedAt ?? "") || 0}`} alt="" className="h-full w-full object-cover" loading="lazy" />
+        <img src={f.localPhoto ?? `/api/friends/${f.id}/photo?v=${Date.parse(f.updatedAt ?? "") || 0}`} alt="" className="h-full w-full object-cover" loading="lazy" />
       ) : (
         f.name.charAt(0).toUpperCase()
       )}
@@ -262,7 +264,14 @@ export default function FriendsClient() {
   const refresh = () =>
     fetch("/api/friends", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.friends) setFriends(d.friends); })
+      .then((d) => {
+        if (d?.friends)
+          // Keep just-uploaded local pixels — the fresh server row's photo URL
+          // would refetch and flash while loading.
+          setFriends((prev) =>
+            d.friends.map((nf: Friend) => ({ ...nf, localPhoto: prev.find((o) => o.id === nf.id)?.localPhoto ?? null })),
+          );
+      })
       .catch(() => {})
       .finally(() => setLoaded(true));
 
@@ -292,7 +301,7 @@ export default function FriendsClient() {
     ? friends.filter((f) => f.groupLabel === groupFilter)
     : friends.filter((f) => !f.groupLabel || !hiddenCrews.has(f.groupLabel));
   const clusterOf = (f: Friend) => f.groupLabel ?? f.metTag ?? "";
-  const photoSrc = (f: Friend) => `/api/friends/${f.id}/photo?v=${Date.parse(f.updatedAt ?? "") || 0}`;
+  const photoSrc = (f: Friend) => f.localPhoto ?? `/api/friends/${f.id}/photo?v=${Date.parse(f.updatedAt ?? "") || 0}`;
   const openCrewSheet = (c: { id: string; name: string; hiddenFromAll: boolean }) => {
     setCrewSheet(c);
     setCrewDraft(c.name);
@@ -469,9 +478,34 @@ export default function FriendsClient() {
         payload.photo = photo.data || null;
         payload.photoMime = photo.mime || null;
       }
-      if (editing) payload.id = (sheet as Friend).id;
+      const localPhoto = photo.dirty && photo.data ? `data:${photo.mime};base64,${photo.data}` : undefined;
+      if (editing) {
+        // Instant update — apply the row locally (new photo pixels included),
+        // close the sheet, and let the PATCH sync in the background.
+        const id = (sheet as Friend).id;
+        const prevRow = friends.find((f) => f.id === id);
+        const merged = prevRow ? { ...prevRow, ...payload, hasPhoto: localPhoto ? true : photo.dirty ? false : prevRow.hasPhoto, localPhoto: localPhoto ?? prevRow.localPhoto, updatedAt: new Date().toISOString() } : null;
+        if (merged) {
+          merged.score = friendScore(merged as Parameters<typeof friendScore>[0]);
+          setFriends((fs) => fs.map((f) => (f.id === id ? (merged as Friend) : f)));
+        }
+        openSheet(null);
+        try {
+          const r = await fetch("/api/friends", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, ...payload }),
+          });
+          if (!r.ok) throw new Error("save");
+          void refresh();
+        } catch {
+          if (prevRow) setFriends((fs) => fs.map((f) => (f.id === id ? prevRow : f)));
+          setContactHint("Couldn't save that — check your connection.");
+        }
+        return;
+      }
       const r = await fetch("/api/friends", {
-        method: editing ? "PATCH" : "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
