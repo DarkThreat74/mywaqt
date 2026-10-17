@@ -172,6 +172,11 @@ export default function QuranTesterClient() {
       setLoc({ surah: s, ayah: a });
       setStatus(`Found you — ${String(ev.surah_name ?? "")} ${s}:${a}`);
       goToAyah(s, a);
+    } else if (ev.type === "debug" || ev.type === "raw_transcript") {
+      // While validating: surface what the engine decoded so a silent
+      // session is visible instead of just spinning.
+      const t = String(ev.transcript ?? ev.message ?? "");
+      if (t) setStatus(t.slice(0, 80));
     } else if (ev.type === "word_progress") {
       const s = ev.surah as number, a = ev.ayah as number;
       setLoc({ surah: s, ayah: a });

@@ -48,7 +48,10 @@ async function init(sampleRate: number) {
     ort,
     model,
     corpus,
-  });
+    // Debug events flow through feed() so the page can show what the engine
+    // hears while we validate on real voices.
+    debug: true,
+  } as Parameters<typeof createRecognitionSession>[0]);
   // Correction mode: word-level suspects (omission / substitution / vowel /
   // repetition / skipped ayah) stream out as `correction` events. The page
   // turns them into yellow suspects; only user-confirmed mistakes persist.
