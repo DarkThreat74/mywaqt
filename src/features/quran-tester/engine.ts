@@ -14,50 +14,56 @@
  */
 
 export interface EngineAsset {
-  /** Cache key + URL path component */
-  id: string;
+  /** Cache key under /qt/ — also the URL the worker fetches at runtime */
+  file: string;
   url: string;
   bytes: number; // expected size, for progress + integrity sanity
 }
 
-// shortcut: third-party release URLs. Move to our own CDN (R2) before shipping
-// publicly — GitHub release links can change and add a redirect hop.
+// shortcut: third-party release/CDN URLs. Move to our own CDN (R2) before
+// shipping publicly — a popular install would hammer someone else's host,
+// and GitHub release links can change.
 export const ENGINE_ASSETS: EngineAsset[] = [
   {
-    id: "model",
+    file: "model.onnx",
     url: "https://github.com/yazinsai/tilawa/releases/download/zipformer-a0w-ep1-a0.5/zipformer_a0w_ep1_a05.int8.onnx",
     bytes: 66_000_000,
   },
   {
-    id: "corpus",
+    file: "corpus.json",
     url: "https://github.com/yazinsai/tilawa/releases/download/v0.3.0/zipformer_quran.json",
     bytes: 5_500_000,
   },
+  {
+    // onnxruntime-web WASM backend — served from our cache via the SW so the
+    // model engine never needs network after install. numThreads=1 path.
+    file: "ort-wasm-simd-threaded.wasm",
+    url: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort-wasm-simd-threaded.wasm",
+    bytes: 14_300_000,
+  },
 ];
 
-const CACHE_NAME = "quran-tester-engine-v1";
+export const ENGINE_CACHE = "quran-tester-engine-v1";
 const LS_KEY = "qt:engine-installed";
 
 export async function engineInstalled(): Promise<boolean> {
   if (typeof caches === "undefined") return false;
   if (localStorage.getItem(LS_KEY) !== "1") return false;
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await caches.open(ENGINE_CACHE);
   for (const a of ENGINE_ASSETS) {
-    if (!(await cache.match(engineKey(a)))) return false;
+    if (!(await cache.match(engineUrl(a)))) return false;
   }
   return true;
 }
 
-function engineKey(a: EngineAsset) {
-  return `/qt-engine/${a.id}`;
+export function engineUrl(a: EngineAsset) {
+  return `${self.location.origin}/qt/${a.file}`;
 }
 
 /** Fetch a cached asset body. Returns null when not installed. */
-export async function engineAsset(id: string): Promise<Response | null> {
-  const a = ENGINE_ASSETS.find((x) => x.id === id);
-  if (!a) return null;
-  const cache = await caches.open(CACHE_NAME);
-  return (await cache.match(engineKey(a))) ?? null;
+export async function engineAsset(file: string): Promise<Response | null> {
+  const cache = await caches.open(ENGINE_CACHE);
+  return (await cache.match(`${self.location.origin}/qt/${file}`)) ?? null;
 }
 
 /**
@@ -69,16 +75,16 @@ export async function downloadEngine(
 ): Promise<void> {
   const total = ENGINE_ASSETS.reduce((s, a) => s + a.bytes, 0);
   let done = 0;
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await caches.open(ENGINE_CACHE);
 
   for (const a of ENGINE_ASSETS) {
-    if (await cache.match(engineKey(a))) {
+    if (await cache.match(engineUrl(a))) {
       done += a.bytes;
       continue;
     }
-    onProgress(done, total, a.id);
+    onProgress(done, total, a.file);
     const res = await fetch(a.url);
-    if (!res.ok || !res.body) throw new Error(`download failed: ${a.id}`);
+    if (!res.ok || !res.body) throw new Error(`download failed: ${a.file}`);
 
     const reader = res.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -89,23 +95,23 @@ export async function downloadEngine(
       onProgress(
         Math.min(done + chunks.reduce((s, c) => s + c.length, 0), total),
         total,
-        a.id,
+        a.file,
       );
     }
     const blob = new Blob(chunks as BlobPart[]);
     await cache.put(
-      engineKey(a),
+      engineUrl(a),
       new Response(blob, {
         headers: { "content-type": res.headers.get("content-type") ?? "application/octet-stream" },
       }),
     );
     done += blob.size;
-    onProgress(done, total, a.id);
+    onProgress(done, total, a.file);
   }
   localStorage.setItem(LS_KEY, "1");
 }
 
 export async function uninstallEngine(): Promise<void> {
   localStorage.removeItem(LS_KEY);
-  if (typeof caches !== "undefined") await caches.delete(CACHE_NAME);
+  if (typeof caches !== "undefined") await caches.delete(ENGINE_CACHE);
 }

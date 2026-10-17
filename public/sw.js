@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v76";
+const CACHE_VERSION = "waqt-v77";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -513,6 +513,22 @@ self.addEventListener("fetch", (event) => {
   // ── Skip other _next/ requests (HMR, RSC payloads, etc.) ──
   // These are dev-only or client-navigation internals — don't intercept.
   if (url.pathname.startsWith("/_next/")) return;
+
+  // ── Quran Tester engine assets (/qt/*) — cache-first from the dedicated
+  // engine bucket. These are large binary assets (ONNX model, WASM runtime,
+  // phoneme corpus) installed on demand; they must never hit the generic
+  // runtime cache or the network once installed. ──
+  if (url.pathname.startsWith("/qt/")) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open("quran-tester-engine-v1");
+        const hit = await cache.match(url.pathname) ?? await cache.match(url.href);
+        if (hit) return hit;
+        return fetch(request);
+      })()
+    );
+    return;
+  }
 
   // ── Handle ALL API writes (POST/PATCH/PUT/DELETE) ──
   // When online: pass through to server. When offline: queue in IndexedDB.

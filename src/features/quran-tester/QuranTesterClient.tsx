@@ -1,20 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpen, Download, Mic, Search } from "lucide-react";
+import { ArrowLeft, BookOpen, Download, Mic, Search, Square } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on the
  * mushaf and flags mistakes for confirmation. Fully on-device: the recognition
- * engine downloads once (~72MB) and audio never leaves the phone.
+ * engine downloads once (~85MB) and audio never leaves the phone.
  *
  * Self-contained under src/features/quran-tester/ — extractable later.
  */
 
 type Surah = { s: number; verses: [number, string, string][] };
 type Quran = Surah[];
+
+type ListenState = "idle" | "warming" | "listening";
+
+/** Inline AudioWorklet: posts mono Float32 frames to its port. */
+const CAPTURE_WORKLET = `
+class Capture extends AudioWorkletProcessor {
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch && ch.length) { const c = ch.slice(0); this.port.postMessage(c, [c.buffer]); }
+    return true;
+  }
+}
+registerProcessor("qt-capture", Capture);
+`;
 
 export default function QuranTesterClient() {
   const [quran, setQuran] = useState<Quran | null>(null);
@@ -24,9 +38,21 @@ export default function QuranTesterClient() {
   const [dlError, setDlError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
+  const [listen, setListen] = useState<ListenState>("idle");
+  const [status, setStatus] = useState<string | null>(null);
+  const [loc, setLoc] = useState<{ surah: number; ayah: number } | null>(null);
+  const [wordIdx, setWordIdx] = useState<number | null>(null);
+  const [micError, setMicError] = useState<string | null>(null);
+
+  const workerRef = useRef<Worker | null>(null);
+  const audioRef = useRef<{ ctx: AudioContext; stream: MediaStream } | null>(null);
+  const surahIdxRef = useRef(surahIdx);
+  surahIdxRef.current = surahIdx;
+
   useEffect(() => {
     fetch("/data/quran.json").then((r) => r.json()).then(setQuran).catch(() => {});
     engineInstalled().then(setInstalled).catch(() => setInstalled(false));
+    return () => { void stopRecite(); };
   }, []);
 
   const surah = quran?.[surahIdx];
@@ -41,12 +67,14 @@ export default function QuranTesterClient() {
       const s = Math.min(114, Math.max(1, parseInt(m[1], 10)));
       setSurahIdx(s - 1);
       const ayah = m[2];
-      if (ayah) {
-        requestAnimationFrame(() =>
-          document.getElementById(`ayah-${s}-${ayah}`)?.scrollIntoView({ block: "center" }),
-        );
-      }
+      if (ayah) scrollToAyah(s, parseInt(ayah, 10));
     }
+  }
+
+  function scrollToAyah(s: number, a: number) {
+    requestAnimationFrame(() =>
+      document.getElementById(`ayah-${s}-${a}`)?.scrollIntoView({ block: "center", behavior: "smooth" }),
+    );
   }
 
   async function install() {
@@ -63,9 +91,107 @@ export default function QuranTesterClient() {
   }
 
   async function remove() {
+    await stopRecite();
     await uninstallEngine();
     setInstalled(false);
   }
+
+  async function startRecite() {
+    setMicError(null);
+    setLoc(null);
+    setWordIdx(null);
+
+    if (!workerRef.current) {
+      const w = new Worker(new URL("./recite.worker.ts", import.meta.url));
+      w.onmessage = (e) => onEngineEvent(e.data);
+      w.onerror = (e) => {
+        setMicError("Engine failed to start.");
+        setListen("idle");
+        e.preventDefault();
+      };
+      workerRef.current = w;
+    }
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
+    } catch {
+      setMicError("Microphone access was denied.");
+      return;
+    }
+
+    const ctx = new AudioContext();
+    const workletUrl = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
+    try {
+      await ctx.audioWorklet.addModule(workletUrl);
+    } finally {
+      URL.revokeObjectURL(workletUrl);
+    }
+    const src = ctx.createMediaStreamSource(stream);
+    const node = new AudioWorkletNode(ctx, "qt-capture");
+    let buf = new Float32Array(0);
+    node.port.onmessage = (e) => {
+      const chunk: Float32Array = e.data;
+      const merged = new Float32Array(buf.length + chunk.length);
+      merged.set(buf);
+      merged.set(chunk, buf.length);
+      buf = merged;
+      // forward ~0.25s of audio per post so the worker gets meaty chunks
+      if (buf.length >= ctx.sampleRate / 4) {
+        workerRef.current?.postMessage({ type: "audio", samples: buf }, [buf.buffer]);
+        buf = new Float32Array(0);
+      }
+    };
+    src.connect(node);
+    node.connect(ctx.destination); // required for the worklet to run; monitor-free since output is silence-safe
+    audioRef.current = { ctx, stream };
+
+    setListen("warming");
+    setStatus("Warming up the engine…");
+    workerRef.current.postMessage({ type: "init", sampleRate: ctx.sampleRate });
+  }
+
+  async function stopRecite() {
+    workerRef.current?.postMessage({ type: "stop" });
+    const a = audioRef.current;
+    if (a) {
+      a.stream.getTracks().forEach((t) => t.stop());
+      void a.ctx.close();
+      audioRef.current = null;
+    }
+    setListen("idle");
+    setStatus(null);
+    setWordIdx(null);
+  }
+
+  function onEngineEvent(ev: Record<string, unknown>) {
+    if (ev.type === "ready") {
+      setListen("listening");
+      setStatus("Listening — recite anywhere in the Quran");
+    } else if (ev.type === "loading_status") {
+      setStatus(String(ev.message ?? "Loading…"));
+    } else if (ev.type === "verse_match") {
+      const s = ev.surah as number, a = ev.ayah as number;
+      setLoc({ surah: s, ayah: a });
+      setStatus(`Found you — ${String(ev.surah_name ?? "")} ${s}:${a}`);
+      if (quran && surahIdxRef.current !== s - 1) setSurahIdx(s - 1);
+      scrollToAyah(s, a);
+    } else if (ev.type === "word_progress") {
+      const s = ev.surah as number, a = ev.ayah as number;
+      setLoc({ surah: s, ayah: a });
+      setWordIdx(ev.word_index as number);
+      if (quran && surahIdxRef.current !== s - 1) setSurahIdx(s - 1);
+    } else if (ev.type === "error") {
+      setMicError(String(ev.message ?? "Engine error"));
+      void stopRecite();
+    } else if (ev.type === "stopped") {
+      // flushed
+    }
+  }
+
+  const listening = listen !== "idle";
 
   return (
     <div className="min-h-dvh" style={{ backgroundColor: "var(--color-paper)" }}>
@@ -90,7 +216,7 @@ export default function QuranTesterClient() {
           <h1 className="flex-1 text-xl font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
             Quran Tester
           </h1>
-          {installed && (
+          {installed && !listening && (
             <span
               className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
               style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
@@ -101,7 +227,7 @@ export default function QuranTesterClient() {
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-3xl px-4 pb-24 sm:px-6">
+      <div className="mx-auto w-full max-w-3xl px-4 pb-40 sm:px-6">
         {/* Engine install card */}
         {installed === false && (
           <div
@@ -115,7 +241,7 @@ export default function QuranTesterClient() {
               Download the recitation engine
             </p>
             <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              ~72MB, downloaded once. Your voice is processed entirely on this
+              ~85MB, downloaded once. Your voice is processed entirely on this
               device — audio never leaves your phone, works fully offline.
             </p>
             {dl ? (
@@ -150,7 +276,7 @@ export default function QuranTesterClient() {
           </div>
         )}
 
-        {installed && (
+        {installed && !listening && (
           <div className="mt-4 flex items-center justify-between">
             <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
               Recite anywhere — the app finds your place and flags mistakes for you to confirm.
@@ -163,6 +289,31 @@ export default function QuranTesterClient() {
               Remove engine
             </button>
           </div>
+        )}
+
+        {/* Live status */}
+        {listening && (
+          <div
+            className="mt-5 flex items-center gap-3 rounded-2xl border px-4 py-3"
+            style={{ borderColor: "var(--color-accent-faint)", backgroundColor: "var(--color-paper-2)" }}
+          >
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span
+                className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
+                style={{ backgroundColor: "var(--color-accent)" }}
+              />
+              <span
+                className="relative inline-flex h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "var(--color-accent)" }}
+              />
+            </span>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+              {status ?? "Listening…"}
+            </p>
+          </div>
+        )}
+        {micError && (
+          <p className="mt-3 text-xs font-medium" style={{ color: "#b34a3a" }}>{micError}</p>
         )}
 
         {/* Nav: jump + search */}
@@ -205,28 +356,86 @@ export default function QuranTesterClient() {
               </p>
             </div>
             <div dir="rtl" className="space-y-5 text-right" style={{ fontFamily: "var(--font-arabic, serif)" }}>
-              {surah!.verses.map(([n, ar, en]) => (
-                <div key={n} id={`ayah-${surah!.s}-${n}`} className="group">
-                  <p className="text-[22px] leading-[2.1]" style={{ color: "var(--color-ink)" }}>
-                    {ar.split(" ").map((w, wi) => (
-                      <span key={wi} data-word={wi} className="inline-block rounded px-0.5">{w}</span>
-                    ))}
-                    <span
-                      className="mx-2 inline-flex h-7 w-7 items-center justify-center rounded-full border align-middle text-[11px] font-semibold"
-                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", fontFamily: "inherit" }}
-                    >
-                      {n}
-                    </span>
-                  </p>
-                  <p dir="ltr" className="mt-1 text-left text-xs leading-relaxed opacity-70" style={{ color: "var(--color-ink-muted)", fontFamily: "inherit" }}>
-                    {en}
-                  </p>
-                </div>
-              ))}
+              {surah!.verses.map(([n, ar, en]) => {
+                const active = loc && loc.surah === surah!.s && loc.ayah === n;
+                return (
+                  <div
+                    key={n}
+                    id={`ayah-${surah!.s}-${n}`}
+                    className="rounded-2xl px-2 py-1 transition-colors duration-300"
+                    style={active ? { backgroundColor: "var(--color-accent-faint)" } : undefined}
+                  >
+                    <p className="text-[22px] leading-[2.1]" style={{ color: "var(--color-ink)" }}>
+                      {ar.split(" ").map((w, wi) => (
+                        <span
+                          key={wi}
+                          data-word={wi}
+                          className="inline-block rounded px-0.5 transition-colors duration-150"
+                          style={
+                            active && wordIdx === wi
+                              ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
+                              : active && wordIdx !== null && wi < wordIdx
+                                ? { color: "var(--color-accent)" }
+                                : undefined
+                          }
+                        >
+                          {w}
+                        </span>
+                      ))}
+                      <span
+                        className="mx-2 inline-flex h-7 w-7 items-center justify-center rounded-full border align-middle text-[11px] font-semibold"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", fontFamily: "inherit" }}
+                      >
+                        {n}
+                      </span>
+                    </p>
+                    <p dir="ltr" className="mt-1 text-left text-xs leading-relaxed opacity-70" style={{ color: "var(--color-ink-muted)", fontFamily: "inherit" }}>
+                      {en}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
       </div>
+
+      {/* Recite bar */}
+      {installed && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-30"
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
+            background: "linear-gradient(to top, var(--color-paper) 55%, transparent)",
+          }}
+        >
+          <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-2 px-4">
+            <button
+              onClick={() => (listening ? void stopRecite() : void startRecite())}
+              className="relative flex items-center justify-center rounded-full transition-transform active:scale-95"
+              style={{
+                width: 64,
+                height: 64,
+                backgroundColor: listening ? "var(--color-accent)" : "var(--color-ink)",
+                color: "var(--color-paper)",
+                boxShadow: "0 8px 24px color-mix(in oklab, var(--color-ink) 25%, transparent)",
+              }}
+              aria-label={listening ? "Stop reciting" : "Start reciting"}
+            >
+              {listening && (
+                <span
+                  className="absolute inset-0 animate-ping rounded-full opacity-25"
+                  style={{ backgroundColor: "var(--color-accent)" }}
+                />
+              )}
+              {listen === "listening" ? <Square className="h-5 w-5" fill="currentColor" /> : <Mic className="h-6 w-6" />}
+            </button>
+            <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--color-ink-muted)" }}>
+              {listen === "listening" ? "Tap to stop" : listen === "warming" ? "Warming up" : "Tap to recite"}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
