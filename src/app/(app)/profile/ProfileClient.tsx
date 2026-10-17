@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronDown, Swords, Camera, Flame, Check, MapPin, Link2, EyeOff, Eye } from "lucide-react";
 import { RANKS, MATCH_WIN_PTS, MATCH_LOSS_PTS } from "@/lib/quran-rank";
 import { invalidateApiCache } from "@/lib/sw-helpers";
-import { readAvatarFile } from "@/lib/avatar";
 import PhotoLightbox from "@/components/photo-lightbox";
+import PhotoCropper from "@/components/photo-cropper";
 
 /** Rank medallion — tone deepens as you climb; Shaykh carries warmth + glow. */
 const BADGE_TONE: Record<string, { bg: string; ring: string; glow: boolean }> = {
@@ -43,7 +43,7 @@ function RankBadge({ rank, size }: { rank: { id: string; ar: string }; size: num
 }
 
 /** Client-side downscale — shared with onboarding. */
-const readAvatar = readAvatarFile;
+
 
 /** What the friends API shares about a friend — gated by their privacy toggles. */
 interface FriendSalah {
@@ -85,6 +85,7 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
   const [ladderOpen, setLadderOpen] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [lightbox, setLightbox] = useState(false);
+  const [cropFile, setCropFile] = useState<File | null>(null);
   const [salah, setSalah] = useState<FriendSalah | null | undefined>(undefined);
   const [confirmUnfriend, setConfirmUnfriend] = useState(false);
   const [unfriendBusy, setUnfriendBusy] = useState(false);
@@ -118,20 +119,25 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
     setUnfriendBusy(false);
   }
 
-  async function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+  function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-picking the same file
-    if (!file || avatarBusy) return;
+    if (file && !avatarBusy) setCropFile(file);
+  }
+
+  async function onCropDone(result: { dataUrl: string }) {
+    const dataUrl = result.dataUrl;
+    setCropFile(null);
     setAvatarBusy(true);
     try {
-      const dataUrl = await readAvatar(file);
+      setP((prev) => (prev ? { ...prev, avatarUrl: dataUrl } : prev)); // optimistic
       const res = await fetch("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ avatar: dataUrl }),
       });
-      if (res.ok) setP((prev) => (prev ? { ...prev, avatarUrl: dataUrl } : prev));
-    } catch { /* non-critical — avatar unchanged */ }
+      if (!res.ok) throw new Error("upload");
+    } catch { /* non-critical — avatar unchanged visually until refresh */ }
     finally { setAvatarBusy(false); }
   }
 
@@ -562,6 +568,9 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
 
       {lightbox && p.avatarUrl && (
         <PhotoLightbox src={p.avatarUrl} alt={p.name} onClose={() => setLightbox(false)} />
+      )}
+      {cropFile && (
+        <PhotoCropper file={cropFile} size={384} onDone={onCropDone} onCancel={() => setCropFile(null)} />
       )}
     </div>
   );

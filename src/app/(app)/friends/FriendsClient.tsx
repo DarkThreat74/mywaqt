@@ -6,6 +6,7 @@ import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, Phone, EyeOff
 import { friendScore, friendTier } from "@/lib/friends-score";
 import { compressImage } from "@/lib/image";
 import PhotoLightbox from "@/components/photo-lightbox";
+import PhotoCropper from "@/components/photo-cropper";
 
 /**
  * Friends — your people, mapped. An orbit view puts you at the center;
@@ -206,10 +207,7 @@ async function compressPhoto(file: Blob): Promise<{ data: string; mime: string }
   return { data, mime };
 }
 
-// Profile avatar: 384px webp data URL — the shape /api/profile expects.
-async function compressSelfie(file: Blob): Promise<string> {
-  return (await compressImage(file, 384, 0.82)).dataUrl;
-}
+
 
 // Contacts Picker API (Android Chrome / WebView). Feature-detected.
 interface DeviceContact {
@@ -251,6 +249,7 @@ export default function FriendsClient() {
   const selfRef = useRef<HTMLInputElement>(null);
   const [photo, setPhoto] = useState<{ data: string; mime: string; dirty: boolean }>({ data: "", mime: "", dirty: false });
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
+  const [crop, setCrop] = useState<{ file: Blob; target: "friend" | "self" } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selfie, setSelfie] = useState<string | null>(null);
@@ -715,20 +714,10 @@ export default function FriendsClient() {
           type="file"
           accept="image/*"
           className="hidden"
-          onChange={async (e) => {
+          onChange={(e) => {
             const f = e.target.files?.[0];
             e.target.value = "";
-            if (!f) return;
-            const dataUrl = await compressSelfie(f);
-            setSelfie(dataUrl); // optimistic — show it now, persist in background
-            const r = await fetch("/api/profile", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ avatar: dataUrl }),
-            }).catch(() => null);
-            const d = r?.ok ? await r.json().catch(() => null) : null;
-            if (d?.avatarUrl) setSelfie(d.avatarUrl);
-            if (!r?.ok) setContactHint("Couldn't save your photo — check your connection.");
+            if (f) setCrop({ file: f, target: "self" });
           }}
         />
 
@@ -1139,12 +1128,10 @@ export default function FriendsClient() {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={async (e) => {
+                onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (!f) return;
-                  const c = await compressPhoto(f);
-                  setPhoto({ ...c, dirty: true });
                   e.target.value = "";
+                  if (f) setCrop({ file: f, target: "friend" });
                 }}
               />
             </div>
@@ -1354,6 +1341,32 @@ export default function FriendsClient() {
       )}
 
       {lightbox && <PhotoLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
+
+      {crop && (
+        <PhotoCropper
+          file={crop.file}
+          size={crop.target === "friend" ? 1024 : 384}
+          onCancel={() => setCrop(null)}
+          onDone={async (c) => {
+            const target = crop.target;
+            setCrop(null);
+            if (target === "friend") {
+              setPhoto({ data: c.data, mime: c.mime, dirty: true });
+              return;
+            }
+            // Self avatar — optimistic render, persist in background.
+            setSelfie(c.dataUrl);
+            const r = await fetch("/api/profile", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ avatar: c.dataUrl }),
+            }).catch(() => null);
+            const d = r?.ok ? await r.json().catch(() => null) : null;
+            if (d?.avatarUrl) setSelfie(d.avatarUrl);
+            if (!r?.ok) setContactHint("Couldn't save your photo — check your connection.");
+          }}
+        />
+      )}
     </div>
   );
 }

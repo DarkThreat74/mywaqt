@@ -30,33 +30,33 @@
 export const FREQ_PTS: Record<string, number> = { daily: 11, weekly: 8, monthly: 4, rarely: 2 };
 export const YEARS_PTS: Record<string, number> = { lt1: 1, y1_3: 2, y3_7: 3, y7p: 4 };
 export const TRUST_PTS: Record<string, number> = {
-  definitely: 13, first: 13, topfew: 9, probably: 6, depends: 3, unsure: 1, wouldnt: 0,
+  definitely: 13, first: 13, topfew: 10, probably: 7, depends: 4, unsure: 2, wouldnt: 0,
 };
 export const OPEN_PTS: Record<string, number> = {
-  always: 11, everything: 11, mostly: 7, most: 7, light: 4, rarely: 1, notmuch: 1,
+  always: 11, everything: 11, mostly: 8, most: 8, light: 5, rarely: 2, notmuch: 2,
 };
-export const PHASE_PTS: Record<string, number> = { steady: 1, wascloser: 0.8, distant: 0.55, acquaintance: 0.35 };
+export const PHASE_PTS: Record<string, number> = { steady: 1, wascloser: 0.85, distant: 0.65, acquaintance: 0.5 };
 export const MISS_PTS: Record<string, number> = { gutted: 10, alot: 6, alittle: 2 };
-export const TELL_PTS: Record<string, number> = { first: 6, eventually: 3, rarely: 0, wouldnt: 0 };
+export const TELL_PTS: Record<string, number> = { first: 6, eventually: 4, rarely: 1, wouldnt: 0 };
 export const VIBE_PTS: Record<string, number> = { person: 8, goodtime: 5, easygoing: 5, new: 2 };
-export const SACRIFICE_PTS: Record<string, number> = { noask: 13, asked: 9, cost: 4, excuse: 0 };
-export const LOYALTY_PTS: Record<string, number> = { absolutely: 9, probably: 5, unsure: 2, no: 0 };
-export const GAP_PTS: Record<string, number> = { notime: 13, backup: 9, awkward: 4, strangers: 0 };
+export const SACRIFICE_PTS: Record<string, number> = { noask: 13, asked: 10, cost: 5, excuse: 1 };
+export const LOYALTY_PTS: Record<string, number> = { absolutely: 9, probably: 6, unsure: 3, no: 1 };
+export const GAP_PTS: Record<string, number> = { notime: 13, backup: 10, awkward: 5, strangers: 1 };
 export const PLANS_PTS: Record<string, number> = { both: 7, easy: 7, theytag: 5, them: 5, me: 4, itag: 4, bump: 2 };
 export const HANGOUT_PTS: Record<string, number> = {
   meetup: 4, realtalk: 4, chill: 3, outside: 3, group: 2, texting: 2,
   // Legacy ids
   doing: 4, talking: 4, mix: 4, chilling: 3,
 };
-export const SHORTLIST_PTS: Record<string, number> = { definitely: 6, probably: 4, between: 2, unsure: 2, almost: 1, no: 0 };
+export const SHORTLIST_PTS: Record<string, number> = { definitely: 6, probably: 4, between: 3, unsure: 3, almost: 2, no: 0 };
 // Propinquity control — "do you see them because you choose to, or because
 // you're in the same place?" Contact forced by shared context (same class,
 // same job) shouldn't earn full frequency/hangout credit. Scales the
 // interaction terms only — every other dimension still counts.
-export const VOLITION_FACTOR: Record<string, number> = { choose: 1, occasional: 0.85, mix: 0.8, touch: 0.7, context: 0.5 };
+export const VOLITION_FACTOR: Record<string, number> = { choose: 1, occasional: 0.85, mix: 0.8, touch: 0.7, context: 0.55 };
 // Attunement — noticing without being told (McGill "knows when I'm upset").
 // The strongest covert-intimacy signal for friendships that run side-by-side.
-export const ATTUNE_PTS: Record<string, number> = { notice: 8, eventually: 5, told: 2, wouldnt: 0 };
+export const ATTUNE_PTS: Record<string, number> = { notice: 8, eventually: 6, told: 3, wouldnt: 0 };
 export const MET_PTS: Record<string, number> = {
   childhood: 3, family: 3, masjid: 2, school: 2, work: 2, neighbor: 2,
   mutual: 2, sports: 2, travel: 1, online: 1, other: 1,
@@ -72,6 +72,7 @@ export function friendScore(f: {
   phase?: string | null;
   vibe?: string | null;
   metTag?: string | null;
+  metDetail?: string | null;
   sacrifice?: string | null;
   loyalty?: string | null;
   gap?: string | null;
@@ -115,10 +116,14 @@ export function friendScore(f: {
     raw += ((MISS_PTS[f.miss ?? ""] ?? 0) + (VIBE_PTS[f.vibe ?? ""] ?? 0)) / 2;
     maxRaw += 9;
   }
+  // Family boost — siblings count as blood + history: a big flat bonus,
+  // other family a smaller one. Applied on top of the percentage, uncapped
+  // by the questionnaire's denominator.
+  if (f.metTag === "family") raw += maxRaw * (f.metDetail === "Sibling" ? 0.1 : 0.04);
   const mult = PHASE_PTS[f.phase ?? "steady"] ?? 1;
   return maxRaw === 0 ? 0 : Math.min(100, Math.round((raw / maxRaw) * 100 * mult));
 }
 
 export function friendTier(score: number): 0 | 1 | 2 | 3 {
-  return score >= 78 ? 0 : score >= 55 ? 1 : score >= 32 ? 2 : 3;
+  return score >= 72 ? 0 : score >= 48 ? 1 : score >= 26 ? 2 : 3;
 }
