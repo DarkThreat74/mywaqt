@@ -44,6 +44,11 @@ export const GAP_PTS: Record<string, number> = { notime: 13, backup: 9, awkward:
 export const PLANS_PTS: Record<string, number> = { both: 7, easy: 7, them: 4, me: 3 };
 export const HANGOUT_PTS: Record<string, number> = { doing: 4, mix: 4, talking: 3, texting: 1 };
 export const SHORTLIST_PTS: Record<string, number> = { definitely: 6, probably: 3, unsure: 1, no: 0 };
+// Propinquity control — "do you see them because you choose to, or because
+// you're in the same place?" Contact forced by shared context (same class,
+// same job) shouldn't earn full frequency/hangout credit. Scales the
+// interaction terms only — every other dimension still counts.
+export const VOLITION_FACTOR: Record<string, number> = { choose: 1, mix: 0.8, context: 0.5 };
 export const MET_PTS: Record<string, number> = {
   childhood: 3, family: 3, masjid: 2, school: 2, work: 2, neighbor: 2,
   mutual: 2, sports: 2, travel: 1, online: 1, other: 1,
@@ -65,11 +70,15 @@ export function friendScore(f: {
   plans?: string | null;
   hangout?: string | null;
   shortlist?: string | null;
+  volition?: string | null;
 }): number {
   // Childhood met-context implies a long history — no duration question asked.
   const years = f.knownYears ?? (f.metTag === "childhood" ? "y7p" : null);
+  const interaction =
+    ((FREQ_PTS[f.talkFreq ?? ""] ?? 0) + (HANGOUT_PTS[f.hangout ?? ""] ?? 0)) *
+    (VOLITION_FACTOR[f.volition ?? "choose"] ?? 1);
   const raw =
-    (FREQ_PTS[f.talkFreq ?? ""] ?? 0) +
+    interaction +
     (YEARS_PTS[years ?? ""] ?? 0) +
     (TRUST_PTS[f.trust ?? ""] ?? 0) +
     (OPEN_PTS[f.openness ?? ""] ?? 0) +
@@ -78,7 +87,6 @@ export function friendScore(f: {
     (LOYALTY_PTS[f.loyalty ?? ""] ?? 0) +
     (GAP_PTS[f.gap ?? ""] ?? 0) +
     (PLANS_PTS[f.plans ?? ""] ?? 0) +
-    (HANGOUT_PTS[f.hangout ?? ""] ?? 0) +
     (SHORTLIST_PTS[f.shortlist ?? ""] ?? 0) +
     (MET_PTS[f.metTag ?? ""] ?? 0) +
     // Legacy rows answered "miss"/"vibe" instead of the new probes — keep

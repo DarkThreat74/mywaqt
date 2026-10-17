@@ -1238,6 +1238,9 @@ export const friends = pgTable('friends', {
   hangout: text('hangout'),
   // "The people who actually matter — do they make it?" — 'definitely' | 'probably' | 'unsure' | 'no'
   shortlist: text('shortlist'),
+  // "Would you see them outside the context that made you meet?" — voluntary
+  // vs circumstantial contact (propinquity). 'choose' | 'mix' | 'context'
+  volition: text('volition'),
   // User-named group — "school crew", "the guys". One group per friend;
   // matches friend_crews.name.
   groupLabel: varchar('group_label', { length: 60 }),

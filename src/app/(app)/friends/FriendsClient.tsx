@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, Phone, EyeOff, Eye } from "lucide-react";
+import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, Phone, EyeOff } from "lucide-react";
 import { friendScore, friendTier } from "@/lib/friends-score";
 
 /**
@@ -34,9 +34,11 @@ interface Friend {
   plans: string | null;
   hangout: string | null;
   shortlist: string | null;
+  volition: string | null;
   groupLabel: string | null;
   score: number | null;
   phone: string | null;
+  updatedAt?: string | null;
   notes: string | null;
   hasPhoto: boolean;
 }
@@ -129,6 +131,11 @@ const SHORTLIST = [
   { id: "unsure", label: "Not sure" },
   { id: "no", label: "No" },
 ];
+const VOLITION = [
+  { id: "choose", label: "We choose to — we'd link anyway" },
+  { id: "mix", label: "A bit of both" },
+  { id: "context", label: "Same place mostly — class, work, whatever" },
+];
 const PHASE = [
   { id: "steady", label: "As tight as ever" },
   { id: "wascloser", label: "We were closer once" },
@@ -206,7 +213,7 @@ function Avatar({ f, size }: { f: Friend; size: number }) {
     >
       {f.hasPhoto ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/friends/${f.id}/photo`} alt="" className="h-full w-full object-cover" loading="lazy" />
+        <img src={`/api/friends/${f.id}/photo?v=${Date.parse(f.updatedAt ?? "") || 0}`} alt="" className="h-full w-full object-cover" loading="lazy" />
       ) : (
         f.name.charAt(0).toUpperCase()
       )}
@@ -230,6 +237,11 @@ export default function FriendsClient() {
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [crews, setCrews] = useState<{ id: string; name: string; hiddenFromAll: boolean }[]>([]);
   const [newCrew, setNewCrew] = useState<{ open: boolean; name: string; hidden: boolean; saving: boolean }>({ open: false, name: "", hidden: false, saving: false });
+  const [crewSheet, setCrewSheet] = useState<{ id: string; name: string; hiddenFromAll: boolean } | null>(null);
+  const [crewDraft, setCrewDraft] = useState("");
+  const [crewBusy, setCrewBusy] = useState(false);
+  const [importReport, setImportReport] = useState<{ name: string; linked: boolean }[] | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const refresh = () =>
     fetch("/api/friends", { cache: "no-store" })
@@ -264,9 +276,15 @@ export default function FriendsClient() {
     ? friends.filter((f) => f.groupLabel === groupFilter)
     : friends.filter((f) => !f.groupLabel || !hiddenCrews.has(f.groupLabel));
   const clusterOf = (f: Friend) => f.groupLabel ?? f.metTag ?? "";
+  const photoSrc = (f: Friend) => `/api/friends/${f.id}/photo?v=${Date.parse(f.updatedAt ?? "") || 0}`;
+  const openCrewSheet = (c: { id: string; name: string; hiddenFromAll: boolean }) => {
+    setCrewSheet(c);
+    setCrewDraft(c.name);
+  };
 
   const byTier: Friend[][] = [[], [], []];
   shown.forEach((f) => byTier[tierOf(f)].push(f));
+  byTier.forEach((ring) => ring.sort((a, b) => scoreOf(b) - scoreOf(a)));
   const nodes: { f: Friend; x: number; y: number; tier: number }[] = [];
   byTier.forEach((ring, tier) => {
     const sorted = [...ring].sort((a, b) => clusterOf(a).localeCompare(clusterOf(b)));
@@ -304,6 +322,7 @@ export default function FriendsClient() {
   const [plans, setPlans] = useState<string | null>(null);
   const [hangout, setHangout] = useState<string | null>(null);
   const [shortlist, setShortlist] = useState<string | null>(null);
+  const [volition, setVolition] = useState<string | null>(null);
   const [groupLabel, setGroupLabel] = useState("");
   const [step, setStep] = useState(0);
   const [notes, setNotes] = useState("");
@@ -324,6 +343,7 @@ export default function FriendsClient() {
       setMiss(f.miss); setTell(f.tell); setPhase(f.phase); setVibe(f.vibe);
       setSacrifice(f.sacrifice); setLoyalty(f.loyalty); setGap(f.gap);
       setPlans(f.plans); setHangout(f.hangout); setShortlist(f.shortlist);
+      setVolition(f.volition);
       setGroupLabel(f.groupLabel ?? "");
       setPhone(f.phone ?? "");
       setNotes(f.notes ?? "");
@@ -332,6 +352,7 @@ export default function FriendsClient() {
       setMetTag(null); setMetDetail(""); setFreq(null);
       setYears(null); setTrust(null); setOpenness(null); setMiss(null); setTell(null); setPhase(null); setVibe(null); setGroupLabel("");
       setSacrifice(null); setLoyalty(null); setGap(null); setPlans(null); setHangout(null); setShortlist(null);
+      setVolition(null);
       setPhone(""); setNotes("");
     }
   }
@@ -360,6 +381,57 @@ export default function FriendsClient() {
     }
   }
 
+  // Multi-import (new-friend flow): pick several contacts; each becomes a
+  // friend unless its number already belongs to one. The OS picker can't
+  // enumerate or annotate the address book, so "already linked" is reported
+  // after the pick, matched on normalized digits.
+  async function importFromContacts() {
+    const api = contactsApi();
+    if (!api) {
+      setContactHint("Contact import needs the Android app or Chrome on Android.");
+      return;
+    }
+    setImporting(true);
+    try {
+      const picked = await api.select(["name", "icon", "tel"], { multiple: true });
+      if (!picked?.length) return;
+      const norm = (p?: string) => (p ?? "").replace(/\D/g, "").slice(-10);
+      const existing = new Set(friends.map((f) => norm(f.phone ?? "")).filter(Boolean));
+      const report: { name: string; linked: boolean }[] = [];
+      for (const c of picked.slice(0, 25)) {
+        const name = (c.name?.[0] ?? "").trim().slice(0, 80);
+        if (!name) continue;
+        const tel = c.tel?.[0]?.trim().slice(0, 40) ?? null;
+        if (tel && existing.has(norm(tel))) {
+          report.push({ name, linked: true });
+          continue;
+        }
+        const icon = c.icon?.[0];
+        const photo = icon ? await compressPhoto(icon) : null;
+        const r = await fetch("/api/friends", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name, phone: tel,
+            ...(photo ? { photo: photo.data, photoMime: photo.mime } : {}),
+          }),
+        }).catch(() => null);
+        if (r?.ok) {
+          report.push({ name, linked: false });
+          if (tel) existing.add(norm(tel));
+        }
+      }
+      if (report.length) {
+        setImportReport(report);
+        void refresh();
+      }
+    } catch {
+      // User dismissed the picker or denied access — nothing to do.
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function save() {
     const n = `${firstName.trim()} ${lastName.trim()}`.trim();
     if (!n) { setError("Give them a name."); return; }
@@ -371,7 +443,7 @@ export default function FriendsClient() {
         name: n, metTag, metDetail: metDetail || null, talkFreq: freq,
         knownYears: metTag === "childhood" ? "y7p" : years,
         trust, openness, miss, tell, phase, vibe,
-        sacrifice, loyalty, gap, plans, hangout, shortlist,
+        sacrifice, loyalty, gap, plans, hangout, shortlist, volition,
         groupLabel: groupLabel.trim() || null, phone: phone || null, notes: notes || null,
       };
       if (photo.dirty) {
@@ -417,7 +489,7 @@ export default function FriendsClient() {
     display: "block",
   };
 
-  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, phase, vibe, metTag, sacrifice, loyalty, gap, plans, hangout, shortlist });
+  const previewScore = friendScore({ talkFreq: freq, knownYears: years, trust, openness, miss, tell, phase, vibe, metTag, sacrifice, loyalty, gap, plans, hangout, shortlist, volition });
   const previewTier = TIERS[friendTier(previewScore)];
 
   // ── Stepped questionnaire — one question at a time ───────────────
@@ -428,6 +500,7 @@ export default function FriendsClient() {
     { id: "freq", q: "How often do you actually see or talk?", answered: !!freq },
     { id: "hangout", q: "When you hang out, what's it usually?", answered: !!hangout },
     { id: "plans", q: "Who usually makes the plans?", answered: !!plans },
+    { id: "volition", q: "If you stopped sharing the same place — class, work, the block — would you still see them?", answered: !!volition },
     { id: "trust", q: "It's 3am and you actually need help — do they get the call?", answered: !!trust },
     { id: "sacrifice", q: "They need something real — moving day, a ride, help with money.", answered: !!sacrifice },
     { id: "open", q: "How much of your real life do they know — problems, family, what you're actually dealing with?", answered: !!openness },
@@ -475,6 +548,14 @@ export default function FriendsClient() {
           </Link>
           <h1 className="flex-1 text-xl font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>Friends</h1>
           <button
+            onClick={importFromContacts}
+            disabled={importing}
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
+            style={{ color: "var(--color-ink-muted)", border: "1px solid var(--color-paper-3)" }}
+          >
+            <ContactRound className="h-3.5 w-3.5" /> {importing ? "Importing…" : "Import"}
+          </button>
+          <button
             onClick={() => openSheet("new")}
             className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-opacity hover:opacity-80"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
@@ -494,7 +575,12 @@ export default function FriendsClient() {
               return (
                 <button
                   key={g}
-                  onClick={() => setGroupFilter(g === "__all__" ? null : g)}
+                  onClick={() => {
+                    if (g === "__all__") { setGroupFilter(null); return; }
+                    // Tap a selected crew again to open its editor.
+                    if (crew && groupFilter === g) openCrewSheet(crew);
+                    else setGroupFilter(g);
+                  }}
                   className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold"
                   style={{
                     backgroundColor: on ? "var(--color-ink)" : "var(--color-paper-2)",
@@ -504,33 +590,10 @@ export default function FriendsClient() {
                 >
                   {g === "__all__" ? "All" : g}
                   {crew?.hiddenFromAll && <EyeOff className="h-3 w-3 opacity-70" />}
+                  {crew && on && <Pencil className="h-3 w-3 opacity-60" />}
                 </button>
               );
             })}
-            {/* Toggle the selected crew's All-view visibility */}
-            {groupFilter && (() => {
-              const crew = crews.find((c) => c.name === groupFilter);
-              if (!crew) return null;
-              return (
-                <button
-                  onClick={async () => {
-                    const next = !crew.hiddenFromAll;
-                    setCrews((cs) => cs.map((c) => (c.id === crew.id ? { ...c, hiddenFromAll: next } : c)));
-                    const r = await fetch("/api/crews", {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ id: crew.id, hiddenFromAll: next }),
-                    }).catch(() => null);
-                    if (!r?.ok) setCrews((cs) => cs.map((c) => (c.id === crew.id ? { ...c, hiddenFromAll: !next } : c)));
-                  }}
-                  className="flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold"
-                  style={{ color: "var(--color-ink-muted)", border: "1px solid var(--color-paper-3)" }}
-                >
-                  {crew.hiddenFromAll ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                  {crew.hiddenFromAll ? "Hidden from All" : "Hide from All"}
-                </button>
-              );
-            })()}
           </div>
         )}
 
@@ -563,7 +626,7 @@ export default function FriendsClient() {
                 <g key={n.f.id} onClick={() => openSheet(n.f)} style={{ cursor: "pointer" }}>
                   <clipPath id={`fc-${i}`}><circle cx={n.x} cy={n.y} r="3" /></clipPath>
                   {n.f.hasPhoto ? (
-                    <image href={`/api/friends/${n.f.id}/photo`} x={n.x - 3} y={n.y - 3} width="6" height="6" clipPath={`url(#fc-${i})`} preserveAspectRatio="xMidYMid slice" />
+                    <image href={photoSrc(n.f)} x={n.x - 3} y={n.y - 3} width="6" height="6" clipPath={`url(#fc-${i})`} preserveAspectRatio="xMidYMid slice" />
                   ) : (
                     <>
                       <circle
@@ -597,12 +660,15 @@ export default function FriendsClient() {
             e.target.value = "";
             if (!f) return;
             const dataUrl = await compressSelfie(f);
+            setSelfie(dataUrl); // optimistic — show it now, persist in background
             const r = await fetch("/api/profile", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ avatar: dataUrl }),
             }).catch(() => null);
-            if (r?.ok) setSelfie(dataUrl);
+            const d = r?.ok ? await r.json().catch(() => null) : null;
+            if (d?.avatarUrl) setSelfie(d.avatarUrl);
+            if (!r?.ok) setContactHint("Couldn't save your photo — check your connection.");
           }}
         />
 
@@ -656,6 +722,158 @@ export default function FriendsClient() {
           </div>
         )}
       </div>
+
+      {/* ── Crew sheet ── */}
+      {crewSheet && (() => {
+        const members = friends.filter((f) => f.groupLabel === crewSheet.name);
+        const saveCrew = async (patch: Record<string, unknown>) => {
+          setCrewBusy(true);
+          const r = await fetch("/api/crews", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: crewSheet.id, ...patch }),
+          }).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+          setCrewBusy(false);
+          if (!r?.crew) return;
+          setCrews((cs) => cs.map((c) => (c.id === r.crew.id ? r.crew : c)).sort((a, b) => a.name.localeCompare(b.name)));
+          setCrewSheet(r.crew);
+          setCrewDraft(r.crew.name);
+          if (r.crew.name !== crewSheet.name) {
+            // Rename propagated server-side — refresh friend labels + filter.
+            setFriends((fs) => fs.map((f) => (f.groupLabel === crewSheet.name ? { ...f, groupLabel: r.crew.name } : f)));
+            if (groupFilter === crewSheet.name) setGroupFilter(r.crew.name);
+          }
+        };
+        return (
+          <div
+            className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center"
+            style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 45%, transparent)" }}
+            onClick={() => setCrewSheet(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-t-3xl px-5 pb-8 pt-4 sm:rounded-3xl"
+              style={{ backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.22s ease-out" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-4 h-1 w-9 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
+              <div className="mb-4 flex items-center gap-2">
+                <input
+                  value={crewDraft}
+                  onChange={(e) => setCrewDraft(e.target.value.slice(0, 60))}
+                  onBlur={() => { const n = crewDraft.trim(); if (n && n !== crewSheet.name) void saveCrew({ name: n }); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                  className="min-w-0 flex-1 rounded-xl px-3 py-2 text-base font-bold tracking-tight outline-none"
+                  style={inputStyle}
+                />
+                <button onClick={() => setCrewSheet(null)} className="flex items-center justify-center rounded-full" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                {members.length === 1 ? "1 person" : `${members.length} people`}
+              </p>
+              {members.length > 0 && (
+                <div className="mb-4 flex flex-wrap gap-1.5">
+                  {members.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => openSheet(f)}
+                      className="rounded-full px-3 py-1.5 text-xs font-semibold"
+                      style={{ backgroundColor: "var(--color-paper-2)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink)" }}
+                    >
+                      {f.name.split(" ")[0]}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={() => void saveCrew({ hiddenFromAll: !crewSheet.hiddenFromAll })}
+                disabled={crewBusy}
+                className="mb-3 flex w-full items-center justify-between rounded-xl px-3.5 py-3 text-left disabled:opacity-50"
+                style={{ backgroundColor: "var(--color-paper-2)" }}
+                role="switch"
+                aria-checked={crewSheet.hiddenFromAll}
+              >
+                <span>
+                  <span className="block text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Hide from All</span>
+                  <span className="block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                    Members only show when this crew is selected
+                  </span>
+                </span>
+                <span
+                  className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+                  style={{ backgroundColor: crewSheet.hiddenFromAll ? "var(--color-accent)" : "var(--color-paper-3)" }}
+                >
+                  <span
+                    className="absolute top-0.5 h-5 w-5 rounded-full transition-all"
+                    style={{ left: crewSheet.hiddenFromAll ? 22 : 2, backgroundColor: "var(--color-paper)" }}
+                  />
+                </span>
+              </button>
+
+              <button
+                onClick={async () => {
+                  if (!window.confirm(`Delete “${crewSheet.name}”? The people stay — just the crew is removed.`)) return;
+                  setCrewBusy(true);
+                  await fetch(`/api/crews?id=${crewSheet.id}`, { method: "DELETE" }).catch(() => null);
+                  setCrews((cs) => cs.filter((c) => c.id !== crewSheet.id));
+                  setFriends((fs) => fs.map((f) => (f.groupLabel === crewSheet.name ? { ...f, groupLabel: null } : f)));
+                  if (groupFilter === crewSheet.name) setGroupFilter(null);
+                  setCrewBusy(false);
+                  setCrewSheet(null);
+                }}
+                disabled={crewBusy}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-semibold disabled:opacity-50"
+                style={{ color: "var(--color-red, #b91c1c)", border: "1px solid var(--color-paper-3)" }}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete crew
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Contact import report ── */}
+      {importReport && (
+        <div
+          className="fixed inset-0 z-[110] flex items-end justify-center sm:items-center"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 45%, transparent)" }}
+          onClick={() => setImportReport(null)}
+        >
+          <div
+            className="max-h-[70dvh] w-full max-w-md overflow-y-auto rounded-t-3xl px-5 pb-8 pt-4 sm:rounded-3xl"
+            style={{ backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.22s ease-out" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-9 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
+            <h2 className="mb-1 text-base font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>Imported from contacts</h2>
+            <p className="mb-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              {importReport.filter((r) => !r.linked).length} added · {importReport.filter((r) => r.linked).length} already on your map
+            </p>
+            {importReport.map((r, i) => (
+              <div key={i} className="flex items-center gap-2.5 border-b py-2.5 last:border-b-0" style={{ borderColor: "var(--color-paper-3)" }}>
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: r.linked ? "var(--color-paper-3)" : "var(--color-accent)" }}
+                />
+                <span className="flex-1 truncate text-sm font-medium" style={{ color: r.linked ? "var(--color-ink-muted)" : "var(--color-ink)" }}>
+                  {r.name}
+                </span>
+                {r.linked && <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>linked</span>}
+              </div>
+            ))}
+            <button
+              onClick={() => setImportReport(null)}
+              className="mt-4 w-full rounded-xl py-2.5 text-sm font-bold"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Add/edit sheet ── */}
       {sheet && (
@@ -734,6 +952,7 @@ export default function FriendsClient() {
                 f.sacrifice ? ["If they needed real help", SACRIFICE.find((x) => x.id === f.sacrifice)?.label ?? f.sacrifice] : null,
                 f.hangout ? ["Hanging out is", HANGOUT.find((x) => x.id === f.hangout)?.label ?? f.hangout] : null,
                 f.plans ? ["Plans", PLANS.find((x) => x.id === f.plans)?.label ?? f.plans] : null,
+                f.volition ? ["If the context ended", VOLITION.find((x) => x.id === f.volition)?.label ?? f.volition] : null,
                 f.openness ? ["They know", openLabel(f.openness) ?? f.openness] : null,
                 f.tell ? ["Big news", TELL.find((x) => x.id === f.tell)?.label ?? f.tell] : null,
                 f.loyalty ? ["Backs you up", LOYALTY.find((x) => x.id === f.loyalty)?.label ?? f.loyalty] : null,
@@ -751,7 +970,7 @@ export default function FriendsClient() {
                     >
                       {f.hasPhoto ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={`/api/friends/${f.id}/photo`} alt="" className="h-full w-full object-cover" />
+                        <img src={`/api/friends/${f.id}/photo?v=${Date.parse(f.updatedAt ?? "") || 0}`} alt="" className="h-full w-full object-cover" />
                       ) : (
                         f.name.charAt(0).toUpperCase()
                       )}
@@ -934,6 +1153,7 @@ export default function FriendsClient() {
                 {steps[cur].id === "freq" && chipsRow(FREQS, freq, setFreq)}
                 {steps[cur].id === "hangout" && chipsRow(HANGOUT, hangout, setHangout)}
                 {steps[cur].id === "plans" && chipsRow(PLANS, plans, setPlans)}
+                {steps[cur].id === "volition" && chipsRow(VOLITION, volition, setVolition)}
                 {steps[cur].id === "trust" && chipsRow(TRUST, trust, setTrust)}
                 {steps[cur].id === "sacrifice" && chipsRow(SACRIFICE, sacrifice, setSacrifice)}
                 {steps[cur].id === "open" && chipsRow(OPENNESS, openness, setOpenness)}

@@ -745,6 +745,10 @@ export default function SettingsClient({
           const syncData = await syncRes.json().catch(() => ({}));
           setLocationMsg({ ok: true, text: `Location saved. Prayer times synced (${syncData.daysCached ?? 0} days).` });
           await refreshPrayerTimes();
+          // Propagate to mounted views — dashboard listens for prayer-updated,
+          // the day view for events-synced.
+          window.dispatchEvent(new Event("waqt:prayer-updated"));
+          window.dispatchEvent(new Event("waqt:events-synced"));
         } else {
           setLocationMsg({ ok: true, text: "Location saved. Click Sync to fetch prayer times." });
         }
