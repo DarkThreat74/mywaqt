@@ -12,7 +12,9 @@
 
 import { ENGINE_CACHE } from "./engine";
 
-const BASE = "https://raw.githubusercontent.com/zonetecde/mushaf-layout/v2";
+// Page data + fonts proxy through /qt-dl/ — the CSP is self-only for
+// connect-src, so cross-origin fetches from the client are blocked.
+const BASE = "/qt-dl";
 const PAGE_COUNT = 604;
 
 export interface MushafWord {

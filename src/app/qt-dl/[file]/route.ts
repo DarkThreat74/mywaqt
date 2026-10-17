@@ -19,12 +19,22 @@ const UPSTREAM: Record<string, string> = {
     "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort-wasm-simd-threaded.wasm",
 };
 
+const MUSHAF_BASE = "https://raw.githubusercontent.com/zonetecde/mushaf-layout/v2";
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ file: string }> },
 ) {
   const { file } = await params;
-  const url = UPSTREAM[file];
+
+  // Mushaf page data + per-page glyph fonts (604 pages, lazy-fetched)
+  let url = UPSTREAM[file];
+  if (!url) {
+    const page = file.match(/^page-(\d{3})\.json$/);
+    const font = file.match(/^p(\d{3})\.woff2$/);
+    if (page) url = `${MUSHAF_BASE}/mushaf/QPC2/${file}`;
+    else if (font) url = `${MUSHAF_BASE}/fonts/QPC2/${file}`;
+  }
   if (!url) return new NextResponse("not found", { status: 404 });
 
   const res = await fetch(url, { redirect: "follow" });

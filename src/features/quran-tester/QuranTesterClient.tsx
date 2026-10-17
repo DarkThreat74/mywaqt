@@ -39,6 +39,7 @@ export default function QuranTesterClient() {
   const [dl, setDl] = useState<{ done: number; total: number } | null>(null);
   const [dlError, setDlError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [setupOpen, setSetupOpen] = useState(false);
 
   const [listen, setListen] = useState<ListenState>("idle");
   const [status, setStatus] = useState<string | null>(null);
@@ -120,6 +121,7 @@ export default function QuranTesterClient() {
     try {
       await downloadEngine((done, total) => setDl({ done, total }));
       setInstalled(true);
+      setSetupOpen(false);
     } catch {
       setDlError("Download failed — check your connection and try again.");
     } finally {
@@ -431,6 +433,23 @@ export default function QuranTesterClient() {
           <h1 className="flex-1 text-xl font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
             Quran Tester
           </h1>
+          {installed === false && (
+            <button
+              onClick={() => setSetupOpen(true)}
+              className="relative flex items-center justify-center rounded-full font-bold transition-transform active:scale-95"
+              style={{
+                minHeight: 34, minWidth: 34,
+                backgroundColor: "color-mix(in oklab, #c9a227 18%, transparent)",
+                color: "#c9a227",
+                border: "1.5px solid color-mix(in oklab, #c9a227 45%, transparent)",
+                fontSize: 15,
+              }}
+              aria-label="Engine not downloaded — open setup"
+            >
+              !
+              <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#c9a227" }} />
+            </button>
+          )}
           <button
             onClick={() => setReviewOpen(true)}
             className="relative flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
@@ -462,52 +481,28 @@ export default function QuranTesterClient() {
       </div>
 
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden px-4 sm:px-6">
-        {/* Engine install card */}
+        {/* Engine not installed — the page still browses; recite needs setup */}
         {installed === false && (
-          <div
-            className="mt-4 rounded-3xl border p-5"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+          <button
+            onClick={() => setSetupOpen(true)}
+            className="mt-3 flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors"
+            style={{ borderColor: "color-mix(in oklab, #c9a227 35%, transparent)", backgroundColor: "color-mix(in oklab, #c9a227 8%, transparent)" }}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--color-accent)" }}>
-              One-time setup
-            </p>
-            <p className="mt-1 text-base font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
-              Download the recitation engine
-            </p>
-            <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              ~85MB, downloaded once. Your voice is processed entirely on this
-              device — audio never leaves your phone, works fully offline.
-            </p>
-            {dl ? (
-              <div className="mt-4">
-                <div className="h-2 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-                  <div
-                    className="h-full rounded-full transition-[width] duration-200"
-                    style={{ width: `${pct(dl)}%`, backgroundColor: "var(--color-accent)" }}
-                  />
-                </div>
-                <p className="mt-1.5 text-[11px] font-medium tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                  {(dl.done / 1e6).toFixed(1)} / {(dl.total / 1e6).toFixed(0)} MB — {pct(dl)}%
-                </p>
-              </div>
-            ) : (
-              <button
-                onClick={() => void install()}
-                className="mt-4 flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold transition-opacity hover:opacity-80"
-                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
-              >
-                <Download className="h-4 w-4" /> Download engine
-              </button>
-            )}
-            {dlError && (
-              <p className="mt-3 text-xs font-medium" style={{ color: "#b34a3a" }}>{dlError}</p>
-            )}
-            <p className="mt-4 text-[10px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              Automatic recitation feedback can be wrong — it never replaces a
-              qualified teacher. Confirmed mistakes only are saved, and only on
-              this device.
-            </p>
-          </div>
+            <span
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+              style={{ backgroundColor: "#c9a227", color: "var(--color-paper)" }}
+            >
+              !
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                Recitation engine not downloaded
+              </span>
+              <span className="block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                Tap to set up — ~85MB, once, fully offline after.
+              </span>
+            </span>
+          </button>
         )}
 
         {installed && !listening && (
@@ -627,6 +622,73 @@ export default function QuranTesterClient() {
                 <X className="h-4 w-4" /> Not a mistake
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Engine setup modal */}
+      {setupOpen && installed === false && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-5"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 50%, transparent)" }}
+          onClick={() => !dl && setSetupOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl border p-6"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--color-accent)" }}>
+                One-time setup
+              </p>
+              {!dl && (
+                <button
+                  onClick={() => setSetupOpen(false)}
+                  className="rounded-full p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ color: "var(--color-ink-muted)" }}
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-lg font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
+              Download the recitation engine
+            </p>
+            <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              ~85MB, downloaded once. Your voice is processed entirely on this
+              device — audio never leaves your phone, works fully offline.
+            </p>
+            {dl ? (
+              <div className="mt-5">
+                <div className="h-2 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                  <div
+                    className="h-full rounded-full transition-[width] duration-200"
+                    style={{ width: `${pct(dl)}%`, backgroundColor: "var(--color-accent)" }}
+                  />
+                </div>
+                <p className="mt-1.5 text-[11px] font-medium tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                  {(dl.done / 1e6).toFixed(1)} / {(dl.total / 1e6).toFixed(0)} MB — {pct(dl)}%
+                </p>
+              </div>
+            ) : (
+              <button
+                onClick={() => void install()}
+                className="mt-5 flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold transition-opacity hover:opacity-80"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+              >
+                <Download className="h-4 w-4" /> Download engine
+              </button>
+            )}
+            {dlError && (
+              <p className="mt-3 text-xs font-medium" style={{ color: "#b34a3a" }}>{dlError}</p>
+            )}
+            <p className="mt-4 text-[10px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Automatic recitation feedback can be wrong — it never replaces a
+              qualified teacher. Confirmed mistakes only are saved, and only on
+              this device.
+            </p>
           </div>
         </div>
       )}
