@@ -59,9 +59,12 @@ export default function QuranTesterClient() {
   const [pickerMode, setPickerMode] = useState<"surah" | "juz">("surah");
   const [surahMeta, setSurahMeta] = useState<SurahMeta[] | null>(null);
 
-  // Swipe
+  // Swipe — dragX tracks the finger; turn animates a committed page turn
+  // (-1 = turn to next page/left, +1 = back/right). CSS transition does the
+  // motion; transitionend commits the page change.
   const [dragX, setDragX] = useState(0);
   const [snapping, setSnapping] = useState(false);
+  const [turn, setTurn] = useState<0 | 1 | -1>(0);
   const dragRef = useRef<{ x0: number; active: boolean }>({ x0: 0, active: false });
 
   const pageRef = useRef(page);
@@ -236,10 +239,18 @@ export default function QuranTesterClient() {
     if (!dragRef.current.active) return;
     dragRef.current.active = false;
     const dx = dragX;
-    setSnapping(true);
     setDragX(0);
-    if (dx < -60) setPage((p) => Math.min(PAGE_COUNT, p + 1));
-    else if (dx > 60) setPage((p) => Math.max(1, p - 1));
+    if (dx < -60 && page < PAGE_COUNT) setTurn(-1);
+    else if (dx > 60 && page > 1) setTurn(1);
+    else setSnapping(true); // snap back to centre
+  }
+
+  function onStripTransitionEnd() {
+    if (turn !== 0) {
+      setPage((p) => Math.min(PAGE_COUNT, Math.max(1, p - turn)));
+      setTurn(0);
+    }
+    setSnapping(false);
   }
 
   const listening = listen !== "idle";
@@ -470,7 +481,7 @@ export default function QuranTesterClient() {
                 Recitation engine not downloaded
               </span>
               <span className="block text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                Tap to set up — ~85MB, once, fully offline after.
+                Tap to set up — ~72MB, once, fully offline after.
               </span>
             </span>
           </button>
@@ -507,9 +518,11 @@ export default function QuranTesterClient() {
         >
           <div
             className="relative h-full w-full"
+            onTransitionEnd={onStripTransitionEnd}
             style={{
-              transform: `translateX(${dragX}px)`,
-              transition: snapping ? "transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)" : "none",
+              transform: turn !== 0 ? `translateX(${turn * 100}%)` : `translateX(${dragX}px)`,
+              transition: turn !== 0 || snapping ? "transform 0.32s cubic-bezier(0.3, 0.9, 0.35, 1)" : "none",
+              willChange: "transform",
             }}
           >
             {/* prev page (right side in RTL reading) */}
@@ -595,7 +608,7 @@ export default function QuranTesterClient() {
               Download the recitation engine
             </p>
             <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              ~85MB, downloaded once. Your voice is processed entirely on this
+              ~72MB, downloaded once. Your voice is processed entirely on this
               device — audio never leaves your phone, works fully offline.
             </p>
             {dl ? (
@@ -818,7 +831,7 @@ export default function QuranTesterClient() {
                 className="mt-4 w-full rounded-full border py-2 text-[11px] font-medium transition-opacity hover:opacity-70"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
               >
-                Remove recitation engine (~85MB)
+                Remove recitation engine (~72MB)
               </button>
             )}
           </div>
@@ -874,7 +887,10 @@ export default function QuranTesterClient() {
               }}
               aria-label={listening ? "Stop reciting" : "Start reciting"}
             >
-              {listening && (
+              {listen === "warming" && (
+                <span className="absolute -inset-1.5 animate-ping rounded-full opacity-40" style={{ backgroundColor: "var(--color-ink)", animationDuration: "1.1s" }} />
+              )}
+              {listen === "listening" && (
                 <>
                   <span className="absolute -inset-1.5 animate-ping rounded-full opacity-30" style={{ backgroundColor: "var(--color-accent)", animationDuration: "1.8s" }} />
                   <span className="absolute -inset-1.5 animate-ping rounded-full opacity-20" style={{ backgroundColor: "var(--color-accent)", animationDuration: "1.8s", animationDelay: "0.9s" }} />

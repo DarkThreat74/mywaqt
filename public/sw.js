@@ -528,7 +528,11 @@ self.addEventListener("fetch", (event) => {
         const cache = await caches.open("quran-tester-engine-v1");
         const hit = await cache.match(url.pathname) ?? await cache.match(url.href);
         if (hit) return hit;
-        return fetch(request);
+        // Static ort wasm lives at /qt/* in public/ — write through so a
+        // fetched runtime file is offline-ready too.
+        const res = await fetch(request);
+        if (res.ok) await cache.put(url.pathname, res.clone());
+        return res;
       })()
     );
     return;

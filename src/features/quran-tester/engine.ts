@@ -34,13 +34,8 @@ export const ENGINE_ASSETS: EngineAsset[] = [
     url: "/qt-dl/corpus.json",
     bytes: 5_500_000,
   },
-  {
-    // onnxruntime-web WASM backend — served from our cache via the SW so the
-    // model engine never needs network after install. numThreads=1 path.
-    file: "ort-wasm-simd-threaded.wasm",
-    url: "/qt-dl/ort-wasm-simd-threaded.wasm",
-    bytes: 14_300_000,
-  },
+  // The ort WASM runtimes are vendored static files at /qt/ (public/qt/) —
+  // bundled with the app, not part of the download.
 ];
 
 export const ENGINE_CACHE = "quran-tester-engine-v1";

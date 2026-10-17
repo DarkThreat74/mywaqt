@@ -15,8 +15,6 @@ const UPSTREAM: Record<string, string> = {
     "https://github.com/yazinsai/tilawa/releases/download/zipformer-a0w-ep1-a0.5/zipformer_a0w_ep1_a05.int8.onnx",
   "corpus.json":
     "https://github.com/yazinsai/tilawa/releases/download/v0.3.0/zipformer_quran.json",
-  "ort-wasm-simd-threaded.wasm":
-    "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort-wasm-simd-threaded.wasm",
 };
 
 const MUSHAF_BASE = "https://raw.githubusercontent.com/zonetecde/mushaf-layout/v2";
