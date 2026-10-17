@@ -63,7 +63,13 @@ export default function PhotoLightbox({
     }
   }
 
-  const canShare = typeof navigator !== "undefined" && "share" in navigator;
+  // "Save to device" only where the native share sheet can actually stash an
+  // image (mobile). Desktop Chrome exposes navigator.share too but it can't
+  // save files — showing it there just dead-ends.
+  const isMobile =
+    typeof navigator !== "undefined" &&
+    (/Android|iPhone|iPad/i.test(navigator.userAgent) ||
+      (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches));
 
   return (
     <div
@@ -109,8 +115,8 @@ export default function PhotoLightbox({
           className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold disabled:opacity-50"
           style={{ backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
         >
-          {canShare ? <Share2 className="h-4 w-4" /> : <Download className="h-4 w-4" />}
-          {busy ? "Saving…" : canShare ? "Save to device" : "Download"}
+          {isMobile ? <Share2 className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+          {busy ? "Saving…" : isMobile ? "Save to device" : "Download"}
         </button>
       </div>
       {hint && <p className="mt-2 text-xs" style={{ color: "var(--color-paper)" }}>{hint}</p>}
