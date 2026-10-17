@@ -66,6 +66,7 @@ export default function QuranTesterClient() {
   const [dragX, setDragX] = useState(0);
   const [snapping, setSnapping] = useState(false);
   const [turn, setTurn] = useState<0 | 1 | -1>(0);
+  const turnTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const dragRef = useRef<{ x0: number; active: boolean }>({ x0: 0, active: false });
 
   const pageRef = useRef(page);
@@ -211,7 +212,7 @@ export default function QuranTesterClient() {
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {
       // While validating: surface what the engine decoded so a silent
       // session is visible instead of just spinning.
-      const t = String(ev.transcript ?? ev.message ?? "");
+      const t = String(ev.text ?? ev.event ?? ev.message ?? "");
       if (t) setStatus(t.slice(0, 80));
     } else if (ev.type === "word_progress") {
       const s = ev.surah as number, a = ev.ayah as number;
@@ -281,13 +282,26 @@ export default function QuranTesterClient() {
     dragRef.current.active = false;
     const dx = dragX;
     setDragX(0);
-    if (dx < -60 && page < PAGE_COUNT) setTurn(-1);
-    else if (dx > 60 && page > 1) setTurn(1);
+    if (dx < -60 && page < PAGE_COUNT) commitTurn(-1);
+    else if (dx > 60 && page > 1) commitTurn(1);
     else setSnapping(true); // snap back to centre
+  }
+
+  function commitTurn(dir: 1 | -1) {
+    setTurn(dir);
+    // transitionend isn't guaranteed (hidden tab, interrupted render) —
+    // commit on a timeout too so a turn can never stick mid-flight.
+    if (turnTimer.current) clearTimeout(turnTimer.current);
+    turnTimer.current = setTimeout(() => {
+      setPage((p) => Math.min(PAGE_COUNT, Math.max(1, p - dir)));
+      setTurn(0);
+      setSnapping(false);
+    }, 380);
   }
 
   function onStripTransitionEnd() {
     if (turn !== 0) {
+      if (turnTimer.current) clearTimeout(turnTimer.current);
       setPage((p) => Math.min(PAGE_COUNT, Math.max(1, p - turn)));
       setTurn(0);
     }

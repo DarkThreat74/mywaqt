@@ -79,17 +79,31 @@ export async function startQt(): Promise<void> {
     return;
   }
 
-  const ctx = new AudioContext();
-  // iOS/Android browsers often create the context suspended even inside a
-  // tap handler — mic shows "recording" but the worklet never runs and the
-  // engine starves silently. Resume before wiring anything.
-  if (ctx.state === "suspended") {
-    try { await ctx.resume(); } catch {}
+  // Fresh recitation — without this, the previous session's transcript and
+  // tracker state leak into the next take.
+  worker.postMessage({ type: "reset" });
+
+  let ctx: AudioContext;
+  try {
+    ctx = new AudioContext();
+    // iOS/Android browsers often create the context suspended even inside a
+    // tap handler — mic shows "recording" but the worklet never runs and the
+    // engine starves silently. Resume before wiring anything.
+    if (ctx.state === "suspended") {
+      try { await ctx.resume(); } catch {}
+    }
+    // Same-origin file — the CSP's script-src blocks blob: module scripts.
+    await ctx.audioWorklet.addModule("/worklets/qt-capture.js");
+  } catch (err) {
+    stream.getTracks().forEach((t) => t.stop());
+    throw err;
   }
-  // Same-origin file — the CSP's script-src blocks blob: module scripts.
-  await ctx.audioWorklet.addModule("/worklets/qt-capture.js");
   const src = ctx.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(ctx, "qt-capture");
+  // Muted gain into destination keeps process() pulling frames without any
+  // chance of a monitor path feeding back into the mic.
+  const mute = ctx.createGain();
+  mute.gain.value = 0;
   let buf = new Float32Array(0);
   node.port.onmessage = (e) => {
     const chunk: Float32Array = e.data;
@@ -109,7 +123,8 @@ export async function startQt(): Promise<void> {
     }
   };
   src.connect(node);
-  node.connect(ctx.destination);
+  node.connect(mute);
+  mute.connect(ctx.destination);
   audio = { ctx, stream, src, node };
 
   listen = "warming";

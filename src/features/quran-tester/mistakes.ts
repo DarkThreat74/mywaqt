@@ -24,7 +24,13 @@ db.version(1).stores({
 });
 
 export async function saveMistake(m: Omit<Mistake, "id">): Promise<void> {
-  await db.mistakes.add(m);
+  // Upsert — re-confirming the same word refreshes the row, never duplicates.
+  const existing = await db.mistakes
+    .where("[surah+ayah+word]")
+    .equals([m.surah, m.ayah, m.word])
+    .first();
+  if (existing) await db.mistakes.update(existing.id!, { confirmedAt: m.confirmedAt });
+  else await db.mistakes.add(m);
 }
 
 export async function listMistakes(): Promise<Mistake[]> {

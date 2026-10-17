@@ -38,7 +38,7 @@ export default function GlobalReciteToast() {
   const timer = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
-    return subscribeQt((ev) => {
+    const unsub = subscribeQt((ev) => {
       if (ev.type === "ui-listen") setListen(ev.state as QtListen);
       if (ev.type === "correction" || ev.type === "correction_note") {
         setFlash("suspect");
@@ -53,6 +53,10 @@ export default function GlobalReciteToast() {
         timer.current = setTimeout(() => setFlash("none"), 2400);
       }
     });
+    return () => {
+      unsub();
+      if (timer.current) clearTimeout(timer.current);
+    };
   }, []);
 
   if (pathname.startsWith("/quran-tester") || listen === "idle") return null;
