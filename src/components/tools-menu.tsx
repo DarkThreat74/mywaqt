@@ -72,24 +72,20 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
   const suppressClick = useRef(false);
   const editingRef = useRef(editing);
 
-  function itemCenter(el: Element) {
-    const r = el.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  }
-
   const itemId = (it: LayoutItem) => it.type === "app" ? `a:${it.key}` : `f:${it.id}`;
 
   function pointerTargetIdx(x: number, y: number): number {
-    // Nearest tile center wins — insertion lands at that index.
     const kids = gridRef.current ? [...gridRef.current.children] : [];
     // DOM index 0 is the pinned Store link — items[] starts at DOM 1.
+    // Inside a tile's rect → that tile (deterministic: no oscillation
+    // between neighbors while dwelling). In a gap → nearest center.
     let best = -1, bestD = Infinity;
-    kids.forEach((el, i) => {
-      if (i === 0) return;
-      const c = itemCenter(el);
-      const d = (c.x - x) ** 2 + (c.y - y) ** 2;
+    for (let i = 1; i < kids.length; i++) {
+      const r = kids[i].getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i - 1;
+      const d = (r.left + r.width / 2 - x) ** 2 + (r.top + r.height / 2 - y) ** 2;
       if (d < bestD) { bestD = d; best = i - 1; }
-    });
+    }
     return best;
   }
 
@@ -97,7 +93,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     if (d.mergeTimer) clearTimeout(d.mergeTimer);
     if (!item) { d.mergeItem = null; setMergeId(null); return; }
     d.mergeItem = item;
-    d.mergeTimer = setTimeout(() => setMergeId(itemId(item)), 350);
+    d.mergeTimer = setTimeout(() => setMergeId(itemId(item)), 250);
   }
 
   function dismiss() {
@@ -299,11 +295,11 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
           next.splice(dropIdx, 0, moved);
           itemsRef.current = next;
           setItems(next);
+          saveLayout(next);
         }
-        saveLayout(itemsRef.current);
-      } else {
-        saveLayout(itemsRef.current);
       }
+      // No unconditional save here — saving on a plain tap can persist a
+      // transiently filtered/empty grid and wipe folders.
       setTimeout(() => { suppressClick.current = false; }, 0);
     };
     window.addEventListener("pointermove", move);
