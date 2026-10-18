@@ -1241,10 +1241,13 @@ self.addEventListener("fetch", (event) => {
 
   // ── Static assets: cache-first — same-origin only. Matching by extension
   // on any origin would stash third-party tiles/images/fonts (map tiles,
-  // CDN assets) unboundedly and serve them stale forever.
+  // CDN assets) unboundedly and serve them stale forever. /worklets/ is here
+  // too — it's precached but never matched before, so offline AudioWorklet
+  // loads hit the network and failed ("worklet module script network error").
   if (
     url.origin === self.location.origin &&
     (url.pathname.startsWith("/_next/static/") ||
+      url.pathname.startsWith("/worklets/") ||
       url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|woff2?)$/))
   ) {
     event.respondWith(
