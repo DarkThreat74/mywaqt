@@ -565,9 +565,8 @@ export default function QuranTesterClient() {
             </p>
           </div>
         )}
-        {micError && !micDenied && (
-          <p className="mt-1.5 text-xs font-medium" style={{ color: "#b34a3a" }}>{micError}</p>
-        )}
+        {/* Engine errors surface via the global toast — inline text here
+            pushed the mushaf layout. */}
 
         {/* Mushaf page — swipe */}
         <div

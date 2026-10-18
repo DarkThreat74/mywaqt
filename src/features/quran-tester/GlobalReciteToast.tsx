@@ -34,7 +34,8 @@ function ding(freq = 660) {
 export default function GlobalReciteToast() {
   const pathname = usePathname();
   const [listen, setListen] = useState<QtListen>(() => qtState());
-  const [flash, setFlash] = useState<"none" | "suspect" | "error">("none");
+  const [flash, setFlash] = useState<"none" | "suspect">("none");
+  const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
@@ -47,10 +48,8 @@ export default function GlobalReciteToast() {
         timer.current = setTimeout(() => setFlash("none"), 2400);
       }
       if (ev.type === "ui-error") {
-        setFlash("error");
+        setError(String(ev.message ?? "Engine error"));
         ding(240);
-        if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(() => setFlash("none"), 2400);
       }
     });
     return () => {
@@ -59,9 +58,40 @@ export default function GlobalReciteToast() {
     };
   }, []);
 
-  if (pathname.startsWith("/quran-tester") || listen === "idle") return null;
+  const border = error ? "#b34a3a" : flash === "suspect" ? "#c9a227" : "var(--color-accent)";
+  if (error) {
+    return (
+      <div
+        className="fixed z-50"
+        role="alert"
+        style={{
+          bottom: "calc(4rem + env(safe-area-inset-bottom) + 10px)",
+          left: "50%",
+          transform: "translateX(-50%)",
+          maxWidth: "min(92vw, 28rem)",
+        }}
+      >
+        <div
+          className="flex items-start gap-2 rounded-2xl border px-3 py-2.5 shadow-lg"
+          style={{ borderColor: border, backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
+        >
+          <p className="flex-1 break-words text-xs font-semibold leading-snug" style={{ color: "#b34a3a" }}>
+            {error}
+          </p>
+          <button
+            onClick={() => setError(null)}
+            className="flex items-center justify-center rounded-full p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-ink-muted)" }}
+            aria-label="Dismiss error"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const border = flash === "error" ? "#b34a3a" : flash === "suspect" ? "#c9a227" : "var(--color-accent)";
+  if (pathname.startsWith("/quran-tester") || listen === "idle") return null;
   return (
     <div
       className="fixed z-50 transition-colors duration-200"
@@ -84,7 +114,7 @@ export default function GlobalReciteToast() {
           <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: border }} />
         </span>
         <Link href="/quran-tester" className="text-xs font-bold" style={{ color: "var(--color-ink)" }}>
-          {flash === "suspect" ? "Possible mistake — tap to review" : flash === "error" ? "Engine error" : "Listening — Quran Tester"}
+          {flash === "suspect" ? "Possible mistake — tap to review" : "Listening — Quran Tester"}
         </Link>
         <button
           onClick={() => void stopQt()}
