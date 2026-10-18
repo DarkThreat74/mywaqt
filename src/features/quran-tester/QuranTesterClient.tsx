@@ -135,6 +135,8 @@ export default function QuranTesterClient() {
   const preambleGraceRef = useRef(0); // 'lost' timestamp — basmala/isti'adhah window
   const candTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // unstable-lock dwell
   const locLiveRef = useRef<{ s: number; a: number } | null>(null);
+  const [lockFx, setLockFx] = useState<{ s: number; a: number; n: number } | null>(null); // first-lock wave
+  const lockFxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planRef = useRef(plan);
   const suspectsRef = useRef(suspects);
 
@@ -603,6 +605,13 @@ export default function QuranTesterClient() {
       const c = (ev.candidates as { surah: number; ayah: number }[] | undefined)?.[0] ?? ev;
       const s = c.surah as number, a = c.ayah as number;
       if (typeof s !== "number" || typeof a !== "number") return;
+      // First lock (or a re-lock after `lost`) gets the wave — the ayah
+      // flashes word-by-word and the location chip drops in.
+      if (!locLiveRef.current) {
+        setLockFx({ s, a, n: Date.now() });
+        if (lockFxTimer.current) clearTimeout(lockFxTimer.current);
+        lockFxTimer.current = setTimeout(() => setLockFx(null), 1900);
+      }
       locLiveRef.current = { s, a };
       setLoc({ surah: s, ayah: a });
       setStatus(`Found you — ${String(ev.surah_name ?? "")} ${s}:${a}`);
@@ -834,6 +843,9 @@ export default function QuranTesterClient() {
   const bridge = { paddingRight: 4, marginRight: -4 } as const;
 
   function wordMark(s: number, a: number, w: number) {
+    // First-lock wave — staggered flash across the ayah that just resolved.
+    if (lockFx && lockFx.s === s && lockFx.a === a)
+      return { animation: "qt-word-lock 1.5s cubic-bezier(.22,1,.36,1) both", animationDelay: `${Math.min(w, 14) * 55}ms` } as const;
     const key = `${s}:${a}:${w}`;
     const ayahFlag = `${s}:${a}:0`;
     if (confirmed.has(key) || confirmed.has(ayahFlag))
@@ -1187,7 +1199,15 @@ export default function QuranTesterClient() {
               {status ?? "Listening…"}
             </p>
             {loc && (
-              <p className="ml-auto shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-arabic, serif)" }}>
+              <p
+                key={lockFx?.n ?? "loc"}
+                className="ml-auto shrink-0 text-[11px] font-semibold tabular-nums"
+                style={{
+                  color: "var(--color-ink-muted)",
+                  fontFamily: "var(--font-arabic, serif)",
+                  ...(lockFx ? { animation: "qt-lock-in 0.55s cubic-bezier(.22,1,.36,1) both" } : {}),
+                }}
+              >
                 {(() => {
                   const meta = surahMeta?.find((m) => m.s === loc.surah);
                   return `${meta?.name ?? `سورة ${loc.surah}`}${meta?.en ? ` · ${meta.en}` : ""}`;

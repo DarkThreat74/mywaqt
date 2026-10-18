@@ -449,6 +449,19 @@ export async function pauseQt(): Promise<void> {
   listen = "paused";
   void wakeLock?.release().catch(() => {});
   wakeLock = null;
+  // Silent track + notification reflect the pause; the element itself
+  // stays loaded so resume is instant.
+  try { silentEl?.pause(); } catch {}
+  if ("mediaSession" in navigator) {
+    try {
+      navigator.mediaSession.playbackState = "paused";
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: "Paused",
+        artist: "Quran Tester",
+        artwork: [{ src: orbUrl("ok"), sizes: "256x256", type: "image/png" }],
+      });
+    } catch {}
+  }
   emit({ type: "ui-listen", state: "paused" });
 }
 
