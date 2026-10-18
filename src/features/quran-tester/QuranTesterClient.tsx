@@ -8,7 +8,7 @@ import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, loadSurahMeta, 
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import {
   buildIndex, coveredInSpan, distOf, JUZ_START, keyOf, loadCoverage, loadPlan, markCovered,
-  savePlan, stampDay, isDayDone, onKhatmaComplete, streak as planStreak, todayKey, todaySpan,
+  savePlan, stampDay, isDayDone, maybeKhatma, streak as planStreak, todayKey, todaySpan,
   type AyahIndex, type Loc, type Plan,
 } from "./plan";
 import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
@@ -100,7 +100,7 @@ export default function QuranTesterClient() {
   const covRef = useRef<Set<string>>(new Set());
   const spanRef = useRef<Loc[]>([]);
   const anchorRef = useRef<Loc | null>(null);
-  const heardRef = useRef<{ loc: Loc | null; words: Set<number> }>({ loc: null, words: new Set() });
+  const heardRef = useRef<{ loc: Loc | null; max: number; total: number }>({ loc: null, max: 0, total: 0 });
   const sessionCovRef = useRef<Set<string>>(new Set());
   const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jumpRef = useRef<{ to: Loc; expected: Loc } | null>(null);
@@ -280,37 +280,23 @@ export default function QuranTesterClient() {
     if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
   }
 
-  /** Word count of an ayah from the loaded page data (0 = page not loaded). */
-  function ayahLen(s: number, a: number): number {
-    const pg = ayahPage(s, a);
-    const data = pg ? pages.get(pg) : null;
-    if (!data) return 0;
-    let n = 0;
-    for (const line of data.lines)
-      for (const w of line.words ?? []) {
-        const [ws, wa, wi] = w.location.split(":").map(Number);
-        if (ws === s && wa === a && wi > n) n = wi;
-      }
-    return n;
+  /** Heard enough: ≥60% of the ayah's words (word_index is the furthest
+   *  1-based position reached; total_words comes with every event). */
+  function heardEnough(l: Loc | null, max: number, total: number): boolean {
+    if (!l || total <= 0) return false;
+    return max >= Math.max(1, Math.ceil(0.6 * total));
   }
 
-  /** Coverage threshold: ~60% of the ayah's words when we know its length,
-   *  ≥3 otherwise. A 1–2 word ayah (حم, يس) must be fully heard — a bare
-   *  blip still can't count. */
-  function heardEnough(l: Loc, words: Set<number>): boolean {
-    const len = ayahLen(l.s, l.a);
-    const need = len > 0 ? Math.max(1, Math.ceil(0.6 * len)) : 3;
-    return words.size >= need;
-  }
-
-  function noteHeard(s: number, a: number, word: number) {
+  function noteHeard(s: number, a: number, word: number, total: number) {
     const h = heardRef.current;
     if (h.loc && (h.loc.s !== s || h.loc.a !== a)) {
-      if (heardEnough(h.loc, h.words)) coverLoc(h.loc);
+      if (heardEnough(h.loc, h.max, h.total)) coverLoc(h.loc);
       h.loc = { s, a };
-      h.words = new Set();
+      h.max = 0;
+      h.total = 0;
     } else if (!h.loc) h.loc = { s, a };
-    h.words.add(word);
+    h.max = Math.max(h.max, word);
+    h.total = Math.max(h.total, total);
   }
   function coverLoc(l: Loc) {
     sessionCovRef.current.add(keyOf(l));
@@ -340,8 +326,8 @@ export default function QuranTesterClient() {
         const next = ix.list[last + 1];
         if (next) { const np = { ...p, cursor: next }; savePlan(np); setPlan(np); }
       }
-      // Full khatma → grace credit.
-      if (ix && covRef.current.size >= ix.list.length) onKhatmaComplete();
+      // Full khatma → grace credit (once per completed Quran).
+      if (ix) maybeKhatma(covRef.current.size, ix.list.length);
       ding(660); setTimeout(() => ding(880), 180);
       setStatus("Today's portion complete ✓");
       refreshSpan();
@@ -432,7 +418,7 @@ export default function QuranTesterClient() {
     setMicDenied(false);
     setLoc(null);
     setWordIdx(null);
-    heardRef.current = { loc: null, words: new Set() };
+    heardRef.current = { loc: null, max: 0, total: 0 };
     sessionCovRef.current = new Set();
     anchorRef.current = null;
     setDayDone(isDayDone(todayKey()));
@@ -447,11 +433,11 @@ export default function QuranTesterClient() {
   async function stopRecite() {
     // Flush the last heard ayah before tearing down.
     const h = heardRef.current;
-    if (h.loc && heardEnough(h.loc, h.words)) coverLoc(h.loc);
-    heardRef.current = { loc: null, words: new Set() };
+    if (h.loc && heardEnough(h.loc, h.max, h.total)) coverLoc(h.loc);
+    heardRef.current = { loc: null, max: 0, total: 0 };
     dismissJump();
     const n = sessionCovRef.current.size;
-    if (n > 0) setStatus(`Session saved — ${n} ayah${n === 1 ? "" : "s"} covered`);
+    if (n > 0) setStatus(`Session saved — ${n} ayah${n === 1 ? "" : "s"} covered${isDayDone(todayKey()) ? " · today ✓" : ""}`);
     await stopQt();
     setStatus(null);
     setWordIdx(null);
@@ -465,8 +451,8 @@ export default function QuranTesterClient() {
         // Session ended outside stopRecite (error, cross-tab) — still bank
         // the last heard ayah and kill any jump chime.
         const h = heardRef.current;
-        if (h.loc && heardEnough(h.loc, h.words)) coverLoc(h.loc);
-        heardRef.current = { loc: null, words: new Set() };
+        if (h.loc && heardEnough(h.loc, h.max, h.total)) coverLoc(h.loc);
+        heardRef.current = { loc: null, max: 0, total: 0 };
         dismissJump();
       }
     } else if (ev.type === "ui-status") {
@@ -501,7 +487,7 @@ export default function QuranTesterClient() {
       const s = ev.surah as number, a = ev.ayah as number;
       setLoc({ surah: s, ayah: a });
       setWordIdx(ev.word_index as number);
-      noteHeard(s, a, ev.word_index as number);
+      noteHeard(s, a, ev.word_index as number, ev.total_words as number);
       const p = ayahPage(s, a);
       if (p && p !== pageRef.current) setPage(p);
     } else if (ev.type === "correction" || ev.type === "correction_note") {
@@ -1528,7 +1514,7 @@ function PlanSheet({
           <div className={row}>
             <span className={label} style={{ color: "var(--color-ink)" }}>Finish by</span>
             <input
-              type="date" value={deadline}
+              type="date" value={deadline} min={new Date().toLocaleDateString("en-CA")}
               onChange={(e) => setDeadline(e.target.value)}
               className={input}
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
@@ -1598,7 +1584,8 @@ function PlanSheet({
           )}
           <button
             onClick={save}
-            className="ml-auto rounded-full px-5 py-2 text-xs font-bold"
+            disabled={kind === "khatma" && !deadline}
+            className="ml-auto rounded-full px-5 py-2 text-xs font-bold disabled:opacity-40"
             style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
           >
             Save goal

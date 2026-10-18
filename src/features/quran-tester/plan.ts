@@ -181,14 +181,26 @@ export function streak(): number {
     const rec = d[k];
     if (rec?.done) { n++; t.setDate(t.getDate() - 1); continue; }
     if (k === todayKey() && !rec?.done) { t.setDate(t.getDate() - 1); continue; } // today in progress
+    // A completed khatma's grace credit absorbs one missed day. Stamping the
+    // day makes it idempotent — streak() is read on every render.
+    if (spendGrace()) {
+      d[k] = { from: { s: 0, a: 0 }, to: { s: 0, a: 0 }, total: 0, done: true };
+      ls.set(DAYS_KEY, JSON.stringify(d));
+      n++; t.setDate(t.getDate() - 1); continue;
+    }
     break;
   }
   return n;
 }
 export function graceCredits(): number { return Number(ls.get(GRACE_KEY)) || 0; }
 export function khatmas(): number { return Number(ls.get(KHATMAS_KEY)) || 0; }
-/** Khatma complete → +1 grace credit (one missed day absorbed). */
-export function onKhatmaComplete() {
+const KHATMA_FLAG_KEY = "qt:khatma-flagged";
+/** Fire once per full-coverage pass — without the flag, every later
+ *  checkDay would mint another credit forever. Starting a NEW khatma must
+ *  clear coverage AND this flag (shortcut: not wired in UI yet). */
+export function maybeKhatma(covSize: number, total: number) {
+  if (covSize < total || ls.get(KHATMA_FLAG_KEY)) return;
+  ls.set(KHATMA_FLAG_KEY, "1");
   ls.set(KHATMAS_KEY, String(khatmas() + 1));
   ls.set(GRACE_KEY, String(graceCredits() + 1));
 }
