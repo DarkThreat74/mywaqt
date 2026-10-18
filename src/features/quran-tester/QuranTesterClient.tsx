@@ -90,8 +90,7 @@ export default function QuranTesterClient() {
   const [pickerMode, setPickerMode] = useState<"surah" | "juz">("surah");
   const [surahMeta, setSurahMeta] = useState<SurahMeta[] | null>(null);
 
-  // ── Recite Plan + listener mode ──
-  const [mode, setMode] = useState<"listen" | "test" | "memorize">("test");
+  // ── Recite Plan ──
   const [plan, setPlan] = useState<Plan | null>(() => loadPlan());
   const [planOpen, setPlanOpen] = useState(false);
   const [jump, setJump] = useState<{ to: Loc; expected: Loc; at: number } | null>(null);
@@ -101,7 +100,6 @@ export default function QuranTesterClient() {
     () => (typeof localStorage !== "undefined" && localStorage.getItem("qt:anchor-mode") === "follow" ? "follow" : "hold"),
   );
   const anchorModeRef = useRef(anchorMode);
-  const modeRef = useRef(mode);
   const [dayDone, setDayDone] = useState(false);
   const ixRef = useRef<AyahIndex | null>(null);
   const covRef = useRef<Set<string>>(new Set());
@@ -134,7 +132,6 @@ export default function QuranTesterClient() {
     planRef.current = plan;
     suspectsRef.current = suspects;
     anchorModeRef.current = anchorMode;
-    modeRef.current = mode;
     try { localStorage.setItem("qt:anchor-mode", anchorMode); } catch {}
   });
 
@@ -233,15 +230,6 @@ export default function QuranTesterClient() {
     }
   }, [page, pages, fonts]);
 
-  function applyMode(m: "listen" | "test" | "memorize") {
-    setMode(m);
-    setMemorize(m === "memorize");
-  }
-
-  // Listener mode → engine mode. Memorize rides on correction.
-  useEffect(() => {
-    qtPost({ type: "mode", mode: mode === "listen" ? "tracking" : "correction" });
-  }, [mode]);
 
   // Re-resolve today's span whenever plan/coverage context shifts.
   useEffect(() => { refreshSpan(); }, [plan, ayahPages]);
@@ -473,9 +461,6 @@ export default function QuranTesterClient() {
       // a mic session actually started (module state says warming/listening).
       if (qtState() === "idle") return;
       setListen("listening");
-      // Mode posts made before the session existed were dropped — re-apply
-      // now that the engine is actually up.
-      qtPost({ type: "mode", mode: modeRef.current === "listen" ? "tracking" : "correction" });
       expectForPage(pageRef.current);
     } else if (ev.type === "ui-mic-denied") {
       setMicDenied(true);
@@ -833,27 +818,8 @@ export default function QuranTesterClient() {
         </button>
       </div>
 
-      {/* Listener bar — mode pill + today's goal chip */}
+      {/* Listener bar — today's goal chip + settings */}
       <div className="mx-auto mt-1.5 flex w-full max-w-3xl items-center gap-2 px-3 sm:px-6">
-        <div
-          className="flex rounded-full border p-0.5"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
-          role="radiogroup" aria-label="Listener mode"
-        >
-          {(["listen", "test", "memorize"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => applyMode(m)}
-              role="radio" aria-checked={mode === m}
-              className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize transition-colors"
-              style={mode === m
-                ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
-                : { color: "var(--color-ink-muted)" }}
-            >
-              {m === "listen" ? "Listen" : m === "test" ? "Test" : "Memorize"}
-            </button>
-          ))}
-        </div>
         <button
           onClick={() => setPlanOpen(true)}
           className="ml-auto flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
@@ -1371,7 +1337,7 @@ export default function QuranTesterClient() {
           <div className="qt-side">
             {listening && (
               <button
-                onClick={() => applyMode(memorize ? "test" : "memorize")}
+                onClick={() => setMemorize((m) => !m)}
                 className="flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90"
                 style={
                   memorize

@@ -117,6 +117,15 @@ async function init(sampleRate: number) {
   // repetition / skipped ayah) stream out as `correction` events. The page
   // turns them into yellow suspects; only user-confirmed mistakes persist.
   session.zipformer?.correction.setMode("correction");
+  // Rare-slipups tuning: defaults flag any partly-heard skipped word as an
+  // omission (1) and substitutions at distance 0.6. Only near-total omissions
+  // and clearly-different substitutions should ever surface yellow.
+  if (session.zipformer) Object.assign(session.zipformer.correction.thresholds, {
+    omissionMaxHeard: 0.3,
+    substitutionDistance: 0.8,
+    vowelMargin: 0.1,
+    vowelWordMargin: 0.9,
+  });
   postMessage({ type: "ready" });
 }
 
