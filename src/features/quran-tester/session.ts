@@ -41,7 +41,12 @@ export async function startQt(): Promise<void> {
   emit({ type: "ui-listen", state: "warming" });
 
   if (!worker) {
-    worker = new Worker(new URL("./recite.worker.ts", import.meta.url));
+    const workerUrl = new URL("./recite.worker.ts", import.meta.url);
+    // Bump on CSP/worker bug fixes — a dedicated worker's policy comes from the
+    // worker script's RESPONSE headers, and _next/static is cached immutable,
+    // so a stale cached script can carry an old CSP. The query busts that entry.
+    workerUrl.searchParams.set("v", "2");
+    worker = new Worker(workerUrl);
     worker.onmessage = (e) => {
       const ev = e.data as QtEvent;
       if (ev.type === "ready") {
