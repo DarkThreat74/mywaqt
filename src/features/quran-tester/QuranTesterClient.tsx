@@ -379,14 +379,19 @@ export default function QuranTesterClient() {
         </div>
       );
     }
+    // Sparse pages (Fatiha is 8 lines) and lines that end a surah are
+    // centered in the real Madani mushaf — never stretched edge-to-edge.
+    const sparse = data.lines.length < 15;
     return (
-      <div className="flex h-full flex-col justify-between px-3 py-3 sm:px-5" dir="rtl">
+      <div className="flex h-full flex-col px-3 py-3 sm:px-5" dir="rtl">
         {data.lines.map((line, li) => {
+          const nextType = data.lines[li + 1]?.type;
+          const endOfSurah = nextType === "surah-header" || nextType === "basmala";
           if (line.type === "surah-header") {
             return (
               <div
                 key={li}
-                className="flex items-center justify-center rounded-full border py-0.5"
+                className="flex flex-1 items-center justify-center rounded-full border"
                 style={{ borderColor: "var(--color-accent-faint)", backgroundColor: "var(--color-paper-2)" }}
               >
                 <p className="text-base font-bold" style={{ color: "var(--color-accent)", fontFamily: "var(--font-arabic, serif)" }}>
@@ -399,16 +404,16 @@ export default function QuranTesterClient() {
             return (
               <p
                 key={li}
-                className="text-center text-xl leading-none"
+                className="flex flex-1 items-center justify-center text-center text-xl leading-none"
                 style={{ color: "var(--color-ink)", fontFamily: fontReady ? `QPC2-p${p}` : "var(--font-arabic, serif)" }}
               >
                 {fontReady && (line as { qpcV2?: string }).qpcV2 ? (line as { qpcV2?: string }).qpcV2 : "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ"}
               </p>
             );
           }
-          const centered = line.centered ?? line.is_centered;
+          const centered = sparse || endOfSurah;
           return (
-            <div key={li} className={`flex flex-nowrap items-baseline overflow-hidden ${centered ? "justify-center" : "justify-between"} gap-x-1`}>
+            <div key={li} className={`flex flex-1 flex-nowrap items-center overflow-hidden ${centered ? "justify-center" : "justify-between"} gap-x-1`}>
               {(line.words ?? []).map((w, wi) => {
                 const [s, a, wiN] = w.location.split(":").map(Number);
                 const key = `${s}:${a}:${wiN}`;
@@ -424,8 +429,10 @@ export default function QuranTesterClient() {
                     className={`rounded px-0.5 transition-colors duration-150${isSuspect || isConfirmed ? " cursor-pointer" : ""}`}
                     style={{
                       ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
-                      fontSize: "clamp(0.95rem, 4.3vw, 1.45rem)",
-                      lineHeight: 1.9,
+                      // Scale by whichever axis is tighter — vw alone left
+                      // the text tiny inside short/wide desktop viewports.
+                      fontSize: "clamp(0.95rem, min(4.2vw, 5.5dvh), 1.6rem)",
+                      lineHeight: 1,
                       color: hidden ? "transparent" : "var(--color-ink)",
                       ...(hidden
                         ? { backgroundColor: "color-mix(in oklab, var(--color-ink) 10%, transparent)" }
