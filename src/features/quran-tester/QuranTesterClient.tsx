@@ -85,6 +85,13 @@ export default function QuranTesterClient() {
   // suspect turns red and persists. Nothing else about recitation is stored.
   const [suspects, setSuspects] = useState<Map<string, string>>(new Map());
   const [confirmed, setConfirmed] = useState<Map<string, Mistake>>(new Map());
+  // Diversion marks — every ayah a jump landed on stays yellow for the
+  // whole tab session (sessionStorage survives in-app navigation, dies
+  // with the tab). Confirming the spot as a mistake upgrades it to red.
+  const [diversions, setDiversions] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(sessionStorage.getItem("qt:diversions") ?? "[]")); }
+    catch { return new Set(); }
+  });
   const [pending, setPending] = useState<{ s: number; a: number; w: number; kind: string } | null>(null);
 
   // Memorize mode: words hide until recited past or peeked. Peeks are logged
@@ -225,6 +232,16 @@ export default function QuranTesterClient() {
     return () => clearTimeout(t);
   }, [jump]);
 
+  // Keep the current ayah on screen while listening — reciting down a page
+  // on mobile shouldn't leave the highlight scrolled out of view.
+  useEffect(() => {
+    if (!loc || listen === "idle") return;
+    const sel = `[data-loc="${loc.surah}:${loc.ayah}:1"]`;
+    document.querySelector(sel)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    const t = setTimeout(() => document.querySelector(sel)?.scrollIntoView({ block: "center" }), 350); // retry after a page swap renders
+    return () => clearTimeout(t);
+  }, [loc, listen]);
+
 
   const spanOrd = (l: Loc) => ixRef.current?.ord.get(keyOf(l)) ?? -1;
   function inSpan(l: Loc, pad = 2): boolean {
@@ -246,14 +263,22 @@ export default function QuranTesterClient() {
     const j = jumpRef.current;
     if (j) {
       const back = distOf(ix, j.expected, loc);
-      if (back != null && Math.abs(back) <= 3) { dismissJump(); anchorRef.current = loc; }
+      if (back != null && Math.abs(back) <= 3) { dismissJump(); anchorRef.current = loc; return; }
       // Follow accepts the new spot — but only once the toast has been up
       // long enough to see; relocate bursts would kill it in milliseconds.
-      else if (anchorModeRef.current === "follow" && Date.now() - j.at > 2500) { dismissJump(); anchorRef.current = loc; }
-      else {
+      if (anchorModeRef.current === "follow" && Date.now() - j.at > 2500) { dismissJump(); anchorRef.current = loc; return; }
+      const drift = distOf(ix, j.to, loc);
+      if (drift == null || Math.abs(drift) <= 3) {
         j.to = loc;
         if (!j.silent) setJump({ ...j }); // hold: toast tracks where you are
+        return;
       }
+      // Moved AGAIN to somewhere new — a fresh jump, always re-alerts even
+      // if the last one was X'd or auto-dismissed.
+      jumpRef.current = { to: loc, expected: j.expected, at: Date.now() };
+      setJump(jumpRef.current);
+      markDiversion(loc);
+      ding3();
       return;
     }
     const d = distOf(ix, anchor, loc);
@@ -264,7 +289,17 @@ export default function QuranTesterClient() {
     if (anchorModeRef.current === "follow") anchorRef.current = loc;
     jumpRef.current = { to: loc, expected: anchor, at: Date.now() };
     setJump(jumpRef.current);
+    markDiversion(loc);
     ding3(); // ding-ding-ding — you moved
+  }
+  function markDiversion(l: Loc) {
+    setDiversions((prev) => {
+      const k = keyOf(l);
+      if (prev.has(k)) return prev;
+      const n = new Set(prev).add(k);
+      try { sessionStorage.setItem("qt:diversions", JSON.stringify([...n])); } catch {}
+      return n;
+    });
   }
   function dismissJump() {
     jumpRef.current = null;
@@ -623,6 +658,8 @@ export default function QuranTesterClient() {
       return { backgroundColor: "color-mix(in oklab, #c9a227 25%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" } as const;
     if (jump && jump.to.s === s && jump.to.a === a)
       return { backgroundColor: "color-mix(in oklab, #d9762b 25%, transparent)", boxShadow: "inset 0 -2px 0 #d9762b" } as const;
+    if (diversions.has(`${s}:${a}`))
+      return { backgroundColor: "color-mix(in oklab, #c9a227 20%, transparent)" } as const; // jumped here this session
     if (jump && jump.expected.s === s && jump.expected.a === a)
       return { boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // the pinned bookmark
     if (loc && loc.surah === s && loc.ayah === a) {
