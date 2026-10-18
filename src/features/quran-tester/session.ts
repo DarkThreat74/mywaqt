@@ -141,6 +141,9 @@ function armKeepAlive() {
     if (!silentEl) {
       silentEl = new Audio(silentWav());
       silentEl.loop = true;
+      // Muted media is exempt from autoplay policy — play() from the
+      // worker's `ready` callback has no user gesture.
+      silentEl.muted = true;
       silentEl.volume = 0;
     }
     void silentEl.play().catch(() => {});
@@ -404,15 +407,22 @@ export async function startQt(): Promise<void> {
   worker?.postMessage({ type: "init", sampleRate: ctx.sampleRate });
 }
 
-// Screen off / app backgrounded: browsers can suspend the AudioContext, so
-// the worklet silently stops producing frames while the UI claims we're
-// listening. Flip to paused — resume is one tap when they're back.
+// Recitation keeps running when the app is backgrounded — that's what the
+// media notification is for. Chrome keeps mic capture + the silent audio
+// element alive in a "playing media" tab; the orb stays up as the signal.
+// (Never auto-pause here: suspending the AudioContext also tears the
+// notification down, which is exactly what the user saw vanish.)
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && listen === "listening") void pauseQt();
     // The browser drops the wake lock while hidden — reclaim on return.
     if (!document.hidden && listen === "listening" && !wakeLock && "wakeLock" in navigator) {
       navigator.wakeLock.request("screen").then((l) => { wakeLock = l; }).catch(() => {});
+    }
+    // If a browser did suspend the AudioContext in the background, resume
+    // it on return — the mic stream is still live, so a resume revives the
+    // worklet without a new session.
+    if (!document.hidden && listen === "listening" && audio && audio.ctx.state === "suspended") {
+      void audio.ctx.resume().catch(() => {});
     }
   });
 }
