@@ -89,6 +89,10 @@ export default function QuranTesterClient() {
   // Diversion marks — every ayah a jump landed on stays yellow for the
   // whole tab session (sessionStorage survives in-app navigation, dies
   // with the tab). Confirming the spot as a mistake upgrades it to red.
+  const [pin, setPin] = useState<Loc | null>(null); // last-good bookmark after a skip
+  // Double-tap a word, then tap the end word — marks the whole range as a
+  // confirmed mistake (kind "manual").
+  const [selStart, setSelStart] = useState<{ s: number; a: number; w: number } | null>(null);
   const [diversions, setDiversions] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(sessionStorage.getItem("qt:diversions") ?? "[]")); }
     catch { return new Set(); }
@@ -294,15 +298,50 @@ export default function QuranTesterClient() {
     }
     const d = distOf(ix, anchor, loc);
     if (d == null) return;
-    if (Math.abs(d) <= 3 || (d < 0 && d >= -10)) { anchorRef.current = loc; return; } // routine / went back
-    if (d > 0 && inSpan(loc)) { anchorRef.current = loc; return; } // skipped ahead inside plan — gap stays uncovered
-    // JUMPED — "follow" lets the anchor drift; "hold" pins it at `anchor`.
+    // Went BACK — re-reading from anywhere earlier is fine, always silent.
+    if (d < 0) { anchorRef.current = loc; return; }
+    if (d <= 3) { anchorRef.current = loc; return; } // routine advance
+    // Forward inside the 3-page window (prev→current→next): not a jump —
+    // you SKIPPED ayahs. Mark the gap yellow, pin your last-good spot.
+    const pa = pageOf(anchor), pl = pageOf(loc);
+    if (pa >= 0 && pl >= 0 && pl - pa <= 2) {
+      markSkippedBetween(anchor, loc);
+      setPin(anchor); // the last part you read good — underlined on the page
+      anchorRef.current = loc;
+      setStatus(`Skipped ahead — the missed ayahs are marked yellow`);
+      return;
+    }
+    // Outside the buffer — a real jump.
+    // "follow" lets the anchor drift; "hold" pins it at `anchor`.
     if (anchorModeRef.current === "follow") anchorRef.current = loc;
     jumpRef.current = { to: loc, expected: anchor, at: Date.now() };
     setJump(jumpRef.current);
     markDiversion(loc);
     ding3(); // ding-ding-ding — you moved
     qtPost({ type: "correction-act", action: "continue" }); // release a stale issue — else detection freezes
+  }
+  function pageOf(l: Loc): number {
+    return ayahPagesRef.current?.[l.s]?.[l.a] ?? -1;
+  }
+  /** Every ayah strictly between `from` and `to` gets a yellow skipped
+   *  suspect — tappable/confirmable like engine-raised flags. */
+  function markSkippedBetween(from: Loc, to: Loc) {
+    const ix = ixRef.current;
+    if (!ix) return;
+    const o0 = ix.ord.get(keyOf(from)) ?? -1;
+    const o1 = ix.ord.get(keyOf(to)) ?? -1;
+    if (o0 < 0 || o1 <= o0 + 1) return;
+    const next = new Map(suspectsRef.current);
+    let added = 0;
+    for (const [k, ord] of ix.ord) {
+      if (ord > o0 && ord < o1) {
+        const key = `${k}:0`;
+        if (!next.has(key)) { next.set(key, "possible_skipped_ayah"); added++; }
+      }
+    }
+    if (!added) return;
+    suspectsRef.current = next;
+    setSuspects(next);
   }
   function markDiversion(l: Loc) {
     setDiversions((prev) => {
@@ -559,6 +598,13 @@ export default function QuranTesterClient() {
       if (i && typeof i.surah === "number") {
         const ayahLevel = i.kind === "possible_skipped_ayah" || i.kind === "unclear_ayah";
         const skey = `${i.surah}:${i.ayah}:${ayahLevel ? 0 : i.word}`;
+        // Settle noise: finishing a surah can raise skipped/unclear on an
+        // ayah you JUST read. If it's covered, release the controller and
+        // move on — retrying here is what paused every surah ending.
+        if (covRef.current.has(`${i.surah}:${i.ayah}`)) {
+          qtPost({ type: "correction-act", action: "continue" });
+          return;
+        }
         // The engine re-emits the same issue — only tone on a NEW suspect.
         if (!suspectsRef.current.has(skey)) {
           suspectsRef.current.set(skey, i.kind); // inline — checkDay can't wait for render
@@ -567,10 +613,15 @@ export default function QuranTesterClient() {
         }
         if (ev.type === "correction") {
           lastIssueKeyRef.current = skey;
-          // Pause-for-retry: put the controller in retrying so a clean
-          // re-read auto-clears, and open the confirm banner immediately —
-          // an un-acted issue freezes all further detection.
-          qtPost({ type: "correction-act", action: "retry" });
+          if (ayahLevel) {
+            // Ayah-level flags can't be re-read word-for-word — release the
+            // controller but still open the banner for confirm/dismiss.
+            qtPost({ type: "correction-act", action: "continue" });
+          } else {
+            // Pause-for-retry: a clean re-read auto-clears; an un-acted
+            // issue freezes all further detection.
+            qtPost({ type: "correction-act", action: "retry" });
+          }
           setPending({ s: i.surah, a: i.ayah, w: i.word ?? 0, kind: i.kind });
         }
       }
@@ -583,8 +634,9 @@ export default function QuranTesterClient() {
       possible_substitution: "possible wrong word",
       possible_vowel: "possible vowel slip",
       possible_repetition: "possible repetition",
-      possible_skipped_ayah: "possible skipped ayah",
+      possible_skipped_ayah: "skipped ayah",
       unclear_ayah: "unclear ayah",
+      manual: "marked mistake",
     })[kind] ?? "possible mistake";
 
   function onWordTap(s: number, a: number, w: number) {
@@ -678,6 +730,23 @@ export default function QuranTesterClient() {
     }
   }
 
+  async function finishRange(wEnd: number) {
+    const st = selStart;
+    setSelStart(null);
+    if (!st) return;
+    const lo = Math.min(st.w, wEnd), hi = Math.max(st.w, wEnd);
+    const next = new Map(confirmed);
+    for (let w = lo; w <= hi; w++) {
+      const m: Omit<Mistake, "id"> = { surah: st.s, ayah: st.a, word: w, kind: "manual", confirmedAt: nowMs() };
+      void saveMistake(m).catch(() => {});
+      next.set(`${st.s}:${st.a}:${w}`, { ...m });
+      suspectsRef.current.delete(`${st.s}:${st.a}:${w}`);
+    }
+    setConfirmed(next);
+    setSuspects(new Map(suspectsRef.current));
+    checkDay();
+  }
+
   async function deleteMistake(m: Mistake) {
     if (m.id) await removeMistake(m.id).catch(() => {});
     const key = `${m.surah}:${m.ayah}:${m.word}`;
@@ -697,6 +766,10 @@ export default function QuranTesterClient() {
       return { backgroundColor: "color-mix(in oklab, #c9a227 20%, transparent)" } as const; // jumped here this session
     if (jump && jump.expected.s === s && jump.expected.a === a)
       return { boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // the pinned bookmark
+    if (pin && pin.s === s && pin.a === a)
+      return { boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // last-good after a skip
+    if (selStart && selStart.s === s && selStart.a === a && w >= selStart.w)
+      return { backgroundColor: "color-mix(in oklab, var(--color-accent) 22%, transparent)" } as const; // range-select preview
     if (loc && loc.surah === s && loc.ayah === a) {
       if (wordIdx === w)
         return { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } as const;
@@ -790,11 +863,14 @@ export default function QuranTesterClient() {
                   <span
                     key={wi}
                     data-loc={w.location}
-                    onClick={isSuspect || isConfirmed ? () => onWordTap(s, a, wiN) : undefined}
+                    onDoubleClick={() => setSelStart({ s, a, w: wiN })}
+                    onClick={selStart
+                      ? (s === selStart.s && a === selStart.a ? () => void finishRange(wiN) : () => setSelStart(null))
+                      : isSuspect || isConfirmed ? () => onWordTap(s, a, wiN) : undefined}
                     // shrink-0: a shrunken word box lets the glyph overflow
                     // onto its neighbour — that's the text-on-end-marker
                     // overlap. Lines must fit honestly instead.
-                    className={`shrink-0 rounded px-px transition-colors duration-150${isSuspect || isConfirmed ? " cursor-pointer" : ""}`}
+                    className={`shrink-0 rounded px-px transition-colors duration-150${isSuspect || isConfirmed || selStart ? " cursor-pointer" : ""}`}
                     style={{
                       ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
                       // Scale by whichever axis is tighter — vw alone left
@@ -1101,6 +1177,18 @@ export default function QuranTesterClient() {
           onClose={() => setPlanOpen(false)}
           onSave={(p) => { savePlan(p); setPlan(p); setPlanOpen(false); setDayDone(isDayDone(todayKey())); }}
         />
+      )}
+
+      {/* Range-select hint */}
+      {selStart && (
+        <div className="fixed inset-x-0 top-16 z-40 flex justify-center px-4">
+          <div
+            className="rounded-full border px-4 py-2 text-xs font-semibold shadow-lg"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", animation: "drawer-app-in 0.18s ease-out" }}
+          >
+            Tap the last word of the mistake — or tap elsewhere to cancel
+          </div>
+        </div>
       )}
 
       {pending && (
