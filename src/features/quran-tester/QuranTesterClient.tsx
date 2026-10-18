@@ -431,7 +431,7 @@ export default function QuranTesterClient() {
                       ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
                       // Scale by whichever axis is tighter — vw alone left
                       // the text tiny inside short/wide desktop viewports.
-                      fontSize: "clamp(0.95rem, min(4.2vw, 5.5dvh), 1.6rem)",
+                      fontSize: "clamp(0.95rem, min(4.2vw, 6dvh), 1.85rem)",
                       lineHeight: 1,
                       color: hidden ? "transparent" : "var(--color-ink)",
                       ...(hidden
@@ -575,10 +575,15 @@ export default function QuranTesterClient() {
         {/* Engine errors surface via the global toast — inline text here
             pushed the mushaf layout. */}
 
-        {/* Mushaf page — swipe */}
+        {/* Mushaf page — swipe. On desktop it becomes a centered portrait
+            card at the real mushaf page ratio, with an inner double frame. */}
         <div
-          className="relative mt-2 min-h-0 flex-1 touch-pan-y select-none overflow-hidden rounded-2xl border"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+          className="qt-mushaf relative mt-2 min-h-0 flex-1 touch-pan-y select-none overflow-hidden rounded-lg border"
+          style={{
+            borderColor: "var(--color-paper-3)",
+            backgroundColor: "var(--color-paper-2)",
+            boxShadow: "inset 0 0 0 6px var(--color-paper-2), inset 0 0 0 7px var(--color-paper-3), inset 0 0 0 12px var(--color-paper-2)",
+          }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -943,7 +948,7 @@ export default function QuranTesterClient() {
             </div>
             <button
               onClick={() => (listening ? void stopRecite() : micDenied ? setMicHelp(true) : void startRecite())}
-              className="relative flex items-center justify-center rounded-full transition-transform active:scale-90"
+              className="qt-mic-fab relative flex items-center justify-center rounded-full transition-transform active:scale-90"
               style={{
                 width: 68,
                 height: 68,
@@ -975,7 +980,7 @@ export default function QuranTesterClient() {
                 <Mic className="h-6 w-6" />
               )}
             </button>
-            <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--color-ink-muted)" }}>
+            <p className="qt-mic-label text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--color-ink-muted)" }}>
               {listen === "listening" ? "Listening — tap to stop" : listen === "warming" ? "Warming up" : micDenied ? "Mic blocked — tap for help" : "Tap to recite"}
             </p>
           </div>

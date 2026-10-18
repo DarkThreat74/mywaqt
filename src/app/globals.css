@@ -205,10 +205,41 @@ main#main-content {
 }
 @media (min-width: 1024px) {
   .qt-recite-bar {
-    bottom: 12px;
+    bottom: 16px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: auto;
+    background: none;
+    padding-bottom: 0;
+  }
+  .qt-recite-bar > div {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 9999px;
+    border: 1px solid var(--color-paper-3);
+    background-color: var(--color-paper);
+    box-shadow: 0 12px 32px color-mix(in oklab, var(--color-ink) 14%, transparent);
+    width: auto;
+  }
+  .qt-recite-bar .qt-mic-fab {
+    width: 52px;
+    height: 52px;
+  }
+  .qt-recite-bar .qt-mic-label {
+    display: none;
   }
   .qt-confirm-bar {
     bottom: 140px;
+  }
+  /* Real mushaf pages are portrait — cap the panel's width by the height
+     actually available so 15 lines spread evenly instead of stretching a
+     letterboxed strip. ~1:1.42 w:h like the printed Madani page. */
+  .qt-mushaf {
+    width: min(100%, calc((100dvh - 190px) / 1.42));
+    margin-inline: auto;
   }
 }
 
