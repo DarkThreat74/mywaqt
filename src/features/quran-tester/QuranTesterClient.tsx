@@ -64,6 +64,7 @@ export default function QuranTesterClient() {
   const [failedPages, setFailedPages] = useState<Set<number>>(new Set());
   const [fonts, setFonts] = useState<Set<number>>(new Set());
   const [installed, setInstalled] = useState<boolean | null>(null);
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   const [dl, setDl] = useState<{ done: number; total: number } | null>(null);
   const [dlError, setDlError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -195,8 +196,16 @@ export default function QuranTesterClient() {
     // Subscribe to the global session — navigating away keeps it alive;
     // this page just re-attaches to whatever state it's in.
     const unsub = subscribeQt((ev) => handlerRef.current(ev));
+    // Connectivity — everything here is offline-first, but queued mistake
+    // syncs and the mushaf background warm resume the moment we're back.
+    const onUp = () => { setOnline(true); warmMushaf(); void syncMistakes().then((ms) => setConfirmed(new Map(ms.map((m) => [`${m.surah}:${m.ayah}:${m.word}`, m])))).catch(() => {}); };
+    const onDown = () => setOnline(false);
+    window.addEventListener("online", onUp);
+    window.addEventListener("offline", onDown);
     return () => {
       unsub();
+      window.removeEventListener("online", onUp);
+      window.removeEventListener("offline", onDown);
       if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
     };
   }, []);
@@ -875,6 +884,15 @@ export default function QuranTesterClient() {
             </span>
           )}
         </button>
+        {!online && (
+          <span
+            className="flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-semibold"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+            title="Offline — recitation works fully; mistakes sync when you're back"
+          >
+            Offline
+          </span>
+        )}
         <button
           onClick={() => setPlanOpen(true)}
           className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
