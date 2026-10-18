@@ -1311,6 +1311,9 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+  if (event.data && event.data.type === "GET_VERSION" && event.source) {
+    event.source.postMessage({ type: "SW_VERSION", version: CACHE_VERSION });
+  }
 
   // "Install app" — precache a route's HTML into PAGE_CACHE so it opens
   // offline. Keys match the navigate handler: pathname+search, uid-stamped.

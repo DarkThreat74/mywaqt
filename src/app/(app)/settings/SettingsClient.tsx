@@ -2189,6 +2189,7 @@ export default function SettingsClient({
             <RefreshCw className="h-4 w-4" />
             Reload app
           </button>
+          <SwVersionTag />
           <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
             Refreshes the page and checks for updates. Use this if the app feels stale.
           </p>
@@ -2653,6 +2654,42 @@ export function PrayerPersonalization({ initialSettings }: { initialSettings: Pr
         <p className="mt-3 text-[11px]" style={{ color: personalMsg.ok ? "var(--color-success)" : "var(--color-warmth)" }}>{personalMsg.text}</p>
       )}
     </div>
+  );
+}
+
+// Shows which service worker is actually running (not just which is deployed).
+// Asks the active SW via postMessage; falls back to fetching /sw.js when no SW
+// controls the page (fresh tab) so the expected version is still visible.
+function SwVersionTag() {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.type === "SW_VERSION") setVersion(e.data.version);
+    };
+    navigator.serviceWorker.addEventListener("message", onMsg);
+    navigator.serviceWorker.ready
+      .then((reg) => reg.active?.postMessage({ type: "GET_VERSION" }))
+      .catch(() => {});
+    const fallback = setTimeout(() => {
+      setVersion((v) => {
+        if (v) return v;
+        fetch("/sw.js", { cache: "no-store" })
+          .then((r) => r.text())
+          .then((t) => setVersion(t.match(/CACHE_VERSION\s*=\s*"([^"]+)"/)?.[1] ?? null))
+          .catch(() => {});
+        return v;
+      });
+    }, 1500);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", onMsg);
+      clearTimeout(fallback);
+    };
+  }, []);
+  return (
+    <span className="ml-2 text-[10px] font-mono" style={{ color: "var(--color-ink-muted)" }}>
+      {version ?? "sw: …"}
+    </span>
   );
 }
 
