@@ -1529,16 +1529,25 @@ function PlanSheet({
 
         <div className={row}>
           <span className={label} style={{ color: "var(--color-ink)" }}>Tracking</span>
-          <select
-            value={anchorMode}
-            onChange={(e) => onAnchorMode(e.target.value as "follow" | "hold")}
-            className={input}
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
-          >
-            <option value="hold">Hold to passage</option>
-            <option value="follow">Follow me</option>
-          </select>
+          <div className="flex rounded-full border p-0.5" style={{ borderColor: "var(--color-paper-3)" }} role="radiogroup" aria-label="Tracking mode">
+            {(["hold", "follow"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => onAnchorMode(m)}
+                role="radio" aria-checked={anchorMode === m}
+                className="rounded-full px-3 py-1 text-[10px] font-semibold transition-colors"
+                style={anchorMode === m ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } : { color: "var(--color-ink-muted)" }}
+              >
+                {m === "hold" ? "Hold to passage" : "Follow me"}
+              </button>
+            ))}
+          </div>
         </div>
+        <p className="-mt-1 pb-1 text-[10px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>
+          {anchorMode === "hold"
+            ? "If you switch passages, the app keeps your place pinned and alerts you until you recite back or tap “Continue here” — strict testing, no silent wandering."
+            : "The app follows wherever you recite. Switching passages chimes once, then that spot becomes your new track."}
+        </p>
 
         <div className={row}>
           <span className={label} style={{ color: "var(--color-ink)" }}>Set a goal</span>
