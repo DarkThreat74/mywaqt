@@ -79,6 +79,25 @@ export function makeStorageKey(folderName: string, filename: string): string {
 }
 
 /**
+ * Stream an object from R2 without buffering (used by the quran-tester engine
+ * proxy — the 66MB model must not load into memory).
+ */
+export async function streamObject(storageKey: string): Promise<{
+  stream: Readable;
+  contentType: string | undefined;
+  contentLength: number | undefined;
+}> {
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: storageKey });
+  const response = await s3.send(command);
+  if (!response.Body) throw new Error('Empty response body from R2');
+  return {
+    stream: response.Body as Readable,
+    contentType: response.ContentType,
+    contentLength: response.ContentLength,
+  };
+}
+
+/**
  * Download an object from R2 as a Buffer (used by the audio processing pipeline).
  * For large files, prefer downloadObjectToFile to avoid loading everything into memory.
  */

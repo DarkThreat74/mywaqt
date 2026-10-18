@@ -42,11 +42,16 @@ export async function startQt(): Promise<void> {
 
   if (!worker) {
     const workerUrl = new URL("./recite.worker.ts", import.meta.url);
-    // Bump on CSP/worker bug fixes — a dedicated worker's policy comes from the
-    // worker script's RESPONSE headers, and _next/static is cached immutable,
-    // so a stale cached script can carry an old CSP. The query busts that entry.
     workerUrl.searchParams.set("v", "2");
-    worker = new Worker(workerUrl);
+    // A dedicated worker's CSP comes from its script's RESPONSE headers — and
+    // _next/static responses are cached immutable, so a stale entry carries an
+    // old policy no unregister or reload can clear. A blob: worker instead
+    // inherits the creator document's policy — always the live page's CSP.
+    const src = await fetch(workerUrl, { cache: "no-store" }).then((r) => {
+      if (!r.ok) throw new Error(`worker script ${r.status}`);
+      return r.text();
+    });
+    worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
     worker.onmessage = (e) => {
       const ev = e.data as QtEvent;
       if (ev.type === "ready") {
