@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useSearchParams } from "next/navigation";
 import { MessageSquarePlus, X, Send, Check } from "lucide-react";
 
-// Floating feedback button — mounted in the (app) layout so it exists on
-// every authenticated screen. Captures full page context (path + query,
-// theme, viewport) so a report like "this button looks bad in dark mode
-// on the October 1st day view" is self-describing.
-export default function FeedbackWidget({ docked = false }: { docked?: boolean }) {
+// Feedback entry — lives as a row inside the notifications panel so no
+// floating pill ever overlaps page content. Captures full page context
+// (path + query, theme, viewport) so a report like "this button looks bad
+// in dark mode on the October 1st day view" is self-describing.
+export default function FeedbackWidget() {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
@@ -107,43 +108,31 @@ export default function FeedbackWidget({ docked = false }: { docked?: boolean })
 
   return (
     <>
-      {/* Trigger — small pill above the mobile bottom nav.
-          Docked mode renders an inline segment button for the FloatingDock. */}
+      {/* Trigger — a row inside the notifications dropdown */}
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Send feedback"
-        title="Send feedback"
-        className={docked
-          ? "flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
-          : "feedback-fab fixed z-40 flex items-center justify-center rounded-full border transition-colors"}
-        style={docked
-          ? { width: 26, height: 26, color: "var(--color-ink-muted)" }
-          : {
-              width: 26,
-              height: 26,
-              borderColor: "var(--color-paper-3)",
-              backgroundColor: "var(--color-paper-2)",
-              color: "var(--color-ink-muted)",
-              opacity: 0.75,
-            }}
+        className="flex w-full items-center gap-3 border-t px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+        style={{ borderColor: "var(--color-paper-3)" }}
       >
-        <MessageSquarePlus className={docked ? "h-3.5 w-3.5" : "h-3 w-3"} style={{ color: "var(--color-accent)" }} />
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: "var(--color-paper-2)" }}
+        >
+          <MessageSquarePlus className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>Send feedback</p>
+          <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Report a bug or share an idea</p>
+        </div>
       </button>
 
-      {/* Panel */}
-      {open && (
+      {/* Panel — portaled to body so the bell dropdown's transform can't
+          trap this fixed element inside itself */}
+      {open && createPortal(
         <div
-          className="feedback-panel fixed z-50 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border p-4 shadow-2xl"
-          style={docked ? {
-            right: "1rem",
-            left: "auto",
-            bottom: "calc(4rem + env(safe-area-inset-bottom) + 4rem)",
-            maxHeight: "calc(100dvh - 160px)",
-            overflowY: "auto",
-            borderColor: "var(--color-paper-3)",
-            backgroundColor: "var(--color-paper)",
-            animation: "feedback-pop 0.18s cubic-bezier(0.16,1,0.3,1)",
-          } : {
+          className="feedback-panel fixed z-[95] w-[min(20rem,calc(100vw-2rem))] rounded-2xl border p-4 shadow-2xl"
+          style={{
             borderColor: "var(--color-paper-3)",
             backgroundColor: "var(--color-paper)",
             animation: "feedback-pop 0.18s cubic-bezier(0.16,1,0.3,1)",
@@ -217,21 +206,18 @@ export default function FeedbackWidget({ docked = false }: { docked?: boolean })
               )}
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
 
       <style>{`
         @keyframes feedback-pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
-        /* Mobile: bottom-left, above the bottom nav + gesture bar —
-           stays clear of the calendar's "+" FAB on the right */
-        .feedback-fab{left:14px;bottom:calc(74px + env(safe-area-inset-bottom))}
-        .feedback-fab:hover,.feedback-fab:focus-visible{opacity:1}
-        .feedback-panel{left:16px;bottom:calc(112px + env(safe-area-inset-bottom));max-height:calc(100dvh - 160px);overflow-y:auto}
-        /* Desktop: no bottom nav — stack above the calendar's "+" FAB
-           (48px circle at right-5 bottom-6) instead of covering it */
+        /* Mobile: drops from under the top bar, centered via auto margins
+           (a translateX would fight the pop animation's transform) */
+        .feedback-panel{left:0;right:0;margin-inline:auto;top:calc(env(safe-area-inset-top) + 3.5rem);max-height:calc(100dvh - 120px);overflow-y:auto}
+        /* Desktop: bell sits in the bottom-left rail — open just above it */
         @media(min-width:1024px){
-          .feedback-fab{left:auto;right:24px;bottom:84px}
-          .feedback-panel{left:auto;right:24px;bottom:120px}
+          .feedback-panel{left:16px;transform:none;top:auto;bottom:calc(4.5rem + env(safe-area-inset-bottom))}
         }
       `}</style>
     </>

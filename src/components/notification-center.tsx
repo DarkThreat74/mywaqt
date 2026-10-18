@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Bell, Swords, Megaphone, X, Clock, UserPlus, UserMinus, HandHeart, BellRing, ChevronDown, CalendarClock, MessageCircle, Swords as SwordsIcon } from "lucide-react";
 import { useInbox, refreshInbox, type Inbox } from "@/lib/inbox";
+import FeedbackWidget from "@/components/feedback-widget";
 
 const DIFF_LABEL: Record<string, string> = { easy: "Easy", medium: "Medium", advanced: "Advanced", elite: "Elite" };
 const SNOOZE_CUTOFF_MS = 2 * 60 * 60 * 1000;
@@ -29,7 +30,7 @@ export function inboxCount(inbox: Inbox) {
 }
 
 /* ── Bell button — sits next to the tools opener in both shells ── */
-export function NotificationBell() {
+export function NotificationBell({ feedbackEnabled = false }: { feedbackEnabled?: boolean }) {
   const inbox = useInbox();
   const count = inboxCount(inbox);
   const [open, setOpen] = useState(false);
@@ -115,6 +116,7 @@ export function NotificationBell() {
               </>
             )}
           </div>
+          {feedbackEnabled && <FeedbackWidget />}
         </div>
         );
       })()}

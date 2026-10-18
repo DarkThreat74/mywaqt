@@ -125,6 +125,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const gateP = getUserGate(session.userId);
   const feedbackEnabledP = isFeedbackEnabled();
   const gate = await gateP;
+  const feedbackEnabled = await feedbackEnabledP;
   const needsSettings = gate.needsSettings;
 
   // Completion cookie hint — when the cached gate is stale (failed tag
@@ -176,7 +177,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <SidebarSalah />
           <div className="flex items-center gap-1">
             <div className="min-w-0 flex-1"><ToolsMenu variant="sidebar" /></div>
-            <NotificationBell />
+            <NotificationBell feedbackEnabled={feedbackEnabled} />
           </div>
           <LogoutButton />
         </div>
@@ -199,7 +200,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             Waqt
           </Link>
           <div className="flex items-center gap-1">
-            <NotificationBell />
+            <NotificationBell feedbackEnabled={feedbackEnabled} />
             <ToolsMenu />
           </div>
         </header>
@@ -249,7 +250,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <BirthdayAlerter />
         </Deferred>
         {/* Unified floating dock — study timer, sounds, talks, feedback segments */}
-        <FloatingDock feedbackEnabled={await feedbackEnabledP} />
+        <FloatingDock />
 
         {/* Global audio player — survives route changes for background playback */}
         <GlobalAudioPlayer />

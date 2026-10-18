@@ -7,7 +7,6 @@ import { getSession, subscribeSession, segmentAt, sessionElapsed, setOverlayOpen
 import { useSoundscape, SOUNDSCAPES } from "@/components/soundscape-context";
 import { SoundscapePanel } from "@/components/soundscape-indicator";
 import { useAudioPlayer } from "@/components/audio-player-context";
-import FeedbackWidget from "@/components/feedback-widget";
 
 function fmtClock(sec: number) {
   const m = Math.floor(sec / 60);
@@ -17,10 +16,12 @@ function fmtClock(sec: number) {
 
 /**
  * Unified floating dock — the ONE home for ambient pills so nothing ever
- * overlaps: study-session timer, soundscape, talks mini-player, feedback.
+ * overlaps: study-session timer, soundscape, talks mini-player.
  * Segments appear only when relevant, inside a single anchored pill.
+ * (Feedback moved into the notifications panel — a floating pill on every
+ * screen kept overlapping page content, e.g. the mushaf controls.)
  */
-export default function FloatingDock({ feedbackEnabled = false }: { feedbackEnabled?: boolean }) {
+export default function FloatingDock() {
   const pathname = usePathname();
   const session = useSyncExternalStore(subscribeSession, getSession, getSession);
   const soundscape = useSoundscape();
@@ -59,7 +60,7 @@ export default function FloatingDock({ feedbackEnabled = false }: { feedbackEnab
   // FAB's spot at the bottom-right.
   const fabPresent = pathname.startsWith("/calendar/day");
 
-  if (!studySeg && !showSounds && !showTalks && !feedbackEnabled) return null;
+  if (!studySeg && !showSounds && !showTalks) return null;
 
   const seg = "flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]";
   const soundLabel = soundscape.active ? SOUNDSCAPES.find((s) => s.id === soundscape.active)?.label ?? "Sound" : "Sounds";
@@ -148,9 +149,6 @@ export default function FloatingDock({ feedbackEnabled = false }: { feedbackEnab
             <span className="max-w-[7rem] truncate">{player.currentTrack.title}</span>
           </button>
         )}
-
-        {/* Feedback — utility segment, always last */}
-        {feedbackEnabled && <FeedbackWidget docked />}
       </div>
     </>
   );
