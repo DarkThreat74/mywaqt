@@ -45,6 +45,12 @@ function ding(freq = 760, vol = 0.08, dur = 0.35) {
     o.stop(t + dur + 0.05);
   } catch {}
 }
+/** Three bells together — the "you moved" signature. */
+function ding3() {
+  ding(980, 0.14, 0.22);
+  setTimeout(() => ding(980, 0.14, 0.22), 160);
+  setTimeout(() => ding(980, 0.14, 0.22), 320);
+}
 
 /** Standard Madani mushaf juz → start page (604-page edition). */
 const JUZ_PAGES = [1,22,42,62,82,102,121,142,162,182,201,222,242,262,282,302,322,342,362,382,402,422,442,462,482,502,522,542,562,582];
@@ -108,7 +114,7 @@ export default function QuranTesterClient() {
   const heardRef = useRef<{ loc: Loc | null; max: number; total: number }>({ loc: null, max: 0, total: 0 });
   const sessionCovRef = useRef<Set<string>>(new Set());
   const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const jumpRef = useRef<{ to: Loc; expected: Loc; at: number } | null>(null);
+  const jumpRef = useRef<{ to: Loc; expected: Loc; at: number; silent?: boolean } | null>(null);
   const planRef = useRef(plan);
   const suspectsRef = useRef(suspects);
 
@@ -211,6 +217,14 @@ export default function QuranTesterClient() {
   // Re-resolve today's span whenever plan/coverage context shifts.
   useEffect(() => { refreshSpan(); }, [plan, ayahPages]);
 
+  // Jump toast auto-dismisses after 10s — the pin/bookmark survives
+  // (silenceJump only hides the popup, hold state stays armed).
+  useEffect(() => {
+    if (!jump) return;
+    const t = setTimeout(silenceJump, 10000);
+    return () => clearTimeout(t);
+  }, [jump]);
+
 
   const spanOrd = (l: Loc) => ixRef.current?.ord.get(keyOf(l)) ?? -1;
   function inSpan(l: Loc, pad = 2): boolean {
@@ -236,7 +250,10 @@ export default function QuranTesterClient() {
       // Follow accepts the new spot — but only once the toast has been up
       // long enough to see; relocate bursts would kill it in milliseconds.
       else if (anchorModeRef.current === "follow" && Date.now() - j.at > 2500) { dismissJump(); anchorRef.current = loc; }
-      else setJump({ ...j, to: loc }); // hold: toast tracks where you actually are
+      else {
+        j.to = loc;
+        if (!j.silent) setJump({ ...j }); // hold: toast tracks where you are
+      }
       return;
     }
     const d = distOf(ix, anchor, loc);
@@ -247,12 +264,17 @@ export default function QuranTesterClient() {
     if (anchorModeRef.current === "follow") anchorRef.current = loc;
     jumpRef.current = { to: loc, expected: anchor, at: Date.now() };
     setJump(jumpRef.current);
-    ding(980, 0.14, 0.5);
-    if (!jumpChimeRef.current)
-      jumpChimeRef.current = setInterval(() => ding(980, 0.14, 0.5), 2000);
+    ding3(); // ding-ding-ding — you moved
   }
   function dismissJump() {
     jumpRef.current = null;
+    setJump(null);
+    if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
+  }
+  /** Close the toast but KEEP the pin — the bookmark and auto-resolve still
+   *  work; a fresh jump re-alerts. */
+  function silenceJump() {
+    if (jumpRef.current) jumpRef.current.silent = true;
     setJump(null);
     if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
   }
@@ -445,8 +467,12 @@ export default function QuranTesterClient() {
       setMicError(String(ev.message));
     } else if (ev.type === "lost") {
       setStatus("Lost you — keep going, or tap the page to re-anchor");
-    } else if (ev.type === "verse_match" || ev.type === "relocated") {
-      const s = ev.surah as number, a = ev.ayah as number;
+    } else if (ev.type === "verse_match" || ev.type === "relocated" || ev.type === "verse_candidate") {
+      // verse_candidate wraps the engine's `located`/`relocated` events —
+      // missing it is how moves went silently unflagged.
+      const c = (ev.candidates as { surah: number; ayah: number }[] | undefined)?.[0] ?? ev;
+      const s = c.surah as number, a = c.ayah as number;
+      if (typeof s !== "number" || typeof a !== "number") return;
       setLoc({ surah: s, ayah: a });
       expectSurah(s); // anchor ayah-order checks to wherever you actually are
       classifyJump({ s, a }); // sounds only on first locate / off-track jumps
@@ -684,7 +710,10 @@ export default function QuranTesterClient() {
                 const isSuspect = suspects.has(key) || suspects.has(`${s}:${a}:0`);
                 const isConfirmed = confirmed.has(key) || confirmed.has(`${s}:${a}:0`);
                 const heard = loc && loc.surah === s && loc.ayah === a && wordIdx !== null && wiN <= wordIdx;
-                const hidden = memorize && !heard && !revealed.has(key);
+                // Cumulative reveal: an ayah once covered stays visible on
+                // every page you scroll back to — only unrecited words hide.
+                const coveredAyah = covRef.current.has(`${s}:${a}`);
+                const hidden = memorize && !coveredAyah && !heard && !revealed.has(key);
                 return (
                   <span
                     key={wi}
@@ -832,24 +861,26 @@ export default function QuranTesterClient() {
         </div>
       )}
 
-      {/* Jump toast — off-track alert with quick navigation back */}
+      {/* Jump toast — full-width off-track alert, auto-dismisses in 10s;
+          in hold mode the pin survives dismissal (the bookmark stays). */}
       {jump && (
-        <div className="fixed inset-x-0 top-16 z-40 flex justify-center px-4">
+        <div className="fixed inset-x-3 top-16 z-40">
           <div
-            className="w-full max-w-sm rounded-2xl border p-3 shadow-lg"
+            className="w-full rounded-2xl border p-3 shadow-lg"
             style={{ borderColor: "color-mix(in oklab, #d9762b 50%, transparent)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
           >
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold" style={{ color: "#d9762b" }}>
-                  Jumped to {surahName(jump.to.s)} {jump.to.s}:{jump.to.a}
+                <p className="text-sm font-semibold" style={{ color: "#d9762b" }}>
+                  You moved to {surahName(jump.to.s)} {jump.to.s}:{jump.to.a}
                 </p>
-                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
                   {anchorMode === "hold" ? "Pinned at " : "Expected "}
                   {surahName(jump.expected.s)} {jump.expected.s}:{jump.expected.a}
+                  {anchorMode === "hold" ? " — underlined on the page" : ""}
                 </p>
               </div>
-              <button onClick={dismissJump} className="shrink-0 p-1" aria-label="Dismiss jump alert">
+              <button onClick={silenceJump} className="shrink-0 p-1" aria-label="Dismiss jump alert">
                 <X className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
               </button>
             </div>
