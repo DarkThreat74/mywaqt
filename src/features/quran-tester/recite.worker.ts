@@ -117,14 +117,14 @@ async function init(sampleRate: number) {
   // repetition / skipped ayah) stream out as `correction` events. The page
   // turns them into yellow suspects; only user-confirmed mistakes persist.
   session.zipformer?.correction.setMode("correction");
-  // Rare-slipups tuning: defaults flag any partly-heard skipped word as an
-  // omission (1) and substitutions at distance 0.6. Only near-total omissions
-  // and clearly-different substitutions should ever surface yellow.
+  // Balanced flagging: omissions flag when under half the word was heard,
+  // substitutions need a clearly different word, vowel slips need a confident
+  // decoder read. Tighter than this (0.15/0.9) made real slips never surface.
   if (session.zipformer) Object.assign(session.zipformer.correction.thresholds, {
-    omissionMaxHeard: 0.15,
-    substitutionDistance: 0.9,
-    vowelMargin: 0.15,
-    vowelWordMargin: 0.95,
+    omissionMaxHeard: 0.5,
+    substitutionDistance: 0.7,
+    vowelMargin: 0.08,
+    vowelWordMargin: 0.85,
   });
   postMessage({ type: "ready" });
 }

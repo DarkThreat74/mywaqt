@@ -93,6 +93,7 @@ export default function QuranTesterClient() {
     catch { return new Set(); }
   });
   const [pending, setPending] = useState<{ s: number; a: number; w: number; kind: string } | null>(null);
+  const lastIssueKeyRef = useRef<string | null>(null); // suspect raised by the live correction
 
   // Memorize mode: words hide until recited past or peeked. Peeks are logged
   // so weak spots are reviewable — same idea as Tarteel's Verse Peeking.
@@ -279,6 +280,7 @@ export default function QuranTesterClient() {
       setJump(jumpRef.current);
       markDiversion(loc);
       ding3();
+      qtPost({ type: "correction-act", action: "continue" }); // release a stale issue — else detection freezes
       return;
     }
     const d = distOf(ix, anchor, loc);
@@ -291,6 +293,7 @@ export default function QuranTesterClient() {
     setJump(jumpRef.current);
     markDiversion(loc);
     ding3(); // ding-ding-ding — you moved
+    qtPost({ type: "correction-act", action: "continue" }); // release a stale issue — else detection freezes
   }
   function markDiversion(l: Loc) {
     setDiversions((prev) => {
@@ -482,6 +485,8 @@ export default function QuranTesterClient() {
         if (h.loc && heardEnough(h.loc, h.max, h.total)) coverLoc(h.loc);
         heardRef.current = { loc: null, max: 0, total: 0 };
         dismissJump();
+        setPending(null);
+        lastIssueKeyRef.current = null;
       }
     } else if (ev.type === "ui-status") {
       setStatus(String(ev.message));
@@ -527,7 +532,20 @@ export default function QuranTesterClient() {
       const p = ayahPage(s, a);
       if (p && p !== pageRef.current) setPage(p);
     } else if (ev.type === "correction" || ev.type === "correction_note") {
-      const e = ev as { state?: { issue?: { surah: number; ayah: number; word: number; kind: string } }; issue?: { surah: number; ayah: number; word: number; kind: string } };
+      const e = ev as { state?: { phase?: string; outcome?: string | null; issue?: { surah: number; ayah: number; word: number; kind: string } }; issue?: { surah: number; ayah: number; word: number; kind: string } };
+      // A clean re-read resolved the flagged word — clear its yellow.
+      if (e.state?.outcome === "corrected") {
+        const k = lastIssueKeyRef.current;
+        if (k) {
+          suspectsRef.current.delete(k);
+          setSuspects((prev) => { const n = new Map(prev); n.delete(k); return n; });
+          lastIssueKeyRef.current = null;
+          checkDay();
+        }
+        setPending(null);
+        setStatus("Corrected — nice");
+        return;
+      }
       const i = e.state?.issue ?? e.issue;
       if (i && typeof i.surah === "number") {
         const ayahLevel = i.kind === "possible_skipped_ayah" || i.kind === "unclear_ayah";
@@ -537,6 +555,14 @@ export default function QuranTesterClient() {
           suspectsRef.current.set(skey, i.kind); // inline — checkDay can't wait for render
           ding(330, 0.06, 0.25); // low soft tone — a new suspect, not a chime
           setSuspects((prev) => new Map(prev).set(skey, i.kind));
+        }
+        if (ev.type === "correction") {
+          lastIssueKeyRef.current = skey;
+          // Pause-for-retry: put the controller in retrying so a clean
+          // re-read auto-clears, and open the confirm banner immediately —
+          // an un-acted issue freezes all further detection.
+          qtPost({ type: "correction-act", action: "retry" });
+          setPending({ s: i.surah, a: i.ayah, w: i.word ?? 0, kind: i.kind });
         }
       }
     }
@@ -1071,7 +1097,7 @@ export default function QuranTesterClient() {
               {issueLabel(pending.kind)} — {pending.s}:{pending.a}, word {pending.w}
             </p>
             <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              Only confirmed mistakes are saved.
+              Re-read the ayah cleanly and this clears itself. Only confirmed mistakes are saved.
             </p>
             <div className="mt-3 flex gap-2">
               <button
