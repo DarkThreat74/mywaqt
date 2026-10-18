@@ -161,6 +161,8 @@ self.onmessage = (e: MessageEvent) => {
         session.reset();
       } else if (m.type === "correction-act" && session) {
         session.zipformer?.correction.act(m.action);
+      } else if (m.type === "mode" && session) {
+        session.zipformer?.correction.setMode(m.mode);
       }
     } catch (err) {
       void reportErr(err);

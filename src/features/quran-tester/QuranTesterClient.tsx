@@ -2,10 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Square, Trash2, X } from "lucide-react";
+import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Settings2, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
 import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, loadSurahMeta, warmMushaf, type AyahPages, type MushafPage, type SurahMetaEntry } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
+import {
+  buildIndex, coveredInSpan, distOf, keyOf, loadCoverage, loadPlan, markCovered,
+  savePlan, stampDay, isDayDone, onKhatmaComplete, streak as planStreak, todayKey, todaySpan,
+  type AyahIndex, type Loc, type Plan,
+} from "./plan";
 import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
 
 /**
@@ -19,8 +24,12 @@ import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teard
 type ListenState = "idle" | "warming" | "listening" | "paused";
 const PAGE_COUNT = 604;
 
+// Timestamps live at module scope so render-tree purity checks stay happy —
+// event handlers call this, not Date.now() inline.
+function nowMs() { return Date.now(); }
+
 let qtDingCtx: AudioContext | null = null;
-function ding(freq = 760) {
+function ding(freq = 760, vol = 0.08, dur = 0.35) {
   try {
     qtDingCtx ??= new AudioContext();
     const t = qtDingCtx.currentTime;
@@ -29,11 +38,11 @@ function ding(freq = 760) {
     o.type = "sine";
     o.frequency.setValueAtTime(freq, t);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.08, t + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g).connect(qtDingCtx.destination);
     o.start(t);
-    o.stop(t + 0.4);
+    o.stop(t + dur + 0.05);
   } catch {}
 }
 
@@ -81,6 +90,22 @@ export default function QuranTesterClient() {
   const [pickerMode, setPickerMode] = useState<"surah" | "juz">("surah");
   const [surahMeta, setSurahMeta] = useState<SurahMeta[] | null>(null);
 
+  // ── Recite Plan + listener mode ──
+  const [mode, setMode] = useState<"listen" | "test" | "memorize">("test");
+  const [plan, setPlan] = useState<Plan | null>(() => loadPlan());
+  const [planOpen, setPlanOpen] = useState(false);
+  const [jump, setJump] = useState<{ to: Loc; expected: Loc } | null>(null);
+  const [dayDone, setDayDone] = useState(false);
+  const ixRef = useRef<AyahIndex | null>(null);
+  const covRef = useRef<Set<string>>(new Set());
+  const spanRef = useRef<Loc[]>([]);
+  const anchorRef = useRef<Loc | null>(null);
+  const heardRef = useRef<{ loc: Loc | null; words: Set<number> }>({ loc: null, words: new Set() });
+  const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const jumpRef = useRef<{ to: Loc; expected: Loc } | null>(null);
+  const planRef = useRef(plan);
+  const suspectsRef = useRef(suspects);
+
   // Swipe — dragX tracks the finger; turn animates a committed page turn
   // (-1 = turn to next page/left, +1 = back/right). CSS transition does the
   // motion; transitionend commits the page change.
@@ -91,59 +116,16 @@ export default function QuranTesterClient() {
   const dragRef = useRef<{ x0: number; active: boolean }>({ x0: 0, active: false });
 
   const pageRef = useRef(page);
-  pageRef.current = page;
   const handlerRef = useRef(onEngineEvent);
-  handlerRef.current = onEngineEvent;
   const ayahPagesRef = useRef(ayahPages);
-  ayahPagesRef.current = ayahPages;
 
   useEffect(() => {
-    loadAyahPages().then(setAyahPages).catch(() => {});
-    loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
-    loadSurahMeta().then(setSurahMeta).catch(() => {});
-    engineInstalled()
-      .then((ok) => {
-        setInstalled(ok);
-        // Load the 66MB model during page idle — pressing record is then
-        // near-instant instead of a multi-second warmup. Also keep the
-        // background mushaf warm flowing (resumable watermark) so every
-        // page + font becomes offline-ready over time.
-        if (ok) { warmQt(); warmMushaf(); }
-      })
-      .catch(() => setInstalled(false));
-    syncMistakes() // local first, then merges the server copy
-      .then((ms) => setConfirmed(new Map(ms.map((m) => [`${m.surah}:${m.ayah}:${m.word}`, m]))))
-      .catch(() => {});
-    // Subscribe to the global session — navigating away keeps it alive;
-    // this page just re-attaches to whatever state it's in.
-    return subscribeQt((ev) => handlerRef.current(ev));
-  }, []);
-
-  // Fetch page + font, keep a ±1 window warm
-  useEffect(() => {
-    const want = [page - 1, page, page + 1].filter((p) => p >= 1 && p <= PAGE_COUNT);
-    for (const p of want) {
-      if (!pages.has(p)) {
-        loadPage(p)
-          .then((d) => {
-            setPages((prev) => new Map(prev).set(p, d));
-            setFailedPages((prev) => { const n = new Set(prev); n.delete(p); return n; });
-          })
-          .catch(() => setFailedPages((prev) => new Set(prev).add(p)));
-      }
-      if (!fonts.has(p)) {
-        loadPageFont(p)
-          .then(() => setFonts((prev) => new Set(prev).add(p)))
-          .catch(() => {});
-      }
-    }
-  }, [page, pages, fonts]);
-
-  // Keep the engine anchored to what's on screen while listening.
-  useEffect(() => {
-    if (listen !== "idle") expectForPage(page);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pages, listen]);
+    pageRef.current = page;
+    handlerRef.current = onEngineEvent;
+    ayahPagesRef.current = ayahPages;
+    planRef.current = plan;
+    suspectsRef.current = suspects;
+  });
 
   /** Anchor the engine to the ayah range on screen — it locks in seconds
    *  instead of searching all 6,236 ayahs. Falls back to the precached
@@ -184,6 +166,152 @@ export default function QuranTesterClient() {
     if (best) qtPost({ type: "expect", passage: { surah: best.s, ayah: best.min, ayahEnd: best.max } });
   }
 
+  /** Recompute today's span from plan + coverage (roll-forward cursor). */
+  function refreshSpan() {
+    const p = planRef.current, ix = ixRef.current, ap = ayahPagesRef.current;
+    spanRef.current = p && ix && ap ? todaySpan(ix, ap, p, covRef.current) : [];
+  }
+
+  useEffect(() => {
+    covRef.current = loadCoverage();
+    loadAyahPages().then((ap) => { setAyahPages(ap); ixRef.current = buildIndex(ap); refreshSpan(); }).catch(() => {});
+    loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
+    loadSurahMeta().then(setSurahMeta).catch(() => {});
+    engineInstalled()
+      .then((ok) => {
+        setInstalled(ok);
+        // Load the 66MB model during page idle — pressing record is then
+        // near-instant instead of a multi-second warmup. Also keep the
+        // background mushaf warm flowing (resumable watermark) so every
+        // page + font becomes offline-ready over time.
+        if (ok) { warmQt(); warmMushaf(); }
+      })
+      .catch(() => setInstalled(false));
+    syncMistakes() // local first, then merges the server copy
+      .then((ms) => setConfirmed(new Map(ms.map((m) => [`${m.surah}:${m.ayah}:${m.word}`, m]))))
+      .catch(() => {});
+    // Subscribe to the global session — navigating away keeps it alive;
+    // this page just re-attaches to whatever state it's in.
+    return subscribeQt((ev) => handlerRef.current(ev));
+  }, []);
+
+  // Fetch page + font, keep a ±1 window warm
+  useEffect(() => {
+    const want = [page - 1, page, page + 1].filter((p) => p >= 1 && p <= PAGE_COUNT);
+    for (const p of want) {
+      if (!pages.has(p)) {
+        loadPage(p)
+          .then((d) => {
+            setPages((prev) => new Map(prev).set(p, d));
+            setFailedPages((prev) => { const n = new Set(prev); n.delete(p); return n; });
+          })
+          .catch(() => setFailedPages((prev) => new Set(prev).add(p)));
+      }
+      if (!fonts.has(p)) {
+        loadPageFont(p)
+          .then(() => setFonts((prev) => new Set(prev).add(p)))
+          .catch(() => {});
+      }
+    }
+  }, [page, pages, fonts]);
+
+  function applyMode(m: "listen" | "test" | "memorize") {
+    setMode(m);
+    setMemorize(m === "memorize");
+  }
+
+  // Listener mode → engine mode. Memorize rides on correction.
+  useEffect(() => {
+    qtPost({ type: "mode", mode: mode === "listen" ? "tracking" : "correction" });
+  }, [mode]);
+
+  // Re-resolve today's span whenever plan/coverage context shifts.
+  useEffect(() => { refreshSpan(); }, [plan, ayahPages]);
+
+  // Keep the engine anchored to what's on screen while listening.
+  useEffect(() => {
+    if (listen !== "idle") expectForPage(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pages, listen]);
+
+  const spanOrd = (l: Loc) => ixRef.current?.ord.get(keyOf(l)) ?? -1;
+  function inSpan(l: Loc, pad = 2): boolean {
+    const span = spanRef.current;
+    if (!span.length) return false;
+    const o = spanOrd(l);
+    return o >= spanOrd(span[0]) - pad && o <= spanOrd(span[span.length - 1]) + pad;
+  }
+
+  /** Jump classifier — the reason routine relocations used to "ting" at
+   *  random. Only a landing OUTSIDE the expected track alerts. */
+  function classifyJump(loc: Loc) {
+    const ix = ixRef.current;
+    if (!ix) return;
+    const anchor = anchorRef.current;
+    anchorRef.current = loc;
+    if (!anchor) { ding(760); return; }           // first locate — the chime
+    // Resolved? Back within ±3 of the place we jumped from.
+    const j = jumpRef.current;
+    if (j) {
+      const back = distOf(ix, j.expected, loc);
+      if (back != null && Math.abs(back) <= 3) dismissJump();
+    }
+    const d = distOf(ix, anchor, loc);
+    if (d == null || Math.abs(d) <= 3 || (d < 0 && d >= -10)) return; // routine / went back — silent
+    if (d > 0 && inSpan(loc)) return;           // skipped ahead inside plan — gap just stays uncovered
+    jumpRef.current = { to: loc, expected: anchor };
+    setJump(jumpRef.current);
+    ding(980, 0.14, 0.5);
+    if (!jumpChimeRef.current)
+      jumpChimeRef.current = setInterval(() => ding(980, 0.14, 0.5), 2000);
+  }
+  function dismissJump() {
+    jumpRef.current = null;
+    setJump(null);
+    if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
+  }
+
+  /** Coverage: an ayah counts as heard when the tracker dwelled on it
+   *  (≥3 distinct words) and then moved on — never on a bare blip. */
+  function noteHeard(s: number, a: number, word: number) {
+    const h = heardRef.current;
+    if (h.loc && (h.loc.s !== s || h.loc.a !== a)) {
+      if (h.words.size >= 3) coverLoc(h.loc);
+      h.loc = { s, a };
+      h.words = new Set();
+    } else if (!h.loc) h.loc = { s, a };
+    h.words.add(word);
+  }
+  function coverLoc(l: Loc) {
+    markCovered(covRef.current, l);
+    checkDay();
+  }
+  function checkDay() {
+    const p = planRef.current, span = spanRef.current;
+    if (!p || !span.length || isDayDone(todayKey())) return; // fresh read — no stale closure
+    const unresolved = [...suspectsRef.current.keys()].some((k) => {
+      const [s, a] = k.split(":").map(Number);
+      return inSpan({ s, a }, 0);
+    });
+    if (unresolved) return;
+    if (coveredInSpan(span, covRef.current) >= span.length) {
+      stampDay(todayKey(), span, true);
+      setDayDone(true);
+      // Advance the sequential cursor past the finished span.
+      const ix = ixRef.current;
+      if (ix) {
+        const last = ix.ord.get(keyOf(span[span.length - 1])) ?? 0;
+        const next = ix.list[last + 1];
+        if (next) { const np = { ...p, cursor: next }; savePlan(np); setPlan(np); }
+      }
+      // Full khatma → grace credit.
+      if (ix && covRef.current.size >= ix.list.length) onKhatmaComplete();
+      ding(660); setTimeout(() => ding(880), 180);
+      setStatus("Today's portion complete ✓");
+      refreshSpan();
+    }
+  }
+
   function ayahPage(s: number, a: number): number | null {
     return ayahPagesRef.current?.[String(s)]?.[String(a)] ?? null;
   }
@@ -191,6 +319,24 @@ export default function QuranTesterClient() {
   function goToAyah(s: number, a: number) {
     const p = ayahPage(s, a);
     if (p) setPage(p);
+  }
+
+  function surahName(s: number) {
+    const m = surahMeta?.find((x) => x.s === s);
+    return m ? `${m.name} · ${m.en ?? s}` : `سورة ${s}`;
+  }
+
+  /** Chip text for today's goal: range · % · ayahs left. */
+  function planChip(): string {
+    const p = plan;
+    if (!p) return "Set a goal";
+    if (dayDone) return `✓ Today done · ${planStreak()}-day streak`;
+    const span = spanRef.current;
+    if (!span.length) return `${p.amount} ${p.unit}/day`;
+    const cov = coveredInSpan(span, covRef.current);
+    const pct = Math.round((cov / span.length) * 100);
+    const last = span[span.length - 1];
+    return `${span[0].s}:${span[0].a}–${last.s}:${last.a} · ${pct}% · ${span.length - cov} left`;
   }
 
   function onSearch(v: string) {
@@ -235,6 +381,10 @@ export default function QuranTesterClient() {
     setMicDenied(false);
     setLoc(null);
     setWordIdx(null);
+    heardRef.current = { loc: null, words: new Set() };
+    anchorRef.current = null;
+    setDayDone(isDayDone(todayKey()));
+    refreshSpan();
     try {
       await startQt();
     } catch (err) {
@@ -243,6 +393,11 @@ export default function QuranTesterClient() {
   }
 
   async function stopRecite() {
+    // Flush the last heard ayah before tearing down.
+    const h = heardRef.current;
+    if (h.loc && h.words.size >= 3) coverLoc(h.loc);
+    heardRef.current = { loc: null, words: new Set() };
+    dismissJump();
     await stopQt();
     setStatus(null);
     setWordIdx(null);
@@ -267,11 +422,13 @@ export default function QuranTesterClient() {
       setLevel(ev.value as number);
     } else if (ev.type === "ui-error") {
       setMicError(String(ev.message));
-    } else if (ev.type === "verse_match") {
+    } else if (ev.type === "lost") {
+      setStatus("Lost you — keep going, or tap the page to re-anchor");
+    } else if (ev.type === "verse_match" || ev.type === "relocated") {
       const s = ev.surah as number, a = ev.ayah as number;
       setLoc({ surah: s, ayah: a });
+      classifyJump({ s, a }); // sounds only on first locate / off-track jumps
       setStatus(`Found you — ${String(ev.surah_name ?? "")} ${s}:${a}`);
-      ding(760); // audible locate ping, even with the screen off-path
       goToAyah(s, a);
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {
       // While validating: surface what the engine decoded so a silent
@@ -282,6 +439,7 @@ export default function QuranTesterClient() {
       const s = ev.surah as number, a = ev.ayah as number;
       setLoc({ surah: s, ayah: a });
       setWordIdx(ev.word_index as number);
+      noteHeard(s, a, ev.word_index as number);
       const p = ayahPage(s, a);
       if (p && p !== pageRef.current) setPage(p);
     } else if (ev.type === "correction" || ev.type === "correction_note") {
@@ -289,6 +447,7 @@ export default function QuranTesterClient() {
       const i = e.state?.issue ?? e.issue;
       if (i && typeof i.surah === "number") {
         const ayahLevel = i.kind === "possible_skipped_ayah" || i.kind === "unclear_ayah";
+        ding(330, 0.06, 0.25); // low soft tone — a new suspect, not a chime
         setSuspects((prev) => {
           const next = new Map(prev);
           next.set(`${i.surah}:${i.ayah}:${ayahLevel ? 0 : i.word}`, i.kind);
@@ -316,13 +475,14 @@ export default function QuranTesterClient() {
 
   async function confirmMistake() {
     if (!pending) return;
-    const m: Omit<Mistake, "id"> = { surah: pending.s, ayah: pending.a, word: pending.w, kind: pending.kind, confirmedAt: Date.now() };
+    const m: Omit<Mistake, "id"> = { surah: pending.s, ayah: pending.a, word: pending.w, kind: pending.kind, confirmedAt: nowMs() };
     await saveMistake(m).catch(() => {});
     const key = `${m.surah}:${m.ayah}:${m.word}`;
     setConfirmed((prev) => new Map(prev).set(key, { ...m }));
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
     qtPost({ type: "correction-act", action: "continue" });
     setPending(null);
+    checkDay(); // a resolved suspect may unblock today's checkmark
   }
 
   async function dismissMistake() {
@@ -331,6 +491,7 @@ export default function QuranTesterClient() {
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
     qtPost({ type: "correction-act", action: "dismiss" });
     setPending(null);
+    checkDay();
   }
 
   // ── Page swipe (mushaf turns right→left: swipe left = next page) ──
@@ -388,7 +549,7 @@ export default function QuranTesterClient() {
         const heard = wordIdx !== null && wiN <= wordIdx;
         if (!heard && !revealed.has(key)) {
           setRevealed((prev) => new Set(prev).add(key));
-          void saveMistake({ surah: s, ayah: a, word: wiN, kind: "peek", confirmedAt: Date.now() }).catch(() => {});
+          void saveMistake({ surah: s, ayah: a, word: wiN, kind: "peek", confirmedAt: nowMs() }).catch(() => {});
           return;
         }
       }
@@ -408,6 +569,8 @@ export default function QuranTesterClient() {
       return { backgroundColor: "color-mix(in oklab, #b34a3a 22%, transparent)", boxShadow: "inset 0 -2px 0 #b34a3a" } as const;
     if (suspects.has(key) || suspects.has(ayahFlag))
       return { backgroundColor: "color-mix(in oklab, #c9a227 25%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" } as const;
+    if (jump && jump.to.s === s && jump.to.a === a)
+      return { backgroundColor: "color-mix(in oklab, #d9762b 25%, transparent)", boxShadow: "inset 0 -2px 0 #d9762b" } as const;
     if (loc && loc.surah === s && loc.ayah === a) {
       if (wordIdx === w)
         return { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } as const;
@@ -603,6 +766,78 @@ export default function QuranTesterClient() {
         </button>
       </div>
 
+      {/* Listener bar — mode pill + today's goal chip */}
+      <div className="mx-auto mt-1.5 flex w-full max-w-3xl items-center gap-2 px-3 sm:px-6">
+        <div
+          className="flex rounded-full border p-0.5"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+          role="radiogroup" aria-label="Listener mode"
+        >
+          {(["listen", "test", "memorize"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => applyMode(m)}
+              role="radio" aria-checked={mode === m}
+              className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize transition-colors"
+              style={mode === m
+                ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
+                : { color: "var(--color-ink-muted)" }}
+            >
+              {m === "listen" ? "Listen" : m === "test" ? "Test" : "Memorize"}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setPlanOpen(true)}
+          className="ml-auto flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+          aria-label="Goal settings"
+        >
+          <span className="truncate">{planChip()}</span>
+          <Settings2 className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+        </button>
+      </div>
+
+      {/* Jump toast — off-track alert with quick navigation back */}
+      {jump && (
+        <div className="fixed inset-x-0 top-16 z-40 flex justify-center px-4">
+          <div
+            className="w-full max-w-sm rounded-2xl border p-3 shadow-lg"
+            style={{ borderColor: "color-mix(in oklab, #d9762b 50%, transparent)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
+          >
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold" style={{ color: "#d9762b" }}>
+                  Jumped to {surahName(jump.to.s)} {jump.to.s}:{jump.to.a}
+                </p>
+                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                  Expected {surahName(jump.expected.s)} {jump.expected.s}:{jump.expected.a}
+                </p>
+              </div>
+              <button onClick={dismissJump} className="shrink-0 p-1" aria-label="Dismiss jump alert">
+                <X className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
+              </button>
+            </div>
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => goToAyah(jump.to.s, jump.to.a)}
+                className="flex-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+              >
+                Open that page
+              </button>
+              <button
+                onClick={() => { goToAyah(jump.expected.s, jump.expected.a); dismissJump(); }}
+                className="flex-1 rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+              >
+                Back to {jump.expected.s}:{jump.expected.a}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden px-3 sm:px-6">
         {/* Engine not installed — the page still browses; recite needs setup */}
         {installed === false && (
@@ -699,6 +934,15 @@ export default function QuranTesterClient() {
       </div>
 
       {/* Mistake confirm bar */}
+      {planOpen && (
+        <PlanSheet
+          plan={plan}
+          loc={loc}
+          onClose={() => setPlanOpen(false)}
+          onSave={(p) => { savePlan(p); setPlan(p); setPlanOpen(false); setDayDone(isDayDone(todayKey())); }}
+        />
+      )}
+
       {pending && (
         <div
           className="qt-confirm-bar fixed inset-x-0 z-40 flex justify-center px-4"
@@ -1033,7 +1277,7 @@ export default function QuranTesterClient() {
           <div className="qt-side">
             {listening && (
               <button
-                onClick={() => setMemorize((m) => !m)}
+                onClick={() => applyMode(memorize ? "test" : "memorize")}
                 className="flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90"
                 style={
                   memorize
@@ -1106,4 +1350,182 @@ export default function QuranTesterClient() {
 
 function pct(dl: { done: number; total: number }) {
   return Math.round((dl.done / dl.total) * 100);
+}
+
+/* ── Goal settings sheet ── */
+function PlanSheet({
+  plan, loc, onClose, onSave,
+}: {
+  plan: Plan | null;
+  loc: { surah: number; ayah: number } | null;
+  onClose: () => void;
+  onSave: (p: Plan | null) => void;
+}) {
+  const [kind, setKind] = useState<Plan["kind"]>(plan?.kind ?? "daily");
+  const [amount, setAmount] = useState(plan?.amount ?? 2);
+  const [unit, setUnit] = useState<Plan["unit"]>(plan?.unit ?? "juz");
+  const [deadline, setDeadline] = useState(plan?.deadline ?? "");
+  const [missedPolicy, setMissedPolicy] = useState<Plan["missedPolicy"]>(plan?.missedPolicy ?? "roll");
+  const [reminders, setReminders] = useState<Plan["reminders"]>(plan?.reminders ?? "off");
+  const [startSA, setStartSA] = useState(`${plan?.start.s ?? 1}:${plan?.start.a ?? 1}`);
+
+  const row = "flex items-center justify-between gap-3 py-2";
+  const label = "text-xs font-semibold";
+  const input = "rounded-lg border px-2.5 py-1.5 text-sm outline-none";
+
+  function save() {
+    const m = startSA.match(/^(\d{1,3}):(\d{1,3})$/);
+    if (!m) return;
+    const start = { s: Math.min(114, +m[1]), a: Math.max(1, +m[2]) };
+    onSave({
+      enabled: true,
+      kind,
+      amount: Math.max(1, Math.min(30, amount)),
+      unit,
+      deadline: kind === "khatma" && deadline ? deadline : undefined,
+      start,
+      cursor: plan?.cursor ?? start,
+      missedPolicy,
+      reminders,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
+      <div
+        className="w-full max-w-sm rounded-t-3xl border p-5 sm:rounded-3xl"
+        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-1 flex items-center justify-between">
+          <p className="text-sm font-bold" style={{ color: "var(--color-ink)" }}>Recite goal</p>
+          <button onClick={onClose} className="p-1" aria-label="Close goal settings">
+            <X className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
+          </button>
+        </div>
+        <p className="mb-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+          The listener tracks the assigned portion; extra recitation still counts toward your khatma.
+        </p>
+
+        <div className={row}>
+          <span className={label} style={{ color: "var(--color-ink)" }}>Plan type</span>
+          <div className="flex rounded-full border p-0.5" style={{ borderColor: "var(--color-paper-3)" }}>
+            {(["daily", "khatma"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => setKind(k)}
+                className="rounded-full px-3 py-1 text-[10px] font-semibold capitalize"
+                style={kind === k ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } : { color: "var(--color-ink-muted)" }}
+              >
+                {k === "daily" ? "Daily amount" : "Khatma"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {kind === "daily" ? (
+          <div className={row}>
+            <span className={label} style={{ color: "var(--color-ink)" }}>Amount per day</span>
+            <span className="flex items-center gap-2">
+              <input
+                type="number" min={1} max={30} value={amount}
+                onChange={(e) => setAmount(+e.target.value)}
+                className={input + " w-16 text-center"}
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+              />
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value as Plan["unit"])}
+                className={input}
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+              >
+                <option value="juz">juz</option>
+                <option value="page">pages</option>
+                <option value="ayah">ayahs</option>
+              </select>
+            </span>
+          </div>
+        ) : (
+          <div className={row}>
+            <span className={label} style={{ color: "var(--color-ink)" }}>Finish by</span>
+            <input
+              type="date" value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className={input}
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+            />
+          </div>
+        )}
+
+        <div className={row}>
+          <span className={label} style={{ color: "var(--color-ink)" }}>Start at</span>
+          <span className="flex items-center gap-2">
+            <input
+              value={startSA}
+              onChange={(e) => setStartSA(e.target.value)}
+              placeholder="2:142"
+              className={input + " w-20 text-center"}
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+            />
+            {loc && (
+              <button
+                onClick={() => setStartSA(`${loc.surah}:${loc.ayah}`)}
+                className="rounded-full border px-2 py-1 text-[10px] font-semibold"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)" }}
+              >
+                Use current
+              </button>
+            )}
+          </span>
+        </div>
+
+        <div className={row}>
+          <span className={label} style={{ color: "var(--color-ink)" }}>Missed days</span>
+          <select
+            value={missedPolicy}
+            onChange={(e) => setMissedPolicy(e.target.value as Plan["missedPolicy"])}
+            className={input}
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+          >
+            <option value="roll">Roll forward</option>
+            <option value="recompute">Recompute deadline</option>
+            <option value="debt">Debt list</option>
+          </select>
+        </div>
+
+        <div className={row}>
+          <span className={label} style={{ color: "var(--color-ink)" }}>Reminders</span>
+          <select
+            value={reminders}
+            onChange={(e) => setReminders(e.target.value as Plan["reminders"])}
+            className={input}
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+          >
+            <option value="off">Off</option>
+            <option value="daily">Daily push</option>
+            <option value="streak">Streak guard</option>
+          </select>
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          {plan && (
+            <button
+              onClick={() => onSave(null)}
+              className="rounded-full border px-4 py-2 text-xs font-semibold"
+              style={{ borderColor: "var(--color-paper-3)", color: "#b34a3a" }}
+            >
+              Turn off
+            </button>
+          )}
+          <button
+            onClick={save}
+            className="ml-auto rounded-full px-5 py-2 text-xs font-bold"
+            style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+          >
+            Save goal
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
