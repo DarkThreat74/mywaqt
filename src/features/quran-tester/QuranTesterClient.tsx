@@ -350,7 +350,7 @@ export default function QuranTesterClient() {
     setPin(lastGoodWord(anchor)); // last word read correctly, underlined blue
     markDiversion(loc);
     ding3(); // ding-ding-ding — you moved
-    qtOrb("alert", `${surahName(anchor.s)} ${anchor.s}:${anchor.a}`);
+    void ayahSnippet(anchor.s, anchor.a).then((t) => qtOrb("alert", t));
     qtPost({ type: "correction-act", action: "continue" }); // release a stale issue — else detection freezes
   }
   /** The last word actually heard in `l`'s ayah — the exact resume point. */
@@ -468,6 +468,26 @@ export default function QuranTesterClient() {
   function goToAyah(s: number, a: number) {
     const p = ayahPage(s, a);
     if (p) setPage(p);
+  }
+
+  /** Arabic text of an ayah for the notification orb — the first words plus
+   *  "…" for long ayahs, with the s:a ref appended. loadPage is cache-first,
+   *  so this stays offline once the page's been seen (and the warm covers all). */
+  async function ayahSnippet(s: number, a: number): Promise<string> {
+    const fallback = `${surahName(s)} ${s}:${a}`;
+    const p = ayahPagesRef.current?.[s]?.[a];
+    if (!p) return fallback;
+    try {
+      const data = await loadPage(p);
+      const words = (data?.lines ?? [])
+        .flatMap((l) => l.words ?? [])
+        .filter((w) => w.location.startsWith(`${s}:${a}:`))
+        .map((w) => w.word);
+      if (!words.length) return fallback;
+      return `${words.slice(0, 8).join(" ")}${words.length > 8 ? "…" : ""}  ﴾${s}:${a}﴿`;
+    } catch {
+      return fallback;
+    }
   }
 
   function surahName(s: number) {
@@ -655,7 +675,7 @@ export default function QuranTesterClient() {
         if (!suspectsRef.current.has(skey)) {
           suspectsRef.current.set(skey, i.kind); // inline — checkDay can't wait for render
           ding(330, 0.06, 0.25); // low soft tone — a new suspect, not a chime
-          qtOrb("alert", `${surahName(i.surah)} ${i.surah}:${i.ayah}`);
+          void ayahSnippet(i.surah, i.ayah).then((t) => qtOrb("alert", t));
           setSuspects((prev) => new Map(prev).set(skey, i.kind));
         }
         if (ev.type === "correction") {

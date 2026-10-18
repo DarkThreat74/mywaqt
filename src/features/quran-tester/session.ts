@@ -114,8 +114,8 @@ export function qtOrb(state: "ok" | "alert", detail?: string) {
       let hi = false;
       const paint = () => {
         navigator.mediaSession.metadata = new MediaMetadata({
-          title: detail ? `Mistake at ${detail}` : "Possible mistake — check the page",
-          artist: detail ? `Continue from ${detail}` : "Quran Tester",
+          title: "Possible mistake",
+          artist: detail ? `Continue from ${detail}` : "Check the page",
           artwork: [{ src: orbUrl(hi ? "alert-hi" : "alert"), sizes: "256x256", type: "image/png" }],
         });
         hi = !hi;
