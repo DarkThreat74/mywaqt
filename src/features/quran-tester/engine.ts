@@ -107,24 +107,24 @@ export async function downloadEngine(
     onProgress(done, total, a.file);
   }
 
-  // ort WASM runtime — vendored at /qt/ and cached write-through by the SW,
-  // but only on first fetch. Prefetch it here so a user who installs and
-  // immediately goes offline can still boot the engine. Both the base and
-  // jsep variants; whichever ORT picks, it's resident.
-  for (const f of [
-    "ort-wasm-simd-threaded.mjs",
-    "ort-wasm-simd-threaded.wasm",
-    "ort-wasm-simd-threaded.jsep.mjs",
-    "ort-wasm-simd-threaded.jsep.wasm",
-  ]) {
-    const key = `${self.location.origin}/qt/${f}`;
-    if (await cache.match(key)) continue;
-    // Required — "installed" must mean truly offline-ready. These are small
-    // same-origin files; if they fail the install was on a dead network and
-    // shouldn't claim success.
-    const res = await fetch(`/qt/${f}`);
-    if (!res.ok) throw new Error(`download failed: ${f}`);
-    await cache.put(key, res);
+  // ort WASM runtime + capture worklet — vendored statics, prefetched into
+  // the bucket so "installed" means truly offline-ready. The worklet lives
+  // under /qt/ too because Capacitor's WebView has no reliable service
+  // worker: the session falls back to a blob: module URL built from this
+  // cached copy when the plain /worklets/ load fails.
+  const RUNTIME_FILES: [string, string][] = [
+    ["ort-wasm-simd-threaded.mjs", "/qt/ort-wasm-simd-threaded.mjs"],
+    ["ort-wasm-simd-threaded.wasm", "/qt/ort-wasm-simd-threaded.wasm"],
+    ["ort-wasm-simd-threaded.jsep.mjs", "/qt/ort-wasm-simd-threaded.jsep.mjs"],
+    ["ort-wasm-simd-threaded.jsep.wasm", "/qt/ort-wasm-simd-threaded.jsep.wasm"],
+    ["qt-capture.js", "/worklets/qt-capture.js"],
+  ];
+  for (const [key, url] of RUNTIME_FILES) {
+    const k = `${self.location.origin}/qt/${key}`;
+    if (await cache.match(k)) continue;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`download failed: ${key}`);
+    await cache.put(k, res);
   }
 
   localStorage.setItem(LS_KEY, "1");

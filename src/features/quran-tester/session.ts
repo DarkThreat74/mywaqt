@@ -5,6 +5,8 @@
  * state and flashes on suspects wherever you are in the app.
  */
 
+import { engineAsset } from "./engine";
+
 export type QtListen = "idle" | "warming" | "listening" | "paused";
 
 export interface QtEvent {
@@ -203,8 +205,22 @@ export async function startQt(): Promise<void> {
     if (ctx.state === "suspended") {
       try { await ctx.resume(); } catch {}
     }
-    // Same-origin file — the CSP's script-src blocks blob: module scripts.
-    await ctx.audioWorklet.addModule("/worklets/qt-capture.js");
+    // Same-origin file preferred. Fallback: the engine bucket keeps a copy
+    // under /qt/qt-capture.js — build a blob: module URL from it so the
+    // worklet loads even where service workers don't exist (native WebView)
+    // or offline before the SW ever saw it. worker-src allows blob:.
+    try {
+      await ctx.audioWorklet.addModule("/worklets/qt-capture.js");
+    } catch (first) {
+      const cached = await engineAsset("qt-capture.js");
+      if (!cached) throw first;
+      const url = URL.createObjectURL(await cached.blob());
+      try {
+        await ctx.audioWorklet.addModule(url);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop());
     if (ctx) { try { await ctx.close(); } catch {} }

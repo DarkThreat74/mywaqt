@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
-import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, warmMushaf, type AyahPages, type MushafPage } from "./mushaf";
+import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, loadSurahMeta, warmMushaf, type AyahPages, type MushafPage, type SurahMetaEntry } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
 
@@ -40,7 +40,7 @@ function ding(freq = 760) {
 /** Standard Madani mushaf juz → start page (604-page edition). */
 const JUZ_PAGES = [1,22,42,62,82,102,121,142,162,182,201,222,242,262,282,302,322,342,362,382,402,422,442,462,482,502,522,542,562,582];
 
-interface SurahMeta { s: number; name: string; en?: string; page: number }
+type SurahMeta = SurahMetaEntry;
 
 export default function QuranTesterClient() {
   const [ayahPages, setAyahPages] = useState<AyahPages | null>(null);
@@ -100,7 +100,7 @@ export default function QuranTesterClient() {
   useEffect(() => {
     loadAyahPages().then(setAyahPages).catch(() => {});
     loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
-    fetch("/data/surah-meta.json").then((r) => r.json()).then(setSurahMeta).catch(() => {});
+    loadSurahMeta().then(setSurahMeta).catch(() => {});
     engineInstalled()
       .then((ok) => {
         setInstalled(ok);
@@ -593,7 +593,7 @@ export default function QuranTesterClient() {
           onClick={() => {
             setPickerOpen(true);
             if (!surahMeta)
-              fetch("/data/surah-meta.json").then((r) => r.json()).then(setSurahMeta).catch(() => {});
+              loadSurahMeta().then(setSurahMeta).catch(() => {});
           }}
           className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
