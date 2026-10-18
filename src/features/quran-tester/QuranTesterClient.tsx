@@ -94,13 +94,14 @@ export default function QuranTesterClient() {
   const [mode, setMode] = useState<"listen" | "test" | "memorize">("test");
   const [plan, setPlan] = useState<Plan | null>(() => loadPlan());
   const [planOpen, setPlanOpen] = useState(false);
-  const [jump, setJump] = useState<{ to: Loc; expected: Loc } | null>(null);
+  const [jump, setJump] = useState<{ to: Loc; expected: Loc; at: number } | null>(null);
   // Anchor policy: "follow" drifts with you; "hold" pins where you left off
   // until you return or accept the new spot. Persisted — works with no goal.
   const [anchorMode, setAnchorMode] = useState<"follow" | "hold">(
     () => (typeof localStorage !== "undefined" && localStorage.getItem("qt:anchor-mode") === "follow" ? "follow" : "hold"),
   );
   const anchorModeRef = useRef(anchorMode);
+  const modeRef = useRef(mode);
   const [dayDone, setDayDone] = useState(false);
   const ixRef = useRef<AyahIndex | null>(null);
   const covRef = useRef<Set<string>>(new Set());
@@ -109,7 +110,7 @@ export default function QuranTesterClient() {
   const heardRef = useRef<{ loc: Loc | null; max: number; total: number }>({ loc: null, max: 0, total: 0 });
   const sessionCovRef = useRef<Set<string>>(new Set());
   const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const jumpRef = useRef<{ to: Loc; expected: Loc } | null>(null);
+  const jumpRef = useRef<{ to: Loc; expected: Loc; at: number } | null>(null);
   const planRef = useRef(plan);
   const suspectsRef = useRef(suspects);
 
@@ -133,6 +134,7 @@ export default function QuranTesterClient() {
     planRef.current = plan;
     suspectsRef.current = suspects;
     anchorModeRef.current = anchorMode;
+    modeRef.current = mode;
     try { localStorage.setItem("qt:anchor-mode", anchorMode); } catch {}
   });
 
@@ -271,7 +273,9 @@ export default function QuranTesterClient() {
     if (j) {
       const back = distOf(ix, j.expected, loc);
       if (back != null && Math.abs(back) <= 3) { dismissJump(); anchorRef.current = loc; }
-      else if (anchorModeRef.current === "follow") { dismissJump(); anchorRef.current = loc; } // accepted by moving on
+      // Follow accepts the new spot — but only once the toast has been up
+      // long enough to see; relocate bursts would kill it in milliseconds.
+      else if (anchorModeRef.current === "follow" && Date.now() - j.at > 2500) { dismissJump(); anchorRef.current = loc; }
       else setJump({ ...j, to: loc }); // hold: toast tracks where you actually are
       return;
     }
@@ -281,7 +285,7 @@ export default function QuranTesterClient() {
     if (d > 0 && inSpan(loc)) { anchorRef.current = loc; return; } // skipped ahead inside plan — gap stays uncovered
     // JUMPED — "follow" lets the anchor drift; "hold" pins it at `anchor`.
     if (anchorModeRef.current === "follow") anchorRef.current = loc;
-    jumpRef.current = { to: loc, expected: anchor };
+    jumpRef.current = { to: loc, expected: anchor, at: Date.now() };
     setJump(jumpRef.current);
     ding(980, 0.14, 0.5);
     if (!jumpChimeRef.current)
@@ -469,6 +473,9 @@ export default function QuranTesterClient() {
       // a mic session actually started (module state says warming/listening).
       if (qtState() === "idle") return;
       setListen("listening");
+      // Mode posts made before the session existed were dropped — re-apply
+      // now that the engine is actually up.
+      qtPost({ type: "mode", mode: modeRef.current === "listen" ? "tracking" : "correction" });
       expectForPage(pageRef.current);
     } else if (ev.type === "ui-mic-denied") {
       setMicDenied(true);
