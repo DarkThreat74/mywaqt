@@ -129,6 +129,8 @@ export default function QuranTesterClient() {
   const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jumpRef = useRef<{ to: Loc; expected: Loc; at: number; silent?: boolean } | null>(null);
   const preambleGraceRef = useRef(0); // 'lost' timestamp — basmala/isti'adhah window
+  const candTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // unstable-lock dwell
+  const locLiveRef = useRef<{ s: number; a: number } | null>(null);
   const planRef = useRef(plan);
   const suspectsRef = useRef(suspects);
 
@@ -503,6 +505,8 @@ export default function QuranTesterClient() {
     setMicDenied(false);
     setLoc(null);
     setWordIdx(null);
+    locLiveRef.current = null;
+    if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
     heardRef.current = { loc: null, max: 0, total: 0 };
     sessionCovRef.current = new Set();
     anchorRef.current = null;
@@ -561,18 +565,36 @@ export default function QuranTesterClient() {
       setMicError(String(ev.message));
     } else if (ev.type === "lost") {
       preambleGraceRef.current = Date.now();
+      if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
       setStatus("Lost you — keep going, or tap the page to re-anchor");
     } else if (ev.type === "verse_match" || ev.type === "relocated" || ev.type === "verse_candidate") {
-      // verse_candidate wraps the engine's `located`/`relocated` events —
-      // missing it is how moves went silently unflagged.
       const c = (ev.candidates as { surah: number; ayah: number }[] | undefined)?.[0] ?? ev;
       const s = c.surah as number, a = c.ayah as number;
       if (typeof s !== "number" || typeof a !== "number") return;
+      locLiveRef.current = { s, a };
       setLoc({ surah: s, ayah: a });
-      expectSurah(s); // anchor ayah-order checks to wherever you actually are
-      classifyJump({ s, a }); // sounds only on first locate / off-track jumps
       setStatus(`Found you — ${String(ev.surah_name ?? "")} ${s}:${a}`);
       goToAyah(s, a);
+      if (ev.type === "verse_candidate") {
+        // Unstable discovery lock — a single weak search hit can teleport
+        // the tracker to a false hit (the phantom Surah-Qaf jumps). Let the
+        // display follow it, but only treat it as a real move if the lock
+        // is still standing ~1.2s later; a confirmed match, a newer
+        // candidate, or `lost` cancels it.
+        if (candTimerRef.current) clearTimeout(candTimerRef.current);
+        candTimerRef.current = setTimeout(() => {
+          candTimerRef.current = null;
+          const live = locLiveRef.current;
+          if (live && live.s === s && Math.abs(live.a - a) <= 2) {
+            expectSurah(s);
+            classifyJump({ s, a });
+          }
+        }, 1200);
+      } else {
+        if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
+        expectSurah(s); // anchor ayah-order checks to wherever you actually are
+        classifyJump({ s, a }); // sounds only on first locate / off-track jumps
+      }
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {
       // While validating: surface what the engine decoded so a silent
       // session is visible instead of just spinning.
@@ -580,6 +602,7 @@ export default function QuranTesterClient() {
       if (t) setStatus(t.slice(0, 80));
     } else if (ev.type === "word_progress") {
       const s = ev.surah as number, a = ev.ayah as number;
+      locLiveRef.current = { s, a };
       setLoc({ surah: s, ayah: a });
       expectSurah(s); // smooth crossings into the next surah never fire relocate
       setWordIdx(ev.word_index as number);
