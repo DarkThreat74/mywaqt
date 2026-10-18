@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v82";
+const CACHE_VERSION = "waqt-v83";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -476,10 +476,15 @@ async function matchStampedPage(cache, key, uid) {
 
 // fetch() with a hard timeout — on a flaky network a bare fetch can hang for
 // 30s+, which feels like the app froze. Abort so callers can fall back to cache.
-function timedFetch(request, ms) {
+function timedFetch(request, ms, bypassHttpCache = false) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
-  return fetch(request, { signal: ctrl.signal }).finally(() => clearTimeout(t));
+  // no-store: HTML pages must never come from the browser HTTP cache — a
+  // stale cached document carries its birth CSP forever (headers are part
+  // of the cached response), and no amount of reloading escapes it.
+  const init = { signal: ctrl.signal };
+  if (bypassHttpCache) init.cache = "no-store";
+  return fetch(request, init).finally(() => clearTimeout(t));
 }
 
 // ─── Fetch: route by request type ───
@@ -844,7 +849,7 @@ self.addEventListener("fetch", (event) => {
           const cache = await caches.open(RUNTIME_CACHE);
           const cached = await cache.match(request);
           // Fetch fresh in background (don't await — return cached immediately)
-          const fetchPromise = fetch(request)
+          const fetchPromise = fetch(request, { cache: "no-store" })
             .then((response) => {
               if (response.ok) cache.put(request, response.clone());
               return response;
@@ -950,7 +955,7 @@ self.addEventListener("fetch", (event) => {
             (async () => {
               try {
                 const pre = await event.preloadResponse;
-                const res = pre || await timedFetch(request, 10000);
+                const res = pre || await timedFetch(request, 10000, true);
                 if (res && res.ok) {
                   const freshBody = await res.clone().text();
                   const freshBuild = (freshBody.match(/\/_next\/static\/([A-Za-z0-9_-]+)\//) || [])[1];
@@ -986,7 +991,7 @@ self.addEventListener("fetch", (event) => {
         const networkPromise = (async () => {
           try {
             const preloadResponse = await event.preloadResponse;
-            const response = preloadResponse || await timedFetch(request, 10000);
+            const response = preloadResponse || await timedFetch(request, 10000, true);
             if (response && response.ok) {
               await store(response);
               return response;
