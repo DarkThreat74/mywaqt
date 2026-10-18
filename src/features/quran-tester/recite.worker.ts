@@ -121,15 +121,19 @@ async function init(sampleRate: number) {
     // with the patched 4-frame persistence puts flags ~0.7s behind voice.
     config: {
       settleFrames: 15,
-      // Jump latency: the tracker only searches for a relocation after a
-      // sustained bad stretch (holdWindow) then re-searches every
-      // relocateEveryFrames with relocateQueryChars of unheard text. Stock
-      // values (~1.2s + 1.5s + ~100 chars) added up to the ~5s delay before
-      // the ding. These still cost a global search each fire, but only
-      // while the tracker is already struggling.
-      holdWindow: 15,
-      relocateEveryFrames: 20,
-      relocateQueryChars: 45,
+      // A real mistake spikes alignment cost — if relocation triggers too
+      // eagerly, a wrong WORD reads as "you moved", the tracker abandons
+      // the passage on ~1 word of evidence, and the correction observer
+      // (gated off while struggling) never flags the slip. Rebalance:
+      // holdRate raised so observation keeps running through a rough
+      // stretch, lostRate raised so it takes a genuinely sustained failure
+      // to go lost, and the relocate search needs ~2 ayahs of unheard text
+      // (80 chars) — enough that a false hit can't land on a fluke.
+      holdWindow: 22,
+      holdRate: 0.6,
+      lostRate: 0.45,
+      relocateEveryFrames: 30,
+      relocateQueryChars: 80,
     },
     debug: true,
   } as Parameters<typeof createRecognitionSession>[0]);
