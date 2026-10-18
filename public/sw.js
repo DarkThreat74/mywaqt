@@ -505,6 +505,22 @@ function timedFetch(request, ms, bypassHttpCache = false) {
   return fetch(request, init).finally(() => clearTimeout(t));
 }
 
+// A cached Response is a frozen body+headers snapshot — a dedicated worker
+// born from a stale chunk inherits its CSP from THESE headers, not the
+// page's. Only re-stamp when the served policy lacks wasm-unsafe-eval, so a
+// future CSP change in next.config never gets overwritten by this copy.
+function withFixedCSP(response) {
+  const csp = response.headers.get("content-security-policy") ?? "";
+  if (csp.includes("wasm-unsafe-eval")) return response;
+  const headers = new Headers(response.headers);
+  headers.set("content-security-policy", CURRENT_CSP);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // ─── Fetch: route by request type ───
 self.addEventListener("fetch", (event) => {
   const { request } = event;
@@ -518,31 +534,13 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         const cached = await caches.match(request);
-        if (cached) {
-          // A cached Response is a frozen body+headers snapshot — a dedicated
-          // worker born from a stale chunk inherits its CSP from THESE headers,
-          // not the page's. Re-stamp CSP on serve so workers always get the
-          // current policy (wasm-eval allowed) even from old cached entries.
-          const headers = new Headers(cached.headers);
-          headers.set("content-security-policy", CURRENT_CSP);
-          return new Response(cached.body, {
-            status: cached.status,
-            statusText: cached.statusText,
-            headers,
-          });
-        }
+        if (cached) return withFixedCSP(cached);
         try {
           const response = await fetch(request);
           if (response.ok) {
             // Vercel's edge cache can replay stale headers for unchanged
-            // hashed chunks — re-stamp CSP on the wire copy too.
-            const headers = new Headers(response.headers);
-            headers.set("content-security-policy", CURRENT_CSP);
-            const stamped = new Response(response.body, {
-              status: response.status,
-              statusText: response.statusText,
-              headers,
-            });
+            // hashed chunks — fix the wire copy too before storing/serving.
+            const stamped = withFixedCSP(response);
             const cache = await caches.open(STATIC_CACHE);
             await cache.put(request, stamped.clone());
             return stamped;

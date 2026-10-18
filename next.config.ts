@@ -76,6 +76,13 @@ const nextConfig: NextConfig = {
           // form/base-uri tampering. External hosts limited to the ones the
           // client actually calls (geocoding, routing, map tiles, R2 audio).
           {
+            // NOTE: public/sw.js has a CURRENT_CSP copy used to repair stale
+            // cached worker-script responses — the SW only stamps it when the
+            // response lacks 'wasm-unsafe-eval', so changes here always win.
+            // If this policy ever removes wasm-unsafe-eval, update the guard
+            // there too. Changing headers alone does NOT update Vercel edge
+            // cache entries for unchanged hashed files — purge Caches in the
+            // Vercel dashboard after CSP changes.
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
