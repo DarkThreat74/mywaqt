@@ -60,10 +60,18 @@ export async function startQt(): Promise<void> {
         if (/wasm|webassembly|backend/i.test(msg) && !sessionStorage.getItem("qt-csp-reload")) {
           sessionStorage.setItem("qt-csp-reload", "1");
           fetch(location.href, { method: "HEAD", cache: "no-store" })
-            .then((r) => {
-              if ((r.headers.get("content-security-policy") ?? "").includes("wasm-unsafe-eval")) {
-                location.reload();
+            .then(async (r) => {
+              const csp = r.headers.get("content-security-policy") ?? "";
+              if (!csp.includes("wasm-unsafe-eval")) return;
+              // Server's policy is fixed but this document is stale — a
+              // reload alone can't help if the OLD service worker keeps
+              // serving the old page. Unregister it entirely so the next
+              // load registers a fresh SW from the network, then reload.
+              if ("serviceWorker" in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map((reg) => reg.unregister()));
               }
+              location.reload();
             })
             .catch(() => {});
         }
