@@ -5,7 +5,7 @@
  * state and flashes on suspects wherever you are in the app.
  */
 
-export type QtListen = "idle" | "warming" | "listening";
+export type QtListen = "idle" | "warming" | "listening" | "paused";
 
 export interface QtEvent {
   type: string;
@@ -176,6 +176,25 @@ export async function stopQt(): Promise<void> {
  * released from memory. Used when the engine is uninstalled; the next
  * startQt() spins up a fresh worker against the (now deleted) assets.
  */
+/**
+ * Pause — suspend the AudioContext so the worklet stops pushing frames,
+ * but the mic stream, worker, and loaded model all stay alive. Resume
+ * continues the same take from where it left off.
+ */
+export async function pauseQt(): Promise<void> {
+  if (listen !== "listening" || !audio) return;
+  try { await audio.ctx.suspend(); } catch {}
+  listen = "paused";
+  emit({ type: "ui-listen", state: "paused" });
+}
+
+export async function resumeQt(): Promise<void> {
+  if (listen !== "paused" || !audio) return;
+  try { await audio.ctx.resume(); } catch {}
+  listen = "listening";
+  emit({ type: "ui-listen", state: "listening" });
+}
+
 export async function teardownQt(): Promise<void> {
   await stopQt();
   worker?.terminate();

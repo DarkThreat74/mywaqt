@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Search, Square, Trash2, X } from "lucide-react";
+import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
 import { loadAyahPages, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
-import { qtPost, qtState, startQt, stopQt, subscribeQt, teardownQt } from "./session";
+import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt } from "./session";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on a real
@@ -16,8 +16,26 @@ import { qtPost, qtState, startQt, stopQt, subscribeQt, teardownQt } from "./ses
  * Self-contained under src/features/quran-tester/ — extractable later.
  */
 
-type ListenState = "idle" | "warming" | "listening";
+type ListenState = "idle" | "warming" | "listening" | "paused";
 const PAGE_COUNT = 604;
+
+let qtDingCtx: AudioContext | null = null;
+function ding(freq = 760) {
+  try {
+    qtDingCtx ??= new AudioContext();
+    const t = qtDingCtx.currentTime;
+    const o = qtDingCtx.createOscillator();
+    const g = qtDingCtx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.08, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    o.connect(g).connect(qtDingCtx.destination);
+    o.start(t);
+    o.stop(t + 0.4);
+  } catch {}
+}
 
 /** Standard Madani mushaf juz → start page (604-page edition). */
 const JUZ_PAGES = [1,22,42,62,82,102,121,142,162,182,201,222,242,262,282,302,322,342,362,382,402,422,442,462,482,502,522,542,562,582];
@@ -215,6 +233,7 @@ export default function QuranTesterClient() {
       const s = ev.surah as number, a = ev.ayah as number;
       setLoc({ surah: s, ayah: a });
       setStatus(`Found you — ${String(ev.surah_name ?? "")} ${s}:${a}`);
+      ding(760); // audible locate ping, even with the screen off-path
       goToAyah(s, a);
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {
       // While validating: surface what the engine decoded so a silent
@@ -360,10 +379,13 @@ export default function QuranTesterClient() {
     return undefined;
   }
 
-  function renderPage(p: number) {
+  function renderPage(p: number, interactive: boolean) {
     const data = pages.get(p);
     const fontReady = fonts.has(p);
     if (!data) {
+      // Adjacent strip slots render blank paper until loaded — a "Loading"
+      // label mid-swipe is exactly the flicker that broke the page-turn feel.
+      if (!interactive) return <div className="h-full" />;
       return (
         <div className="flex h-full flex-col items-center justify-center gap-2">
           {failedPages.has(p) ? (
@@ -609,14 +631,14 @@ export default function QuranTesterClient() {
             {/* prev page (right side in RTL reading) */}
             {page > 1 && (
               <div className="absolute inset-0" style={{ transform: "translateX(100%)" }}>
-                {renderPage(page - 1)}
+                {renderPage(page - 1, false)}
               </div>
             )}
-            <div className="absolute inset-0">{renderPage(page)}</div>
+            <div className="absolute inset-0">{renderPage(page, true)}</div>
             {/* next page (left side — mushaf turns left) */}
             {page < PAGE_COUNT && (
               <div className="absolute inset-0" style={{ transform: "translateX(-100%)" }}>
-                {renderPage(page + 1)}
+                {renderPage(page + 1, false)}
               </div>
             )}
           </div>
@@ -979,13 +1001,24 @@ export default function QuranTesterClient() {
                 </button>
               )}
             </div>
+            {(listen === "listening" || listen === "paused") && (
+              <button
+                onClick={() => (listen === "paused" ? void resumeQt() : void pauseQt())}
+                className="flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-[11px] font-bold transition-colors"
+                style={{ borderColor: "var(--color-accent)", backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                aria-label={listen === "paused" ? "Resume reciting" : "Pause reciting"}
+              >
+                {listen === "paused" ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                {listen === "paused" ? "Resume" : "Pause"}
+              </button>
+            )}
             <button
               onClick={() => (listening ? void stopRecite() : micDenied ? setMicHelp(true) : void startRecite())}
               className="qt-mic-fab relative flex items-center justify-center rounded-full transition-transform active:scale-90"
               style={{
                 width: 68,
                 height: 68,
-                backgroundColor: listening ? "var(--color-accent)" : micDenied ? "#b34a3a" : "var(--color-ink)",
+                backgroundColor: listen === "listening" ? "var(--color-accent)" : listen === "paused" ? "#c9a227" : micDenied ? "#b34a3a" : "var(--color-ink)",
                 color: "var(--color-paper)",
                 boxShadow: listening
                   ? "0 10px 32px color-mix(in oklab, var(--color-accent) 45%, transparent)"
@@ -1014,7 +1047,7 @@ export default function QuranTesterClient() {
               )}
             </button>
             <p className="qt-mic-label text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--color-ink-muted)" }}>
-              {listen === "listening" ? "Listening — tap to stop" : listen === "warming" ? "Warming up" : micDenied ? "Mic blocked — tap for help" : "Tap to recite"}
+              {listen === "listening" ? "Listening — tap to stop" : listen === "paused" ? "Paused — tap resume" : listen === "warming" ? "Warming up" : micDenied ? "Mic blocked — tap for help" : "Tap to recite"}
             </p>
           </div>
         </div>

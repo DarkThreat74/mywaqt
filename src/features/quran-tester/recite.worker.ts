@@ -20,6 +20,33 @@ let session: RecognitionSession | null = null;
 let sourceRate = 48000;
 let queue: Promise<void> = Promise.resolve();
 
+// Audio goes through a dedicated pump, NOT the message queue. Queuing every
+// chunk in order means a device that infers slower than realtime falls
+// behind permanently — the queue just grows. The pump merges pending chunks
+// and drops the oldest past a 1.5s backlog, so latency self-corrects.
+let feeding = false;
+let audioPending: Float32Array[] = [];
+const MAX_BACKLOG_SEC = 1.5;
+
+async function pumpAudio() {
+  if (feeding) return;
+  feeding = true;
+  try {
+    while (audioPending.length && session) {
+      const chunks = audioPending.splice(0);
+      const total = chunks.reduce((s, c) => s + c.length, 0);
+      const merged = new Float32Array(total);
+      let off = 0;
+      for (const c of chunks) { merged.set(c, off); off += c.length; }
+      await session.feed(resample(merged, sourceRate));
+    }
+  } catch (err) {
+    postMessage({ type: "error", message: err instanceof Error ? err.message : String(err) });
+  } finally {
+    feeding = false;
+  }
+}
+
 async function cached(url: string): Promise<Response> {
   const cache = await caches.open(ENGINE_CACHE);
   const hit = await cache.match(url);
@@ -87,14 +114,23 @@ self.onmessage = (e: MessageEvent) => {
     try {
       if (m.type === "init") {
         await init(m.sampleRate);
-      } else if (m.type === "audio" && session) {
-        await session.feed(resample(m.samples, sourceRate));
+      } else if (m.type === "audio") {
+        audioPending.push(m.samples);
+        // Drop the oldest frames past the backlog cap — better to skip a
+        // syllable than to trail the reciter by a growing delay.
+        let backlog = audioPending.reduce((s, c) => s + c.length, 0);
+        while (backlog > MAX_BACKLOG_SEC * sourceRate && audioPending.length > 1) {
+          backlog -= audioPending[0].length;
+          audioPending.shift();
+        }
+        void pumpAudio();
       } else if (m.type === "expect" && session) {
         session.zipformer?.setExpected(m.passage ?? null);
       } else if (m.type === "stop" && session) {
         await session.stop(); // events flow through onEvent
         postMessage({ type: "stopped" });
       } else if (m.type === "reset" && session) {
+        audioPending = [];
         session.reset();
       } else if (m.type === "correction-act" && session) {
         session.zipformer?.correction.act(m.action);

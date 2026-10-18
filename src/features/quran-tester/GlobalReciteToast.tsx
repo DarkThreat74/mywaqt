@@ -116,7 +116,7 @@ export default function GlobalReciteToast() {
           <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: border }} />
         </span>
         <Link href="/quran-tester" className="text-xs font-bold" style={{ color: "var(--color-ink)" }}>
-          {flash === "suspect" ? "Possible mistake — tap to review" : "Listening — Quran Tester"}
+          {flash === "suspect" ? "Possible mistake — tap to review" : listen === "paused" ? "Paused — Quran Tester" : "Listening — Quran Tester"}
         </Link>
         <button
           onClick={() => void stopQt()}
