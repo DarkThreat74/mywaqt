@@ -64,7 +64,18 @@ export async function startQt(): Promise<void> {
         emit({ type: "ui-status", message: String(ev.message ?? "Loading…") });
       } else if (ev.type === "error") {
         const msg = String(ev.message ?? "Engine error");
-        emit({ type: "ui-error", message: msg });
+        // Probe the RUNNING document's effective policy: new Function throws
+        // only when the live CSP lacks 'unsafe-eval'. Paired with the server's
+        // fresh header, this pinpoints which layer is stale: document vs
+        // worker context vs neither.
+        let docBlocked = "?";
+        try {
+          new Function("return 1")();
+          docBlocked = "no";
+        } catch {
+          docBlocked = "yes";
+        }
+        emit({ type: "ui-error", message: `${msg} [doc-eval-blocked: ${docBlocked}]` });
         void stopQt();
         // If this is a wasm/CSP failure, the running document may just be
         // stale (a PWA keeps its headers from page-load time). Check the
