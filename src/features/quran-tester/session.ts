@@ -170,3 +170,14 @@ export async function stopQt(): Promise<void> {
   listen = "idle";
   emit({ type: "ui-listen", state: "idle" });
 }
+
+/**
+ * Full teardown — stop the mic AND kill the worker so the loaded model is
+ * released from memory. Used when the engine is uninstalled; the next
+ * startQt() spins up a fresh worker against the (now deleted) assets.
+ */
+export async function teardownQt(): Promise<void> {
+  await stopQt();
+  worker?.terminate();
+  worker = null;
+}

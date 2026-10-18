@@ -6,7 +6,7 @@ import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, ListChecks, Loa
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
 import { loadAyahPages, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
-import { qtPost, qtState, startQt, stopQt, subscribeQt } from "./session";
+import { qtPost, qtState, startQt, stopQt, subscribeQt, teardownQt } from "./session";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on a real
@@ -165,9 +165,15 @@ export default function QuranTesterClient() {
   }
 
   async function remove() {
-    await stopRecite();
-    await uninstallEngine();
-    setInstalled(false);
+    try {
+      await teardownQt(); // stop mic + kill worker — releases the loaded model
+      await uninstallEngine();
+      const gone = !(await engineInstalled());
+      setInstalled(!gone);
+      if (!gone) setMicError("Engine could not be fully removed — clear site data in browser settings.");
+    } catch {
+      setMicError("Remove failed — clear site data in browser settings.");
+    }
   }
 
   async function startRecite() {

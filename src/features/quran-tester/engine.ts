@@ -108,5 +108,15 @@ export async function downloadEngine(
 
 export async function uninstallEngine(): Promise<void> {
   localStorage.removeItem(LS_KEY);
-  if (typeof caches !== "undefined") await caches.delete(ENGINE_CACHE);
+  if (typeof caches === "undefined") return;
+  // Mushaf pages/fonts share this bucket via write-through — nuking the
+  // whole bucket is correct (they re-download lazily on next view).
+  await caches.delete(ENGINE_CACHE);
+  // Verify: if the bucket somehow still holds the model, evict keys one by
+  // one — a half-deleted engine is worse than a clean one either way.
+  const still = await engineInstalled();
+  if (still) {
+    const cache = await caches.open(ENGINE_CACHE);
+    for (const a of ENGINE_ASSETS) await cache.delete(engineUrl(a));
+  }
 }
