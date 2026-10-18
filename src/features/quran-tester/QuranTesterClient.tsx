@@ -345,8 +345,11 @@ export default function QuranTesterClient() {
       return;
     }
     // Outside the buffer — a real jump.
-    // "follow" lets the anchor drift; "hold" pins it at `anchor`.
+    // "follow" lets the anchor drift; "hold" pins it at `anchor` AND pulls
+    // the tracker back — in hold there is no relocation, only a flagged
+    // move. The cursor stays on the pin until "Continue here".
     if (anchorModeRef.current === "follow") anchorRef.current = loc;
+    else qtPost({ type: "reanchor", s: anchor.s, a: anchor.a, w: lastGoodWord(anchor).w });
     jumpRef.current = { to: loc, expected: anchor, at: Date.now() };
     setJump(jumpRef.current);
     setPin(lastGoodWord(anchor)); // last word read correctly, underlined blue
@@ -1138,7 +1141,7 @@ export default function QuranTesterClient() {
             </div>
             <div className="mt-2 flex items-center gap-1.5">
               <button
-                onClick={() => { anchorRef.current = jump.to; dismissJump(); }}
+                onClick={() => { anchorRef.current = jump.to; qtPost({ type: "reanchor", s: jump.to.s, a: jump.to.a, w: 0 }); dismissJump(); }}
                 className="flex-1 rounded-full px-2 py-1.5 text-xs font-bold"
                 style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
                 title="Accept the new location as your expected track"

@@ -24,8 +24,21 @@ index a7301ef1e1808b17266cd4579ce67a545df80f93..527aa16b6a9185b7fbfe3aaddf51b7d7
                  return false;
              this.state = { ...this.state, phase: 'corrected', outcome: 'corrected' };
              return true;
+diff --git a/dist/recitation/session.d.ts b/dist/recitation/session.d.ts
+index 24b499da2620635fe81a758e92e6b043b90caae2..6d4790ba8860738c9517fdd67cf628232619a1a0 100644
+--- a/dist/recitation/session.d.ts
++++ b/dist/recitation/session.d.ts
+@@ -230,6 +230,8 @@ export declare class ZipformerSession {
+     private correctionMessage;
+     /** Alias of {@link stop} — end of audio, flush the tail, emit the sequence. */
+     flush(): Promise<WorkerOutbound[]>;
++    /** Move the tracker to an explicit position (re-anchor after a rejected relocation). */
++    track(surah: number, ayah: number, word?: number): void;
+     stop(): Promise<WorkerOutbound[]>;
+     private finish;
+     private makeEngine;
 diff --git a/dist/recitation/session.js b/dist/recitation/session.js
-index 3d7030cac860a410c42f7a14ba5042fa160bb0f6..1c322df8142a3d15d82e2e3be55f319cff90f4de 100644
+index 3d7030cac860a410c42f7a14ba5042fa160bb0f6..39414f58d24e40f4b1f4d42e0d01772d0825a2b6 100644
 --- a/dist/recitation/session.js
 +++ b/dist/recitation/session.js
 @@ -33,7 +33,7 @@ const TAIL_SECONDS = 2.0;
@@ -37,3 +50,18 @@ index 3d7030cac860a410c42f7a14ba5042fa160bb0f6..1c322df8142a3d15d82e2e3be55f319c
  /** I/O manifest of the default `zipformer_a0w_ep1_a05.int8.onnx` (its encoder-frame
   * output is optional, so the same manifest drives `zipformer_interp_gentle_a05.int8.onnx`). */
  export const DEFAULT_ZIPFORMER_IO = DEFAULT_IO;
+@@ -340,6 +340,14 @@ export class ZipformerSession {
+             out.push(...this.raiseStructural());
+         return this.dispatch(out);
+     }
++    /** Move the tracker to an explicit position — lets a host re-anchor
++     *  after a rejected relocation (hold-to-passage). Mirrors the
++     *  correction-resume path: fresh engine, same corpus/index/config. */
++    track(surah, ayah, word = 0) {
++        this.engine = this.makeEngine();
++        this.engine.track(surah, ayah, word);
++        this.lastCursor = { surah, ayah, word };
++    }
+     correctionMessage() {
+         const issue = this.correction.state.issue;
+         return { type: 'correction', state: { ...this.correction.state },

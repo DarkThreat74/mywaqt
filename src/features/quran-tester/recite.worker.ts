@@ -194,6 +194,10 @@ self.onmessage = (e: MessageEvent) => {
         session.reset();
       } else if (m.type === "correction-act" && session) {
         session.zipformer?.correction.act(m.action);
+      } else if (m.type === "reanchor" && session) {
+        // Hold mode: a rejected relocation snaps the tracker back to the
+        // pinned ayah — the move is flagged, the cursor stays put.
+        session.zipformer?.track(m.s as number, m.a as number, (m.w as number) ?? 0);
       } else if (m.type === "mode" && session) {
         session.zipformer?.correction.setMode(m.mode);
       }
