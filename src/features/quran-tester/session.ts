@@ -41,11 +41,9 @@ export async function startQt(): Promise<void> {
   emit({ type: "ui-listen", state: "warming" });
 
   if (!worker) {
-    const workerUrl = new URL("./recite.worker.ts", import.meta.url);
-    // Bump on worker/CSP fixes — _next/static responses are cached immutable,
-    // so a stale entry could carry old headers. The query busts that entry.
-    workerUrl.searchParams.set("v", "3");
-    worker = new Worker(workerUrl);
+    // A dedicated worker's CSP comes from its script response's headers —
+    // stale cached/edge entries are re-stamped by the SW (_next/static branch).
+    worker = new Worker(new URL("./recite.worker.ts", import.meta.url));
     worker.onmessage = (e) => {
       const ev = e.data as QtEvent;
       if (ev.type === "ready") {
