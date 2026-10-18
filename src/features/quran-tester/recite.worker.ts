@@ -121,10 +121,10 @@ async function init(sampleRate: number) {
   // omission (1) and substitutions at distance 0.6. Only near-total omissions
   // and clearly-different substitutions should ever surface yellow.
   if (session.zipformer) Object.assign(session.zipformer.correction.thresholds, {
-    omissionMaxHeard: 0.3,
-    substitutionDistance: 0.8,
-    vowelMargin: 0.1,
-    vowelWordMargin: 0.9,
+    omissionMaxHeard: 0.15,
+    substitutionDistance: 0.9,
+    vowelMargin: 0.15,
+    vowelWordMargin: 0.95,
   });
   postMessage({ type: "ready" });
 }
