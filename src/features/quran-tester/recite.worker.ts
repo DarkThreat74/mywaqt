@@ -127,9 +127,9 @@ async function init(sampleRate: number) {
       // values (~1.2s + 1.5s + ~100 chars) added up to the ~5s delay before
       // the ding. These still cost a global search each fire, but only
       // while the tracker is already struggling.
-      holdWindow: 20,
-      relocateEveryFrames: 25,
-      relocateQueryChars: 60,
+      holdWindow: 15,
+      relocateEveryFrames: 20,
+      relocateQueryChars: 45,
     },
     debug: true,
   } as Parameters<typeof createRecognitionSession>[0]);

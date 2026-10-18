@@ -11,7 +11,7 @@ import {
   savePlan, stampDay, isDayDone, maybeKhatma, todayKey, todaySpan,
   type AyahIndex, type Loc, type Plan,
 } from "./plan";
-import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
+import { pauseQt, qtOrb, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on a real
@@ -123,6 +123,10 @@ export default function QuranTesterClient() {
   const ixRef = useRef<AyahIndex | null>(null);
   const covRef = useRef<Set<string>>(new Set());
   const spanRef = useRef<Loc[]>([]);
+  // Render-safe mirrors — the render path may never touch a ref.
+  const [covSnap, setCovSnap] = useState<Set<string>>(new Set());
+  const [spanSnap, setSpanSnap] = useState<Loc[]>([]);
+  const [spanText, setSpanText] = useState("");
   const anchorRef = useRef<Loc | null>(null);
   const heardRef = useRef<{ loc: Loc | null; max: number; total: number }>({ loc: null, max: 0, total: 0 });
   const sessionCovRef = useRef<Set<string>>(new Set());
@@ -144,12 +148,11 @@ export default function QuranTesterClient() {
   const dragRef = useRef<{ x0: number; active: boolean }>({ x0: 0, active: false });
 
   const pageRef = useRef(page);
-  const handlerRef = useRef(onEngineEvent);
+  const handlerRef = useRef<(ev: Record<string, unknown>) => void>(() => {});
   const ayahPagesRef = useRef(ayahPages);
 
   useEffect(() => {
     pageRef.current = page;
-    handlerRef.current = onEngineEvent;
     ayahPagesRef.current = ayahPages;
     planRef.current = plan;
     suspectsRef.current = suspects;
@@ -180,10 +183,30 @@ export default function QuranTesterClient() {
     spanDayRef.current = todayKey();
     const p = planRef.current, ix = ixRef.current, ap = ayahPagesRef.current;
     spanRef.current = p && ix && ap ? todaySpan(ix, ap, p, covRef.current) : [];
+    setSpanSnap(spanRef.current);
+    // The chip's "Juz 3–4"/"2:255–2:260" label, computed here because it
+    // needs the refs — render never touches them.
+    const span = spanRef.current;
+    if (!span.length) { setSpanText(""); return; }
+    const last = span[span.length - 1];
+    if (p?.unit === "juz" && ix) {
+      const jAt = (l: Loc) => {
+        const o = ix.ord.get(keyOf(l)) ?? 0;
+        let j = 0;
+        for (let i = 0; i < JUZ_START.length; i++)
+          if ((ix.ord.get(keyOf(JUZ_START[i])) ?? Infinity) <= o) j = i;
+        return j + 1;
+      };
+      const j1 = jAt(span[0]), j2 = jAt(last);
+      setSpanText(j1 === j2 ? `Juz ${j1}` : `Juz ${j1}–${j2}`);
+    } else {
+      setSpanText(`${span[0].s}:${span[0].a}–${last.s}:${last.a}`);
+    }
   }
 
   useEffect(() => {
     covRef.current = loadCoverage();
+    setCovSnap(covRef.current);
     loadAyahPages().then((ap) => { setAyahPages(ap); ixRef.current = buildIndex(ap); refreshSpan(); }).catch(() => {});
     loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
     loadSurahMeta().then(setSurahMeta).catch(() => {});
@@ -245,7 +268,7 @@ export default function QuranTesterClient() {
   // (silenceJump only hides the popup, hold state stays armed).
   useEffect(() => {
     if (!jump) return;
-    const t = setTimeout(silenceJump, 10000);
+    const t = setTimeout(() => { jumpRef.current = null; setJump(null); }, 10000);
     return () => clearTimeout(t);
   }, [jump]);
 
@@ -327,6 +350,7 @@ export default function QuranTesterClient() {
     setPin(lastGoodWord(anchor)); // last word read correctly, underlined blue
     markDiversion(loc);
     ding3(); // ding-ding-ding — you moved
+    qtOrb("alert", `Moved to ${loc.s}:${loc.a}`);
     qtPost({ type: "correction-act", action: "continue" }); // release a stale issue — else detection freezes
   }
   /** The last word actually heard in `l`'s ayah — the exact resume point. */
@@ -371,6 +395,7 @@ export default function QuranTesterClient() {
     jumpRef.current = null;
     setJump(null);
     setPin(null);
+    qtOrb("ok");
     if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
   }
   /** Close the toast but KEEP the pin — the bookmark and auto-resolve still
@@ -402,6 +427,7 @@ export default function QuranTesterClient() {
   function coverLoc(l: Loc) {
     sessionCovRef.current.add(keyOf(l));
     markCovered(covRef.current, l);
+    setCovSnap(new Set(covRef.current));
     if (planRef.current?.missedPolicy === "recompute") refreshSpan();
     checkDay();
   }
@@ -447,28 +473,6 @@ export default function QuranTesterClient() {
   function surahName(s: number) {
     const m = surahMeta?.find((x) => x.s === s);
     return m ? `${m.name} · ${m.en ?? s}` : `سورة ${s}`;
-  }
-
-  /** Today's span label shown inside the settings chip's progress area. */
-  function spanLabel(): string {
-    const span = spanRef.current;
-    if (!span.length) return "";
-    const last = span[span.length - 1];
-    const p = planRef.current;
-    if (p?.unit === "juz") {
-      const ix = ixRef.current;
-      const jAt = (l: Loc) => {
-        if (!ix) return 0;
-        const o = ix.ord.get(keyOf(l)) ?? 0;
-        let j = 0;
-        for (let i = 0; i < JUZ_START.length; i++)
-          if ((ix.ord.get(keyOf(JUZ_START[i])) ?? Infinity) <= o) j = i;
-        return j + 1;
-      };
-      const j1 = jAt(span[0]), j2 = jAt(last);
-      return j1 === j2 ? `Juz ${j1}` : `Juz ${j1}–${j2}`;
-    }
-    return `${span[0].s}:${span[0].a}–${last.s}:${last.a}`;
   }
 
   function onSearch(v: string) {
@@ -629,6 +633,7 @@ export default function QuranTesterClient() {
           suspectsRef.current.delete(k);
           setSuspects((prev) => { const n = new Map(prev); n.delete(k); return n; });
           lastIssueKeyRef.current = null;
+          qtOrb("ok");
           checkDay();
         }
         setPending(null);
@@ -650,6 +655,7 @@ export default function QuranTesterClient() {
         if (!suspectsRef.current.has(skey)) {
           suspectsRef.current.set(skey, i.kind); // inline — checkDay can't wait for render
           ding(330, 0.06, 0.25); // low soft tone — a new suspect, not a chime
+          qtOrb("alert", `${issueLabel(i.kind)} — ${i.surah}:${i.ayah}`);
           setSuspects((prev) => new Map(prev).set(skey, i.kind));
         }
         if (ev.type === "correction") {
@@ -668,6 +674,10 @@ export default function QuranTesterClient() {
       }
     }
   }
+
+  // Point the subscription's stable callback at the latest handler — kept
+  // textually after onEngineEvent so the binding is already declared.
+  useEffect(() => { handlerRef.current = onEngineEvent; });
 
   const issueLabel = (kind: string) =>
     ({
@@ -907,7 +917,7 @@ export default function QuranTesterClient() {
                 const heard = loc && loc.surah === s && loc.ayah === a && wordIdx !== null && wiN <= wordIdx;
                 // Cumulative reveal: an ayah once covered stays visible on
                 // every page you scroll back to — only unrecited words hide.
-                const coveredAyah = covRef.current.has(`${s}:${a}`);
+                const coveredAyah = covSnap.has(`${s}:${a}`);
                 const hidden = memorize && !coveredAyah && !heard && !revealed.has(key);
                 return (
                   <span
@@ -1042,7 +1052,7 @@ export default function QuranTesterClient() {
       </div>
 
       {/* Goal progress chip — only while a plan is active */}
-      {plan && spanRef.current.length > 0 && (
+      {plan && spanSnap.length > 0 && (
         <div className="mx-auto mt-1.5 flex w-full max-w-3xl items-center gap-2 px-3 sm:px-6">
           <button
             onClick={() => setPlanOpen(true)}
@@ -1054,13 +1064,13 @@ export default function QuranTesterClient() {
             {!dayDone && (
               <span className="flex min-w-0 items-center gap-1.5" style={{ color: "var(--color-ink-muted)" }}>
                 <span className="truncate text-[9px] tabular-nums">
-                  {spanLabel()} {Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%
+                  {spanText} {Math.round((coveredInSpan(spanSnap, covSnap) / spanSnap.length) * 100)}%
                 </span>
                 <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
                   <span
                     className="block h-full rounded-full transition-[width] duration-300"
                     style={{
-                      width: `${Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%`,
+                      width: `${Math.round((coveredInSpan(spanSnap, covSnap) / spanSnap.length) * 100)}%`,
                       backgroundColor: "var(--color-accent)",
                     }}
                   />

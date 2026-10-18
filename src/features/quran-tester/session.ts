@@ -26,6 +26,103 @@ function emit(ev: QtEvent) {
 let worker: Worker | null = null;
 let audio: { ctx: AudioContext; stream: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode } | null = null;
 let listen: QtListen = "idle";
+
+// ── Screen-wake + background "orb" notification ────────────────────────
+// Wake Lock keeps the screen on while reciting. For the notification:
+// Chrome/Android only shows a persistent media notification for a real
+// <audio> element playing >5s, so a looping silent WAV is played for the
+// session's life and the mediaSession metadata carries a generated orb —
+// green while tracking is clean, red when a suspect/jump flags.
+let wakeLock: { release(): Promise<void> } | null = null;
+let silentEl: HTMLAudioElement | null = null;
+const orbUrls: Partial<Record<"ok" | "alert", string>> = {};
+
+function orbUrl(kind: "ok" | "alert"): string {
+  const hit = orbUrls[kind];
+  if (hit) return hit;
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d")!;
+  const col = kind === "ok" ? "#2e9e6b" : "#c0392b";
+  const grad = g.createRadialGradient(108, 100, 20, 128, 128, 110);
+  grad.addColorStop(0, kind === "ok" ? "#7ed3a8" : "#e98a7d");
+  grad.addColorStop(1, col);
+  g.fillStyle = "#1c1a17";
+  g.fillRect(0, 0, 256, 256);
+  g.beginPath();
+  g.arc(128, 128, 92, 0, Math.PI * 2);
+  g.fillStyle = grad;
+  g.fill();
+  const url = c.toDataURL("image/png");
+  orbUrls[kind] = url;
+  return url;
+}
+
+/** 6s of silence as a WAV data URI — long enough to satisfy the >5s
+ *  media-notification floor, tiny enough to inline. */
+let silentWavUrl = "";
+function silentWav(): string {
+  if (silentWavUrl) return silentWavUrl;
+  const rate = 8000, secs = 6, n = rate * secs;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const w = (o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE");
+  w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+  let bin = "";
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i += 8192)
+    bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  silentWavUrl = `data:audio/wav;base64,${btoa(bin)}`;
+  return silentWavUrl;
+}
+
+/** Swap the notification orb + title. Call on suspects/jumps ("alert") and
+ *  when tracking is clean again ("ok"). */
+export function qtOrb(state: "ok" | "alert", detail?: string) {
+  if (!silentEl || !("mediaSession" in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: state === "alert" ? "Possible mistake — check the page" : "Reciting — following along",
+      artist: detail ?? "Quran Tester",
+      artwork: [{ src: orbUrl(state), sizes: "256x256", type: "image/png" }],
+    });
+  } catch { /* mediaSession metadata best-effort */ }
+}
+
+function armKeepAlive() {
+  if (typeof navigator !== "undefined" && "wakeLock" in navigator) {
+    navigator.wakeLock.request("screen").then((l) => { wakeLock = l; }).catch(() => {});
+  }
+  try {
+    if (!silentEl) {
+      silentEl = new Audio(silentWav());
+      silentEl.loop = true;
+      silentEl.volume = 0;
+    }
+    void silentEl.play().catch(() => {});
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.playbackState = "playing";
+      qtOrb("ok");
+      try {
+        navigator.mediaSession.setActionHandler("pause", () => { void pauseQt(); });
+        navigator.mediaSession.setActionHandler("play", () => { void resumeQt(); });
+        navigator.mediaSession.setActionHandler("stop", () => { void stopQt(); });
+      } catch {}
+    }
+  } catch { /* notification is best-effort — recitation never depends on it */ }
+}
+
+function disarmKeepAlive() {
+  void wakeLock?.release().catch(() => {});
+  wakeLock = null;
+  try { silentEl?.pause(); } catch {}
+  if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+    try { navigator.mediaSession.playbackState = "none"; } catch {}
+  }
+}
 // Cross-tab mutex — only one tab may run the listener (a second tab would
 // warm a second 66MB model and fight over the mic).
 let releaseLock: (() => void) | null = null;
@@ -100,6 +197,7 @@ function ensureWorker() {
         // listening when a mic session is actually warming up.
         if (listen === "warming") {
           listen = "listening";
+          armKeepAlive();
           emit({ type: "ui-status", message: "Listening — recite anywhere in the Quran" });
         }
       } else if (ev.type === "loading_status") {
@@ -270,10 +368,15 @@ export async function startQt(): Promise<void> {
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && listen === "listening") void pauseQt();
+    // The browser drops the wake lock while hidden — reclaim on return.
+    if (!document.hidden && listen === "listening" && !wakeLock && "wakeLock" in navigator) {
+      navigator.wakeLock.request("screen").then((l) => { wakeLock = l; }).catch(() => {});
+    }
   });
 }
 
 export async function stopQt(): Promise<void> {
+  disarmKeepAlive();
   worker?.postMessage({ type: "stop" });
   dropLock();
   const a = audio;
@@ -302,6 +405,8 @@ export async function pauseQt(): Promise<void> {
   if (listen !== "listening" || !audio) return;
   try { await audio.ctx.suspend(); } catch {}
   listen = "paused";
+  void wakeLock?.release().catch(() => {});
+  wakeLock = null;
   emit({ type: "ui-listen", state: "paused" });
 }
 
@@ -309,6 +414,7 @@ export async function resumeQt(): Promise<void> {
   if (listen !== "paused" || !audio) return;
   try { await audio.ctx.resume(); } catch {}
   listen = "listening";
+  armKeepAlive(); // re-request the wake lock — paused released it
   emit({ type: "ui-listen", state: "listening" });
 }
 
