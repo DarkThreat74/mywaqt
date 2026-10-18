@@ -137,10 +137,30 @@ export default function QuranTesterClient() {
   }, [page, pages, listen]);
 
   /** Anchor the engine to the ayah range on screen — it locks in seconds
-   *  instead of searching all 6,236 ayahs. */
+   *  instead of searching all 6,236 ayahs. Falls back to the precached
+   *  ayah→page index so the anchor still lands offline on pages whose
+   *  mushaf JSON was never visited (the old code returned early, leaving
+   *  the engine unanchored — slow, weaker locks). */
   function expectForPage(p: number) {
     const data = pages.get(p);
-    if (!data) return;
+    if (!data) {
+      const ap = ayahPagesRef.current;
+      if (!ap) return;
+      const bySurah = new Map<number, { min: number; max: number; n: number }>();
+      for (const [s, ayahs] of Object.entries(ap)) {
+        for (const [a, pg] of Object.entries(ayahs)) {
+          if (pg !== p) continue;
+          const si = Number(s), ai = Number(a);
+          const e = bySurah.get(si) ?? { min: ai, max: ai, n: 0 };
+          e.min = Math.min(e.min, ai); e.max = Math.max(e.max, ai); e.n++;
+          bySurah.set(si, e);
+        }
+      }
+      let best: { s: number; min: number; max: number; n: number } | null = null;
+      for (const [s, e] of bySurah) if (!best || e.n > best.n) best = { ...e, s };
+      if (best) qtPost({ type: "expect", passage: { surah: best.s, ayah: best.min, ayahEnd: best.max } });
+      return;
+    }
     const bySurah = new Map<number, { min: number; max: number; words: number }>();
     for (const line of data.lines) {
       for (const w of line.words ?? []) {

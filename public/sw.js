@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v85";
+const CACHE_VERSION = "waqt-v86";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -58,6 +58,7 @@ const PRECACHE_URLS = [
   "/icon-badge.png",
   "/offline.html",
   "/data/ayah-pages.json",
+  "/data/surah-meta.json",
   "/worklets/qt-capture.js",
 ];
 
@@ -1248,6 +1249,10 @@ self.addEventListener("fetch", (event) => {
     url.origin === self.location.origin &&
     (url.pathname.startsWith("/_next/static/") ||
       url.pathname.startsWith("/worklets/") ||
+      // /data/ holds immutable statics (mushaf page JSON, ayah/surah
+      // indexes) — offline mushaf loads failed without this branch and
+      // left the recite engine unanchored.
+      url.pathname.startsWith("/data/") ||
       url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|woff2?)$/))
   ) {
     event.respondWith(
