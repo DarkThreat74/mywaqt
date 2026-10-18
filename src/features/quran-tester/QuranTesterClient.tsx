@@ -350,7 +350,7 @@ export default function QuranTesterClient() {
     setPin(lastGoodWord(anchor)); // last word read correctly, underlined blue
     markDiversion(loc);
     ding3(); // ding-ding-ding — you moved
-    qtOrb("alert", `Moved to ${loc.s}:${loc.a}`);
+    qtOrb("alert", `${surahName(anchor.s)} ${anchor.s}:${anchor.a}`);
     qtPost({ type: "correction-act", action: "continue" }); // release a stale issue — else detection freezes
   }
   /** The last word actually heard in `l`'s ayah — the exact resume point. */
@@ -395,7 +395,7 @@ export default function QuranTesterClient() {
     jumpRef.current = null;
     setJump(null);
     setPin(null);
-    qtOrb("ok");
+    qtOrb("ok", locLiveRef.current ? `${surahName(locLiveRef.current.s)} ${locLiveRef.current.s}:${locLiveRef.current.a}` : undefined);
     if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
   }
   /** Close the toast but KEEP the pin — the bookmark and auto-resolve still
@@ -633,7 +633,7 @@ export default function QuranTesterClient() {
           suspectsRef.current.delete(k);
           setSuspects((prev) => { const n = new Map(prev); n.delete(k); return n; });
           lastIssueKeyRef.current = null;
-          qtOrb("ok");
+          qtOrb("ok", locLiveRef.current ? `${surahName(locLiveRef.current.s)} ${locLiveRef.current.s}:${locLiveRef.current.a}` : undefined);
           checkDay();
         }
         setPending(null);
@@ -655,7 +655,7 @@ export default function QuranTesterClient() {
         if (!suspectsRef.current.has(skey)) {
           suspectsRef.current.set(skey, i.kind); // inline — checkDay can't wait for render
           ding(330, 0.06, 0.25); // low soft tone — a new suspect, not a chime
-          qtOrb("alert", `${issueLabel(i.kind)} — ${i.surah}:${i.ayah}`);
+          qtOrb("alert", `${surahName(i.surah)} ${i.surah}:${i.ayah}`);
           setSuspects((prev) => new Map(prev).set(skey, i.kind));
         }
         if (ev.type === "correction") {

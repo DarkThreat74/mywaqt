@@ -35,23 +35,48 @@ let listen: QtListen = "idle";
 // green while tracking is clean, red when a suspect/jump flags.
 let wakeLock: { release(): Promise<void> } | null = null;
 let silentEl: HTMLAudioElement | null = null;
-const orbUrls: Partial<Record<"ok" | "alert", string>> = {};
+let flashTimer: ReturnType<typeof setInterval> | null = null;
+const orbUrls: Partial<Record<"ok" | "alert" | "alert-hi", string>> = {};
 
-function orbUrl(kind: "ok" | "alert"): string {
+/** A small luminous orb on dark paper — drawn, not generated. Three stops
+ *  of radial light, a hairline ring, and a faint outer halo so it reads at
+ *  24px notification size. `alert-hi` is the brighter flash frame. */
+function orbUrl(kind: "ok" | "alert" | "alert-hi"): string {
   const hit = orbUrls[kind];
   if (hit) return hit;
   const c = document.createElement("canvas");
   c.width = c.height = 256;
   const g = c.getContext("2d")!;
-  const col = kind === "ok" ? "#2e9e6b" : "#c0392b";
-  const grad = g.createRadialGradient(108, 100, 20, 128, 128, 110);
-  grad.addColorStop(0, kind === "ok" ? "#7ed3a8" : "#e98a7d");
-  grad.addColorStop(1, col);
-  g.fillStyle = "#1c1a17";
+  const core = kind === "ok" ? "#3fae7c" : kind === "alert" ? "#d84f3d" : "#f06a52";
+  const glow = kind === "ok" ? "#57d59c" : kind === "alert" ? "#ff7a60" : "#ff9a86";
+  // Ground — deep warm ink, not pure black.
+  g.fillStyle = "#17130f";
   g.fillRect(0, 0, 256, 256);
+  // Halo — wide, faint, so the orb feels lit rather than pasted.
+  const halo = g.createRadialGradient(128, 128, 30, 128, 128, 128);
+  halo.addColorStop(0, `${core}66`);
+  halo.addColorStop(1, `${core}00`);
+  g.fillStyle = halo;
+  g.fillRect(0, 0, 256, 256);
+  // Orb — lit from top-left, core falling to a darker rim.
+  const body = g.createRadialGradient(100, 92, 8, 128, 128, 86);
+  body.addColorStop(0, glow);
+  body.addColorStop(0.55, core);
+  body.addColorStop(1, kind === "ok" ? "#1d6b4a" : "#7d241a");
   g.beginPath();
-  g.arc(128, 128, 92, 0, Math.PI * 2);
-  g.fillStyle = grad;
+  g.arc(128, 128, 78, 0, Math.PI * 2);
+  g.fillStyle = body;
+  g.fill();
+  // Hairline ring — the "seal" edge that keeps it from looking flat.
+  g.beginPath();
+  g.arc(128, 128, 84, 0, Math.PI * 2);
+  g.lineWidth = 3;
+  g.strokeStyle = `${glow}55`;
+  g.stroke();
+  // Top glint.
+  g.beginPath();
+  g.ellipse(104, 96, 26, 14, -0.6, 0, Math.PI * 2);
+  g.fillStyle = "rgba(255,255,255,0.28)";
   g.fill();
   const url = c.toDataURL("image/png");
   orbUrls[kind] = url;
@@ -79,16 +104,32 @@ function silentWav(): string {
   return silentWavUrl;
 }
 
-/** Swap the notification orb + title. Call on suspects/jumps ("alert") and
- *  when tracking is clean again ("ok"). */
+/** Swap the notification orb + text. "alert" flashes the orb red (two
+ *  artwork frames alternating); `detail` is the ayah shown beside it —
+ *  e.g. "Al-Baqarah · 2:255" — so the reciter can see where to resume. */
 export function qtOrb(state: "ok" | "alert", detail?: string) {
-  if (!silentEl || !("mediaSession" in navigator)) return;
+  if (!("mediaSession" in navigator)) return;
   try {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: state === "alert" ? "Possible mistake — check the page" : "Reciting — following along",
-      artist: detail ?? "Quran Tester",
-      artwork: [{ src: orbUrl(state), sizes: "256x256", type: "image/png" }],
-    });
+    if (state === "alert") {
+      let hi = false;
+      const paint = () => {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: detail ? `Mistake at ${detail}` : "Possible mistake — check the page",
+          artist: detail ? `Continue from ${detail}` : "Quran Tester",
+          artwork: [{ src: orbUrl(hi ? "alert-hi" : "alert"), sizes: "256x256", type: "image/png" }],
+        });
+        hi = !hi;
+      };
+      paint();
+      if (!flashTimer) flashTimer = setInterval(paint, 800);
+    } else {
+      if (flashTimer) { clearInterval(flashTimer); flashTimer = null; }
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: detail ? `Reciting — ${detail}` : "Reciting — following along",
+        artist: "Quran Tester",
+        artwork: [{ src: orbUrl("ok"), sizes: "256x256", type: "image/png" }],
+      });
+    }
   } catch { /* mediaSession metadata best-effort */ }
 }
 
@@ -118,6 +159,7 @@ function armKeepAlive() {
 function disarmKeepAlive() {
   void wakeLock?.release().catch(() => {});
   wakeLock = null;
+  if (flashTimer) { clearInterval(flashTimer); flashTimer = null; }
   try { silentEl?.pause(); } catch {}
   if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
     try { navigator.mediaSession.playbackState = "none"; } catch {}
