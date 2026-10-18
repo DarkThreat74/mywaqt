@@ -50,8 +50,23 @@ export async function startQt(): Promise<void> {
       } else if (ev.type === "loading_status") {
         emit({ type: "ui-status", message: String(ev.message ?? "Loading…") });
       } else if (ev.type === "error") {
-        emit({ type: "ui-error", message: String(ev.message ?? "Engine error") });
+        const msg = String(ev.message ?? "Engine error");
+        emit({ type: "ui-error", message: msg });
         void stopQt();
+        // If this is a wasm/CSP failure, the running document may just be
+        // stale (a PWA keeps its headers from page-load time). Check the
+        // fresh headers — if the server already allows wasm, one reload
+        // fixes it; guard the loop with a session flag.
+        if (/wasm|webassembly|backend/i.test(msg) && !sessionStorage.getItem("qt-csp-reload")) {
+          sessionStorage.setItem("qt-csp-reload", "1");
+          fetch(location.href, { method: "HEAD", cache: "no-store" })
+            .then((r) => {
+              if ((r.headers.get("content-security-policy") ?? "").includes("wasm-unsafe-eval")) {
+                location.reload();
+              }
+            })
+            .catch(() => {});
+        }
         return;
       }
       emit(ev);
