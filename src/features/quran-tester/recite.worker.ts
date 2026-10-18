@@ -28,6 +28,12 @@ async function cached(url: string): Promise<Response> {
 }
 
 async function init(sampleRate: number) {
+  // Re-init would stack a second 66MB ONNX session on the first — the
+  // session persists across recitations; only reset() runs between takes.
+  if (session) {
+    postMessage({ type: "ready" });
+    return;
+  }
   sourceRate = sampleRate;
   postMessage({ type: "loading_status", message: "Warming up the engine…" });
 

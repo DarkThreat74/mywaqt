@@ -40,7 +40,10 @@ export default function GlobalReciteToast() {
 
   useEffect(() => {
     const unsub = subscribeQt((ev) => {
-      if (ev.type === "ui-listen") setListen(ev.state as QtListen);
+      if (ev.type === "ui-listen") {
+        setListen(ev.state as QtListen);
+        if (ev.state !== "idle") setError(null); // fresh take — clear stale error
+      }
       if (ev.type === "correction" || ev.type === "correction_note") {
         setFlash("suspect");
         ding(520);

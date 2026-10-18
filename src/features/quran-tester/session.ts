@@ -35,6 +35,10 @@ export function qtPost(msg: Record<string, unknown>) {
 
 export async function startQt(): Promise<void> {
   if (listen !== "idle") return;
+  // Claim the state before any await — a second tap during getUserMedia
+  // would otherwise open a parallel mic stream + session.
+  listen = "warming";
+  emit({ type: "ui-listen", state: "warming" });
 
   if (!worker) {
     worker = new Worker(new URL("./recite.worker.ts", import.meta.url));
@@ -53,9 +57,12 @@ export async function startQt(): Promise<void> {
       emit(ev);
     };
     worker.onerror = (e) => {
+      // A worker that failed to load/execute must never be reused — its
+      // postMessage black-holes and init would hang "warming" forever.
+      worker?.terminate();
+      worker = null;
       emit({ type: "ui-error", message: "Engine failed to start." });
-      listen = "idle";
-      emit({ type: "ui-listen", state: "idle" });
+      void stopQt(); // releases the mic tracks too
       e.preventDefault();
     };
   }
@@ -83,7 +90,7 @@ export async function startQt(): Promise<void> {
   // tracker state leak into the next take.
   worker.postMessage({ type: "reset" });
 
-  let ctx: AudioContext;
+  let ctx: AudioContext | undefined;
   try {
     ctx = new AudioContext();
     // iOS/Android browsers often create the context suspended even inside a
@@ -96,7 +103,11 @@ export async function startQt(): Promise<void> {
     await ctx.audioWorklet.addModule("/worklets/qt-capture.js");
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop());
-    throw err;
+    if (ctx) { try { await ctx.close(); } catch {} }
+    listen = "idle";
+    emit({ type: "ui-listen", state: "idle" });
+    emit({ type: "ui-error", message: err instanceof Error ? err.message : "Audio setup failed." });
+    return;
   }
   const src = ctx.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(ctx, "qt-capture");
@@ -127,11 +138,8 @@ export async function startQt(): Promise<void> {
   mute.connect(ctx.destination);
   audio = { ctx, stream, src, node };
 
-  listen = "warming";
-  emit({ type: "ui-listen", state: "warming" });
   emit({ type: "ui-status", message: "Warming up the engine…" });
   worker.postMessage({ type: "init", sampleRate: ctx.sampleRate });
-  emit({ type: "ui-listen", state: listen });
 }
 
 export async function stopQt(): Promise<void> {
