@@ -301,9 +301,17 @@ export default function QuranTesterClient() {
     // 'Audhu/Basmala between ayahs aren't text — the tracker goes `lost`
     // and can emit a phantom relocation while it recovers. Freeze the
     // classifier briefly after each `lost` so a preamble never counts as
-    // a jump, a gap, or a mistake.
-    if (Date.now() - preambleGraceRef.current < 2500) { anchorRef.current = loc; return; }
+    // a jump, a gap, or a mistake — and never move the anchor: a relocate
+    // landing here must NOT silently re-anchor (that path ate every ding).
     const anchor = anchorRef.current;
+    // 'Audhu/Basmala between ayahs aren't text — the tracker goes `lost`
+    // and can emit a phantom relocation while it recovers. Freeze only
+    // NEARBY candidates during the grace window — a landing far from the
+    // anchor is a real move, preamble or not, and must still classify.
+    if (Date.now() - preambleGraceRef.current < 2500 && anchor) {
+      const d = distOf(ix, anchor, loc);
+      if (d != null && Math.abs(d) <= 3) return;
+    }
     if (!anchor) { anchorRef.current = loc; ding(760); return; } // first locate — the chime
     // Still off-track? Re-anchor only happens on resolution — in "hold"
     // mode the expected point stays pinned where you left off.
