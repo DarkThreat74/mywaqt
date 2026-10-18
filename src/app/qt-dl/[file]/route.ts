@@ -43,7 +43,11 @@ export async function GET(
     headers: {
       "content-type": res.headers.get("content-type") ?? "application/octet-stream",
       "content-length": res.headers.get("content-length") ?? "",
-      "cache-control": "public, max-age=31536000, immutable",
+      // no-store: this proxies the one-time engine download. An immutable
+      // year-long cache made "reinstall" pull the 66MB from the HTTP cache
+      // instantly — looking like the delete never happened. Cache Storage
+      // (quran-tester-engine-v1) is the intended persistence layer.
+      "cache-control": "no-store",
     },
   });
 }

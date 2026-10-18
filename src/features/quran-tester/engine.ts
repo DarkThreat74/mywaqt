@@ -78,7 +78,10 @@ export async function downloadEngine(
       continue;
     }
     onProgress(done, total, a.file);
-    const res = await fetch(a.url);
+    // no-store: the proxy response is HTTP-cacheable, so a re-install would
+    // otherwise pull 66MB from the disk cache in seconds and look like the
+    // delete never happened. Every install must really download.
+    const res = await fetch(a.url, { cache: "no-store" });
     if (!res.ok || !res.body) throw new Error(`download failed: ${a.file}`);
 
     const reader = res.body.getReader();
