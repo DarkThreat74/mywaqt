@@ -21,7 +21,25 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v84";
+const CACHE_VERSION = "waqt-v85";
+// Stamped onto cached _next/static responses when served — a cached Response
+// freezes its original headers, so a chunk cached before a CSP change can
+// birth workers under the old policy. Keep in sync with next.config.ts CSP.
+const CURRENT_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval' https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://fonts.openfreemap.org",
+  "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tiles.openfreemap.org",
+  "font-src 'self' data: https://fonts.openfreemap.org https://tiles.openfreemap.org",
+  "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com",
+  "worker-src 'self' blob:",
+  "media-src 'self' blob: https:",
+  "frame-src https://challenges.cloudflare.com",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -500,13 +518,34 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         const cached = await caches.match(request);
-        if (cached) return cached;
+        if (cached) {
+          // A cached Response is a frozen body+headers snapshot — a dedicated
+          // worker born from a stale chunk inherits its CSP from THESE headers,
+          // not the page's. Re-stamp CSP on serve so workers always get the
+          // current policy (wasm-eval allowed) even from old cached entries.
+          const headers = new Headers(cached.headers);
+          headers.set("content-security-policy", CURRENT_CSP);
+          return new Response(cached.body, {
+            status: cached.status,
+            statusText: cached.statusText,
+            headers,
+          });
+        }
         try {
           const response = await fetch(request);
           if (response.ok) {
-            const responseClone = response.clone();
+            // Vercel's edge cache can replay stale headers for unchanged
+            // hashed chunks — re-stamp CSP on the wire copy too.
+            const headers = new Headers(response.headers);
+            headers.set("content-security-policy", CURRENT_CSP);
+            const stamped = new Response(response.body, {
+              status: response.status,
+              statusText: response.statusText,
+              headers,
+            });
             const cache = await caches.open(STATIC_CACHE);
-            await cache.put(request, responseClone);
+            await cache.put(request, stamped.clone());
+            return stamped;
           }
           return response;
         } catch {
