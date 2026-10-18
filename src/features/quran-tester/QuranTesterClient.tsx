@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Settings2, Square, Trash2, X } from "lucide-react";
+import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Settings, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
 import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, loadSurahMeta, warmMushaf, type AyahPages, type MushafPage, type SurahMetaEntry } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
@@ -786,7 +786,7 @@ export default function QuranTesterClient() {
           style={{ color: "var(--color-ink-muted)", minHeight: 34, minWidth: 34 }}
           aria-label="Settings"
         >
-          <Settings2 className="h-4.5 w-4.5" />
+          <Settings className="h-4.5 w-4.5" />
         </button>
         <button
           onClick={() => {

@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { BookOpen, Play, Volume2 } from "lucide-react";
+import Link from "next/link";
+import { BookOpen, Mic, Play, Volume2, X } from "lucide-react";
 import { getSession, subscribeSession, segmentAt, sessionElapsed, setOverlayOpen } from "@/lib/study/session";
 import { useSoundscape, SOUNDSCAPES } from "@/components/soundscape-context";
 import { SoundscapePanel } from "@/components/soundscape-indicator";
 import { useAudioPlayer } from "@/components/audio-player-context";
+import { qtState, stopQt, subscribeQt } from "@/features/quran-tester/session";
 
 function fmtClock(sec: number) {
   const m = Math.floor(sec / 60);
@@ -55,12 +57,27 @@ export default function FloatingDock() {
   const showSounds = !!soundscape.active && pathname !== "/study";
   const showTalks = !!player.currentTrack && player.view === "collapsed";
 
+  // Recitation — the pill lives here so it merges with the other segments
+  // instead of floating separately (GlobalReciteToast keeps error alerts).
+  const qtListen = useSyncExternalStore(subscribeQt, qtState, qtState);
+  const [qtFlash, setQtFlash] = useState(false);
+  useEffect(() => {
+    const unsub = subscribeQt((ev) => {
+      if (ev.type === "correction" || ev.type === "correction_note") {
+        setQtFlash(true);
+        setTimeout(() => setQtFlash(false), 2400);
+      }
+    });
+    return unsub;
+  }, []);
+  const showRecite = qtListen !== "idle" && !pathname.startsWith("/quran-tester");
+
   // The + FAB only exists on the day calendar. When it's there the dock
   // stacks above it in the same lane; on other tabs the dock takes the
   // FAB's spot at the bottom-right.
   const fabPresent = pathname.startsWith("/calendar/day");
 
-  if (!studySeg && !showSounds && !showTalks) return null;
+  if (!studySeg && !showSounds && !showTalks && !showRecite) return null;
 
   const seg = "flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]";
   const soundLabel = soundscape.active ? SOUNDSCAPES.find((s) => s.id === soundscape.active)?.label ?? "Sound" : "Sounds";
@@ -133,6 +150,31 @@ export default function FloatingDock() {
             <Volume2 className={soundscape.paused ? "h-3.5 w-3.5" : "h-3.5 w-3.5 animate-pulse"} />
             <span className="max-w-[5rem] truncate">{soundLabel}</span>
           </button>
+        )}
+
+        {/* Quran recitation — tap to return to the tester, × stops */}
+        {showRecite && (
+          <>
+            <Link
+              href="/quran-tester"
+              className={seg}
+              style={{ color: qtFlash ? "#c9a227" : "var(--color-accent)", minHeight: 32 }}
+              aria-label={qtFlash ? "Possible mistake — open Quran Tester" : "Reciting — open Quran Tester"}
+            >
+              <Mic className={qtListen === "paused" ? "h-3.5 w-3.5" : "h-3.5 w-3.5 animate-pulse"} />
+              <span className="max-w-[5rem] truncate">
+                {qtFlash ? "Mistake?" : qtListen === "paused" ? "Paused" : "Reciting"}
+              </span>
+            </Link>
+            <button
+              onClick={() => void stopQt()}
+              className="flex items-center justify-center rounded-full p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ color: "var(--color-ink-muted)" }}
+              aria-label="Stop reciting"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </>
         )}
 
         {/* Talks mini-player — tap to open the half-sheet */}
