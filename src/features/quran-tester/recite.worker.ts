@@ -107,18 +107,10 @@ async function init(sampleRate: number) {
     // Deliver events via the callback — feed()'s return carries the same
     // messages, but callback delivery can't be lost to a stalled promise.
     onEvent: (m: unknown) => postMessage(m),
-    // CTC frames decode at 25Hz — defaults search for the verse once per
-    // second (25) and relocate every ~1.5s (37). Halving both makes the
-    // initial "where is he reciting" lock feel instant; settle stays.
-    // Locate latency: search fires with 8 heard chars (was 12) and retries
-    // every 6 (was 12); relocate decides on 60 chars (was 100).
-    config: {
-      searchEveryFrames: 10,
-      relocateEveryFrames: 15,
-      searchMinChars: 8,
-      searchEveryChars: 6,
-      relocateQueryChars: 60,
-    },
+    // Engine defaults. Aggressive search cadence (shorter queries, more
+    // frequent full-Quran searches) starves single-threaded WASM decode —
+    // the audio backlog overflows, transcript corrupts, locate never lands.
+    config: undefined,
     debug: true,
   } as Parameters<typeof createRecognitionSession>[0]);
   // Correction mode: word-level suspects (omission / substitution / vowel /
