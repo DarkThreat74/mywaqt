@@ -98,7 +98,7 @@ export default function QuranTesterClient() {
   // Anchor policy: "follow" drifts with you; "hold" pins where you left off
   // until you return or accept the new spot. Persisted — works with no goal.
   const [anchorMode, setAnchorMode] = useState<"follow" | "hold">(
-    () => (typeof localStorage !== "undefined" && localStorage.getItem("qt:anchor-mode") === "hold" ? "hold" : "follow"),
+    () => (typeof localStorage !== "undefined" && localStorage.getItem("qt:anchor-mode") === "follow" ? "follow" : "hold"),
   );
   const anchorModeRef = useRef(anchorMode);
   const [dayDone, setDayDone] = useState(false);
@@ -1594,8 +1594,8 @@ function PlanSheet({
             className={input}
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
           >
-            <option value="follow">Follow me</option>
             <option value="hold">Hold to passage</option>
+            <option value="follow">Follow me</option>
           </select>
         </div>
 
