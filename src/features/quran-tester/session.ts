@@ -33,22 +33,35 @@ export function qtPost(msg: Record<string, unknown>) {
   worker?.postMessage(msg);
 }
 
-export async function startQt(): Promise<void> {
-  if (listen !== "idle") return;
-  // Claim the state before any await — a second tap during getUserMedia
-  // would otherwise open a parallel mic stream + session.
-  listen = "warming";
-  emit({ type: "ui-listen", state: "warming" });
+/**
+ * Warm-up — spin up the worker and load the model during page idle time so
+ * pressing record skips "Warming up…" entirely. Safe without a gesture:
+ * AudioContext creation (for the true sample rate) is allowed; only
+ * resume() is gated, and we don't resume here.
+ */
+export function warmQt() {
+  ensureWorker();
+  if (worker && listen === "idle") {
+    const ctx = new AudioContext();
+    worker.postMessage({ type: "init", sampleRate: ctx.sampleRate });
+    void ctx.close();
+  }
+}
 
-  if (!worker) {
+function ensureWorker() {
+  if (worker) return;
     // A dedicated worker's CSP comes from its script response's headers —
     // stale cached/edge entries are re-stamped by the SW (_next/static branch).
     worker = new Worker(new URL("./recite.worker.ts", import.meta.url));
     worker.onmessage = (e) => {
       const ev = e.data as QtEvent;
       if (ev.type === "ready") {
-        listen = "listening";
-        emit({ type: "ui-status", message: "Listening — recite anywhere in the Quran" });
+        // A warmQt() preload also posts init → ready — only flip to
+        // listening when a mic session is actually warming up.
+        if (listen === "warming") {
+          listen = "listening";
+          emit({ type: "ui-status", message: "Listening — recite anywhere in the Quran" });
+        }
       } else if (ev.type === "loading_status") {
         emit({ type: "ui-status", message: String(ev.message ?? "Loading…") });
       } else if (ev.type === "error") {
@@ -104,7 +117,15 @@ export async function startQt(): Promise<void> {
       void stopQt(); // releases the mic tracks too
       e.preventDefault();
     };
-  }
+}
+
+export async function startQt(): Promise<void> {
+  if (listen !== "idle") return;
+  // Claim the state before any await — a second tap during getUserMedia
+  // would otherwise open a parallel mic stream + session.
+  listen = "warming";
+  emit({ type: "ui-listen", state: "warming" });
+  ensureWorker();
 
   let stream: MediaStream;
   try {
@@ -127,7 +148,7 @@ export async function startQt(): Promise<void> {
 
   // Fresh recitation — without this, the previous session's transcript and
   // tracker state leak into the next take.
-  worker.postMessage({ type: "reset" });
+  worker?.postMessage({ type: "reset" });
 
   let ctx: AudioContext | undefined;
   try {
@@ -161,7 +182,9 @@ export async function startQt(): Promise<void> {
     merged.set(buf);
     merged.set(chunk, buf.length);
     buf = merged;
-    if (buf.length >= ctx.sampleRate / 4) {
+    // 100ms sends (was 250ms): the encoder emits on a 480ms hop, so every
+    // ms shaved here comes straight off perceived word-follow latency.
+    if (buf.length >= ctx.sampleRate / 10) {
       // Mic level for the UI meter — proves audio is flowing before the
       // model says anything.
       let sum = 0;
@@ -178,7 +201,7 @@ export async function startQt(): Promise<void> {
   audio = { ctx, stream, src, node };
 
   emit({ type: "ui-status", message: "Warming up the engine…" });
-  worker.postMessage({ type: "init", sampleRate: ctx.sampleRate });
+  worker?.postMessage({ type: "init", sampleRate: ctx.sampleRate });
 }
 
 export async function stopQt(): Promise<void> {

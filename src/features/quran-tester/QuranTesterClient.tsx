@@ -6,7 +6,7 @@ import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, Har
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
 import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
-import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt } from "./session";
+import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on a real
@@ -40,7 +40,7 @@ function ding(freq = 760) {
 /** Standard Madani mushaf juz → start page (604-page edition). */
 const JUZ_PAGES = [1,22,42,62,82,102,121,142,162,182,201,222,242,262,282,302,322,342,362,382,402,422,442,462,482,502,522,542,562,582];
 
-interface SurahMeta { s: number; name: string; page: number }
+interface SurahMeta { s: number; name: string; en?: string; page: number }
 
 export default function QuranTesterClient() {
   const [ayahPages, setAyahPages] = useState<AyahPages | null>(null);
@@ -101,7 +101,14 @@ export default function QuranTesterClient() {
     loadAyahPages().then(setAyahPages).catch(() => {});
     loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
     fetch("/data/surah-meta.json").then((r) => r.json()).then(setSurahMeta).catch(() => {});
-    engineInstalled().then(setInstalled).catch(() => setInstalled(false));
+    engineInstalled()
+      .then((ok) => {
+        setInstalled(ok);
+        // Load the 66MB model during page idle — pressing record is then
+        // near-instant instead of a multi-second warmup.
+        if (ok) warmQt();
+      })
+      .catch(() => setInstalled(false));
     syncMistakes() // local first, then merges the server copy
       .then((ms) => setConfirmed(new Map(ms.map((m) => [`${m.surah}:${m.ayah}:${m.word}`, m]))))
       .catch(() => {});
@@ -244,6 +251,9 @@ export default function QuranTesterClient() {
     } else if (ev.type === "ui-status") {
       setStatus(String(ev.message));
     } else if (ev.type === "ready") {
+      // warmQt() also emits ready while idle — only flip to listening when
+      // a mic session actually started (module state says warming/listening).
+      if (qtState() === "idle") return;
       setListen("listening");
       expectForPage(pageRef.current);
     } else if (ev.type === "ui-mic-denied") {
@@ -631,7 +641,10 @@ export default function QuranTesterClient() {
             </p>
             {loc && (
               <p className="ml-auto shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-arabic, serif)" }}>
-                {surahMeta?.find((m) => m.s === loc.surah)?.name ?? `سورة ${loc.surah}`}
+                {(() => {
+                  const meta = surahMeta?.find((m) => m.s === loc.surah);
+                  return `${meta?.name ?? `سورة ${loc.surah}`}${meta?.en ? ` · ${meta.en}` : ""}`;
+                })()}
                 <span className="font-sans"> · p. {page}</span>
               </p>
             )}
@@ -835,6 +848,7 @@ export default function QuranTesterClient() {
                       <span className="flex-1 text-base font-semibold" style={{ color: "var(--color-ink)", fontFamily: "var(--font-arabic, serif)" }}>
                         {s.name}
                       </span>
+                      {s.en && <span className="shrink-0 text-[11px]" style={{ color: "var(--color-ink-soft)" }}>{s.en}</span>}
                       <span className="text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>p. {s.page}</span>
                     </button>
                   ))

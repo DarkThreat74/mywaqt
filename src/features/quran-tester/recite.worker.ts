@@ -103,6 +103,10 @@ async function init(sampleRate: number) {
     // Deliver events via the callback — feed()'s return carries the same
     // messages, but callback delivery can't be lost to a stalled promise.
     onEvent: (m: unknown) => postMessage(m),
+    // CTC frames decode at 25Hz — defaults search for the verse once per
+    // second (25) and relocate every ~1.5s (37). Halving both makes the
+    // initial "where is he reciting" lock feel instant; settle stays.
+    config: { searchEveryFrames: 10, relocateEveryFrames: 15 },
     debug: true,
   } as Parameters<typeof createRecognitionSession>[0]);
   // Correction mode: word-level suspects (omission / substitution / vowel /
