@@ -79,7 +79,7 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com",
+              "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval' https://challenges.cloudflare.com",
               "style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://fonts.openfreemap.org",
               "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tiles.openfreemap.org",
               "font-src 'self' data: https://fonts.openfreemap.org https://tiles.openfreemap.org",
