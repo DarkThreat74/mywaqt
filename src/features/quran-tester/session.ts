@@ -204,6 +204,15 @@ export async function startQt(): Promise<void> {
   worker?.postMessage({ type: "init", sampleRate: ctx.sampleRate });
 }
 
+// Screen off / app backgrounded: browsers can suspend the AudioContext, so
+// the worklet silently stops producing frames while the UI claims we're
+// listening. Flip to paused — resume is one tap when they're back.
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && listen === "listening") void pauseQt();
+  });
+}
+
 export async function stopQt(): Promise<void> {
   worker?.postMessage({ type: "stop" });
   const a = audio;

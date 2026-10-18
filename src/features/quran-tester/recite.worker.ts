@@ -77,6 +77,10 @@ async function init(sampleRate: number) {
   // Re-init would stack a second 66MB ONNX session on the first — the
   // session persists across recitations; only reset() runs between takes.
   if (session) {
+    // Re-init (e.g. after warmQt) must still adopt the live AudioContext's
+    // rate — a warm ctx at 48k followed by a recite ctx at 44.1k would
+    // otherwise resample wrong and silently wreck detection.
+    sourceRate = sampleRate;
     postMessage({ type: "ready" });
     return;
   }

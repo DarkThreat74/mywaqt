@@ -106,6 +106,27 @@ export async function downloadEngine(
     done += blob.size;
     onProgress(done, total, a.file);
   }
+
+  // ort WASM runtime — vendored at /qt/ and cached write-through by the SW,
+  // but only on first fetch. Prefetch it here so a user who installs and
+  // immediately goes offline can still boot the engine. Both the base and
+  // jsep variants; whichever ORT picks, it's resident.
+  for (const f of [
+    "ort-wasm-simd-threaded.mjs",
+    "ort-wasm-simd-threaded.wasm",
+    "ort-wasm-simd-threaded.jsep.mjs",
+    "ort-wasm-simd-threaded.jsep.wasm",
+  ]) {
+    const key = `${self.location.origin}/qt/${f}`;
+    if (await cache.match(key)) continue;
+    try {
+      const res = await fetch(`/qt/${f}`);
+      if (res.ok) await cache.put(key, res);
+    } catch {
+      // Non-fatal — the SW write-through covers it on next online use.
+    }
+  }
+
   localStorage.setItem(LS_KEY, "1");
 }
 
