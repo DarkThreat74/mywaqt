@@ -95,6 +95,12 @@ export default function QuranTesterClient() {
   const [plan, setPlan] = useState<Plan | null>(() => loadPlan());
   const [planOpen, setPlanOpen] = useState(false);
   const [jump, setJump] = useState<{ to: Loc; expected: Loc } | null>(null);
+  // Anchor policy: "follow" drifts with you; "hold" pins where you left off
+  // until you return or accept the new spot. Persisted — works with no goal.
+  const [anchorMode, setAnchorMode] = useState<"follow" | "hold">(
+    () => (typeof localStorage !== "undefined" && localStorage.getItem("qt:anchor-mode") === "hold" ? "hold" : "follow"),
+  );
+  const anchorModeRef = useRef(anchorMode);
   const [dayDone, setDayDone] = useState(false);
   const ixRef = useRef<AyahIndex | null>(null);
   const covRef = useRef<Set<string>>(new Set());
@@ -126,6 +132,8 @@ export default function QuranTesterClient() {
     ayahPagesRef.current = ayahPages;
     planRef.current = plan;
     suspectsRef.current = suspects;
+    anchorModeRef.current = anchorMode;
+    try { localStorage.setItem("qt:anchor-mode", anchorMode); } catch {}
   });
 
   /** Anchor the engine to the ayah range on screen — it locks in seconds
@@ -256,18 +264,23 @@ export default function QuranTesterClient() {
     const ix = ixRef.current;
     if (!ix) return;
     const anchor = anchorRef.current;
-    anchorRef.current = loc;
-    if (!anchor) { ding(760); return; }           // first locate — the chime
-    // Resolved? Back within ±3 of the place we jumped from. Without the
-    // early return, the (big) hop back would itself re-flag as a jump.
+    if (!anchor) { anchorRef.current = loc; ding(760); return; } // first locate — the chime
+    // Still off-track? Re-anchor only happens on resolution — in "hold"
+    // mode the expected point stays pinned where you left off.
     const j = jumpRef.current;
     if (j) {
       const back = distOf(ix, j.expected, loc);
-      if (back != null && Math.abs(back) <= 3) { dismissJump(); return; }
+      if (back != null && Math.abs(back) <= 3) { dismissJump(); anchorRef.current = loc; }
+      else if (anchorModeRef.current === "follow") { dismissJump(); anchorRef.current = loc; } // accepted by moving on
+      else setJump({ ...j, to: loc }); // hold: toast tracks where you actually are
+      return;
     }
     const d = distOf(ix, anchor, loc);
-    if (d == null || Math.abs(d) <= 3 || (d < 0 && d >= -10)) return; // routine / went back — silent
-    if (d > 0 && inSpan(loc)) return;           // skipped ahead inside plan — gap just stays uncovered
+    if (d == null) return;
+    if (Math.abs(d) <= 3 || (d < 0 && d >= -10)) { anchorRef.current = loc; return; } // routine / went back
+    if (d > 0 && inSpan(loc)) { anchorRef.current = loc; return; } // skipped ahead inside plan — gap stays uncovered
+    // JUMPED — "follow" lets the anchor drift; "hold" pins it at `anchor`.
+    if (anchorModeRef.current === "follow") anchorRef.current = loc;
     jumpRef.current = { to: loc, expected: anchor };
     setJump(jumpRef.current);
     ding(980, 0.14, 0.5);
@@ -622,6 +635,8 @@ export default function QuranTesterClient() {
       return { backgroundColor: "color-mix(in oklab, #c9a227 25%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" } as const;
     if (jump && jump.to.s === s && jump.to.a === a)
       return { backgroundColor: "color-mix(in oklab, #d9762b 25%, transparent)", boxShadow: "inset 0 -2px 0 #d9762b" } as const;
+    if (jump && jump.expected.s === s && jump.expected.a === a)
+      return { boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // the pinned bookmark
     if (loc && loc.surah === s && loc.ayah === a) {
       if (wordIdx === w)
         return { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } as const;
@@ -873,27 +888,36 @@ export default function QuranTesterClient() {
                   Jumped to {surahName(jump.to.s)} {jump.to.s}:{jump.to.a}
                 </p>
                 <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                  Expected {surahName(jump.expected.s)} {jump.expected.s}:{jump.expected.a}
+                  {anchorMode === "hold" ? "Pinned at " : "Expected "}
+                  {surahName(jump.expected.s)} {jump.expected.s}:{jump.expected.a}
                 </p>
               </div>
               <button onClick={dismissJump} className="shrink-0 p-1" aria-label="Dismiss jump alert">
                 <X className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
               </button>
             </div>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex gap-1.5">
               <button
                 onClick={() => goToAyah(jump.to.s, jump.to.a)}
-                className="flex-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold"
+                className="flex-1 rounded-full border px-2 py-1 text-[10px] font-semibold"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
               >
-                Open that page
+                Open page
               </button>
               <button
-                onClick={() => { goToAyah(jump.expected.s, jump.expected.a); dismissJump(); }}
-                className="flex-1 rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                onClick={() => goToAyah(jump.expected.s, jump.expected.a)}
+                className="flex-1 rounded-full px-2 py-1 text-[10px] font-semibold"
                 style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
               >
                 Back to {jump.expected.s}:{jump.expected.a}
+              </button>
+              <button
+                onClick={() => { anchorRef.current = jump.to; dismissJump(); }}
+                className="flex-1 rounded-full border px-2 py-1 text-[10px] font-semibold"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+                title="Accept the new location as your expected track"
+              >
+                Continue here
               </button>
             </div>
           </div>
@@ -1000,6 +1024,8 @@ export default function QuranTesterClient() {
         <PlanSheet
           plan={plan}
           loc={loc}
+          anchorMode={anchorMode}
+          onAnchorMode={setAnchorMode}
           onClose={() => setPlanOpen(false)}
           onSave={(p) => { savePlan(p); setPlan(p); setPlanOpen(false); setDayDone(isDayDone(todayKey())); }}
         />
@@ -1416,10 +1442,12 @@ function pct(dl: { done: number; total: number }) {
 
 /* ── Goal settings sheet ── */
 function PlanSheet({
-  plan, loc, onClose, onSave,
+  plan, loc, anchorMode, onAnchorMode, onClose, onSave,
 }: {
   plan: Plan | null;
   loc: { surah: number; ayah: number } | null;
+  anchorMode: "follow" | "hold";
+  onAnchorMode: (m: "follow" | "hold") => void;
   onClose: () => void;
   onSave: (p: Plan | null) => void;
 }) {
@@ -1555,6 +1583,19 @@ function PlanSheet({
             <option value="roll">Roll forward</option>
             <option value="recompute">Recompute deadline</option>
             <option value="debt">Debt list</option>
+          </select>
+        </div>
+
+        <div className={row}>
+          <span className={label} style={{ color: "var(--color-ink)" }}>Anchor</span>
+          <select
+            value={anchorMode}
+            onChange={(e) => onAnchorMode(e.target.value as "follow" | "hold")}
+            className={input}
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+          >
+            <option value="follow">Follow me</option>
+            <option value="hold">Hold to passage</option>
           </select>
         </div>
 
