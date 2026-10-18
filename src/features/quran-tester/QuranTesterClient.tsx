@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, ListChecks, Loader2, Mic, MicOff, Search, Square, Trash2, X } from "lucide-react";
+import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Search, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
 import { loadAyahPages, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
@@ -42,6 +42,7 @@ export default function QuranTesterClient() {
   const [wordIdx, setWordIdx] = useState<number | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   const [micDenied, setMicDenied] = useState(false);
+  const [storageInfo, setStorageInfo] = useState(false);
   const [micHelp, setMicHelp] = useState(false);
   const [level, setLevel] = useState(0);
 
@@ -906,13 +907,39 @@ export default function QuranTesterClient() {
               </div>
             )}
             {installed && (
-              <button
-                onClick={() => { setReviewOpen(false); void remove(); }}
-                className="mt-4 w-full rounded-full border py-2 text-[11px] font-medium transition-opacity hover:opacity-70"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-              >
-                Remove recitation engine (~72MB)
-              </button>
+              <div className="mt-4 rounded-2xl border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+                <div className="flex items-center gap-2">
+                  <HardDriveDownload className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
+                  <p className="flex-1 text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
+                    Recitation engine · {Math.round(ENGINE_ASSETS.reduce((s, a) => s + a.bytes, 0) / 1e6)}MB
+                  </p>
+                  <button
+                    onClick={() => setStorageInfo((v) => !v)}
+                    className="rounded-full p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ color: "var(--color-ink-muted)" }}
+                    aria-label="Where is the engine stored?"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => { setReviewOpen(false); void remove(); }}
+                    className="rounded-full p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ color: "#b34a3a" }}
+                    aria-label="Remove recitation engine"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+                {storageInfo && (
+                  <p className="mt-2 text-[11px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>
+                    Stored in this browser&apos;s site data — Cache Storage bucket
+                    <span className="font-mono"> quran-tester-engine-v1</span>.
+                    The trash button wipes it fully (mic off, worker killed,
+                    bucket deleted). Browser Settings → Clear site data for
+                    this app removes it too.
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>
