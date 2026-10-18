@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
-import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
+import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, warmMushaf, type AyahPages, type MushafPage } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
 
@@ -105,8 +105,10 @@ export default function QuranTesterClient() {
       .then((ok) => {
         setInstalled(ok);
         // Load the 66MB model during page idle — pressing record is then
-        // near-instant instead of a multi-second warmup.
-        if (ok) warmQt();
+        // near-instant instead of a multi-second warmup. Also keep the
+        // background mushaf warm flowing (resumable watermark) so every
+        // page + font becomes offline-ready over time.
+        if (ok) { warmQt(); warmMushaf(); }
       })
       .catch(() => setInstalled(false));
     syncMistakes() // local first, then merges the server copy
@@ -207,6 +209,8 @@ export default function QuranTesterClient() {
       await downloadEngine((done, total) => setDl({ done, total }));
       setInstalled(true);
       setSetupOpen(false);
+      warmQt();
+      warmMushaf();
     } catch {
       setDlError("Download failed — check your connection and try again.");
     } finally {

@@ -113,4 +113,45 @@ export async function loadPageFont(n: number): Promise<string> {
   return family;
 }
 
+/**
+ * Idle background warm — streams every mushaf page + glyph font into the
+ * engine bucket a page at a time, so the whole Quran becomes offline-ready
+ * without a 90MB up-front wall. Resumes where it left off across sessions
+ * (localStorage watermark), skips metered connections, and pauses on any
+ * network failure — the next call picks the same page back up.
+ */
+const WARM_KEY = "qt:mushaf-warm";
+let warming = false;
+
+const idle = (fn: () => void) =>
+  "requestIdleCallback" in window
+    ? requestIdleCallback(fn, { timeout: 4000 })
+    : setTimeout(fn, 150);
+
+export function warmMushaf(): void {
+  if (warming || typeof caches === "undefined") return;
+  const conn = (navigator as { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+  if (conn?.saveData || conn?.effectiveType === "slow-2g") return;
+  let p = Math.max(1, Math.min(PAGE_COUNT + 1, Number(localStorage.getItem(WARM_KEY)) || 1));
+  if (p > PAGE_COUNT) return; // already fully warm
+  warming = true;
+
+  const tick = () => {
+    if (p > PAGE_COUNT) { warming = false; return; }
+    const pad = String(p).padStart(3, "0");
+    Promise.all([
+      cachedAsset(`/qt/page-${pad}.json`, `${PAGE_BASE}/page-${pad}.json`),
+      cachedAsset(`/qt/p${pad}.woff2`, `${FONT_BASE}/p${pad}.woff2`),
+    ]).then(() => {
+      p++;
+      localStorage.setItem(WARM_KEY, String(p));
+      idle(tick);
+    }).catch(() => {
+      // Offline / flaky — keep the watermark at this page; a later call resumes.
+      warming = false;
+    });
+  };
+  idle(tick);
+}
+
 

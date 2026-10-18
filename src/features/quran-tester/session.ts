@@ -24,6 +24,30 @@ function emit(ev: QtEvent) {
 let worker: Worker | null = null;
 let audio: { ctx: AudioContext; stream: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode } | null = null;
 let listen: QtListen = "idle";
+// Cross-tab mutex — only one tab may run the listener (a second tab would
+// warm a second 66MB model and fight over the mic).
+let releaseLock: (() => void) | null = null;
+let lockHeld = false;
+
+function acquireLock(): Promise<boolean> {
+  if (lockHeld) return Promise.resolve(true); // this tab already owns it
+  if (typeof navigator === "undefined" || !("locks" in navigator)) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    navigator.locks.request("qt-recite", { ifAvailable: true }, (held) => {
+      if (!held) return resolve(false);
+      lockHeld = true;
+      resolve(true);
+      // Hold the lock until teardown — resolving this promise frees it.
+      return new Promise<void>((release) => { releaseLock = release; });
+    });
+  });
+}
+
+function dropLock() {
+  lockHeld = false;
+  releaseLock?.();
+  releaseLock = null;
+}
 
 export function qtState(): QtListen {
   return listen;
@@ -41,12 +65,21 @@ export function qtPost(msg: Record<string, unknown>) {
  */
 export function warmQt() {
   try {
-    ensureWorker();
-    if (worker && listen === "idle") {
-      const ctx = new AudioContext();
-      worker.postMessage({ type: "init", sampleRate: ctx.sampleRate });
-      void ctx.close();
-    }
+    if (listen !== "idle") return;
+    void acquireLock().then((ok) => {
+      try {
+        if (!ok || listen !== "idle") return; // another tab owns the engine
+        ensureWorker();
+        if (!worker) return;
+        const ctx = new AudioContext();
+        worker.postMessage({ type: "init", sampleRate: ctx.sampleRate });
+        void ctx.close();
+      } finally {
+        // Warm only borrows the lock — an idle warmed tab must never block
+        // another tab from actually reciting.
+        dropLock();
+      }
+    });
   } catch {
     // AudioContext can throw pre-gesture on old WebKit or when the context
     // budget is exhausted — warm-up is best-effort, record still inits.
@@ -130,6 +163,12 @@ export async function startQt(): Promise<void> {
   // would otherwise open a parallel mic stream + session.
   listen = "warming";
   emit({ type: "ui-listen", state: "warming" });
+  if (!(await acquireLock())) {
+    listen = "idle";
+    emit({ type: "ui-listen", state: "idle" });
+    emit({ type: "ui-error", message: "Quran Listener is already running in another tab." });
+    return;
+  }
   ensureWorker();
 
   let stream: MediaStream;
@@ -220,6 +259,7 @@ if (typeof document !== "undefined") {
 
 export async function stopQt(): Promise<void> {
   worker?.postMessage({ type: "stop" });
+  dropLock();
   const a = audio;
   audio = null;
   if (a) {

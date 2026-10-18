@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v86";
+const CACHE_VERSION = "waqt-v87";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -1239,6 +1239,12 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
+
+  // ── Mushaf pages + qpc2 fonts are NOT intercepted here. They fetch
+  // through the app's cachedAsset() which owns a single copy in the
+  // quran-tester engine bucket — SW interception would duplicate ~90MB
+  // into the runtime cache during the background warm.
+  if (url.pathname.startsWith("/data/mushaf/") || url.pathname.startsWith("/fonts/qpc2/")) return;
 
   // ── Static assets: cache-first — same-origin only. Matching by extension
   // on any origin would stash third-party tiles/images/fonts (map tiles,
