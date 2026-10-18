@@ -69,9 +69,8 @@ export default function GlobalReciteToast() {
         role="alert"
         style={{
           bottom: "calc(4rem + env(safe-area-inset-bottom) + 10px)",
-          left: "50%",
-          transform: "translateX(-50%)",
-          maxWidth: "min(92vw, 28rem)",
+          left: 12,
+          right: 12,
         }}
       >
         <div
