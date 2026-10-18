@@ -8,7 +8,7 @@ import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, loadSurahMeta, 
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import {
   buildIndex, coveredInSpan, distOf, JUZ_START, keyOf, loadCoverage, loadPlan, markCovered,
-  savePlan, stampDay, isDayDone, maybeKhatma, streak as planStreak, todayKey, todaySpan,
+  savePlan, stampDay, isDayDone, maybeKhatma, todayKey, todaySpan,
   type AyahIndex, type Loc, type Plan,
 } from "./plan";
 import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
@@ -361,32 +361,26 @@ export default function QuranTesterClient() {
     return m ? `${m.name} · ${m.en ?? s}` : `سورة ${s}`;
   }
 
-  /** Chip text for today's goal: range · % · ayahs left. */
-  function planChip(): string {
-    const p = plan;
-    if (!p) return "Set a goal";
-    if (dayDone) return `✓ Today done · ${planStreak()}-day streak`;
+  /** Today's span label shown inside the settings chip's progress area. */
+  function spanLabel(): string {
     const span = spanRef.current;
-    if (!span.length) return `${p.amount} ${p.unit}/day`;
-    const cov = coveredInSpan(span, covRef.current);
-    const pct = Math.round((cov / span.length) * 100);
+    if (!span.length) return "";
     const last = span[span.length - 1];
-    const range = p.unit === "juz"
-      ? (() => {
-          const ix = ixRef.current;
-          const jAt = (l: Loc) => {
-            if (!ix) return 0;
-            const o = ix.ord.get(keyOf(l)) ?? 0;
-            let j = 0;
-            for (let i = 0; i < JUZ_START.length; i++)
-              if ((ix.ord.get(keyOf(JUZ_START[i])) ?? Infinity) <= o) j = i;
-            return j + 1;
-          };
-          const j1 = jAt(span[0]), j2 = jAt(last);
-          return j1 === j2 ? `Juz ${j1}` : `Juz ${j1}–${j2}`;
-        })()
-      : `${span[0].s}:${span[0].a}–${last.s}:${last.a}`;
-    return `${range} · ${pct}% · ${span.length - cov} left`;
+    const p = planRef.current;
+    if (p?.unit === "juz") {
+      const ix = ixRef.current;
+      const jAt = (l: Loc) => {
+        if (!ix) return 0;
+        const o = ix.ord.get(keyOf(l)) ?? 0;
+        let j = 0;
+        for (let i = 0; i < JUZ_START.length; i++)
+          if ((ix.ord.get(keyOf(JUZ_START[i])) ?? Infinity) <= o) j = i;
+        return j + 1;
+      };
+      const j1 = jAt(span[0]), j2 = jAt(last);
+      return j1 === j2 ? `Juz ${j1}` : `Juz ${j1}–${j2}`;
+    }
+    return `${span[0].s}:${span[0].a}–${last.s}:${last.a}`;
   }
 
   function onSearch(v: string) {
@@ -859,16 +853,21 @@ export default function QuranTesterClient() {
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
           aria-label="Goal settings"
         >
-          <span className="truncate">{planChip()}</span>
+          <span className="shrink-0">{dayDone && plan ? "✓ Today" : "Settings"}</span>
           {plan && spanRef.current.length > 0 && !dayDone && (
-            <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-              <span
-                className="block h-full rounded-full transition-[width] duration-300"
-                style={{
-                  width: `${Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%`,
-                  backgroundColor: "var(--color-accent)",
-                }}
-              />
+            <span className="flex min-w-0 items-center gap-1.5" style={{ color: "var(--color-ink-muted)" }}>
+              <span className="truncate text-[9px] tabular-nums">
+                {spanLabel()} {Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%
+              </span>
+              <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                <span
+                  className="block h-full rounded-full transition-[width] duration-300"
+                  style={{
+                    width: `${Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%`,
+                    backgroundColor: "var(--color-accent)",
+                  }}
+                />
+              </span>
             </span>
           )}
           <Settings2 className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
@@ -1458,12 +1457,15 @@ function PlanSheet({
   const [missedPolicy, setMissedPolicy] = useState<Plan["missedPolicy"]>(plan?.missedPolicy ?? "roll");
   const [reminders, setReminders] = useState<Plan["reminders"]>(plan?.reminders ?? "off");
   const [startSA, setStartSA] = useState(`${plan?.start.s ?? 1}:${plan?.start.a ?? 1}`);
+  const [goalOn, setGoalOn] = useState(plan != null);
+  const [layoutMsg, setLayoutMsg] = useState<string | null>(null);
 
   const row = "flex items-center justify-between gap-3 py-2";
   const label = "text-xs font-semibold";
   const input = "rounded-lg border px-2.5 py-1.5 text-sm outline-none";
 
   function save() {
+    if (!goalOn) return onSave(null); // goal toggled off — just settings
     const m = startSA.match(/^(\d{1,3}):(\d{1,3})$/);
     if (!m) return;
     const start = { s: Math.min(114, +m[1]), a: Math.max(1, +m[2]) };
@@ -1491,103 +1493,35 @@ function PlanSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-center justify-between">
-          <p className="text-sm font-bold" style={{ color: "var(--color-ink)" }}>Recite goal</p>
-          <button onClick={onClose} className="p-1" aria-label="Close goal settings">
+          <p className="text-sm font-bold" style={{ color: "var(--color-ink)" }}>Settings</p>
+          <button onClick={onClose} className="p-1" aria-label="Close settings">
             <X className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
           </button>
         </div>
-        <p className="mb-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-          The listener tracks the assigned portion; extra recitation still counts toward your khatma.
-        </p>
 
+        {/* Mushaf layout — 15-line Madani is the only edition built so far;
+            13/16 show a disclaimer instead of pretending to switch. */}
         <div className={row}>
-          <span className={label} style={{ color: "var(--color-ink)" }}>Plan type</span>
+          <span className={label} style={{ color: "var(--color-ink)" }}>Mushaf</span>
           <div className="flex rounded-full border p-0.5" style={{ borderColor: "var(--color-paper-3)" }}>
-            {(["daily", "khatma"] as const).map((k) => (
+            {(["15-line", "13-line", "16-line"] as const).map((l) => (
               <button
-                key={k}
-                onClick={() => setKind(k)}
-                className="rounded-full px-3 py-1 text-[10px] font-semibold capitalize"
-                style={kind === k ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } : { color: "var(--color-ink-muted)" }}
+                key={l}
+                onClick={() => l === "15-line" ? setLayoutMsg(null) : setLayoutMsg(`The ${l} mushaf isn't built yet — only the 15-line Madani is available right now.`)}
+                className="rounded-full px-3 py-1 text-[10px] font-semibold"
+                style={l === "15-line" ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } : { color: "var(--color-ink-muted)" }}
               >
-                {k === "daily" ? "Daily amount" : "Khatma"}
+                {l}
               </button>
             ))}
           </div>
         </div>
-
-        {kind === "daily" ? (
-          <div className={row}>
-            <span className={label} style={{ color: "var(--color-ink)" }}>Amount per day</span>
-            <span className="flex items-center gap-2">
-              <input
-                type="number" min={1} max={30} value={amount}
-                onChange={(e) => setAmount(+e.target.value)}
-                className={input + " w-16 text-center"}
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
-              />
-              <select
-                value={unit}
-                onChange={(e) => setUnit(e.target.value as Plan["unit"])}
-                className={input}
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
-              >
-                <option value="juz">juz</option>
-                <option value="page">pages</option>
-                <option value="ayah">ayahs</option>
-              </select>
-            </span>
-          </div>
-        ) : (
-          <div className={row}>
-            <span className={label} style={{ color: "var(--color-ink)" }}>Finish by</span>
-            <input
-              type="date" value={deadline} min={new Date().toLocaleDateString("en-CA")}
-              onChange={(e) => setDeadline(e.target.value)}
-              className={input}
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
-            />
-          </div>
+        {layoutMsg && (
+          <p className="-mt-1 pb-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{layoutMsg}</p>
         )}
 
         <div className={row}>
-          <span className={label} style={{ color: "var(--color-ink)" }}>Start at</span>
-          <span className="flex items-center gap-2">
-            <input
-              value={startSA}
-              onChange={(e) => setStartSA(e.target.value)}
-              placeholder="2:142"
-              className={input + " w-20 text-center"}
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
-            />
-            {loc && (
-              <button
-                onClick={() => setStartSA(`${loc.surah}:${loc.ayah}`)}
-                className="rounded-full border px-2 py-1 text-[10px] font-semibold"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)" }}
-              >
-                Use current
-              </button>
-            )}
-          </span>
-        </div>
-
-        <div className={row}>
-          <span className={label} style={{ color: "var(--color-ink)" }}>Missed days</span>
-          <select
-            value={missedPolicy}
-            onChange={(e) => setMissedPolicy(e.target.value as Plan["missedPolicy"])}
-            className={input}
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
-          >
-            <option value="roll">Roll forward</option>
-            <option value="recompute">Recompute deadline</option>
-            <option value="debt">Debt list</option>
-          </select>
-        </div>
-
-        <div className={row}>
-          <span className={label} style={{ color: "var(--color-ink)" }}>Anchor</span>
+          <span className={label} style={{ color: "var(--color-ink)" }}>Tracking</span>
           <select
             value={anchorMode}
             onChange={(e) => onAnchorMode(e.target.value as "follow" | "hold")}
@@ -1600,36 +1534,135 @@ function PlanSheet({
         </div>
 
         <div className={row}>
-          <span className={label} style={{ color: "var(--color-ink)" }}>Reminders</span>
-          <select
-            value={reminders}
-            onChange={(e) => setReminders(e.target.value as Plan["reminders"])}
-            className={input}
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+          <span className={label} style={{ color: "var(--color-ink)" }}>Set a goal</span>
+          <button
+            onClick={() => setGoalOn((g) => !g)}
+            className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+            style={{ backgroundColor: goalOn ? "var(--color-accent)" : "var(--color-paper-3)" }}
+            aria-label="Toggle recitation goal"
+            aria-pressed={goalOn}
           >
-            <option value="off">Off</option>
-            <option value="daily">Daily push</option>
-            <option value="streak">Streak guard</option>
-          </select>
+            <span
+              className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform"
+              style={{ left: goalOn ? "18px" : "2px" }}
+            />
+          </button>
         </div>
 
-        <div className="mt-3 flex gap-2">
-          {plan && (
-            <button
-              onClick={() => onSave(null)}
-              className="rounded-full border px-4 py-2 text-xs font-semibold"
-              style={{ borderColor: "var(--color-paper-3)", color: "#b34a3a" }}
-            >
-              Turn off
-            </button>
+        {goalOn && (<>
+          <div className={row}>
+            <span className={label} style={{ color: "var(--color-ink)" }}>Plan type</span>
+            <div className="flex rounded-full border p-0.5" style={{ borderColor: "var(--color-paper-3)" }}>
+              {(["daily", "khatma"] as const).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setKind(k)}
+                  className="rounded-full px-3 py-1 text-[10px] font-semibold capitalize"
+                  style={kind === k ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } : { color: "var(--color-ink-muted)" }}
+                >
+                  {k === "daily" ? "Daily amount" : "Khatma"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {kind === "daily" ? (
+            <div className={row}>
+              <span className={label} style={{ color: "var(--color-ink)" }}>Amount per day</span>
+              <span className="flex items-center gap-2">
+                <input
+                  type="number" min={1} max={30} value={amount}
+                  onChange={(e) => setAmount(+e.target.value)}
+                  className={input + " w-16 text-center"}
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+                />
+                <select
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value as Plan["unit"])}
+                  className={input}
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+                >
+                  <option value="juz">juz</option>
+                  <option value="page">pages</option>
+                  <option value="ayah">ayahs</option>
+                </select>
+              </span>
+            </div>
+          ) : (
+            <div className={row}>
+              <span className={label} style={{ color: "var(--color-ink)" }}>Finish by</span>
+              <input
+                type="date" value={deadline} min={new Date().toLocaleDateString("en-CA")}
+                onChange={(e) => setDeadline(e.target.value)}
+                className={input}
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+              />
+            </div>
           )}
+
+          <div className={row}>
+            <span className={label} style={{ color: "var(--color-ink)" }}>Start at</span>
+            <span className="flex items-center gap-2">
+              <input
+                value={startSA}
+                onChange={(e) => setStartSA(e.target.value)}
+                placeholder="2:142"
+                className={input + " w-20 text-center"}
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+              />
+              {loc && (
+                <button
+                  onClick={() => setStartSA(`${loc.surah}:${loc.ayah}`)}
+                  className="rounded-full border px-2 py-1 text-[10px] font-semibold"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)" }}
+                >
+                  Use current
+                </button>
+              )}
+            </span>
+          </div>
+
+          <div className={row}>
+            <span className={label} style={{ color: "var(--color-ink)" }}>Missed days</span>
+            <select
+              value={missedPolicy}
+              onChange={(e) => setMissedPolicy(e.target.value as Plan["missedPolicy"])}
+              className={input}
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+            >
+              <option value="roll">Roll forward</option>
+              <option value="recompute">Recompute deadline</option>
+              <option value="debt">Debt list</option>
+            </select>
+          </div>
+
+          <div className={row}>
+            <span className={label} style={{ color: "var(--color-ink)" }}>Reminders</span>
+            <select
+              value={reminders}
+              onChange={(e) => setReminders(e.target.value as Plan["reminders"])}
+              className={input}
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
+            >
+              <option value="off">Off</option>
+              <option value="daily">Daily push</option>
+              <option value="streak">Streak guard</option>
+            </select>
+          </div>
+
+          <p className="text-[10px] pt-1" style={{ color: "var(--color-ink-muted)" }}>
+            The listener tracks the assigned portion; extra recitation still counts toward your khatma.
+          </p>
+        </>)}
+
+        <div className="mt-3 flex gap-2">
           <button
             onClick={save}
-            disabled={kind === "khatma" && !deadline}
+            disabled={goalOn && kind === "khatma" && !deadline}
             className="ml-auto rounded-full px-5 py-2 text-xs font-bold disabled:opacity-40"
             style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
           >
-            Save goal
+            Save
           </button>
         </div>
       </div>
