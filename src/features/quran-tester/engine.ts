@@ -109,6 +109,28 @@ export async function downloadEngine(
   localStorage.setItem(LS_KEY, "1");
 }
 
+/**
+ * Wipe ONLY Quran Tester's on-device storage: the shared cache bucket
+ * (engine + mushaf pages + glyph fonts), its IndexedDB (local mistake
+ * mirror — server copy resyncs on next load), and its localStorage flag.
+ * Nothing else in the app is touched.
+ */
+export async function wipeQuranTesterData(): Promise<void> {
+  try { localStorage.removeItem(LS_KEY); } catch {}
+  for (const k of Object.keys(localStorage)) {
+    if (k.startsWith("qt:")) { try { localStorage.removeItem(k); } catch {} }
+  }
+  if (typeof caches !== "undefined") {
+    try { await caches.delete(ENGINE_CACHE); } catch {}
+  }
+  try {
+    await new Promise<void>((res) => {
+      const rq = indexedDB.deleteDatabase("quran-tester");
+      rq.onsuccess = rq.onerror = rq.onblocked = () => res();
+    });
+  } catch {}
+}
+
 export async function uninstallEngine(): Promise<void> {
   localStorage.removeItem(LS_KEY);
   if (typeof caches === "undefined") return;

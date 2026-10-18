@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Square, Trash2, X } from "lucide-react";
-import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
+import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
 import { loadAyahPages, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt } from "./session";
@@ -61,6 +61,7 @@ export default function QuranTesterClient() {
   const [micError, setMicError] = useState<string | null>(null);
   const [micDenied, setMicDenied] = useState(false);
   const [storageInfo, setStorageInfo] = useState(false);
+  const [storageBytes, setStorageBytes] = useState<number | null>(null);
   const [micHelp, setMicHelp] = useState(false);
   const [level, setLevel] = useState(0);
 
@@ -186,7 +187,7 @@ export default function QuranTesterClient() {
   async function remove() {
     try {
       await teardownQt(); // stop mic + kill worker — releases the loaded model
-      await uninstallEngine();
+      await wipeQuranTesterData(); // engine bucket + mushaf + fonts + QT idb/localStorage
       const gone = !(await engineInstalled());
       setInstalled(!gone);
       if (!gone) setMicError("Engine could not be fully removed — clear site data in browser settings.");
@@ -936,7 +937,10 @@ export default function QuranTesterClient() {
                     Recitation engine · {Math.round(ENGINE_ASSETS.reduce((s, a) => s + a.bytes, 0) / 1e6)}MB
                   </p>
                   <button
-                    onClick={() => setStorageInfo((v) => !v)}
+                    onClick={() => {
+                      setStorageInfo((v) => !v);
+                      navigator.storage?.estimate?.().then((e) => setStorageBytes(e.usage ?? null)).catch(() => {});
+                    }}
                     className="rounded-full p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
                     style={{ color: "var(--color-ink-muted)" }}
                     aria-label="Where is the engine stored?"
@@ -954,11 +958,13 @@ export default function QuranTesterClient() {
                 </div>
                 {storageInfo && (
                   <p className="mt-2 text-[11px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>
-                    Stored in this browser&apos;s site data — Cache Storage bucket
-                    <span className="font-mono"> quran-tester-engine-v1</span>.
-                    The trash button wipes it fully (mic off, worker killed,
-                    bucket deleted). Browser Settings → Clear site data for
-                    this app removes it too.
+                    Lives in this browser&apos;s site data — Cache Storage bucket
+                    <span className="font-mono"> quran-tester-engine-v1</span>
+                    {storageBytes !== null && <> — this app is currently using ~{Math.round(storageBytes / 1e6)}MB of device storage</>}.
+                    It&apos;s not a filesystem folder — mobile browsers isolate site
+                    storage, which is also why your storage settings don&apos;t
+                    itemize it. The trash button wipes it fully (mic off,
+                    worker killed, bucket + local copies deleted).
                   </p>
                 )}
               </div>
