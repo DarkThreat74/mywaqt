@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v83";
+const CACHE_VERSION = "waqt-v84";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -954,8 +954,10 @@ self.addEventListener("fetch", (event) => {
           event.waitUntil(
             (async () => {
               try {
-                const pre = await event.preloadResponse;
-                const res = pre || await timedFetch(request, 10000, true);
+                // preloadResponse honors the browser HTTP cache — a stale
+                // cached document keeps its birth CSP forever, so we always
+                // revalidate navigations no-store instead.
+                const res = await timedFetch(request, 10000, true);
                 if (res && res.ok) {
                   const freshBody = await res.clone().text();
                   const freshBuild = (freshBody.match(/\/_next\/static\/([A-Za-z0-9_-]+)\//) || [])[1];
@@ -990,8 +992,7 @@ self.addEventListener("fetch", (event) => {
         // populates the cache for next time.
         const networkPromise = (async () => {
           try {
-            const preloadResponse = await event.preloadResponse;
-            const response = preloadResponse || await timedFetch(request, 10000, true);
+            const response = await timedFetch(request, 10000, true);
             if (response && response.ok) {
               await store(response);
               return response;
