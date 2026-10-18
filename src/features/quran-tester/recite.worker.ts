@@ -107,10 +107,19 @@ async function init(sampleRate: number) {
     // Deliver events via the callback — feed()'s return carries the same
     // messages, but callback delivery can't be lost to a stalled promise.
     onEvent: (m: unknown) => postMessage(m),
-    // Engine defaults. Aggressive search cadence (shorter queries, more
-    // frequent full-Quran searches) starves single-threaded WASM decode —
-    // the audio backlog overflows, transcript corrupts, locate never lands.
-    config: undefined,
+    // Slip head: a logistic probe over the model's encoder frames that
+    // scores each tracker's word span acoustically — catches wrong-sounding
+    // words (kaf-vs-ha level substitutions) without waiting for word-level
+    // alignment to settle. Needs the model's optional encoder output;
+    // the manifest declares it, and the head silently stays off if a model
+    // without it is ever loaded.
+    slipHead: "high",
+    // Aggressive search cadence (shorter queries, more frequent full-Quran
+    // searches) starves single-threaded WASM decode — the audio backlog
+    // overflows, transcript corrupts, locate never lands. Only the verdict
+    // observation window is tightened: 25→15 frames (1.0s→0.6s), which
+    // with the patched 4-frame persistence puts flags ~0.7s behind voice.
+    config: { settleFrames: 15 },
     debug: true,
   } as Parameters<typeof createRecognitionSession>[0]);
   // Correction mode: word-level suspects (omission / substitution / vowel /
