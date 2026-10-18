@@ -1374,3 +1374,20 @@ export const studySessionHistory = pgTable('study_session_history', {
 }));
 
 export type StudySessionHistory = typeof studySessionHistory.$inferSelect;
+
+// ─── Quran Tester — confirmed recitation mistakes, synced per-user ───
+// Local IndexedDB is the offline cache; this is the durable copy so a
+// reinstall/new device restores a user's review list.
+export const quranTesterMistakes = pgTable('quran_tester_mistakes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  surah: integer('surah').notNull(),
+  ayah: integer('ayah').notNull(),
+  word: integer('word').notNull(),
+  kind: text('kind').notNull(),
+  confirmedAt: timestamp('confirmed_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  uniq: uniqueIndex('quran_tester_mistakes_user_loc_idx').on(table.userId, table.surah, table.ayah, table.word),
+}));
+
+export type QuranTesterMistake = typeof quranTesterMistakes.$inferSelect;

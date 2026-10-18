@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, ListChecks, Loader2, Mic, MicOff, Search, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, uninstallEngine } from "./engine";
 import { loadAyahPages, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
-import { listMistakes, removeMistake, saveMistake, type Mistake } from "./mistakes";
+import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import { qtPost, qtState, startQt, stopQt, subscribeQt } from "./session";
 
 /**
@@ -79,7 +79,7 @@ export default function QuranTesterClient() {
   useEffect(() => {
     loadAyahPages().then(setAyahPages).catch(() => {});
     engineInstalled().then(setInstalled).catch(() => setInstalled(false));
-    listMistakes()
+    syncMistakes() // local first, then merges the server copy
       .then((ms) => setConfirmed(new Map(ms.map((m) => [`${m.surah}:${m.ayah}:${m.word}`, m]))))
       .catch(() => {});
     // Subscribe to the global session — navigating away keeps it alive;

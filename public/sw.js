@@ -808,6 +808,10 @@ self.addEventListener("fetch", (event) => {
   // constantly. Always fresh.
   if (url.pathname.startsWith("/api/quran/")) return;
 
+  // Quran Tester mistakes sync — server is authoritative, local IndexedDB
+  // is the offline copy; a cached list would resurrect deleted rows.
+  if (url.pathname.startsWith("/api/quran-tester/")) return;
+
   // Don't intercept the notification inbox — toasts, invites and the active
   // match must be live; a cached inbox would keep dead toasts on screen.
   if (url.pathname.startsWith("/api/notifications/")) return;
