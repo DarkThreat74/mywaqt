@@ -128,6 +128,7 @@ export default function QuranTesterClient() {
   const sessionCovRef = useRef<Set<string>>(new Set());
   const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jumpRef = useRef<{ to: Loc; expected: Loc; at: number; silent?: boolean } | null>(null);
+  const preambleGraceRef = useRef(0); // 'lost' timestamp — basmala/isti'adhah window
   const planRef = useRef(plan);
   const suspectsRef = useRef(suspects);
 
@@ -270,6 +271,11 @@ export default function QuranTesterClient() {
   function classifyJump(loc: Loc) {
     const ix = ixRef.current;
     if (!ix) return;
+    // 'Audhu/Basmala between ayahs aren't text — the tracker goes `lost`
+    // and can emit a phantom relocation while it recovers. Freeze the
+    // classifier briefly after each `lost` so a preamble never counts as
+    // a jump, a gap, or a mistake.
+    if (Date.now() - preambleGraceRef.current < 2500) { anchorRef.current = loc; return; }
     const anchor = anchorRef.current;
     if (!anchor) { anchorRef.current = loc; ding(760); return; } // first locate — the chime
     // Still off-track? Re-anchor only happens on resolution — in "hold"
@@ -554,6 +560,7 @@ export default function QuranTesterClient() {
     } else if (ev.type === "ui-error") {
       setMicError(String(ev.message));
     } else if (ev.type === "lost") {
+      preambleGraceRef.current = Date.now();
       setStatus("Lost you — keep going, or tap the page to re-anchor");
     } else if (ev.type === "verse_match" || ev.type === "relocated" || ev.type === "verse_candidate") {
       // verse_candidate wraps the engine's `located`/`relocated` events —
@@ -753,23 +760,28 @@ export default function QuranTesterClient() {
     setConfirmed((prev) => { const n = new Map(prev); n.delete(key); return n; });
   }
 
+  // Marked words sit in a `gap-x-1` row — every box-shadow underline stops
+  // at the word's edge and the line reads as broken. Stretch each marked
+  // box 4px into the following gap so consecutive marks join continuously.
+  const bridge = { paddingRight: 4, marginRight: -4 } as const;
+
   function wordMark(s: number, a: number, w: number) {
     const key = `${s}:${a}:${w}`;
     const ayahFlag = `${s}:${a}:0`;
     if (confirmed.has(key) || confirmed.has(ayahFlag))
-      return { backgroundColor: "color-mix(in oklab, #b34a3a 22%, transparent)", boxShadow: "inset 0 -2px 0 #b34a3a" } as const;
+      return { ...bridge, backgroundColor: "color-mix(in oklab, #b34a3a 22%, transparent)", boxShadow: "inset 0 -2px 0 #b34a3a" } as const;
     if (suspects.has(key) || suspects.has(ayahFlag))
-      return { backgroundColor: "color-mix(in oklab, #c9a227 25%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" } as const;
+      return { ...bridge, backgroundColor: "color-mix(in oklab, #c9a227 25%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" } as const;
     if (jump && jump.to.s === s && jump.to.a === a)
-      return { backgroundColor: "color-mix(in oklab, #d9762b 25%, transparent)", boxShadow: "inset 0 -2px 0 #d9762b" } as const;
+      return { ...bridge, backgroundColor: "color-mix(in oklab, #d9762b 25%, transparent)", boxShadow: "inset 0 -2px 0 #d9762b" } as const;
     if (diversions.has(`${s}:${a}`))
-      return { backgroundColor: "color-mix(in oklab, #c9a227 20%, transparent)" } as const; // jumped here this session
+      return { ...bridge, backgroundColor: "color-mix(in oklab, #c9a227 20%, transparent)" } as const; // jumped here this session
     if (jump && jump.expected.s === s && jump.expected.a === a)
-      return { boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // the pinned bookmark
+      return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // the pinned bookmark
     if (pin && pin.s === s && pin.a === a)
-      return { boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // last-good after a skip
+      return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // last-good after a skip
     if (selStart && selStart.s === s && selStart.a === a && w >= selStart.w)
-      return { backgroundColor: "color-mix(in oklab, var(--color-accent) 22%, transparent)" } as const; // range-select preview
+      return { ...bridge, backgroundColor: "color-mix(in oklab, var(--color-accent) 22%, transparent)" } as const; // range-select preview
     if (loc && loc.surah === s && loc.ayah === a) {
       if (wordIdx === w)
         return { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } as const;
