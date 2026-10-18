@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Square, Trash2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
-import { loadAyahPages, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
+import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, type AyahPages, type MushafPage } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import { pauseQt, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt } from "./session";
 
@@ -62,6 +62,7 @@ export default function QuranTesterClient() {
   const [micDenied, setMicDenied] = useState(false);
   const [storageInfo, setStorageInfo] = useState(false);
   const [storageBytes, setStorageBytes] = useState<number | null>(null);
+  const [bsmlReady, setBsmlReady] = useState(false);
   const [micHelp, setMicHelp] = useState(false);
   const [level, setLevel] = useState(0);
 
@@ -98,6 +99,8 @@ export default function QuranTesterClient() {
 
   useEffect(() => {
     loadAyahPages().then(setAyahPages).catch(() => {});
+    loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
+    fetch("/data/surah-meta.json").then((r) => r.json()).then(setSurahMeta).catch(() => {});
     engineInstalled().then(setInstalled).catch(() => setInstalled(false));
     syncMistakes() // local first, then merges the server copy
       .then((ms) => setConfirmed(new Map(ms.map((m) => [`${m.surah}:${m.ayah}:${m.word}`, m]))))
@@ -431,13 +434,19 @@ export default function QuranTesterClient() {
             );
           }
           if (line.type === "basmala") {
+            const bsml = (line as { qpcV2?: string }).qpcV2;
             return (
               <p
                 key={li}
                 className="flex flex-1 items-center justify-center text-center text-xl leading-none"
-                style={{ color: "var(--color-ink)", fontFamily: fontReady ? `QPC2-p${p}` : "var(--font-arabic, serif)" }}
+                style={{
+                  color: "var(--color-ink)",
+                  // The ﭑﭒﭓ glyph codepoints only exist in QPC2BSML — page
+                  // fonts don't contain them (rendered "Alif Ba Ba" before).
+                  fontFamily: bsmlReady && bsml ? "QPC2BSML" : "var(--font-arabic, serif)",
+                }}
               >
-                {fontReady && (line as { qpcV2?: string }).qpcV2 ? (line as { qpcV2?: string }).qpcV2 : "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ"}
+                {bsmlReady && bsml ? bsml : "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ"}
               </p>
             );
           }
@@ -481,13 +490,13 @@ export default function QuranTesterClient() {
   }
 
   return (
-    // Fits exactly inside the app chrome — top bar (~49px) + bottom nav
-    // (4rem) + safe areas — so the whole mushaf screen never scrolls.
+    // Full-bleed under the bottom nav — the mushaf fills the whole screen
+    // top to bottom (mobile nav is translucent over it).
     <div
       className="flex flex-col lg:h-dvh"
       style={{
         backgroundColor: "var(--color-paper)",
-        height: "calc(100dvh - 49px - 4rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))",
+        height: "calc(100dvh - 49px - env(safe-area-inset-top))",
       }}
     >
       {/* Toolbar — icon-only, one row, no title */}
@@ -600,6 +609,12 @@ export default function QuranTesterClient() {
             <p className="truncate text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
               {status ?? "Listening…"}
             </p>
+            {loc && (
+              <p className="ml-auto shrink-0 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-arabic, serif)" }}>
+                {surahMeta?.find((m) => m.s === loc.surah)?.name ?? `سورة ${loc.surah}`}
+                <span className="font-sans"> · p. {page}</span>
+              </p>
+            )}
           </div>
         )}
         {/* Engine errors surface via the global toast — inline text here
@@ -973,89 +988,78 @@ export default function QuranTesterClient() {
         </div>
       )}
 
-      {/* Recite bar */}
+      {/* Recite controls — mic bottom-left, small; pause + hide-words in a
+          right-side cluster so nothing sits near the mic while reciting. */}
       {installed && (
-        <div
-          className="qt-recite-bar fixed inset-x-0 z-30"
-          style={{
-            paddingBottom: 10,
-            background: "linear-gradient(to top, var(--color-paper) 55%, transparent)",
-          }}
-        >
-          <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-2 px-4">
-            <div className="flex items-center gap-2">
+        <div className="qt-recite-bar">
+          <div className="qt-side">
+            {listening && (
               <button
                 onClick={() => setMemorize((m) => !m)}
-                className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-bold transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90"
                 style={
                   memorize
-                    ? { borderColor: "var(--color-accent)", backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }
-                    : { borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }
+                    ? { borderColor: "var(--color-accent)", backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }
+                    : { borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink-muted)" }
                 }
+                aria-label={memorize ? "Show words" : "Hide words until recited"}
               >
-                {memorize ? <EyeOff className="h-3.5 w-3.5" /> : <BookOpenCheck className="h-3.5 w-3.5" />}
-                {memorize ? "Words hidden" : "Hide words"}
+                {memorize ? <EyeOff className="h-4 w-4" /> : <BookOpenCheck className="h-4 w-4" />}
               </button>
-              {memorize && (
-                <button
-                  onClick={peek}
-                  disabled={!loc}
-                  className="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-bold transition-opacity disabled:opacity-40"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
-                >
-                  <Eye className="h-3.5 w-3.5" /> Peek
-                </button>
-              )}
-            </div>
+            )}
+            {listening && memorize && (
+              <button
+                onClick={peek}
+                disabled={!loc}
+                className="flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90 disabled:opacity-40"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink-soft)" }}
+                aria-label="Peek at the next word"
+              >
+                <Eye className="h-4 w-4" />
+              </button>
+            )}
             {(listen === "listening" || listen === "paused") && (
               <button
                 onClick={() => (listen === "paused" ? void resumeQt() : void pauseQt())}
-                className="flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-[11px] font-bold transition-colors"
-                style={{ borderColor: "var(--color-accent)", backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
+                className="flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90"
+                style={{
+                  borderColor: listen === "paused" ? "#c9a227" : "var(--color-paper-3)",
+                  backgroundColor: "var(--color-paper)",
+                  color: listen === "paused" ? "#c9a227" : "var(--color-ink-soft)",
+                }}
                 aria-label={listen === "paused" ? "Resume reciting" : "Pause reciting"}
               >
-                {listen === "paused" ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-                {listen === "paused" ? "Resume" : "Pause"}
+                {listen === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
               </button>
             )}
-            <button
-              onClick={() => (listening ? void stopRecite() : micDenied ? setMicHelp(true) : void startRecite())}
-              className="qt-mic-fab relative flex items-center justify-center rounded-full transition-transform active:scale-90"
-              style={{
-                width: 68,
-                height: 68,
-                backgroundColor: listen === "listening" ? "var(--color-accent)" : listen === "paused" ? "#c9a227" : micDenied ? "#b34a3a" : "var(--color-ink)",
-                color: "var(--color-paper)",
-                boxShadow: listening
-                  ? "0 10px 32px color-mix(in oklab, var(--color-accent) 45%, transparent)"
-                  : "0 10px 28px color-mix(in oklab, var(--color-ink) 30%, transparent)",
-                border: "3px solid var(--color-paper)",
-              }}
-              aria-label={listening ? "Stop reciting" : "Start reciting"}
-            >
-              {listen === "warming" && (
-                <span className="absolute -inset-1.5 animate-ping rounded-full opacity-40" style={{ backgroundColor: "var(--color-ink)", animationDuration: "1.1s" }} />
-              )}
-              {listen === "listening" && (
-                <>
-                  <span className="absolute -inset-1.5 animate-ping rounded-full opacity-30" style={{ backgroundColor: "var(--color-accent)", animationDuration: "1.8s" }} />
-                  <span className="absolute -inset-1.5 animate-ping rounded-full opacity-20" style={{ backgroundColor: "var(--color-accent)", animationDuration: "1.8s", animationDelay: "0.9s" }} />
-                </>
-              )}
-              {listen === "listening" ? (
-                <Square className="h-5 w-5" fill="currentColor" />
-              ) : listen === "warming" ? (
-                <Loader2 className="h-6 w-6 animate-spin" />
-              ) : micDenied ? (
-                <MicOff className="h-6 w-6" />
-              ) : (
-                <Mic className="h-6 w-6" />
-              )}
-            </button>
-            <p className="qt-mic-label text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--color-ink-muted)" }}>
-              {listen === "listening" ? "Listening — tap to stop" : listen === "paused" ? "Paused — tap resume" : listen === "warming" ? "Warming up" : micDenied ? "Mic blocked — tap for help" : "Tap to recite"}
-            </p>
           </div>
+          <button
+            onClick={() => (listening ? void stopRecite() : micDenied ? setMicHelp(true) : void startRecite())}
+            className="qt-mic-fab relative flex items-center justify-center rounded-full transition-transform active:scale-90"
+            style={{
+              backgroundColor: listen === "listening" ? "var(--color-accent)" : listen === "paused" ? "#c9a227" : micDenied ? "#b34a3a" : "var(--color-ink)",
+              color: "var(--color-paper)",
+              boxShadow: "0 6px 20px color-mix(in oklab, var(--color-ink) 28%, transparent)",
+              border: "2.5px solid var(--color-paper)",
+            }}
+            aria-label={listening ? "Stop reciting" : "Start reciting"}
+          >
+            {listen === "warming" && (
+              <span className="absolute -inset-1 animate-ping rounded-full opacity-40" style={{ backgroundColor: "var(--color-ink)", animationDuration: "1.1s" }} />
+            )}
+            {listen === "listening" && (
+              <span className="absolute -inset-1 animate-ping rounded-full opacity-30" style={{ backgroundColor: "var(--color-accent)", animationDuration: "1.8s" }} />
+            )}
+            {listen === "listening" ? (
+              <Square className="h-4.5 w-4.5" fill="currentColor" />
+            ) : listen === "warming" ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : micDenied ? (
+              <MicOff className="h-5 w-5" />
+            ) : (
+              <Mic className="h-5 w-5" />
+            )}
+          </button>
         </div>
       )}
     </div>

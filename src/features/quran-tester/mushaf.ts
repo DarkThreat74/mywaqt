@@ -84,6 +84,21 @@ export function loadPage(n: number): Promise<MushafPage> {
 }
 
 const loadedFonts = new Set<number>();
+let bsmlFont: Promise<string> | null = null;
+
+/** The dedicated basmala glyph font — its private codepoints (ﭑﭒﭓ) don't
+ * exist in per-page fonts, which is why basmalas rendered as broken letters. */
+export function loadBasmalaFont(): Promise<string> {
+  bsmlFont ??= (async () => {
+    const res = await cachedAsset("/qt/QPC2BSML.ttf", `${FONT_BASE}/QPC2BSML.ttf`);
+    const font = new FontFace("QPC2BSML", await res.arrayBuffer());
+    await font.load();
+    document.fonts.add(font);
+    return "QPC2BSML";
+  })();
+  bsmlFont.catch(() => { bsmlFont = null; });
+  return bsmlFont;
+}
 
 /** Register the page's glyph font (downloaded once, cached). */
 export async function loadPageFont(n: number): Promise<string> {

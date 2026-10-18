@@ -195,26 +195,44 @@ main#main-content {
   }
 }
 
-/* Quran Tester floating controls — sit above the mobile bottom nav (4rem +
-   safe area); on desktop there's no nav so they hug the bottom. */
+/* Quran Tester floating controls — full-screen non-blocking overlay. Mic is
+   a small FAB bottom-left; pause/peek/hide-words cluster bottom-right, all
+   above the mobile bottom nav. No backdrop — the mushaf fills the screen. */
 .qt-recite-bar {
-  bottom: calc(4rem + env(safe-area-inset-bottom));
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+.qt-recite-bar .qt-mic-fab {
+  position: absolute;
+  left: 14px;
+  bottom: calc(4rem + env(safe-area-inset-bottom) + 14px);
+  width: 54px;
+  height: 54px;
+  pointer-events: auto;
+}
+.qt-recite-bar .qt-side {
+  position: absolute;
+  right: 14px;
+  bottom: calc(4rem + env(safe-area-inset-bottom) + 14px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
 }
 .qt-confirm-bar {
   bottom: calc(4rem + env(safe-area-inset-bottom) + 128px);
 }
 @media (min-width: 1024px) {
   .qt-recite-bar {
+    inset: auto;
     bottom: 16px;
     left: 50%;
     right: auto;
     transform: translateX(-50%);
-    width: auto;
-    background: none;
-    padding-bottom: 0;
-  }
-  .qt-recite-bar > div {
-    flex-direction: row;
+    display: flex;
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
@@ -222,14 +240,16 @@ main#main-content {
     border: 1px solid var(--color-paper-3);
     background-color: var(--color-paper);
     box-shadow: 0 12px 32px color-mix(in oklab, var(--color-ink) 14%, transparent);
-    width: auto;
+    pointer-events: auto;
+  }
+  .qt-recite-bar .qt-side {
+    position: static;
+    flex-direction: row;
   }
   .qt-recite-bar .qt-mic-fab {
+    position: static;
     width: 52px;
     height: 52px;
-  }
-  .qt-recite-bar .qt-mic-label {
-    display: none;
   }
   .qt-confirm-bar {
     bottom: 140px;
