@@ -41,10 +41,29 @@ async function pumpAudio() {
       await session.feed(resample(merged, sourceRate));
     }
   } catch (err) {
-    postMessage({ type: "error", message: err instanceof Error ? err.message : String(err) });
+    void reportErr(err);
   } finally {
     feeding = false;
   }
+}
+
+// A dedicated worker's CSP comes from its own script's RESPONSE headers — a
+// stale cached response can carry an old policy while the page is fine.
+// Refetching our own URL shows what the server NOW sends, and whether the
+// worker was born under a stale policy.
+async function reportErr(err: unknown) {
+  let wCsp = "?";
+  try {
+    const r = await fetch(self.location.href, { cache: "no-store" });
+    const csp = r.headers.get("content-security-policy") ?? "";
+    wCsp = csp.includes("unsafe-eval") ? "fresh" : `stale: ${csp.slice(0, 120)}`;
+  } catch {
+    wCsp = "unreachable";
+  }
+  postMessage({
+    type: "error",
+    message: `${err instanceof Error ? err.message : String(err)} [worker-csp: ${wCsp}]`,
+  });
 }
 
 async function cached(url: string): Promise<Response> {
@@ -136,7 +155,7 @@ self.onmessage = (e: MessageEvent) => {
         session.zipformer?.correction.act(m.action);
       }
     } catch (err) {
-      postMessage({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      void reportErr(err);
     }
   });
 };
