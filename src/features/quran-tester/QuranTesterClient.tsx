@@ -836,25 +836,37 @@ export default function QuranTesterClient() {
 
   const listening = listen !== "idle";
 
+  const hintCountRef = useRef<{ ayah: string; n: number }>({ ayah: "", n: 0 });
+
   function peek() {
-    // Reveal the next hidden word in the tracked ayah and log the peek —
-    // peeked words are weak spots worth reviewing later.
+    // Escalating hint, per ayah: 1st press shows the next word, 2nd the next
+    // two, 3rd the next three, 4th the rest of the ayah. Revealed words are
+    // logged as peeks — weak spots worth reviewing later.
     if (!loc) return;
     const data = pages.get(pageRef.current);
     if (!data) return;
+    const ayahKey = `${loc.surah}:${loc.ayah}`;
+    if (hintCountRef.current.ayah !== ayahKey) hintCountRef.current = { ayah: ayahKey, n: 0 };
+    const n = ++hintCountRef.current.n;
+    const want = n >= 4 ? Infinity : n;
+    const batch: number[] = [];
     for (const line of data.lines) {
       for (const w of line.words ?? []) {
         const [s, a, wiN] = w.location.split(":").map(Number);
         if (s !== loc.surah || a !== loc.ayah) continue;
         const key = `${s}:${a}:${wiN}`;
         const heard = wordIdx !== null && wiN <= wordIdx;
-        if (!heard && !revealed.has(key)) {
-          setRevealed((prev) => new Set(prev).add(key));
-          void saveMistake({ surah: s, ayah: a, word: wiN, kind: "peek", confirmedAt: nowMs() }).catch(() => {});
-          return;
-        }
+        if (!heard && !revealed.has(key) && batch.length < want) batch.push(wiN);
       }
     }
+    if (!batch.length) return;
+    setRevealed((prev) => {
+      const next = new Set(prev);
+      for (const wiN of batch) next.add(`${loc.surah}:${loc.ayah}:${wiN}`);
+      return next;
+    });
+    for (const wiN of batch)
+      void saveMistake({ surah: loc.surah, ayah: loc.ayah, word: wiN, kind: "peek", confirmedAt: nowMs() }).catch(() => {});
   }
 
   async function finishRange(wEnd: number) {
@@ -1680,7 +1692,7 @@ export default function QuranTesterClient() {
                 disabled={!loc}
                 className="flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90 disabled:opacity-40"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink-soft)" }}
-                aria-label="Peek at the next word"
+                aria-label="Hint — reveal the next word(s)"
               >
                 <Eye className="h-4 w-4" />
               </button>
