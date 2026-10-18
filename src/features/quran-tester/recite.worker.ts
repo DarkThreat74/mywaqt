@@ -119,7 +119,18 @@ async function init(sampleRate: number) {
     // overflows, transcript corrupts, locate never lands. Only the verdict
     // observation window is tightened: 25→15 frames (1.0s→0.6s), which
     // with the patched 4-frame persistence puts flags ~0.7s behind voice.
-    config: { settleFrames: 15 },
+    config: {
+      settleFrames: 15,
+      // Jump latency: the tracker only searches for a relocation after a
+      // sustained bad stretch (holdWindow) then re-searches every
+      // relocateEveryFrames with relocateQueryChars of unheard text. Stock
+      // values (~1.2s + 1.5s + ~100 chars) added up to the ~5s delay before
+      // the ding. These still cost a global search each fire, but only
+      // while the tracker is already struggling.
+      holdWindow: 20,
+      relocateEveryFrames: 25,
+      relocateQueryChars: 60,
+    },
     debug: true,
   } as Parameters<typeof createRecognitionSession>[0]);
   // Correction mode: word-level suspects (omission / substitution / vowel /

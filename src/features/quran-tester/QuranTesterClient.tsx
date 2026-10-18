@@ -89,7 +89,7 @@ export default function QuranTesterClient() {
   // Diversion marks — every ayah a jump landed on stays yellow for the
   // whole tab session (sessionStorage survives in-app navigation, dies
   // with the tab). Confirming the spot as a mistake upgrades it to red.
-  const [pin, setPin] = useState<Loc | null>(null); // last-good bookmark after a skip
+  const [pin, setPin] = useState<{ s: number; a: number; w: number } | null>(null); // last-good WORD, blue underline
   // Double-tap a word, then tap the end word — marks the whole range as a
   // confirmed mistake (kind "manual").
   const [selStart, setSelStart] = useState<{ s: number; a: number; w: number } | null>(null);
@@ -314,7 +314,7 @@ export default function QuranTesterClient() {
     const pa = pageOf(anchor), pl = pageOf(loc);
     if (pa >= 0 && pl >= 0 && pl - pa <= 2) {
       markSkippedBetween(anchor, loc);
-      setPin(anchor); // the last part you read good — underlined on the page
+      setPin(lastGoodWord(anchor)); // the last word you read good — blue underline
       anchorRef.current = loc;
       setStatus(`Skipped ahead — the missed ayahs are marked yellow`);
       return;
@@ -324,9 +324,16 @@ export default function QuranTesterClient() {
     if (anchorModeRef.current === "follow") anchorRef.current = loc;
     jumpRef.current = { to: loc, expected: anchor, at: Date.now() };
     setJump(jumpRef.current);
+    setPin(lastGoodWord(anchor)); // last word read correctly, underlined blue
     markDiversion(loc);
     ding3(); // ding-ding-ding — you moved
     qtPost({ type: "correction-act", action: "continue" }); // release a stale issue — else detection freezes
+  }
+  /** The last word actually heard in `l`'s ayah — the exact resume point. */
+  function lastGoodWord(l: Loc): { s: number; a: number; w: number } {
+    const h = heardRef.current;
+    const same = h.loc && h.loc.s === l.s && h.loc.a === l.a;
+    return { s: l.s, a: l.a, w: same ? Math.max(0, h.max - 1) : 0 };
   }
   function pageOf(l: Loc): number {
     return ayahPagesRef.current?.[l.s]?.[l.a] ?? -1;
@@ -363,6 +370,7 @@ export default function QuranTesterClient() {
   function dismissJump() {
     jumpRef.current = null;
     setJump(null);
+    setPin(null);
     if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
   }
   /** Close the toast but KEEP the pin — the bookmark and auto-resolve still
@@ -607,6 +615,9 @@ export default function QuranTesterClient() {
       expectSurah(s); // smooth crossings into the next surah never fire relocate
       setWordIdx(ev.word_index as number);
       noteHeard(s, a, ev.word_index as number, ev.total_words as number);
+      // Resumed from the blue-underlined word — the resume marker's job is
+      // done, clear it.
+      if (pin && pin.s === s && pin.a === a) setPin(null);
       const p = ayahPage(s, a);
       if (p && p !== pageRef.current) setPage(p);
     } else if (ev.type === "correction" || ev.type === "correction_note") {
@@ -667,12 +678,16 @@ export default function QuranTesterClient() {
       possible_skipped_ayah: "skipped ayah",
       unclear_ayah: "unclear ayah",
       manual: "marked mistake",
+      diversion: "jumped here",
     })[kind] ?? "possible mistake";
 
   function onWordTap(s: number, a: number, w: number) {
     const key = `${s}:${a}:${w}`;
     const kind = suspects.get(key);
-    if (kind) setPending({ s, a, w, kind });
+    if (kind) { setPending({ s, a, w, kind }); return; }
+    // A diversion-marked ayah (jumped here this session) can be confirmed
+    // into a real red mistake on tap.
+    if (diversions.has(`${s}:${a}`)) setPending({ s, a, w: 0, kind: "diversion" });
   }
 
   async function confirmMistake() {
@@ -801,8 +816,8 @@ export default function QuranTesterClient() {
       return { ...bridge, backgroundColor: "color-mix(in oklab, #c9a227 20%, transparent)" } as const; // jumped here this session
     if (jump && jump.expected.s === s && jump.expected.a === a)
       return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // the pinned bookmark
-    if (pin && pin.s === s && pin.a === a)
-      return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // last-good after a skip
+    if (pin && pin.s === s && pin.a === a && w === pin.w)
+      return { ...bridge, boxShadow: "inset 0 -3px 0 #3b82f6" } as const; // last word read right — blue underline
     if (selStart && selStart.s === s && selStart.a === a && w >= selStart.w)
       return { ...bridge, backgroundColor: "color-mix(in oklab, var(--color-accent) 22%, transparent)" } as const; // range-select preview
     if (loc && loc.surah === s && loc.ayah === a) {
@@ -1079,28 +1094,22 @@ export default function QuranTesterClient() {
                 <X className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
               </button>
             </div>
-            <div className="mt-2 flex gap-1.5">
-              <button
-                onClick={() => goToAyah(jump.to.s, jump.to.a)}
-                className="flex-1 rounded-full border px-2 py-1 text-[10px] font-semibold"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-              >
-                Open page
-              </button>
-              <button
-                onClick={() => goToAyah(jump.expected.s, jump.expected.a)}
-                className="flex-1 rounded-full px-2 py-1 text-[10px] font-semibold"
-                style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
-              >
-                Back to {jump.expected.s}:{jump.expected.a}
-              </button>
+            <div className="mt-2 flex items-center gap-1.5">
               <button
                 onClick={() => { anchorRef.current = jump.to; dismissJump(); }}
-                className="flex-1 rounded-full border px-2 py-1 text-[10px] font-semibold"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+                className="flex-1 rounded-full px-2 py-1.5 text-xs font-bold"
+                style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
                 title="Accept the new location as your expected track"
               >
                 Continue here
+              </button>
+              <button
+                onClick={() => { goToAyah(jump.expected.s, jump.expected.a); silenceJump(); }}
+                className="rounded-full border px-2.5 py-1 text-[10px] font-semibold"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                title="Take me back to the pinned ayah"
+              >
+                Go to pin
               </button>
             </div>
           </div>
