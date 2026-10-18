@@ -756,12 +756,15 @@ export default function QuranTesterClient() {
                     key={wi}
                     data-loc={w.location}
                     onClick={isSuspect || isConfirmed ? () => onWordTap(s, a, wiN) : undefined}
-                    className={`rounded px-0.5 transition-colors duration-150${isSuspect || isConfirmed ? " cursor-pointer" : ""}`}
+                    // shrink-0: a shrunken word box lets the glyph overflow
+                    // onto its neighbour — that's the text-on-end-marker
+                    // overlap. Lines must fit honestly instead.
+                    className={`shrink-0 rounded px-px transition-colors duration-150${isSuspect || isConfirmed ? " cursor-pointer" : ""}`}
                     style={{
                       ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
                       // Scale by whichever axis is tighter — vw alone left
                       // the text tiny inside short/wide desktop viewports.
-                      fontSize: "clamp(0.95rem, min(4.2vw, 6.5dvh), 2.1rem)",
+                      fontSize: "clamp(0.9rem, min(3.9vw, 6dvh), 2rem)",
                       lineHeight: 1,
                       color: hidden ? "transparent" : "var(--color-ink)",
                       ...(hidden
