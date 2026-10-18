@@ -461,6 +461,7 @@ export default function QuranTesterClient() {
       // a mic session actually started (module state says warming/listening).
       if (qtState() === "idle") return;
       setListen("listening");
+      setStatus("Finding your place — keep reciting");
       expectForPage(pageRef.current);
     } else if (ev.type === "ui-mic-denied") {
       setMicDenied(true);
