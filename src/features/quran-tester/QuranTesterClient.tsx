@@ -314,6 +314,18 @@ export default function QuranTesterClient() {
       // Follow accepts the new spot — but only once the toast has been up
       // long enough to see; relocate bursts would kill it in milliseconds.
       if (anchorModeRef.current === "follow" && Date.now() - j.at > 2500) { dismissJump(); anchorRef.current = loc; return; }
+      if (anchorModeRef.current === "hold") {
+        // One deviation = ONE flag. While a hold jump is open the tracker
+        // will keep re-relocating as you recite elsewhere — each event gets
+        // swallowed and the tracker snapped back to the pin. No re-dings,
+        // no popup spam. Resolution: recite back near the pin (above), tap
+        // "Continue here", or dismiss.
+        const drift = distOf(ix, j.to, loc);
+        if (drift != null && Math.abs(drift) <= 3) j.to = loc;
+        const pin = lastGoodWord(j.expected);
+        qtPost({ type: "reanchor", s: pin.s, a: pin.a, w: pin.w });
+        return;
+      }
       const drift = distOf(ix, j.to, loc);
       if (drift == null || Math.abs(drift) <= 3) {
         j.to = loc;
@@ -608,6 +620,14 @@ export default function QuranTesterClient() {
       const c = (ev.candidates as { surah: number; ayah: number }[] | undefined)?.[0] ?? ev;
       const s = c.surah as number, a = c.ayah as number;
       if (typeof s !== "number" || typeof a !== "number") return;
+      // Hold mode with an open jump: the tracker keeps wandering while you
+      // recite elsewhere — don't let the page chase it. The pin stays put
+      // until the jump resolves.
+      if (anchorModeRef.current === "hold" && jumpRef.current) {
+        locLiveRef.current = { s, a };
+        if (ev.type !== "verse_candidate") classifyJump({ s, a });
+        return;
+      }
       // First lock (or a re-lock after `lost`) gets the wave — the ayah
       // flashes word-by-word and the location chip drops in.
       if (!locLiveRef.current) {
