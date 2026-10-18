@@ -170,6 +170,18 @@ export default function QuranTesterClient() {
    *  searches stay Quran-wide regardless. */
   const expectedSurahRef = useRef(0);
   function expectSurah(s: number) {
+    // Hold mode posts NO expected passage. `setExpected` cages every search
+    // (locate AND post-lost re-search) inside the pinned surah — so after a
+    // real move the engine could only lock onto the best fuzzy match inside
+    // the surah you left. With the window null, the engine's own relocate
+    // machinery does proper Quran-wide relocation; our classifier flags it.
+    if (anchorModeRef.current === "hold") {
+      if (expectedSurahRef.current !== 0) {
+        expectedSurahRef.current = 0;
+        qtPost({ type: "expect", passage: null });
+      }
+      return;
+    }
     if (s === expectedSurahRef.current) return;
     expectedSurahRef.current = s;
     const ap = ayahPagesRef.current;
