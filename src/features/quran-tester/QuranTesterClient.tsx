@@ -135,43 +135,20 @@ export default function QuranTesterClient() {
     try { localStorage.setItem("qt:anchor-mode", anchorMode); } catch {}
   });
 
-  /** Anchor the engine to the ayah range on screen — it locks in seconds
-   *  instead of searching all 6,236 ayahs. Falls back to the precached
-   *  ayah→page index so the anchor still lands offline on pages whose
-   *  mushaf JSON was never visited (the old code returned early, leaving
-   *  the engine unanchored — slow, weaker locks). */
-  function expectForPage(p: number) {
-    const data = pages.get(p);
-    if (!data) {
-      const ap = ayahPagesRef.current;
-      if (!ap) return;
-      const bySurah = new Map<number, { min: number; max: number; n: number }>();
-      for (const [s, ayahs] of Object.entries(ap)) {
-        for (const [a, pg] of Object.entries(ayahs)) {
-          if (pg !== p) continue;
-          const si = Number(s), ai = Number(a);
-          const e = bySurah.get(si) ?? { min: ai, max: ai, n: 0 };
-          e.min = Math.min(e.min, ai); e.max = Math.max(e.max, ai); e.n++;
-          bySurah.set(si, e);
-        }
-      }
-      let best: { s: number; min: number; max: number; n: number } | null = null;
-      for (const [s, e] of bySurah) if (!best || e.n > best.n) best = { ...e, s };
-      if (best) qtPost({ type: "expect", passage: { surah: best.s, ayah: best.min, ayahEnd: best.max } });
-      return;
-    }
-    const bySurah = new Map<number, { min: number; max: number; words: number }>();
-    for (const line of data.lines) {
-      for (const w of line.words ?? []) {
-        const [s, a] = w.location.split(":").map(Number);
-        const e = bySurah.get(s) ?? { min: a, max: a, words: 0 };
-        e.min = Math.min(e.min, a); e.max = Math.max(e.max, a); e.words++;
-        bySurah.set(s, e);
-      }
-    }
-    let best: { s: number; min: number; max: number } | null = null;
-    for (const [s, e] of bySurah) if (!best || e.words > bySurah.get(best.s)!.words) best = { s, min: e.min, max: e.max };
-    if (best) qtPost({ type: "expect", passage: { surah: best.s, ayah: best.min, ayahEnd: best.max } });
+  /** Expected = the surah the engine actually locked onto. setExpected
+   *  constrains searches to its passage, so it must NEVER be sent before
+   *  locate — reciting away from the visible page made the engine transcribe
+   *  forever without ever locking. Posted after lock (and on cross-surah
+   *  jumps) so ayah-order + skipped-ayah detection still work; relocate
+   *  searches stay Quran-wide regardless. */
+  const expectedSurahRef = useRef(0);
+  function expectSurah(s: number) {
+    if (s === expectedSurahRef.current) return;
+    expectedSurahRef.current = s;
+    const ap = ayahPagesRef.current;
+    const ayahs = ap?.[s] ? Object.keys(ap[s]).map(Number) : [];
+    const ayahEnd = ayahs.length ? Math.max(...ayahs) : undefined;
+    qtPost({ type: "expect", passage: { surah: s, ayah: 1, ayahEnd } });
   }
 
   const spanDayRef = useRef("");
@@ -234,11 +211,6 @@ export default function QuranTesterClient() {
   // Re-resolve today's span whenever plan/coverage context shifts.
   useEffect(() => { refreshSpan(); }, [plan, ayahPages]);
 
-  // Keep the engine anchored to what's on screen while listening.
-  useEffect(() => {
-    if (listen !== "idle") expectForPage(page);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pages, listen]);
 
   const spanOrd = (l: Loc) => ixRef.current?.ord.get(keyOf(l)) ?? -1;
   function inSpan(l: Loc, pad = 2): boolean {
@@ -462,7 +434,8 @@ export default function QuranTesterClient() {
       if (qtState() === "idle") return;
       setListen("listening");
       setStatus("Finding your place — keep reciting");
-      expectForPage(pageRef.current);
+      expectedSurahRef.current = 0;
+      qtPost({ type: "expect", passage: null }); // free locate — recite from anywhere
     } else if (ev.type === "ui-mic-denied") {
       setMicDenied(true);
       setMicError(String(ev.message));
@@ -475,6 +448,7 @@ export default function QuranTesterClient() {
     } else if (ev.type === "verse_match" || ev.type === "relocated") {
       const s = ev.surah as number, a = ev.ayah as number;
       setLoc({ surah: s, ayah: a });
+      expectSurah(s); // anchor ayah-order checks to wherever you actually are
       classifyJump({ s, a }); // sounds only on first locate / off-track jumps
       setStatus(`Found you — ${String(ev.surah_name ?? "")} ${s}:${a}`);
       goToAyah(s, a);
@@ -486,6 +460,7 @@ export default function QuranTesterClient() {
     } else if (ev.type === "word_progress") {
       const s = ev.surah as number, a = ev.ayah as number;
       setLoc({ surah: s, ayah: a });
+      expectSurah(s); // smooth crossings into the next surah never fire relocate
       setWordIdx(ev.word_index as number);
       noteHeard(s, a, ev.word_index as number, ev.total_words as number);
       const p = ayahPage(s, a);
@@ -806,6 +781,14 @@ export default function QuranTesterClient() {
           )}
         </button>
         <button
+          onClick={() => setPlanOpen(true)}
+          className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ color: "var(--color-ink-muted)", minHeight: 34, minWidth: 34 }}
+          aria-label="Settings"
+        >
+          <Settings2 className="h-4.5 w-4.5" />
+        </button>
+        <button
           onClick={() => {
             setPickerOpen(true);
             if (!surahMeta)
@@ -819,34 +802,35 @@ export default function QuranTesterClient() {
         </button>
       </div>
 
-      {/* Listener bar — today's goal chip + settings */}
-      <div className="mx-auto mt-1.5 flex w-full max-w-3xl items-center gap-2 px-3 sm:px-6">
-        <button
-          onClick={() => setPlanOpen(true)}
-          className="ml-auto flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-          aria-label="Goal settings"
-        >
-          <span className="shrink-0">{dayDone && plan ? "✓ Today" : "Settings"}</span>
-          {plan && spanRef.current.length > 0 && !dayDone && (
-            <span className="flex min-w-0 items-center gap-1.5" style={{ color: "var(--color-ink-muted)" }}>
-              <span className="truncate text-[9px] tabular-nums">
-                {spanLabel()} {Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%
+      {/* Goal progress chip — only while a plan is active */}
+      {plan && spanRef.current.length > 0 && (
+        <div className="mx-auto mt-1.5 flex w-full max-w-3xl items-center gap-2 px-3 sm:px-6">
+          <button
+            onClick={() => setPlanOpen(true)}
+            className="ml-auto flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+            aria-label="Goal settings"
+          >
+            <span className="shrink-0">{dayDone ? "✓ Today" : "Today"}</span>
+            {!dayDone && (
+              <span className="flex min-w-0 items-center gap-1.5" style={{ color: "var(--color-ink-muted)" }}>
+                <span className="truncate text-[9px] tabular-nums">
+                  {spanLabel()} {Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%
+                </span>
+                <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                  <span
+                    className="block h-full rounded-full transition-[width] duration-300"
+                    style={{
+                      width: `${Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%`,
+                      backgroundColor: "var(--color-accent)",
+                    }}
+                  />
+                </span>
               </span>
-              <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-                <span
-                  className="block h-full rounded-full transition-[width] duration-300"
-                  style={{
-                    width: `${Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%`,
-                    backgroundColor: "var(--color-accent)",
-                  }}
-                />
-              </span>
-            </span>
-          )}
-          <Settings2 className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
-        </button>
-      </div>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Jump toast — off-track alert with quick navigation back */}
       {jump && (
