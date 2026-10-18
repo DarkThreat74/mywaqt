@@ -51,7 +51,10 @@ export async function startQt(): Promise<void> {
       if (!r.ok) throw new Error(`worker script ${r.status}`);
       return r.text();
     });
-    worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+    worker = new Worker(
+      URL.createObjectURL(new Blob([src], { type: "text/javascript" })),
+      { type: "module" },
+    );
     worker.onmessage = (e) => {
       const ev = e.data as QtEvent;
       if (ev.type === "ready") {
@@ -94,7 +97,10 @@ export async function startQt(): Promise<void> {
       // postMessage black-holes and init would hang "warming" forever.
       worker?.terminate();
       worker = null;
-      emit({ type: "ui-error", message: "Engine failed to start." });
+      emit({
+        type: "ui-error",
+        message: `Engine failed to start.${e.message ? ` ${e.message}` : ""}`,
+      });
       void stopQt(); // releases the mic tracks too
       e.preventDefault();
     };
