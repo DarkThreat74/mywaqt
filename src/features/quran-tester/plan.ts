@@ -167,7 +167,8 @@ export function coveredInSpan(span: Loc[], cov: Set<string>): number {
   for (const l of span) if (cov.has(keyOf(l))) n++;
   return n;
 }
-export const todayKey = () => new Date().toISOString().slice(0, 10);
+/** Local-midnight day key — "sv-SE" formats YYYY-MM-DD in the local zone. */
+export const todayKey = () => new Date().toLocaleDateString("sv-SE");
 export function isDayDone(date: string): boolean { return days()[date]?.done === true; }
 
 /** Consecutive fully-done days ending today/yesterday. */
@@ -176,7 +177,7 @@ export function streak(): number {
   let n = 0;
   const t = new Date();
   for (;;) {
-    const k = t.toISOString().slice(0, 10);
+    const k = t.toLocaleDateString("sv-SE");
     const rec = d[k];
     if (rec?.done) { n++; t.setDate(t.getDate() - 1); continue; }
     if (k === todayKey() && !rec?.done) { t.setDate(t.getDate() - 1); continue; } // today in progress

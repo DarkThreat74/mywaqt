@@ -7,7 +7,7 @@ import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } f
 import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, loadSurahMeta, warmMushaf, type AyahPages, type MushafPage, type SurahMetaEntry } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import {
-  buildIndex, coveredInSpan, distOf, keyOf, loadCoverage, loadPlan, markCovered,
+  buildIndex, coveredInSpan, distOf, JUZ_START, keyOf, loadCoverage, loadPlan, markCovered,
   savePlan, stampDay, isDayDone, onKhatmaComplete, streak as planStreak, todayKey, todaySpan,
   type AyahIndex, type Loc, type Plan,
 } from "./plan";
@@ -101,6 +101,7 @@ export default function QuranTesterClient() {
   const spanRef = useRef<Loc[]>([]);
   const anchorRef = useRef<Loc | null>(null);
   const heardRef = useRef<{ loc: Loc | null; words: Set<number> }>({ loc: null, words: new Set() });
+  const sessionCovRef = useRef<Set<string>>(new Set());
   const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jumpRef = useRef<{ to: Loc; expected: Loc } | null>(null);
   const planRef = useRef(plan);
@@ -166,8 +167,11 @@ export default function QuranTesterClient() {
     if (best) qtPost({ type: "expect", passage: { surah: best.s, ayah: best.min, ayahEnd: best.max } });
   }
 
-  /** Recompute today's span from plan + coverage (roll-forward cursor). */
+  const spanDayRef = useRef("");
+  /** Recompute today's span from plan + coverage (roll-forward cursor).
+   *  A session crossing local midnight gets the NEW day's span. */
   function refreshSpan() {
+    spanDayRef.current = todayKey();
     const p = planRef.current, ix = ixRef.current, ap = ayahPagesRef.current;
     spanRef.current = p && ix && ap ? todaySpan(ix, ap, p, covRef.current) : [];
   }
@@ -192,7 +196,11 @@ export default function QuranTesterClient() {
       .catch(() => {});
     // Subscribe to the global session — navigating away keeps it alive;
     // this page just re-attaches to whatever state it's in.
-    return subscribeQt((ev) => handlerRef.current(ev));
+    const unsub = subscribeQt((ev) => handlerRef.current(ev));
+    return () => {
+      unsub();
+      if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
+    };
   }, []);
 
   // Fetch page + font, keep a ±1 window warm
@@ -250,11 +258,12 @@ export default function QuranTesterClient() {
     const anchor = anchorRef.current;
     anchorRef.current = loc;
     if (!anchor) { ding(760); return; }           // first locate — the chime
-    // Resolved? Back within ±3 of the place we jumped from.
+    // Resolved? Back within ±3 of the place we jumped from. Without the
+    // early return, the (big) hop back would itself re-flag as a jump.
     const j = jumpRef.current;
     if (j) {
       const back = distOf(ix, j.expected, loc);
-      if (back != null && Math.abs(back) <= 3) dismissJump();
+      if (back != null && Math.abs(back) <= 3) { dismissJump(); return; }
     }
     const d = distOf(ix, anchor, loc);
     if (d == null || Math.abs(d) <= 3 || (d < 0 && d >= -10)) return; // routine / went back — silent
@@ -271,22 +280,49 @@ export default function QuranTesterClient() {
     if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
   }
 
-  /** Coverage: an ayah counts as heard when the tracker dwelled on it
-   *  (≥3 distinct words) and then moved on — never on a bare blip. */
+  /** Word count of an ayah from the loaded page data (0 = page not loaded). */
+  function ayahLen(s: number, a: number): number {
+    const pg = ayahPage(s, a);
+    const data = pg ? pages.get(pg) : null;
+    if (!data) return 0;
+    let n = 0;
+    for (const line of data.lines)
+      for (const w of line.words ?? []) {
+        const [ws, wa, wi] = w.location.split(":").map(Number);
+        if (ws === s && wa === a && wi > n) n = wi;
+      }
+    return n;
+  }
+
+  /** Coverage threshold: ~60% of the ayah's words when we know its length,
+   *  ≥3 otherwise. A 1–2 word ayah (حم, يس) must be fully heard — a bare
+   *  blip still can't count. */
+  function heardEnough(l: Loc, words: Set<number>): boolean {
+    const len = ayahLen(l.s, l.a);
+    const need = len > 0 ? Math.max(1, Math.ceil(0.6 * len)) : 3;
+    return words.size >= need;
+  }
+
   function noteHeard(s: number, a: number, word: number) {
     const h = heardRef.current;
     if (h.loc && (h.loc.s !== s || h.loc.a !== a)) {
-      if (h.words.size >= 3) coverLoc(h.loc);
+      if (heardEnough(h.loc, h.words)) coverLoc(h.loc);
       h.loc = { s, a };
       h.words = new Set();
     } else if (!h.loc) h.loc = { s, a };
     h.words.add(word);
   }
   function coverLoc(l: Loc) {
+    sessionCovRef.current.add(keyOf(l));
     markCovered(covRef.current, l);
+    if (planRef.current?.missedPolicy === "recompute") refreshSpan();
     checkDay();
   }
   function checkDay() {
+    if (spanDayRef.current && spanDayRef.current !== todayKey()) {
+      refreshSpan();
+      if (!isDayDone(todayKey())) setDayDone(false);
+    }
     const p = planRef.current, span = spanRef.current;
     if (!p || !span.length || isDayDone(todayKey())) return; // fresh read — no stale closure
     const unresolved = [...suspectsRef.current.keys()].some((k) => {
@@ -336,7 +372,22 @@ export default function QuranTesterClient() {
     const cov = coveredInSpan(span, covRef.current);
     const pct = Math.round((cov / span.length) * 100);
     const last = span[span.length - 1];
-    return `${span[0].s}:${span[0].a}–${last.s}:${last.a} · ${pct}% · ${span.length - cov} left`;
+    const range = p.unit === "juz"
+      ? (() => {
+          const ix = ixRef.current;
+          const jAt = (l: Loc) => {
+            if (!ix) return 0;
+            const o = ix.ord.get(keyOf(l)) ?? 0;
+            let j = 0;
+            for (let i = 0; i < JUZ_START.length; i++)
+              if ((ix.ord.get(keyOf(JUZ_START[i])) ?? Infinity) <= o) j = i;
+            return j + 1;
+          };
+          const j1 = jAt(span[0]), j2 = jAt(last);
+          return j1 === j2 ? `Juz ${j1}` : `Juz ${j1}–${j2}`;
+        })()
+      : `${span[0].s}:${span[0].a}–${last.s}:${last.a}`;
+    return `${range} · ${pct}% · ${span.length - cov} left`;
   }
 
   function onSearch(v: string) {
@@ -382,6 +433,7 @@ export default function QuranTesterClient() {
     setLoc(null);
     setWordIdx(null);
     heardRef.current = { loc: null, words: new Set() };
+    sessionCovRef.current = new Set();
     anchorRef.current = null;
     setDayDone(isDayDone(todayKey()));
     refreshSpan();
@@ -395,9 +447,11 @@ export default function QuranTesterClient() {
   async function stopRecite() {
     // Flush the last heard ayah before tearing down.
     const h = heardRef.current;
-    if (h.loc && h.words.size >= 3) coverLoc(h.loc);
+    if (h.loc && heardEnough(h.loc, h.words)) coverLoc(h.loc);
     heardRef.current = { loc: null, words: new Set() };
     dismissJump();
+    const n = sessionCovRef.current.size;
+    if (n > 0) setStatus(`Session saved — ${n} ayah${n === 1 ? "" : "s"} covered`);
     await stopQt();
     setStatus(null);
     setWordIdx(null);
@@ -406,7 +460,15 @@ export default function QuranTesterClient() {
   function onEngineEvent(ev: Record<string, unknown>) {
     if (ev.type === "ui-listen") {
       setListen(ev.state as ListenState);
-      if (ev.state === "idle") setLevel(0);
+      if (ev.state === "idle") {
+        setLevel(0);
+        // Session ended outside stopRecite (error, cross-tab) — still bank
+        // the last heard ayah and kill any jump chime.
+        const h = heardRef.current;
+        if (h.loc && heardEnough(h.loc, h.words)) coverLoc(h.loc);
+        heardRef.current = { loc: null, words: new Set() };
+        dismissJump();
+      }
     } else if (ev.type === "ui-status") {
       setStatus(String(ev.message));
     } else if (ev.type === "ready") {
@@ -447,12 +509,13 @@ export default function QuranTesterClient() {
       const i = e.state?.issue ?? e.issue;
       if (i && typeof i.surah === "number") {
         const ayahLevel = i.kind === "possible_skipped_ayah" || i.kind === "unclear_ayah";
-        ding(330, 0.06, 0.25); // low soft tone — a new suspect, not a chime
-        setSuspects((prev) => {
-          const next = new Map(prev);
-          next.set(`${i.surah}:${i.ayah}:${ayahLevel ? 0 : i.word}`, i.kind);
-          return next;
-        });
+        const skey = `${i.surah}:${i.ayah}:${ayahLevel ? 0 : i.word}`;
+        // The engine re-emits the same issue — only tone on a NEW suspect.
+        if (!suspectsRef.current.has(skey)) {
+          suspectsRef.current.set(skey, i.kind); // inline — checkDay can't wait for render
+          ding(330, 0.06, 0.25); // low soft tone — a new suspect, not a chime
+          setSuspects((prev) => new Map(prev).set(skey, i.kind));
+        }
       }
     }
   }
@@ -479,6 +542,7 @@ export default function QuranTesterClient() {
     await saveMistake(m).catch(() => {});
     const key = `${m.surah}:${m.ayah}:${m.word}`;
     setConfirmed((prev) => new Map(prev).set(key, { ...m }));
+    suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
     qtPost({ type: "correction-act", action: "continue" });
     setPending(null);
@@ -488,6 +552,7 @@ export default function QuranTesterClient() {
   async function dismissMistake() {
     if (!pending) return;
     const key = `${pending.s}:${pending.a}:${pending.w}`;
+    suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
     qtPost({ type: "correction-act", action: "dismiss" });
     setPending(null);
@@ -794,6 +859,17 @@ export default function QuranTesterClient() {
           aria-label="Goal settings"
         >
           <span className="truncate">{planChip()}</span>
+          {plan && spanRef.current.length > 0 && !dayDone && (
+            <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+              <span
+                className="block h-full rounded-full transition-[width] duration-300"
+                style={{
+                  width: `${Math.round((coveredInSpan(spanRef.current, covRef.current) / spanRef.current.length) * 100)}%`,
+                  backgroundColor: "var(--color-accent)",
+                }}
+              />
+            </span>
+          )}
           <Settings2 className="h-3 w-3 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
         </button>
       </div>
@@ -1377,6 +1453,9 @@ function PlanSheet({
     const m = startSA.match(/^(\d{1,3}):(\d{1,3})$/);
     if (!m) return;
     const start = { s: Math.min(114, +m[1]), a: Math.max(1, +m[2]) };
+    // A moved start resets the cursor — otherwise the plan silently resumes
+    // from the old position.
+    const cursor = plan && plan.start.s === start.s && plan.start.a === start.a ? plan.cursor : start;
     onSave({
       enabled: true,
       kind,
@@ -1384,7 +1463,7 @@ function PlanSheet({
       unit,
       deadline: kind === "khatma" && deadline ? deadline : undefined,
       start,
-      cursor: plan?.cursor ?? start,
+      cursor,
       missedPolicy,
       reminders,
     });
