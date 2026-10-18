@@ -14,7 +14,7 @@ export default function ThemeGuard() {
     const apply = () => {
       let t: string | null = null;
       try { t = localStorage.getItem("waqt:theme"); } catch { /* private mode */ }
-      const dark = t === "dark" || (t !== "light" && mq.matches);
+      const dark = t === "dark" || (t === "system" && mq.matches); // unset = light
       document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
     };
     apply();

@@ -170,6 +170,13 @@ export function FunFactToggle() {
     else localStorage.removeItem("waqt:funfact:disabled");
     // Let the mounted popup react immediately (hide a visible card).
     window.dispatchEvent(new Event("waqt:funfact:toggle"));
+    // Persist to the account — localStorage alone meant the pref "reset"
+    // on every new device/browser.
+    fetch("/api/settings/prefs", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ funfactDisabled: next }),
+    }).catch(() => {});
   }
 
   return (
@@ -460,19 +467,20 @@ export default function SettingsClient({
   useEffect(() => {
     const stored = localStorage.getItem("waqt:theme");
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from localStorage after mount to avoid hydration mismatch
-    if (stored === "light" || stored === "dark") setTheme(stored);
+    if (stored === "light" || stored === "dark" || stored === "system") setTheme(stored);
   }, []);
 
   function handleThemeChange(next: "light" | "dark" | "system") {
     setTheme(next);
-    if (next === "system") {
-      localStorage.removeItem("waqt:theme");
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
-    } else {
-      localStorage.setItem("waqt:theme", next);
-      document.documentElement.setAttribute("data-theme", next);
-    }
+    localStorage.setItem("waqt:theme", next); // "system" is explicit — roams via DB
+    const prefersDark = next === "dark" || (next === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
+    // Persist to the account so the choice survives device/browser changes.
+    fetch("/api/settings/prefs", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme: next }),
+    }).catch(() => {});
   }
 
   // Display name state

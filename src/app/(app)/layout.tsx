@@ -26,6 +26,7 @@ import LogoutButton from "@/components/logout-button";
 import SyncStatus from "@/components/sync-status";
 import UserStamp from "@/components/user-stamp";
 import ThemeGuard from "@/components/theme-guard";
+import PrefsSync from "@/components/prefs-sync";
 import { SoundscapeProvider } from "@/components/soundscape-context";
 import StudySession from "@/components/study-session";
 import SidebarSalah from "@/components/sidebar-salah";
@@ -238,6 +239,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <SyncStatus />
       <NotificationScheduler />
       <DeepLinkHandler />
+      <PrefsSync />
       {/* Floating UI — hidden on bare-shell routes (onboarding, guide) */}
       <div className="app-chrome contents">
         {/* Popups/trays render null until triggered — mounting them at idle

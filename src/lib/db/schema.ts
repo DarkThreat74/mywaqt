@@ -28,6 +28,11 @@ import {
   jsonb,
 } from 'drizzle-orm/pg-core';
 
+export interface UiPrefs {
+  theme?: 'light' | 'dark' | 'system';
+  funfactDisabled?: boolean;
+}
+
 // ─── Enums ───
 
 export const subscriptionTier = pgEnum('subscription_tier', ['free', 'plus']);
@@ -95,6 +100,10 @@ export const users = pgTable('users', {
   avatarUrl: text('avatar_url'),
   // Nav/tool tabs the user chose to hide (keys: 'messages', tool hrefs like '/qibla').
   hiddenTabs: text('hidden_tabs').array(),
+  // Roaming UI preferences — the reason localStorage prefs "reset" across
+  // devices/logins is that they never had a server home. theme: explicit
+  // light/dark or 'system'; funfactDisabled kills the knowledge cards.
+  uiPrefs: jsonb('ui_prefs').$type<UiPrefs>(),
   // Scheduled account deletion — non-null means the account will be fully
   // deleted 5h after this instant unless the user cancels first.
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
