@@ -390,7 +390,7 @@ export default function QuranTesterClient() {
     // centered in the real Madani mushaf — never stretched edge-to-edge.
     const sparse = data.lines.length < 15;
     return (
-      <div className="flex h-full flex-col px-3 py-3 sm:px-5" dir="rtl">
+      <div className="flex h-full flex-col px-3 py-3 sm:px-5 lg:px-9 lg:py-5" dir="rtl">
         {data.lines.map((line, li) => {
           const nextType = data.lines[li + 1]?.type;
           const endOfSurah = nextType === "surah-header" || nextType === "basmala";
@@ -420,7 +420,7 @@ export default function QuranTesterClient() {
           }
           const centered = sparse || endOfSurah;
           return (
-            <div key={li} className={`flex flex-1 flex-nowrap items-center overflow-hidden ${centered ? "justify-center" : "justify-between"} gap-x-1`}>
+            <div key={li} className={`flex flex-1 flex-nowrap items-center overflow-hidden ${centered ? "justify-center" : "justify-between"} gap-x-1 lg:gap-x-3`}>
               {(line.words ?? []).map((w, wi) => {
                 const [s, a, wiN] = w.location.split(":").map(Number);
                 const key = `${s}:${a}:${wiN}`;
@@ -438,7 +438,7 @@ export default function QuranTesterClient() {
                       ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
                       // Scale by whichever axis is tighter — vw alone left
                       // the text tiny inside short/wide desktop viewports.
-                      fontSize: "clamp(0.95rem, min(4.2vw, 6dvh), 1.85rem)",
+                      fontSize: "clamp(0.95rem, min(4.2vw, 6.5dvh), 2.1rem)",
                       lineHeight: 1,
                       color: hidden ? "transparent" : "var(--color-ink)",
                       ...(hidden
