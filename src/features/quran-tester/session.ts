@@ -40,11 +40,16 @@ export function qtPost(msg: Record<string, unknown>) {
  * resume() is gated, and we don't resume here.
  */
 export function warmQt() {
-  ensureWorker();
-  if (worker && listen === "idle") {
-    const ctx = new AudioContext();
-    worker.postMessage({ type: "init", sampleRate: ctx.sampleRate });
-    void ctx.close();
+  try {
+    ensureWorker();
+    if (worker && listen === "idle") {
+      const ctx = new AudioContext();
+      worker.postMessage({ type: "init", sampleRate: ctx.sampleRate });
+      void ctx.close();
+    }
+  } catch {
+    // AudioContext can throw pre-gesture on old WebKit or when the context
+    // budget is exhausted — warm-up is best-effort, record still inits.
   }
 }
 

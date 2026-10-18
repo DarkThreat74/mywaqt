@@ -119,12 +119,12 @@ export async function downloadEngine(
   ]) {
     const key = `${self.location.origin}/qt/${f}`;
     if (await cache.match(key)) continue;
-    try {
-      const res = await fetch(`/qt/${f}`);
-      if (res.ok) await cache.put(key, res);
-    } catch {
-      // Non-fatal — the SW write-through covers it on next online use.
-    }
+    // Required — "installed" must mean truly offline-ready. These are small
+    // same-origin files; if they fail the install was on a dead network and
+    // shouldn't claim success.
+    const res = await fetch(`/qt/${f}`);
+    if (!res.ok) throw new Error(`download failed: ${f}`);
+    await cache.put(key, res);
   }
 
   localStorage.setItem(LS_KEY, "1");
