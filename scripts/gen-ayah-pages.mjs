@@ -5,7 +5,6 @@ import { writeFileSync } from "node:fs";
 
 const BASE = "https://raw.githubusercontent.com/zonetecde/mushaf-layout/v2/mushaf/QPC2";
 
-const pages = []; // pages[p] = array of {surah, ayah}
 const ayahPage = new Map(); // "s:a" -> page
 
 for (let p = 1; p <= 604; p++) {

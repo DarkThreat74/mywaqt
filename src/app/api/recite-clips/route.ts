@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
       passage: schema.reciteClips.passage,
       style: schema.reciteClips.style,
       duration: schema.reciteClips.duration,
+      analysis: schema.reciteClips.analysis,
       publishedAt: schema.reciteClips.publishedAt,
     }).from(schema.reciteClips)
       .where(eq(schema.reciteClips.processingStatus, "published"))

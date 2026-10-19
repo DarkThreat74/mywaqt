@@ -35,7 +35,7 @@ jobs.push(get(`${BASE}/fonts/QPC2/QPC2BSML.ttf`, `${FONTS}/QPC2BSML.ttf`));
 const CHUNK = 16;
 for (let i = 0; i < jobs.length; i += CHUNK) {
   const rs = await Promise.all(jobs.slice(i, i + CHUNK));
-  for (const r of rs) r ? ok++ : fail++;
+  for (const r of rs) { if (r) ok++; else fail++; }
   if (i % 160 === 0) console.log(`${Math.min(i + CHUNK, jobs.length)}/${jobs.length}`);
 }
 console.log(`done — ${ok} ok, ${fail} failed`);

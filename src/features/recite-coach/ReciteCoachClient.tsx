@@ -28,6 +28,12 @@ interface ServerClip {
   passage: string | null;
   style: string | null;
   duration: number | null;
+  analysis: {
+    passage?: { surah: number; ayah: number; ayahEnd: number };
+    words?: unknown[];
+    madds?: unknown[];
+    ghunnahs?: unknown[];
+  } | null;
 }
 
 const AXIS_LABELS: Record<string, string> = {
@@ -67,6 +73,9 @@ export default function ReciteCoachClient() {
   const [refFrames, setRefFrames] = useState<PitchFrame[] | null>(null);
   const [refBuf, setRefBuf] = useState<AudioBuffer | null>(null);
   const [refName, setRefName] = useState("");
+  // when the loaded reference is an analyzed clip, its confirmed passage —
+  // the user's decode locks to this so verdicts grade against the clip's standard
+  const [refExpected, setRefExpected] = useState<{ surah: number; ayah: number; ayahEnd: number } | null>(null);
   const [refs, setRefs] = useState<RefRow[]>([]);
   const [clips, setClips] = useState<ServerClip[] | null>(null);
   const [clipLoading, setClipLoading] = useState<string | null>(null);
@@ -161,7 +170,7 @@ export default function ReciteCoachClient() {
       setGrading(true);
       let d: DeepGrade | undefined;
       try {
-        d = await gradeAudio(pcm, rate) ?? undefined;
+        d = await gradeAudio(pcm, rate, refExpected) ?? undefined;
       } catch { /* style tier still shown */ }
       setDeep(d);
       setGrading(false);
@@ -182,6 +191,7 @@ export default function ReciteCoachClient() {
     setRefBuf(buf);
     setRefFrames(extractContour(pcm, sr));
     setRefName(name);
+    setRefExpected(null);
     setCmp(null);
   }
 
@@ -197,6 +207,7 @@ export default function ReciteCoachClient() {
     setRefBuf(buf);
     setRefFrames(extractContour(mono, buf.sampleRate));
     setRefName(name);
+    setRefExpected(null);
     setCmp(null);
   }
 
@@ -219,6 +230,13 @@ export default function ReciteCoachClient() {
       const ctx = playCtxRef.current ?? (playCtxRef.current = new AudioContext());
       const buf = await ctx.decodeAudioData(await res.arrayBuffer());
       setRefFromBuffer(buf, `${c.reciter ? c.reciter + " — " : ""}${c.title}`);
+      if (c.analysis?.passage?.surah && c.analysis.passage.ayah) {
+        setRefExpected({
+          surah: c.analysis.passage.surah,
+          ayah: c.analysis.passage.ayah,
+          ayahEnd: c.analysis.passage.ayahEnd,
+        });
+      }
     } catch {
       setErr("Couldn't load that clip.");
     } finally {
@@ -231,7 +249,7 @@ export default function ReciteCoachClient() {
     const target = refs.find((r) => r.id === id);
     await deleteRef(id).catch(() => {});
     setRefs((rs) => rs.filter((r) => r.id !== id));
-    if (target && refName === target.name) { setRefName(""); setRefFrames(null); setRefBuf(null); }
+    if (target && refName === target.name) { setRefName(""); setRefFrames(null); setRefBuf(null); setRefExpected(null); }
   }
 
   async function loadRefFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -427,6 +445,7 @@ export default function ReciteCoachClient() {
                       <p className="truncate text-xs font-medium" style={{ color: "var(--color-ink)" }}>{c.title}</p>
                       <p className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                         {[c.reciter, c.passage, c.style, c.duration ? `${Math.floor(c.duration / 60)}:${String(c.duration % 60).padStart(2, "0")}` : null].filter(Boolean).join(" · ")}
+                        {c.analysis?.words && <span style={{ color: "var(--color-accent)" }}> · analyzed</span>}
                       </p>
                     </div>
                     {clipLoading === c.id

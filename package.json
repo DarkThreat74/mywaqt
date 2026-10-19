@@ -75,6 +75,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
+    "onnxruntime-node": "^1.30.0",
     "sharp": "^0.35.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",

@@ -21,6 +21,8 @@ const eslintConfig = defineConfig([
     "android/.gradle/**",
     // Bundled Next.js assets served locally by the APK (minified, generated)
     "android/app/src/main/assets/**",
+    // Vendored runtime assets (ONNX wasm glue, fonts) — not project source
+    "public/**",
   ]),
 ]);
 

@@ -41,11 +41,11 @@ export interface DeepGrade {
 }
 
 // Elongation tokens: ۥ/ۦ/۾ elongation marks, tatweel ـ, repeated ا/و/ي carriers.
-const ELONG = /^[اـۥۦ۾]+$/;
+export const ELONG = /^[اـۥۦ۾]+$/;
 // Nasal tokens: ڇ ghunnah marker, or geminate ن/م repeats (shaddah nasals).
-const NASAL = /ڇ|نن|مم|ں/;
+export const NASAL = /ڇ|نن|مم|ں/;
 
-function measureRuns(chars: { ch: string; frame: number; margin: number }[], msPerFrame: number) {
+export function measureRuns(chars: { ch: string; frame: number; margin: number }[], msPerFrame: number) {
   const madds: SpanMeasure[] = [];
   const ghunnahs: SpanMeasure[] = [];
   let runFrame = -1;   // CTC frame where the open run started
@@ -79,7 +79,14 @@ function measureRuns(chars: { ch: string; frame: number; margin: number }[], msP
   return { madds, ghunnahs };
 }
 
-export async function gradeAudio(pcm: Float32Array, sampleRate: number): Promise<DeepGrade | null> {
+export async function gradeAudio(
+  pcm: Float32Array,
+  sampleRate: number,
+  /** When practicing against an analyzed reference clip, lock the decode to its
+   *  passage — verdicts then grade against what the clip actually recited
+   *  (the clip's standard becomes the reference). Omit for free assess. */
+  expected?: { surah: number; ayah: number; ayahEnd?: number } | null,
+): Promise<DeepGrade | null> {
   if (!(await engineInstalled())) return null;
 
   const worker = new Worker(new URL("../../quran-tester/recite.worker.ts", import.meta.url));
@@ -127,9 +134,9 @@ export async function gradeAudio(pcm: Float32Array, sampleRate: number): Promise
           reject(new Error(m.message));
         }
       };
-      // Free-decode: no expected passage — the coach never tells the engine
-      // what it "should" hear; a wrong read must stay wrong.
-      worker.postMessage({ type: "expect", passage: null });
+      // Free-decode when no reference: a wrong read must stay wrong. When an
+      // analyzed clip is loaded, lock to its passage for real per-word verdicts.
+      worker.postMessage({ type: "expect", passage: expected ?? null });
       const CHUNK = 16384;
       for (let i = 0; i < pcm.length; i += CHUNK) {
         worker.postMessage({ type: "audio-sync", samples: pcm.slice(i, i + CHUNK) });

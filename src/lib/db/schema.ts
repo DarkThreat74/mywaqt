@@ -782,6 +782,9 @@ export const reciteClips = pgTable('recite_clips', {
   processedStorageKey: text('processed_storage_key'),
   fileSize: integer('file_size'),
   duration: integer('duration'),
+  // Word-by-word analysis from scripts/clip-analyze: located passage, per-word
+  // verdicts, madd/ghunnah spans, stops — the clip's measured tajwīd pattern.
+  analysis: jsonb('analysis'),
   // Processing pipeline status: pending → processing → ready → published / failed
   processingStatus: text('processing_status').default('pending').notNull(),
   processedAt: timestamp('processed_at', { withTimezone: true }),

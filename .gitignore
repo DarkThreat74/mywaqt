@@ -67,3 +67,6 @@ skills-lock.json
 /android/app/src/main/assets/public/
 /ios/App/App/public/
 /android/app/src/main/assets/next-static/
+
+# local recite-coach engine assets (downloaded by scripts/clip-analyze.mts)
+.engine/
