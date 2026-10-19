@@ -1,0 +1,76 @@
+"use client";
+
+import type { Report } from "../engine/analyze";
+
+// Teacher-shaped report: fix-list on top, axis bars in the middle, session
+// stats at the bottom. Bars are the primary encoding (mobile comprehension),
+// never a radar.
+
+export default function ReportCard({ report }: { report: Report }) {
+  const band = report.score >= 800 ? "Muqrin-adjacent" : report.score >= 640 ? "Mubdiʿ" : report.score >= 480 ? "Mujawwid" : report.score >= 320 ? "Mutamakkin" : report.score >= 160 ? "Muntasil" : "Ṭālib";
+  return (
+    <div className="px-5 pb-8">
+      {/* composite */}
+      <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2, var(--color-paper))" }}>
+        <div className="flex items-baseline justify-between">
+          <div>
+            <p className="font-serif text-2xl tabular-nums" style={{ color: "var(--color-ink)" }}>
+              {report.score}<span className="text-sm" style={{ color: "var(--color-ink-muted)" }}>/1000</span>
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--color-ink-muted)" }}>{band} · {Math.round(report.durationSec)}s · {Math.round(report.voicedRatio * 100)}% voiced</p>
+          </div>
+        </div>
+        {/* ladder bar */}
+        <div className="relative mt-3 h-2 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+          <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700" style={{ width: `${report.score / 10}%`, backgroundColor: "var(--color-accent)" }} />
+        </div>
+      </div>
+
+      {/* fix list */}
+      <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Work on</h2>
+      <ul className="space-y-2">
+        {report.fixes.map((f, i) => (
+          <li key={i} className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>{f}</li>
+        ))}
+      </ul>
+
+      {/* axes */}
+      <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>The breakdown</h2>
+      <div className="space-y-2.5">
+        {report.axes.map((a) => (
+          <div key={a.key}>
+            <div className="flex items-baseline justify-between text-xs">
+              <span style={{ color: "var(--color-ink)" }}>{a.label}</span>
+              <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{a.value}</span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${a.value}%`,
+                  backgroundColor: a.value >= 75 ? "#4ade80" : a.value >= 45 ? "var(--color-accent)" : "#f87171",
+                }}
+              />
+            </div>
+            <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{a.note}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* session stats */}
+      <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Session</h2>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        {[
+          [`${report.phrases.length}`, "phrases"],
+          [`${report.pauses.length}`, "pauses"],
+          [`${report.pitch.medianHz.toFixed(0)} Hz`, "median pitch"],
+        ].map(([v, l]) => (
+          <div key={l} className="rounded-lg border px-2 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+            <p className="text-sm font-medium tabular-nums" style={{ color: "var(--color-ink)" }}>{v}</p>
+            <p className="text-[10px] mt-0.5" style={{ color: "var(--color-ink-muted)" }}>{l}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

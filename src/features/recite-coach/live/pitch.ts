@@ -11,11 +11,15 @@ export interface PitchFrame {
   rms: number;
   voiced: boolean;
   t: number;
+  zcr: number;        // zero-crossing rate — breathiness/noise proxy
+  centroid: number;   // spectral centroid Hz — brightness
+  nasalRatio: number; // 220–380Hz energy share — ghunnah proxy
 }
 
 export interface PitchStream {
   stop(): void;
-  frames: () => PitchFrame[]; // ring of recent frames, oldest → newest
+  frames: () => PitchFrame[];  // ring of recent frames, oldest → newest
+  history: () => PitchFrame[]; // full session, for analysis
   sampleRate: number;
 }
 
@@ -28,7 +32,7 @@ export async function startPitchStream(): Promise<PitchStream> {
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
-      latency: 0 as unknown as number,
+      latency: 0,
       channelCount: 1,
     } as MediaTrackConstraints,
   });
@@ -42,11 +46,12 @@ export async function startPitchStream(): Promise<PitchStream> {
   src.connect(node).connect(sink).connect(ctx.destination);
 
   const frames: PitchFrame[] = [];
+  const history: PitchFrame[] = [];
   let runStart = -1;
   let med: number[] = [];
 
   node.port.onmessage = (ev: MessageEvent) => {
-    const { hz, clarity, rms, noiseFloor, t } = ev.data;
+    const { hz, clarity, rms, noiseFloor, t, zcr = 0, centroid = 0, nasalRatio = 0 } = ev.data;
     const voicedRaw = hz > 0 && clarity >= 0.6 && rms > noiseFloor * 5;
 
     // median-of-3 on voiced hz
@@ -72,8 +77,10 @@ export async function startPitchStream(): Promise<PitchStream> {
       runStart = -1;
     }
 
-    frames.push({ hz: voicedRaw ? f0 : 0, clarity, rms, voiced: voicedRaw, t });
+    const frame: PitchFrame = { hz: voicedRaw ? f0 : 0, clarity, rms, voiced: voicedRaw, t, zcr, centroid, nasalRatio };
+    frames.push(frame);
     if (frames.length > RING) frames.shift();
+    history.push(frame);
   };
 
   return {
@@ -85,6 +92,7 @@ export async function startPitchStream(): Promise<PitchStream> {
       for (const tr of stream.getTracks()) tr.stop();
     },
     frames: () => frames,
+    history: () => history,
     sampleRate: ctx.sampleRate,
   };
 }
