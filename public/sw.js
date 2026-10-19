@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v87";
+const CACHE_VERSION = "waqt-v88";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -74,6 +74,7 @@ const APP_PAGES = [
   "/subscriptions",
   "/birthdays",
   "/quran-tester",
+  "/recite",
 ];
 
 // ─── IndexedDB helpers for offline event outbox ───
@@ -1289,6 +1290,7 @@ self.addEventListener("fetch", (event) => {
   // Range requests are sliced from the cached full response for iOS-compatible seeking.
   if (
     request.destination === "audio" ||
+    (url.pathname === "/api/recite-clips" && url.searchParams.has("stream")) ||
     url.hostname.endsWith(".r2.cloudflarestorage.com") ||
     url.pathname.endsWith(".mp3") ||
     url.pathname.endsWith(".m4a") ||
@@ -1319,7 +1321,8 @@ self.addEventListener("fetch", (event) => {
         // Match the stable object identity when the URL shape differs — but
         // for /api/talks?stream= the stream param IS the identity; pathname
         // alone would serve whichever talk happens to be cached.
-        const streamParam = url.pathname === "/api/talks" ? url.searchParams.get("stream") : null;
+        const streamParam = (url.pathname === "/api/talks" || url.pathname === "/api/recite-clips")
+          ? url.searchParams.get("stream") : null;
         const matchingKey = (await audioCache.keys()).find((key) => {
           const keyUrl = new URL(key.url);
           if (keyUrl.origin !== url.origin || keyUrl.pathname !== url.pathname) return false;

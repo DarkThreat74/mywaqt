@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, Square, Play, Pause, Upload, Disc3, X, Loader2, Music2, TrendingUp } from "lucide-react";
+import { Mic, Square, Play, Pause, Upload, Disc3, X, Loader2, Music2, TrendingUp, Download, HardDriveDownload } from "lucide-react";
+import { AUDIO_CACHE_NAME, audioCacheKey, getCachedAudioKeys, removeAudioOffline, saveAudioOffline } from "@/components/audio-player-context";
 import ContourCanvas from "./ui/ContourCanvas";
 import ReportCard from "./ui/ReportCard";
 import { startPitchStream, hzToNote, type PitchStream, type PitchFrame } from "./live/pitch";
@@ -28,6 +29,7 @@ interface ServerClip {
   passage: string | null;
   style: string | null;
   duration: number | null;
+  fileSize: number | null;
   analysis: {
     passage?: { surah: number; ayah: number; ayahEnd: number };
     words?: unknown[];
@@ -79,6 +81,8 @@ export default function ReciteCoachClient() {
   const [refs, setRefs] = useState<RefRow[]>([]);
   const [clips, setClips] = useState<ServerClip[] | null>(null);
   const [clipLoading, setClipLoading] = useState<string | null>(null);
+  const [clipCached, setClipCached] = useState<Set<string>>(new Set());
+  const [clipDl, setClipDl] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   const [playing, setPlaying] = useState(false);
   const [refVol, setRefVol] = useState(0.8);
@@ -91,10 +95,14 @@ export default function ReciteCoachClient() {
 
   useEffect(() => {
     void listRefs().then(setRefs).catch(() => {});
+    const refreshCached = () => void getCachedAudioKeys().then(setClipCached).catch(() => {});
+    refreshCached();
+    window.addEventListener("waqt:audio-cache-changed", refreshCached);
     void fetch("/api/recite-clips")
       .then((r) => (r.ok ? r.json() : { clips: [] }))
       .then((d) => setClips(Array.isArray(d.clips) ? d.clips : []))
       .catch(() => setClips([]));
+    return () => window.removeEventListener("waqt:audio-cache-changed", refreshCached);
   }, []);
 
   useEffect(() => {
@@ -215,17 +223,19 @@ export default function ReciteCoachClient() {
     setRefFromPcm(row.pcm, row.sr, row.name);
   }
 
+  function clipUrl(c: ServerClip) {
+    return `/api/recite-clips?stream=${c.id}`;
+  }
+
   async function loadClip(c: ServerClip) {
     setErr("");
     setClipLoading(c.id);
-    const url = `/api/recite-clips?stream=${c.id}&proxy=1`;
+    const url = clipUrl(c);
     try {
-      // cache-first: a clip you've practiced against keeps working offline
-      const cached = await caches.match(url);
-      const res = cached ?? await fetch(url);
-      if (res.ok && !cached) {
-        void caches.open("recite-clips").then((cache) => cache.put(url, res.clone())).catch(() => {});
-      }
+      // downloaded clips live in the shared waqt-audio cache (SW-served, range-safe);
+      // playback itself never auto-caches — downloads are explicit only
+      const hit = await caches.open(AUDIO_CACHE_NAME).then((cache) => cache.match(new Request(url)));
+      const res = hit ?? await fetch(`${url}&proxy=1`);
       if (!res.ok) throw new Error();
       const ctx = playCtxRef.current ?? (playCtxRef.current = new AudioContext());
       const buf = await ctx.decodeAudioData(await res.arrayBuffer());
@@ -241,6 +251,27 @@ export default function ReciteCoachClient() {
       setErr("Couldn't load that clip.");
     } finally {
       setClipLoading(null);
+    }
+  }
+
+  async function toggleClipOffline(e: React.MouseEvent, c: ServerClip) {
+    e.stopPropagation();
+    const url = clipUrl(c);
+    const key = audioCacheKey(url);
+    setErr("");
+    if (clipCached.has(key)) {
+      await removeAudioOffline(url).catch(() => setErr("Couldn't remove the download."));
+      getCachedAudioKeys().then(setClipCached).catch(() => {});
+      return;
+    }
+    setClipDl(c.id);
+    try {
+      await saveAudioOffline(url, { talkId: c.id, title: c.title, fileSize: c.fileSize ?? undefined });
+      setClipCached(await getCachedAudioKeys());
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Couldn't download that clip.");
+    } finally {
+      setClipDl(null);
     }
   }
 
@@ -433,26 +464,45 @@ export default function ReciteCoachClient() {
               </p>
             ) : (
               <div className="space-y-1.5">
-                {clips.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => void loadClip(c)}
-                    disabled={clipLoading === c.id}
-                    className="flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-60"
-                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium" style={{ color: "var(--color-ink)" }}>{c.title}</p>
-                      <p className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                        {[c.reciter, c.passage, c.style, c.duration ? `${Math.floor(c.duration / 60)}:${String(c.duration % 60).padStart(2, "0")}` : null].filter(Boolean).join(" · ")}
-                        {c.analysis?.words && <span style={{ color: "var(--color-accent)" }}> · analyzed</span>}
-                      </p>
+                {clips.map((c) => {
+                  const cached = clipCached.has(audioCacheKey(clipUrl(c)));
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex w-full items-center gap-1 rounded-xl border pl-3 pr-1.5 py-1.5"
+                      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+                    >
+                      <button
+                        onClick={() => void loadClip(c)}
+                        disabled={clipLoading === c.id}
+                        className="flex min-w-0 flex-1 items-center justify-between gap-3 py-1 text-left transition-colors disabled:opacity-60"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-medium" style={{ color: "var(--color-ink)" }}>{c.title}</p>
+                          <p className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                            {[c.reciter, c.passage, c.style, c.duration ? `${Math.floor(c.duration / 60)}:${String(c.duration % 60).padStart(2, "0")}` : null].filter(Boolean).join(" · ")}
+                            {c.analysis?.words && <span style={{ color: "var(--color-accent)" }}> · analyzed</span>}
+                            {cached && <span style={{ color: "var(--color-success)" }}> · offline</span>}
+                          </p>
+                        </div>
+                        {clipLoading === c.id
+                          ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" style={{ color: "var(--color-accent)" }} />
+                          : <Play className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
+                      </button>
+                      <button
+                        onClick={(e) => void toggleClipOffline(e, c)}
+                        disabled={clipDl === c.id}
+                        title={cached ? "Remove offline copy" : "Download for offline practice"}
+                        className="shrink-0 rounded-lg p-2 transition-colors"
+                        style={{ color: cached ? "var(--color-success)" : "var(--color-ink-muted)", minWidth: 36, minHeight: 36 }}
+                      >
+                        {clipDl === c.id
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : cached ? <HardDriveDownload className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+                      </button>
                     </div>
-                    {clipLoading === c.id
-                      ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" style={{ color: "var(--color-accent)" }} />
-                      : <Play className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />}
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>

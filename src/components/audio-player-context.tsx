@@ -54,7 +54,8 @@ export function getDownloadLimitMB(): number {
 
 export function audioCacheKey(url: string): string {
   const parsed = new URL(url, window.location.origin);
-  const streamId = parsed.pathname === "/api/talks" ? parsed.searchParams.get("stream") : null;
+  const streamId = (parsed.pathname === "/api/talks" || parsed.pathname === "/api/recite-clips")
+    ? parsed.searchParams.get("stream") : null;
   return `${parsed.origin}${parsed.pathname}${streamId ? `?stream=${streamId}` : ""}`;
 }
 
