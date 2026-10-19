@@ -40,6 +40,38 @@ export default function ReportCard({ report, deep }: { report: Report; deep?: De
       {deep && (
         <>
           <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Correctness</h2>
+          {(deep.madds.length > 0 || deep.ghunnahs.length > 0) && (
+            <div className="mb-2 rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+              <div className="flex gap-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                {deep.madds.length > 0 && (
+                  <span>
+                    {deep.madds.length} elongation{deep.madds.length === 1 ? "" : "s"} ·
+                    longest {(Math.max(...deep.madds.map(m => m.ms)) / 1000).toFixed(1)}s
+                  </span>
+                )}
+                {deep.ghunnahs.length > 0 && (
+                  <span>
+                    {deep.ghunnahs.length} nasal hold{deep.ghunnahs.length === 1 ? "" : "s"} ·
+                    avg {(deep.ghunnahs.reduce((s, g) => s + g.ms, 0) / deep.ghunnahs.length).toFixed(0)}ms
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {deep.madds.slice(0, 20).map((m, i) => (
+                  <span
+                    key={i}
+                    className="rounded px-1.5 py-0.5 text-[10px] tabular-nums"
+                    style={{
+                      backgroundColor: m.ms < 250 ? "#f8717122" : "var(--color-paper-3)",
+                      color: m.ms < 250 ? "#f87171" : "var(--color-ink-muted)",
+                    }}
+                  >
+                    {(m.ms / 1000).toFixed(1)}s
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {deep.issues.length === 0 ? (
             <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
               <p className="text-sm" style={{ color: "var(--color-ink)" }}>

@@ -188,6 +188,20 @@ self.onmessage = (e: MessageEvent) => {
         session.zipformer?.setExpected(m.passage ?? null);
       } else if (m.type === "stop" && session) {
         await session.stop(); // events flow through onEvent
+        // Deep-grade tap: dump the heard phoneme stream (chars + CTC frame
+        // index each) so callers can measure madd/ghunnah durations. The
+        // engine keeps every heard char in `buffer` (cap 1000) — reachable at
+        // runtime though TS-private. framesDecoded lets callers convert
+        // frames→ms against the actual audio length.
+        const z = session.zipformer as unknown as {
+          engine?: { buffer?: { ch: string; frame: number; margin: number }[] };
+          decoder?: { framesDecoded?: number };
+        } | null;
+        postMessage({
+          type: "heard",
+          chars: z?.engine?.buffer ?? [],
+          framesDecoded: z?.decoder?.framesDecoded ?? 0,
+        });
         postMessage({ type: "stopped" });
       } else if (m.type === "reset" && session) {
         audioPending = [];

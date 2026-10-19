@@ -15,11 +15,54 @@ export interface DeepIssue {
   kind: string;
 }
 
+export interface SpanMeasure {
+  ms: number;
+  /** char offset in the heard stream */
+  at: number;
+}
+
 export interface DeepGrade {
   issues: DeepIssue[];
   /** ayahs the tracker matched — where the recitation was */
   verses: string[];
   wordsHeard: number;
+  /** measured elongation (madd) run durations, ms */
+  madds: SpanMeasure[];
+  /** measured nasal (ghunnah) run durations, ms */
+  ghunnahs: SpanMeasure[];
+}
+
+// Elongation tokens: ۥ/ۦ/۾ elongation marks, tatweel ـ, repeated ا/و/ي carriers.
+const ELONG = /^[اـۥۦ۾]+$/;
+// Nasal tokens: ڇ ghunnah marker, or geminate ن/م repeats (shaddah nasals).
+const NASAL = /ڇ|نن|مم|ں/;
+
+function measureRuns(chars: { ch: string; frame: number; margin: number }[], msPerFrame: number) {
+  const madds: SpanMeasure[] = [];
+  const ghunnahs: SpanMeasure[] = [];
+  let runFrame = -1;   // CTC frame where the open run started
+  let runAt = -1;      // char index where it started
+  let runKind: "madd" | "ghunna" | null = null;
+  const close = (endFrame: number) => {
+    if (runFrame >= 0 && runKind) {
+      const ms = Math.max(0, (endFrame - runFrame) * msPerFrame);
+      (runKind === "madd" ? madds : ghunnahs).push({ ms, at: runAt });
+    }
+    runFrame = -1;
+    runKind = null;
+  };
+  chars.forEach((c, i) => {
+    // bare alef is a letter, not a stretch — only multi-alef tokens count
+    const kind = (ELONG.test(c.ch) && c.ch !== "ا") ? "madd" as const
+      : NASAL.test(c.ch) ? "ghunna" as const : null;
+    if (kind === runKind) return;
+    close(c.frame);
+    runKind = kind;
+    runFrame = kind ? c.frame : -1;
+    runAt = kind ? i : -1;
+  });
+  if (chars.length) close(chars[chars.length - 1].frame + 1);
+  return { madds, ghunnahs };
 }
 
 export async function gradeAudio(pcm: Float32Array, sampleRate: number): Promise<DeepGrade | null> {
@@ -29,6 +72,8 @@ export async function gradeAudio(pcm: Float32Array, sampleRate: number): Promise
   const issues: DeepIssue[] = [];
   const verses: string[] = [];
   let wordsHeard = 0;
+  let heard: { ch: string; frame: number; margin: number }[] = [];
+  let framesDecoded = 0;
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -57,6 +102,9 @@ export async function gradeAudio(pcm: Float32Array, sampleRate: number): Promise
           if (!verses.includes(v)) verses.push(v);
         } else if (m.type === "word_progress") {
           wordsHeard = Math.max(wordsHeard, (m.matched_indices?.length ?? 0));
+        } else if (m.type === "heard") {
+          heard = m.chars ?? [];
+          framesDecoded = m.framesDecoded ?? 0;
         } else if (m.type === "stopped") {
           clearTimeout(timer);
           resolve();
@@ -78,5 +126,11 @@ export async function gradeAudio(pcm: Float32Array, sampleRate: number): Promise
     worker.terminate();
   }
 
-  return { issues, verses, wordsHeard };
+  // framesDecoded vs actual audio length self-calibrates ms/frame — no need
+  // to know the model's subsampling factor.
+  const audioMs = (pcm.length / sampleRate) * 1000;
+  const msPerFrame = framesDecoded > 0 ? audioMs / framesDecoded : 40;
+  const { madds, ghunnahs } = measureRuns(heard, msPerFrame);
+
+  return { issues, verses, wordsHeard, madds, ghunnahs };
 }
