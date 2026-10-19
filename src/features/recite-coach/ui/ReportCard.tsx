@@ -18,6 +18,15 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default function ReportCard({ report, deep, ladder }: { report: Report; deep?: DeepGrade | null; ladder?: LadderRow[] | null }) {
+  // Classify each substantial pause: aligned with a heard saktah mark →
+  // "saktah"; breathy → "breath"; otherwise a clean stop.
+  const pauses = report.pauses
+    .filter((p) => p.dur >= 0.5)
+    .map((p) => {
+      const ms = p.start * 1000;
+      const saktah = deep?.saktahs?.some((s) => Math.abs(s - ms) < 400 || (s > ms && s < ms + p.dur * 1000));
+      return { dur: p.dur, kind: saktah ? "saktah" : p.breathy ? "breath" : "stop" as const };
+    });
   const band = report.score >= 800 ? "Muqrin-adjacent" : report.score >= 640 ? "Mubdiʿ" : report.score >= 480 ? "Mujawwid" : report.score >= 320 ? "Mutamakkin" : report.score >= 160 ? "Muntasil" : "Ṭālib";
   return (
     <div className="px-5 pb-8">
@@ -104,6 +113,27 @@ export default function ReportCard({ report, deep, ladder }: { report: Report; d
               )}
             </ul>
           )}
+        </>
+      )}
+
+      {/* stops — pauses classified by evidence */}
+      {pauses.length > 0 && (
+        <>
+          <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Stops</h2>
+          <div className="flex flex-wrap gap-1.5">
+            {pauses.map((p, i) => (
+              <span
+                key={i}
+                className="rounded-full border px-2.5 py-1 text-[11px] tabular-nums"
+                style={{
+                  borderColor: "var(--color-paper-3)",
+                  color: p.kind === "breath" ? "var(--color-accent)" : "var(--color-ink-muted)",
+                }}
+              >
+                {p.dur.toFixed(1)}s {p.kind}
+              </span>
+            ))}
+          </div>
         </>
       )}
 

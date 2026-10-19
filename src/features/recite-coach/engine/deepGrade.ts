@@ -34,6 +34,10 @@ export interface DeepGrade {
   madds: SpanMeasure[];
   /** measured nasal (ghunnah) run durations, ms */
   ghunnahs: SpanMeasure[];
+  /** heard saktah (breathless-pause) marks — position in ms of session audio */
+  saktahs: number[];
+  /** ms per CTC frame, calibrated from audio length — for pause↔frame mapping */
+  msPerFrame: number;
 }
 
 // Elongation tokens: ۥ/ۦ/۾ elongation marks, tatweel ـ, repeated ا/و/ي carriers.
@@ -156,5 +160,9 @@ export async function gradeAudio(pcm: Float32Array, sampleRate: number): Promise
     if (harakaMs > 0) m.haraka = m.ms / harakaMs;
   }
 
-  return { issues, verses, wordsHeard, madds, ghunnahs };
+  // ۜ = saktah (breathless pause). Each token instance marks where the model
+  // heard one — the report matches long pauses to these positions.
+  const saktahs = heard.filter((c) => c.ch.includes("ۜ")).map((c) => c.frame * msPerFrame);
+
+  return { issues, verses, wordsHeard, madds, ghunnahs, saktahs, msPerFrame };
 }
