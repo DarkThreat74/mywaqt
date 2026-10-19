@@ -19,6 +19,10 @@ export interface SpanMeasure {
   ms: number;
   /** char offset in the heard stream */
   at: number;
+  /** madd class from the token the model heard: lazim 6ḥ, jaiz ~4-5ḥ, other ~2ḥ */
+  cls?: "lazim" | "jaiz" | "qasr";
+  /** measured length in ḥaraka units (ms / session's median phoneme duration) */
+  haraka?: number;
 }
 
 export interface DeepGrade {
@@ -46,20 +50,26 @@ function measureRuns(chars: { ch: string; frame: number; margin: number }[], msP
   const close = (endFrame: number) => {
     if (runFrame >= 0 && runKind) {
       const ms = Math.max(0, (endFrame - runFrame) * msPerFrame);
-      (runKind === "madd" ? madds : ghunnahs).push({ ms, at: runAt });
+      const cls = runKind === "madd"
+        ? runTok.includes("ۦ") ? "lazim" as const : runTok.includes("ۥ") ? "jaiz" as const : "qasr" as const
+        : undefined;
+      (runKind === "madd" ? madds : ghunnahs).push({ ms, at: runAt, cls });
     }
     runFrame = -1;
     runKind = null;
+    runTok = "";
   };
+  let runTok = "";
   chars.forEach((c, i) => {
     // bare alef is a letter, not a stretch — only multi-alef tokens count
     const kind = (ELONG.test(c.ch) && c.ch !== "ا") ? "madd" as const
       : NASAL.test(c.ch) ? "ghunna" as const : null;
-    if (kind === runKind) return;
+    if (kind === runKind) { if (kind) runTok += c.ch; return; }
     close(c.frame);
     runKind = kind;
     runFrame = kind ? c.frame : -1;
     runAt = kind ? i : -1;
+    runTok = kind ? c.ch : "";
   });
   if (chars.length) close(chars[chars.length - 1].frame + 1);
   return { madds, ghunnahs };
@@ -131,6 +141,20 @@ export async function gradeAudio(pcm: Float32Array, sampleRate: number): Promise
   const audioMs = (pcm.length / sampleRate) * 1000;
   const msPerFrame = framesDecoded > 0 ? audioMs / framesDecoded : 40;
   const { madds, ghunnahs } = measureRuns(heard, msPerFrame);
+
+  // Ḥaraka unit: median inter-token gap over non-elongation tokens — one
+  // phoneme ≈ one ḥaraka, calibrated to this reciter's own tempo so a slow
+  // mujawwid reader isn't punished for a fast-reader scale.
+  const gaps: number[] = [];
+  for (let i = 1; i < heard.length; i++) {
+    const d = heard[i].frame - heard[i - 1].frame;
+    if (d > 0 && !ELONG.test(heard[i].ch)) gaps.push(d);
+  }
+  gaps.sort((a, b) => a - b);
+  const harakaMs = gaps.length ? gaps[gaps.length >> 1] * msPerFrame : 0;
+  for (const m of madds) {
+    if (harakaMs > 0) m.haraka = m.ms / harakaMs;
+  }
 
   return { issues, verses, wordsHeard, madds, ghunnahs };
 }

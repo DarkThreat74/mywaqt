@@ -57,18 +57,24 @@ export default function ReportCard({ report, deep }: { report: Report; deep?: De
                 )}
               </div>
               <div className="mt-2 flex flex-wrap gap-1">
-                {deep.madds.slice(0, 20).map((m, i) => (
-                  <span
-                    key={i}
-                    className="rounded px-1.5 py-0.5 text-[10px] tabular-nums"
-                    style={{
-                      backgroundColor: m.ms < 250 ? "#f8717122" : "var(--color-paper-3)",
-                      color: m.ms < 250 ? "#f87171" : "var(--color-ink-muted)",
-                    }}
-                  >
-                    {(m.ms / 1000).toFixed(1)}s
-                  </span>
-                ))}
+                {deep.madds.slice(0, 20).map((m, i) => {
+                  const minH = m.cls === "lazim" ? 5.5 : m.cls === "jaiz" ? 3.5 : 1.5;
+                  const short = m.haraka != null && m.haraka < minH;
+                  const clsLabel = m.cls === "lazim" ? "lāzim" : m.cls === "jaiz" ? "jāʾiz" : "madd";
+                  return (
+                    <span
+                      key={i}
+                      className="rounded px-1.5 py-0.5 text-[10px] tabular-nums"
+                      style={{
+                        backgroundColor: short ? "#f8717122" : "var(--color-paper-3)",
+                        color: short ? "#f87171" : "var(--color-ink-muted)",
+                      }}
+                      title={`${clsLabel} · ${(m.ms / 1000).toFixed(2)}s`}
+                    >
+                      {m.haraka != null ? `${m.haraka.toFixed(1)}ḥ` : `${(m.ms / 1000).toFixed(1)}s`}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
