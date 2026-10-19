@@ -187,7 +187,9 @@ export default function ReciteCoachClient() {
 
   function setRefFromBuffer(buf: AudioBuffer, name: string) {
     const ch0 = buf.getChannelData(0);
-    const mono = buf.numberOfChannels > 1 ? new Float32Array(ch0.length) : ch0;
+    // mono mixdown: start from channel 0, fold the rest in at 1/n — the
+    // previous version initialized zeros and skipped ch0 entirely
+    const mono = buf.numberOfChannels > 1 ? Float32Array.from(ch0) : ch0;
     for (let c = 1; c < buf.numberOfChannels; c++) {
       const d = buf.getChannelData(c);
       for (let i = 0; i < d.length; i++) mono[i] += d[i] / buf.numberOfChannels;
@@ -205,8 +207,14 @@ export default function ReciteCoachClient() {
   async function loadClip(c: ServerClip) {
     setErr("");
     setClipLoading(c.id);
+    const url = `/api/recite-clips?stream=${c.id}&proxy=1`;
     try {
-      const res = await fetch(`/api/recite-clips?stream=${c.id}&proxy=1`);
+      // cache-first: a clip you've practiced against keeps working offline
+      const cached = await caches.match(url);
+      const res = cached ?? await fetch(url);
+      if (res.ok && !cached) {
+        void caches.open("recite-clips").then((cache) => cache.put(url, res.clone())).catch(() => {});
+      }
       if (!res.ok) throw new Error();
       const ctx = playCtxRef.current ?? (playCtxRef.current = new AudioContext());
       const buf = await ctx.decodeAudioData(await res.arrayBuffer());
@@ -220,8 +228,10 @@ export default function ReciteCoachClient() {
 
   async function removeRef(id: number | undefined) {
     if (id == null) return;
+    const target = refs.find((r) => r.id === id);
     await deleteRef(id).catch(() => {});
     setRefs((rs) => rs.filter((r) => r.id !== id));
+    if (target && refName === target.name) { setRefName(""); setRefFrames(null); setRefBuf(null); }
   }
 
   async function loadRefFile(e: React.ChangeEvent<HTMLInputElement>) {
