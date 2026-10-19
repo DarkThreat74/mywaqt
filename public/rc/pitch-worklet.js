@@ -50,7 +50,13 @@ class PitchProcessor extends AudioWorkletProcessor {
     this.pcm = new Float32Array(4096);
     this.pcmWrite = 0;
     this.port.onmessage = (e) => {
-      if (e.data === "record-start") { this.recording = true; this.pcmWrite = 0; }
+      if (e.data === "record-start") {
+        this.recording = true;
+        this.pcmWrite = 0;
+        // Timestamp of PCM sample 0 in currentTime units — callers subtract
+        // this to map frame-time events onto recorded-audio positions.
+        this.port.postMessage({ kind: "pcm-start", t: currentTime });
+      }
       else if (e.data === "record-stop") {
         this.recording = false;
         this.flushPcm();
@@ -152,7 +158,7 @@ class PitchProcessor extends AudioWorkletProcessor {
       const b = (2 * r[pick]) / m[pick];
       const c = (2 * r[pick + 1]) / m[pick + 1];
       const shift = (a - c) / (2 * (a - 2 * b + c) || 1);
-      hz = sr / (pick + shift * 0.5);
+      hz = sr / (pick + shift);
       clarity = b;
     }
     return { hz, clarity, rms, noiseFloor: this.noiseFloor, zcr, centroid, nasalRatio };

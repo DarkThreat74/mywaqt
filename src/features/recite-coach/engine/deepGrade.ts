@@ -132,7 +132,7 @@ export async function gradeAudio(pcm: Float32Array, sampleRate: number): Promise
       worker.postMessage({ type: "expect", passage: null });
       const CHUNK = 16384;
       for (let i = 0; i < pcm.length; i += CHUNK) {
-        worker.postMessage({ type: "audio", samples: pcm.slice(i, i + CHUNK) });
+        worker.postMessage({ type: "audio-sync", samples: pcm.slice(i, i + CHUNK) });
       }
       worker.postMessage({ type: "stop" });
     });

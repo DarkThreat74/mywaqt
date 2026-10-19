@@ -17,13 +17,14 @@ const KIND_LABEL: Record<string, string> = {
   unclear_ayah: "unclear āyah",
 };
 
-export default function ReportCard({ report, deep, ladder }: { report: Report; deep?: DeepGrade | null; ladder?: LadderRow[] | null }) {
+export default function ReportCard({ report, deep, ladder, recT0 }: { report: Report; deep?: DeepGrade | null; ladder?: LadderRow[] | null; recT0?: number }) {
   // Classify each substantial pause: aligned with a heard saktah mark →
-  // "saktah"; breathy → "breath"; otherwise a clean stop.
+  // "saktah"; breathy → "breath"; otherwise a clean stop. Pause `start` is
+  // AudioContext time; saktah positions are PCM ms — recT0 bridges them.
   const pauses = report.pauses
     .filter((p) => p.dur >= 0.5)
     .map((p) => {
-      const ms = p.start * 1000;
+      const ms = (p.start - (recT0 ?? 0)) * 1000;
       const saktah = deep?.saktahs?.some((s) => Math.abs(s - ms) < 400 || (s > ms && s < ms + p.dur * 1000));
       return { dur: p.dur, kind: saktah ? "saktah" : p.breathy ? "breath" : "stop" as const };
     });

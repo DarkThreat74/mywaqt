@@ -22,8 +22,9 @@ export interface PitchStream {
   history: () => PitchFrame[]; // full session, for analysis
   /** Arm PCM capture — call right when the user starts reciting. */
   startRecording(): void;
-  /** Stop capture; resolves with the session's full mono PCM at sourceRate. */
-  stopRecording(): Promise<Float32Array>;
+  /** Stop capture; resolves with the session PCM plus t0 — the AudioContext
+   * time of PCM sample 0, so frame-time events map onto audio positions. */
+  stopRecording(): Promise<{ pcm: Float32Array; t0: number }>;
   sampleRate: number;
 }
 
@@ -55,10 +56,12 @@ export async function startPitchStream(): Promise<PitchStream> {
   let med: number[] = [];
   const pcmChunks: Float32Array[] = [];
   let pcmDone: (() => void) | null = null;
+  let pcmT0 = 0;
 
   node.port.onmessage = (ev: MessageEvent) => {
     const d = ev.data;
     if (d.kind === "pcm") { pcmChunks.push(d.samples); return; }
+    if (d.kind === "pcm-start") { pcmT0 = d.t; return; }
     if (d.kind === "pcm-done") { pcmDone?.(); pcmDone = null; return; }
     const { hz, clarity, rms, noiseFloor, t, zcr = 0, centroid = 0, nasalRatio = 0 } = d;
     const voicedRaw = hz > 0 && clarity >= 0.6 && rms > noiseFloor * 5;
@@ -104,13 +107,13 @@ export async function startPitchStream(): Promise<PitchStream> {
     history: () => history,
     startRecording() { pcmChunks.length = 0; node.port.postMessage("record-start"); },
     stopRecording() {
-      return new Promise<Float32Array>((resolve) => {
+      return new Promise<{ pcm: Float32Array; t0: number }>((resolve) => {
         pcmDone = () => {
           const total = pcmChunks.reduce((s, c) => s + c.length, 0);
           const out = new Float32Array(total);
           let off = 0;
           for (const c of pcmChunks) { out.set(c, off); off += c.length; }
-          resolve(out);
+          resolve({ pcm: out, t0: pcmT0 });
         };
         node.port.postMessage("record-stop");
       });

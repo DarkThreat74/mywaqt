@@ -184,6 +184,12 @@ self.onmessage = (e: MessageEvent) => {
           audioPending.shift();
         }
         void pumpAudio();
+      } else if (m.type === "audio-sync" && session) {
+        // Offline replay (recite-coach deep grade): every chunk MUST decode —
+        // the realtime pump drops backlog, which corrupts the heard stream
+        // and breaks frame→ms calibration. Serialized in the queue; slower
+        // than realtime is fine, there is no live cursor to keep up with.
+        await session.feed(resample(m.samples, sourceRate));
       } else if (m.type === "expect" && session) {
         session.zipformer?.setExpected(m.passage ?? null);
       } else if (m.type === "stop" && session) {

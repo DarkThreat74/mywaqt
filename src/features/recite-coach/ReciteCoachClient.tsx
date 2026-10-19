@@ -22,6 +22,7 @@ export default function ReciteCoachClient() {
   const [deep, setDeep] = useState<DeepGrade | null | undefined>(null);
   const [grading, setGrading] = useState(false);
   const [ladder, setLadder] = useState<LadderRow[] | null>(null);
+  const [recT0, setRecT0] = useState(0); // ctx time of PCM sample 0
   const framesRef = useRef<() => PitchFrame[]>(() => []);
 
   const frames = useCallback(() => framesRef.current(), []);
@@ -41,8 +42,9 @@ export default function ReciteCoachClient() {
     setErr("");
     if (stream) {
       const hist = stream.history();
-      const pcm = await stream.stopRecording();
+      const { pcm, t0 } = await stream.stopRecording();
       const rate = stream.sampleRate;
+      setRecT0(t0);
       stream.stop();
       setStream(null);
       framesRef.current = () => [];
@@ -154,7 +156,7 @@ export default function ReciteCoachClient() {
               Word-level grading needs the on-device Quran engine — install it in Quran Tester.
             </p>
           )}
-          <ReportCard report={report} deep={deep} ladder={ladder} />
+          <ReportCard report={report} deep={deep} ladder={ladder} recT0={recT0} />
           <div className="px-5 pb-8">
             <button
               onClick={() => setReport(null)}

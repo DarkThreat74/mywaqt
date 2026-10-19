@@ -58,7 +58,7 @@ export function analyze(frames: PitchFrame[]): Report {
   for (const f of frames) {
     if (f.voiced) {
       if (gapStart >= 0 && f.t - gapStart >= 0.4)
-        pauses.push({ start: gapStart, dur: f.t - gapStart, breathy: breathy(frames, gapStart, f.t) });
+        pauses.push({ start: gapStart, dur: f.t - gapStart, breathy: breathy(frames.filter((x) => !x.voiced), frames, gapStart, f.t) });
       gapStart = -1;
       if (runStart < 0) runStart = f.t;
       run.push(f);
@@ -73,18 +73,26 @@ export function analyze(frames: PitchFrame[]): Report {
   if (runStart >= 0 && run.length && run[run.length - 1].t - runStart >= 0.25)
     phrases.push(makePhrase(runStart, run[run.length - 1].t, run, med));
 
-  // ---- tempo: voiced-onset rate + first-half vs last-half drift ----
-  const onsets = countOnsets(v);
-  const syl = dur > 0 ? onsets / dur : 0;
-  const midT = dur / 2 + (frames[0]?.t ?? 0);
-  const firstRate = onsetsIn(v, frames[0]?.t ?? 0, midT), lastRate = onsetsIn(v, midT, dur + (frames[0]?.t ?? 0));
+  // ---- tempo: syllable onsets over the FULL frame stream. Voicing
+  // transitions alone only count phrase starts — syllables inside a voiced
+  // run surface as RMS peaks (a syllable's vowel is its energy crest).
+  const onsetTs = onsetTimes(frames);
+  const t0 = frames[0]?.t ?? 0;
+  const syl = dur > 0 ? onsetTs.length / dur : 0;
+  const midT = t0 + dur / 2;
+  const firstRate = onsetRate(onsetTs, t0, midT), lastRate = onsetRate(onsetTs, midT, t0 + dur);
   const drift = firstRate > 0 ? (lastRate - firstRate) / firstRate : 0;
 
   // ---- pitch stats ----
   const cents = v.map((f) => C(f.hz, med));
   const p = cents.slice().sort((a, b) => a - b);
   const range: [number, number] = [p[Math.floor(p.length * 0.2)] ?? 0, p[Math.floor(p.length * 0.8)] ?? 0];
-  const jitter = mean(v.map((f, i) => (i ? Math.abs(C(f.hz, v[i - 1].hz)) : 0)).slice(1));
+  // jitter: only frame pairs actually adjacent in time — the gap across a
+  // pause is a pitch reset, not instability
+  const jit: number[] = [];
+  for (let i = 1; i < v.length; i++)
+    if (v[i].t - v[i - 1].t < 0.06) jit.push(Math.abs(C(v[i].hz, v[i - 1].hz)));
+  const jitter = mean(jit);
   const monotone = range[1] - range[0] < 120; // < ~1.2 semitone band used = flat
 
   // ---- vibrato: for phrases >600ms, detrended F0 oscillation ----
@@ -179,9 +187,10 @@ function makePhrase(start: number, end: number, frames: PitchFrame[], med: numbe
   const fellCents = (mean(headC) - mean(tailC));
   const peakRms = Math.max(...frames.map((f) => f.rms), 1e-6);
   const endRms = mean(tail.map((f) => f.rms));
-  // deceleration: onset rate in first vs last third
-  const onFirst = onsetsIn(frames, start, start + (end - start) / 3);
-  const onLast = onsetsIn(frames, end - (end - start) / 3, end);
+  // deceleration: syllable-onset rate in first vs last third
+  const ts = onsetTimes(frames);
+  const onFirst = onsetRate(ts, start, start + (end - start) / 3);
+  const onLast = onsetRate(ts, end - (end - start) / 3, end);
   const slowed = onFirst > 0 && onLast / onFirst < 0.75;
   const fell = fellCents > 60;
   const faded = endRms < peakRms * 0.35;
@@ -206,25 +215,30 @@ function vibratoOf(frames: PitchFrame[], med: number): VibratoStat {
   return { phrase: 0, rate, extentCents: extent, regular };
 }
 
-function breathy(frames: PitchFrame[], gapStart: number, gapEnd: number): boolean {
+function breathy(unvoiced: PitchFrame[], frames: PitchFrame[], gapStart: number, gapEnd: number): boolean {
   const gap = frames.filter((f) => f.t >= gapStart && f.t <= gapEnd);
   const peak = Math.max(...gap.map((f) => f.rms), 0);
-  const outside = frames.filter((f) => f.t < gapStart || f.t > gapEnd);
-  const floor = median(outside.map((f) => f.rms)) || 0;
+  // floor is the SILENCE level (unvoiced frames), not session mean — speech
+  // RMS would swamp any inhale and the test could never fire.
+  const floor = median(unvoiced.map((f) => f.rms)) || 0;
   return peak > floor * 3; // energy spike inside a silence = inhale/gasp
 }
 
-function countOnsets(frames: PitchFrame[]): number {
-  let n = 0;
-  for (let i = 1; i < frames.length; i++)
-    if (frames[i].voiced && !frames[i - 1].voiced) n++;
-  return n;
+// Syllable onsets across the full stream: a voiced-run start, or an RMS crest
+// inside a run (each syllable's vowel peaks energetically).
+function onsetTimes(frames: PitchFrame[]): number[] {
+  const ts: number[] = [];
+  for (let i = 1; i < frames.length - 1; i++) {
+    const f = frames[i];
+    if (!f.voiced) continue;
+    if (!frames[i - 1].voiced) { ts.push(f.t); continue; }
+    if (f.rms > frames[i - 1].rms * 1.6 && f.rms >= frames[i + 1].rms && f.rms > 0.015) ts.push(f.t);
+  }
+  return ts;
 }
-function onsetsIn(frames: PitchFrame[], t0: number, t1: number): number {
-  let n = 0;
-  for (let i = 1; i < frames.length; i++)
-    if (frames[i].t >= t0 && frames[i].t < t1 && frames[i].voiced && !frames[i - 1].voiced) n++;
-  return n;
+function onsetRate(ts: number[], t0: number, t1: number): number {
+  const n = ts.filter((t) => t >= t0 && t < t1).length;
+  return t1 > t0 ? n / (t1 - t0) : 0;
 }
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
