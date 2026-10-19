@@ -12,6 +12,7 @@ export const HIDEABLE_TABS = [
   { key: "/mutashabihat", label: "Mutashabih" },
   { key: "/quran", label: "AyaTrace" },
   { key: "/quran-tester", label: "Quran Tester" },
+  { key: "/recite", label: "Recite Coach" },
   { key: "/names", label: "99 Names" },
   { key: "/study", label: "Study" },
   { key: "/learn", label: "Learn" },
