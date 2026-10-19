@@ -6,6 +6,7 @@ import { AdminShell } from "./AdminShell";
 import { AdminOverview } from "./AdminOverview";
 import { AdminUsers, AdminUserDetail } from "./AdminUsers";
 import { AdminTalks } from "./AdminTalks";
+import { AdminRecite } from "./AdminRecite";
 import { AdminSettings } from "./AdminSettings";
 import { AdminFeedback } from "./AdminFeedback";
 
@@ -67,6 +68,9 @@ export default function AdminPortal() {
         }
         if (tab === "talks") {
           return <AdminTalks />;
+        }
+        if (tab === "recite") {
+          return <AdminRecite />;
         }
         if (tab === "feedback") {
           return <AdminFeedback />;

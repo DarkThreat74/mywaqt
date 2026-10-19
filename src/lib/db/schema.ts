@@ -767,6 +767,32 @@ export const talkProgress = pgTable('talk_progress', {
   userCompletedIdx: index('talk_progress_user_completed_idx').on(t.userId, t.completed),
 }));
 
+// ─── Recite Clips (curated reference recitations for the recite coach) ───
+// Same pipeline as talks: admin uploads raw audio to R2, it gets compressed
+// to Opus, then published — only then does it appear in the app's library.
+export const reciteClips = pgTable('recite_clips', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  title: text('title').notNull(),
+  reciter: text('reciter'),
+  // Optional passage anchor: which āyah(s) this clip covers (free text, e.g. "2:255" or "1:1-7")
+  passage: text('passage'),
+  // Optional style tag for filtering (e.g. "murattal" | "mujawwad")
+  style: text('style'),
+  storageKey: text('storage_key'),
+  processedStorageKey: text('processed_storage_key'),
+  fileSize: integer('file_size'),
+  duration: integer('duration'),
+  // Processing pipeline status: pending → processing → ready → published / failed
+  processingStatus: text('processing_status').default('pending').notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true }),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  processingError: text('processing_error'),
+  addedAt: timestamp('added_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  processingStatusIdx: index('recite_clips_processing_status_idx').on(t.processingStatus),
+  publishedIdx: index('recite_clips_published_idx').on(t.publishedAt),
+}));
+
 // ─── Trusted Devices (FingerprintJS) ───
 
 export const trustedDevices = pgTable('trusted_devices', {
@@ -1060,6 +1086,7 @@ export type NewEvent = typeof events.$inferInsert;
 export type DhikrSequence = typeof dhikrSequences.$inferSelect;
 export type Talk = typeof talks.$inferSelect;
 export type TalkFolder = typeof talkFolders.$inferSelect;
+export type ReciteClip = typeof reciteClips.$inferSelect;
 export type TalkProgress = typeof talkProgress.$inferSelect;
 export type PrayerFriend = typeof prayerFriends.$inferSelect;
 export type PrayerBlock = typeof prayerBlocks.$inferSelect;

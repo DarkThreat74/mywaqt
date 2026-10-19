@@ -71,11 +71,11 @@ export async function deleteObject(storageKey: string): Promise<void> {
  * Generate a stable storage key for a talk.
  * Format: talks/{folderName}/{timestamp}-{filename}
  */
-export function makeStorageKey(folderName: string, filename: string): string {
+export function makeStorageKey(folderName: string, filename: string, prefix = "talks"): string {
   const safeFolder = folderName.replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'uncategorized';
   const safeName = filename.replace(/[^a-z0-9.-]/gi, '-').toLowerCase();
   const ts = Date.now();
-  return `talks/${safeFolder}/${ts}-${randomUUID()}-${safeName}`;
+  return `${prefix}/${safeFolder}/${ts}-${randomUUID()}-${safeName}`;
 }
 
 /**

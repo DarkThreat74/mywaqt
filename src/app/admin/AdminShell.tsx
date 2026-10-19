@@ -12,12 +12,13 @@ import {
   MessageSquarePlus,
   Menu,
   X,
+  AudioLines,
 } from "lucide-react";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
 import GlobalAudioPlayer from "@/components/global-audio-player";
 import { applyAdminTheme, readAdminTheme, restoreAppTheme } from "@/lib/admin-theme";
 
-export type AdminTab = "overview" | "users" | "talks" | "feedback" | "settings";
+export type AdminTab = "overview" | "users" | "talks" | "recite" | "feedback" | "settings";
 
 interface NavItem {
   key: AdminTab;
@@ -30,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "overview", label: "Overview", icon: LayoutGrid, description: "Platform summary" },
   { key: "users", label: "Users", icon: Users, description: "All registered accounts" },
   { key: "talks", label: "Talks", icon: Mic, description: "Upload and manage talks" },
+  { key: "recite", label: "Recite Clips", icon: AudioLines, description: "Reference recitations for the coach" },
   { key: "feedback", label: "Feedback", icon: MessageSquarePlus, description: "User bug reports and notes" },
   { key: "settings", label: "Settings", icon: SettingsIcon, description: "Platform configuration" },
 ];
