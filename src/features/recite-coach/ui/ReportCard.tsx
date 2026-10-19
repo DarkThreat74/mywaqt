@@ -1,12 +1,22 @@
 "use client";
 
 import type { Report } from "../engine/analyze";
+import type { DeepGrade } from "../engine/deepGrade";
 
 // Teacher-shaped report: fix-list on top, axis bars in the middle, session
 // stats at the bottom. Bars are the primary encoding (mobile comprehension),
 // never a radar.
 
-export default function ReportCard({ report }: { report: Report }) {
+const KIND_LABEL: Record<string, string> = {
+  possible_omission: "possible omission",
+  possible_substitution: "possible substitution",
+  possible_vowel: "possible vowel slip",
+  possible_repetition: "possible repetition",
+  possible_skipped_ayah: "possibly skipped āyah",
+  unclear_ayah: "unclear āyah",
+};
+
+export default function ReportCard({ report, deep }: { report: Report; deep?: DeepGrade | null }) {
   const band = report.score >= 800 ? "Muqrin-adjacent" : report.score >= 640 ? "Mubdiʿ" : report.score >= 480 ? "Mujawwid" : report.score >= 320 ? "Mutamakkin" : report.score >= 160 ? "Muntasil" : "Ṭālib";
   return (
     <div className="px-5 pb-8">
@@ -25,6 +35,38 @@ export default function ReportCard({ report }: { report: Report }) {
           <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700" style={{ width: `${report.score / 10}%`, backgroundColor: "var(--color-accent)" }} />
         </div>
       </div>
+
+      {/* tajwīd law tier — only when the engine deep-graded the audio */}
+      {deep && (
+        <>
+          <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Correctness</h2>
+          {deep.issues.length === 0 ? (
+            <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="text-sm" style={{ color: "var(--color-ink)" }}>
+                No issues detected{deep.verses.length ? ` — ${deep.verses.length} verse${deep.verses.length === 1 ? "" : "s"} matched` : ""}.
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-1.5">
+              {deep.issues.slice(0, 12).map((it, i) => (
+                <li
+                  key={i}
+                  className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm"
+                  style={{ borderColor: "var(--color-paper-3)" }}
+                >
+                  <span style={{ color: "var(--color-ink)" }}>{it.surah}:{it.ayah}</span>
+                  <span className="text-xs" style={{ color: "#f87171" }}>{KIND_LABEL[it.kind] ?? it.kind}</span>
+                </li>
+              ))}
+              {deep.issues.length > 12 && (
+                <li className="text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                  +{deep.issues.length - 12} more
+                </li>
+              )}
+            </ul>
+          )}
+        </>
+      )}
 
       {/* fix list */}
       <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Work on</h2>

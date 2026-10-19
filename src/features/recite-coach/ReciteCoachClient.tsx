@@ -6,6 +6,7 @@ import ContourCanvas from "./ui/ContourCanvas";
 import ReportCard from "./ui/ReportCard";
 import { startPitchStream, hzToNote, type PitchStream, type PitchFrame } from "./live/pitch";
 import { analyze, type Report } from "./engine/analyze";
+import { gradeAudio, type DeepGrade } from "./engine/deepGrade";
 
 // P0/P2 spike surface: live pitch trail while reciting; stopping produces the
 // reference-free report card. Word-level tajwīd scoring joins once the tester
@@ -16,6 +17,8 @@ export default function ReciteCoachClient() {
   const [err, setErr] = useState("");
   const [readout, setReadout] = useState<PitchFrame | null>(null);
   const [report, setReport] = useState<Report | null>(null);
+  const [deep, setDeep] = useState<DeepGrade | null | undefined>(null);
+  const [grading, setGrading] = useState(false);
   const framesRef = useRef<() => PitchFrame[]>(() => []);
 
   const frames = useCallback(() => framesRef.current(), []);
@@ -35,17 +38,34 @@ export default function ReciteCoachClient() {
     setErr("");
     if (stream) {
       const hist = stream.history();
+      const pcm = await stream.stopRecording();
+      const rate = stream.sampleRate;
       stream.stop();
       setStream(null);
       framesRef.current = () => [];
       setReadout(null);
       // need ≥3s of audio to say anything honest
-      if (hist.length && hist[hist.length - 1].t - hist[0].t >= 3) setReport(analyze(hist));
+      if (hist.length && hist[hist.length - 1].t - hist[0].t >= 3) {
+        setReport(analyze(hist));
+        // Law layer: replay the captured PCM through the phoneme engine.
+        // undefined = engine not installed → report omits the tier honestly.
+        setGrading(true);
+        try {
+          setDeep(await gradeAudio(pcm, rate) ?? undefined);
+        } catch {
+          setDeep(undefined);
+        } finally {
+          setGrading(false);
+        }
+      }
       return;
     }
     setReport(null);
+    setDeep(null);
     try {
-      setStream(await startPitchStream());
+      const s = await startPitchStream();
+      s.startRecording();
+      setStream(s);
     } catch {
       setErr("Microphone unavailable — check permission.");
     }
@@ -104,7 +124,17 @@ export default function ReciteCoachClient() {
 
       {report && (
         <>
-          <ReportCard report={report} />
+          {grading && (
+            <p className="px-5 pt-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              Deep grading — replaying your audio through the phoneme engine…
+            </p>
+          )}
+          {!grading && deep === undefined && (
+            <p className="px-5 pt-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              Word-level grading needs the on-device Quran engine — install it in Quran Tester.
+            </p>
+          )}
+          <ReportCard report={report} deep={deep} />
           <div className="px-5 pb-8">
             <button
               onClick={() => setReport(null)}

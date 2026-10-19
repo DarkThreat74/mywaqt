@@ -43,6 +43,28 @@ class PitchProcessor extends AudioWorkletProcessor {
     this.r = new Float32Array(this.tauMax + 1);
     this.m = new Float32Array(this.tauMax + 1);
     this.clarityThresh = 0.82;
+    // Recording: PCM accumulates in 4096-sample chunks while armed. The coach
+    // replays this through the phoneme engine after the session for the deep
+    // grade — live path stays lossless-thin, analysis happens post-hoc.
+    this.recording = false;
+    this.pcm = new Float32Array(4096);
+    this.pcmWrite = 0;
+    this.port.onmessage = (e) => {
+      if (e.data === "record-start") { this.recording = true; this.pcmWrite = 0; }
+      else if (e.data === "record-stop") {
+        this.recording = false;
+        this.flushPcm();
+        this.port.postMessage({ kind: "pcm-done" });
+      }
+    };
+  }
+
+  flushPcm() {
+    if (this.pcmWrite > 0) {
+      const out = this.pcm.slice(0, this.pcmWrite);
+      this.port.postMessage({ kind: "pcm", samples: out }, [out.buffer]);
+      this.pcmWrite = 0;
+    }
   }
 
   fftMag(bin) {
@@ -143,10 +165,17 @@ class PitchProcessor extends AudioWorkletProcessor {
       for (let i = 0; i < n; i++) this.ring[(this.write + i) & FFT_MASK] = ch[i];
       this.write = (this.write + n) & FFT_MASK;
       this.filled = Math.min(this.filled + n, N);
+      if (this.recording) {
+        for (let i = 0; i < n; i++) {
+          this.pcm[this.pcmWrite++] = ch[i];
+          if (this.pcmWrite === 4096) this.flushPcm();
+        }
+      }
       if (++this.quantum >= HOP_QUANTA && this.filled === N) {
         this.quantum = 0;
         const out = this.analyze();
         out.t = currentTime;
+        out.kind = "frame";
         this.port.postMessage(out);
       }
     }
