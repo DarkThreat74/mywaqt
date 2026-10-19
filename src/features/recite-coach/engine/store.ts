@@ -15,11 +15,24 @@ export interface SessionRow {
 
 const DB = "recite-coach";
 const STORE = "sessions";
+const REFS = "refs";
+
+export interface RefRow {
+  id?: number;
+  name: string;
+  ts: number;
+  sr: number;
+  pcm: Float32Array;
+}
 
 function open(): Promise<IDBDatabase> {
   return new Promise((res, rej) => {
-    const rq = indexedDB.open(DB, 1);
-    rq.onupgradeneeded = () => rq.result.createObjectStore(STORE, { autoIncrement: true });
+    const rq = indexedDB.open(DB, 2);
+    rq.onupgradeneeded = () => {
+      const db = rq.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { autoIncrement: true });
+      if (!db.objectStoreNames.contains(REFS)) db.createObjectStore(REFS, { autoIncrement: true });
+    };
     rq.onsuccess = () => res(rq.result);
     rq.onerror = () => rej(rq.error);
   });
@@ -46,4 +59,45 @@ export async function listSessions(limit = 200): Promise<SessionRow[]> {
   });
   db.close();
   return rows.sort((a, b) => b.ts - a.ts).slice(0, limit);
+}
+
+// ---- personal reference clips (recorded in-app, never uploaded) ----
+
+export async function saveRef(row: RefRow): Promise<number> {
+  const db = await open();
+  const id = await new Promise<number>((res, rej) => {
+    const tx = db.transaction(REFS, "readwrite");
+    const rq = tx.objectStore(REFS).add(row);
+    rq.onsuccess = () => res(rq.result as number);
+    rq.onerror = () => rej(rq.error);
+  });
+  db.close();
+  return id;
+}
+
+export async function listRefs(): Promise<RefRow[]> {
+  const db = await open();
+  const rows = await new Promise<RefRow[]>((res, rej) => {
+    const store = db.transaction(REFS).objectStore(REFS);
+    const rq = store.getAll();
+    const kq = store.getAllKeys();
+    kq.onsuccess = () => {
+      (rq.result as RefRow[]).forEach((r, i) => { r.id = kq.result[i] as number; });
+      res(rq.result as RefRow[]);
+    };
+    kq.onerror = () => rej(kq.error);
+  });
+  db.close();
+  return rows.sort((a, b) => b.ts - a.ts);
+}
+
+export async function deleteRef(id: number): Promise<void> {
+  const db = await open();
+  await new Promise<void>((res, rej) => {
+    const tx = db.transaction(REFS, "readwrite");
+    tx.objectStore(REFS).delete(id);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+  db.close();
 }

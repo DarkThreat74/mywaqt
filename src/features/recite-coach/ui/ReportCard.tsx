@@ -5,9 +5,9 @@ import type { DeepGrade } from "../engine/deepGrade";
 import { nextRungs, type LadderRow } from "../engine/ladder";
 import type { CompareResult } from "../engine/align";
 
-// Teacher-shaped report: fix-list on top, axis bars in the middle, session
-// stats at the bottom. Bars are the primary encoding (mobile comprehension),
-// never a radar.
+// Teacher-shaped report: composite + three tiers, fix-list, then the
+// evidence sections. Bars are the primary encoding (mobile comprehension),
+// never a radar. Tier weights mirror the rubric: Law 400, Craft 350, Mind 250.
 
 const KIND_LABEL: Record<string, string> = {
   possible_omission: "possible omission",
@@ -17,6 +17,32 @@ const KIND_LABEL: Record<string, string> = {
   possible_skipped_ayah: "possibly skipped āyah",
   unclear_ayah: "unclear āyah",
 };
+
+const STAGE_TICKS = [160, 320, 480, 640, 800];
+
+function stageOf(score: number) {
+  return score >= 800 ? "Muqrin-adjacent" : score >= 640 ? "Mubdiʿ" : score >= 480 ? "Mujawwid"
+    : score >= 320 ? "Mutamakkin" : score >= 160 ? "Muntasil" : "Ṭālib";
+}
+
+function TierBar({ label, sub, value, max, note }: { label: string; sub: string; value: number | null; max: number; note?: string }) {
+  const pct = value == null ? 0 : Math.min(100, (value / max) * 100);
+  return (
+    <div className="rounded-xl border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+      <div className="flex items-baseline justify-between">
+        <p className="text-[11px] font-medium" style={{ color: "var(--color-ink)" }}>{label}</p>
+        <p className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+          {value == null ? "—" : Math.round(value)}<span style={{ opacity: 0.6 }}>/{max}</span>
+        </p>
+      </div>
+      <p className="text-[10px]" style={{ color: "var(--color-ink-muted)", opacity: 0.8 }}>{sub}</p>
+      <div className="mt-1.5 h-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: value == null ? "var(--color-paper-3)" : pct >= 75 ? "#4ade80" : pct >= 45 ? "var(--color-accent)" : "#f87171" }} />
+      </div>
+      {note && <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{note}</p>}
+    </div>
+  );
+}
 
 export default function ReportCard({ report, deep, ladder, recT0, cmp }: { report: Report; deep?: DeepGrade | null; ladder?: LadderRow[] | null; recT0?: number; cmp?: CompareResult | null }) {
   // Classify each substantial pause: aligned with a heard saktah mark →
@@ -29,24 +55,53 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp }: { repor
       const saktah = deep?.saktahs?.some((s) => Math.abs(s - ms) < 400 || (s > ms && s < ms + p.dur * 1000));
       return { dur: p.dur, kind: saktah ? "saktah" : p.breathy ? "breath" : "stop" as const };
     });
-  const band = report.score >= 800 ? "Muqrin-adjacent" : report.score >= 640 ? "Mubdiʿ" : report.score >= 480 ? "Mujawwid" : report.score >= 320 ? "Mutamakkin" : report.score >= 160 ? "Muntasil" : "Ṭālib";
+
+  // ---- tiers ----
+  const axisVal = (k: string) => report.axes.find((a) => a.key === k)?.value ?? 0;
+  const craft = ((axisVal("pitch") + axisVal("range") + axisVal("vibrato") + axisVal("cadence") + axisVal("ghunnah")) / 5) * 3.5;
+  const mind = ((axisVal("tempo") + axisVal("breath")) / 2) * 2.5;
+  const maddShort = deep?.madds.filter((m) => m.haraka != null && m.haraka < (m.cls === "lazim" ? 5.5 : m.cls === "jaiz" ? 3.5 : 1.5)).length ?? 0;
+  const law = deep ? Math.max(0, 400 - deep.issues.length * 40 - maddShort * 15) : null;
+  const band = stageOf(report.score);
+
   return (
     <div className="px-5 pb-8">
-      {/* composite */}
-      <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2, var(--color-paper))" }}>
-        <div className="flex items-baseline justify-between">
-          <div>
-            <p className="font-serif text-2xl tabular-nums" style={{ color: "var(--color-ink)" }}>
-              {report.score}<span className="text-sm" style={{ color: "var(--color-ink-muted)" }}>/1000</span>
-            </p>
-            <p className="text-xs mt-0.5" style={{ color: "var(--color-ink-muted)" }}>{band} · {Math.round(report.durationSec)}s · {Math.round(report.voicedRatio * 100)}% voiced</p>
-          </div>
+      {/* hero — stage + composite + stage-ticked bar */}
+      <div className="rounded-2xl border p-5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "#0E1116" }}>
+        <p className="text-[11px] uppercase tracking-widest" style={{ color: "var(--color-ink-muted)" }}>{band}</p>
+        <div className="mt-1 flex items-end justify-between">
+          <p className="font-serif text-4xl tabular-nums" style={{ color: "#e7e9ec" }}>
+            {report.score}<span className="text-base" style={{ color: "var(--color-ink-muted)" }}>/1000</span>
+          </p>
+          <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            {Math.round(report.durationSec)}s · {Math.round(report.voicedRatio * 100)}% voiced
+          </p>
         </div>
-        {/* ladder bar */}
-        <div className="relative mt-3 h-2 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-          <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700" style={{ width: `${report.score / 10}%`, backgroundColor: "var(--color-accent)" }} />
+        <div className="relative mt-3 h-1.5 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
+          <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700" style={{ width: `${report.score / 10}%`, background: "linear-gradient(90deg,#4ade80,#fbbf24)" }} />
+          {STAGE_TICKS.map((t) => (
+            <div key={t} className="absolute inset-y-0 w-px" style={{ left: `${t / 10}%`, backgroundColor: "rgba(255,255,255,0.25)" }} />
+          ))}
         </div>
       </div>
+
+      {/* three tiers */}
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <TierBar label="Law" sub="tajwīd" value={law} max={400}
+          note={law == null ? "engine off" : deep!.issues.length ? `${deep!.issues.length} flags` : "clean"} />
+        <TierBar label="Craft" sub="harmony" value={craft} max={350} />
+        <TierBar label="Mind" sub="structure" value={mind} max={250} />
+      </div>
+
+      {/* fix list */}
+      <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Work on first</h2>
+      <ol className="space-y-2">
+        {report.fixes.map((f, i) => (
+          <li key={i} className="flex gap-2.5 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+            <span className="tabular-nums" style={{ color: "var(--color-accent)" }}>{i + 1}</span>{f}
+          </li>
+        ))}
+      </ol>
 
       {/* tajwīd law tier — only when the engine deep-graded the audio */}
       {deep && (
@@ -167,14 +222,6 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp }: { repor
           </div>
         </>
       )}
-
-      {/* fix list */}
-      <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Work on</h2>
-      <ul className="space-y-2">
-        {report.fixes.map((f, i) => (
-          <li key={i} className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>{f}</li>
-        ))}
-      </ul>
 
       {/* axes */}
       <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>The breakdown</h2>
