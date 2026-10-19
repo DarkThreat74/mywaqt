@@ -7,6 +7,8 @@ import ReportCard from "./ui/ReportCard";
 import { startPitchStream, hzToNote, type PitchStream, type PitchFrame } from "./live/pitch";
 import { analyze, type Report } from "./engine/analyze";
 import { gradeAudio, type DeepGrade } from "./engine/deepGrade";
+import { saveSession, listSessions } from "./engine/store";
+import { ladderRows, type LadderRow } from "./engine/ladder";
 
 // P0/P2 spike surface: live pitch trail while reciting; stopping produces the
 // reference-free report card. Word-level tajwīd scoring joins once the tester
@@ -19,6 +21,7 @@ export default function ReciteCoachClient() {
   const [report, setReport] = useState<Report | null>(null);
   const [deep, setDeep] = useState<DeepGrade | null | undefined>(null);
   const [grading, setGrading] = useState(false);
+  const [ladder, setLadder] = useState<LadderRow[] | null>(null);
   const framesRef = useRef<() => PitchFrame[]>(() => []);
 
   const frames = useCallback(() => framesRef.current(), []);
@@ -46,22 +49,39 @@ export default function ReciteCoachClient() {
       setReadout(null);
       // need ≥3s of audio to say anything honest
       if (hist.length && hist[hist.length - 1].t - hist[0].t >= 3) {
-        setReport(analyze(hist));
+        const rep = analyze(hist);
+        setReport(rep);
         // Law layer: replay the captured PCM through the phoneme engine.
         // undefined = engine not installed → report omits the tier honestly.
         setGrading(true);
+        let d: DeepGrade | undefined;
         try {
-          setDeep(await gradeAudio(pcm, rate) ?? undefined);
-        } catch {
-          setDeep(undefined);
-        } finally {
-          setGrading(false);
-        }
+          d = await gradeAudio(pcm, rate) ?? undefined;
+        } catch { /* deep grade stays undefined — style tier still shown */ }
+        setDeep(d);
+        setGrading(false);
+        // Persist + ladder: the /1000 means nothing without history behind it.
+        try {
+          const row = {
+            ts: Date.now(),
+            score: rep.score,
+            durationSec: rep.durationSec,
+            axes: Object.fromEntries(rep.axes.map((a) => [a.key, a.value])),
+            issues: d?.issues.length ?? 0,
+            maddsShort: d?.madds.filter((m) =>
+              m.haraka != null && m.haraka < (m.cls === "lazim" ? 5.5 : m.cls === "jaiz" ? 3.5 : 1.5)).length ?? 0,
+            maddsTotal: d?.madds.length ?? 0,
+          };
+          const hist2 = await listSessions();
+          await saveSession(row);
+          setLadder(ladderRows(rep.axes, hist2));
+        } catch { /* storage is best-effort */ }
       }
       return;
     }
     setReport(null);
     setDeep(null);
+    setLadder(null);
     try {
       const s = await startPitchStream();
       s.startRecording();
@@ -134,7 +154,7 @@ export default function ReciteCoachClient() {
               Word-level grading needs the on-device Quran engine — install it in Quran Tester.
             </p>
           )}
-          <ReportCard report={report} deep={deep} />
+          <ReportCard report={report} deep={deep} ladder={ladder} />
           <div className="px-5 pb-8">
             <button
               onClick={() => setReport(null)}

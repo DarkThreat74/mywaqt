@@ -2,6 +2,7 @@
 
 import type { Report } from "../engine/analyze";
 import type { DeepGrade } from "../engine/deepGrade";
+import { nextRungs, type LadderRow } from "../engine/ladder";
 
 // Teacher-shaped report: fix-list on top, axis bars in the middle, session
 // stats at the bottom. Bars are the primary encoding (mobile comprehension),
@@ -16,7 +17,7 @@ const KIND_LABEL: Record<string, string> = {
   unclear_ayah: "unclear āyah",
 };
 
-export default function ReportCard({ report, deep }: { report: Report; deep?: DeepGrade | null }) {
+export default function ReportCard({ report, deep, ladder }: { report: Report; deep?: DeepGrade | null; ladder?: LadderRow[] | null }) {
   const band = report.score >= 800 ? "Muqrin-adjacent" : report.score >= 640 ? "Mubdiʿ" : report.score >= 480 ? "Mujawwid" : report.score >= 320 ? "Mutamakkin" : report.score >= 160 ? "Muntasil" : "Ṭālib";
   return (
     <div className="px-5 pb-8">
@@ -136,6 +137,41 @@ export default function ReportCard({ report, deep }: { report: Report; deep?: De
           </div>
         ))}
       </div>
+
+      {/* ladder — position vs own history; next rungs ranked by gap */}
+      {ladder && ladder.length > 0 && (
+        <>
+          <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Your ladder</h2>
+          <ul className="space-y-1.5">
+            {ladder.map((r) => (
+              <li
+                key={r.key}
+                className="flex items-center justify-between rounded-lg border px-3 py-2 text-xs"
+                style={{ borderColor: "var(--color-paper-3)" }}
+              >
+                <span className="capitalize" style={{ color: "var(--color-ink)" }}>{r.key}</span>
+                <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                  {r.stage}
+                  {r.delta != null && r.delta !== 0 && (
+                    <span style={{ color: r.delta > 0 ? "#4ade80" : "#f87171" }}>
+                      {" "}{r.delta > 0 ? "+" : ""}{r.delta.toFixed(0)}
+                    </span>
+                  )}
+                  {r.toNext > 0 && <span> · {r.toNext.toFixed(0)} to next</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {(() => {
+            const rungs = nextRungs(ladder);
+            return rungs.length > 0 ? (
+              <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                Nearest rung: {rungs[0].key} — {rungs[0].toNext.toFixed(0)} points to the next stage.
+              </p>
+            ) : null;
+          })()}
+        </>
+      )}
 
       {/* session stats */}
       <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Session</h2>
