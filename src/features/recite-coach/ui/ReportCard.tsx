@@ -3,6 +3,7 @@
 import type { Report } from "../engine/analyze";
 import type { DeepGrade } from "../engine/deepGrade";
 import { nextRungs, type LadderRow } from "../engine/ladder";
+import type { CompareResult } from "../engine/align";
 
 // Teacher-shaped report: fix-list on top, axis bars in the middle, session
 // stats at the bottom. Bars are the primary encoding (mobile comprehension),
@@ -17,7 +18,7 @@ const KIND_LABEL: Record<string, string> = {
   unclear_ayah: "unclear āyah",
 };
 
-export default function ReportCard({ report, deep, ladder, recT0 }: { report: Report; deep?: DeepGrade | null; ladder?: LadderRow[] | null; recT0?: number }) {
+export default function ReportCard({ report, deep, ladder, recT0, cmp }: { report: Report; deep?: DeepGrade | null; ladder?: LadderRow[] | null; recT0?: number; cmp?: CompareResult | null }) {
   // Classify each substantial pause: aligned with a heard saktah mark →
   // "saktah"; breathy → "breath"; otherwise a clean stop. Pause `start` is
   // AudioContext time; saktah positions are PCM ms — recT0 bridges them.
@@ -114,6 +115,35 @@ export default function ReportCard({ report, deep, ladder, recT0 }: { report: Re
               )}
             </ul>
           )}
+        </>
+      )}
+
+      {/* vs reference — localized diffs lead, not a bare number */}
+      {cmp && (
+        <>
+          <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>vs the reference</h2>
+          <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div className="flex items-baseline justify-between">
+              <p className="font-serif text-xl tabular-nums" style={{ color: "var(--color-ink)" }}>
+                {Math.round(cmp.match)}<span className="text-sm" style={{ color: "var(--color-ink-muted)" }}>% shape match</span>
+              </p>
+              <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                {cmp.meanCents.toFixed(0)}¢ mean gap · tempo ×{cmp.tempoRatio.toFixed(2)}
+              </p>
+            </div>
+            {cmp.divergences.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {cmp.divergences.map((d, i) => (
+                  <li key={i} className="flex justify-between text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                    <span>at {d.tSec.toFixed(1)}s for {d.durSec.toFixed(1)}s</span>
+                    <span style={{ color: d.centsOff < 0 ? "#f87171" : "var(--color-accent)" }}>
+                      {d.centsOff > 0 ? "+" : ""}{Math.round(d.centsOff)}¢ {d.centsOff > 0 ? "higher" : "lower"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </>
       )}
 

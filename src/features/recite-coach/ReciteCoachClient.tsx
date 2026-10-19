@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, Square } from "lucide-react";
+import { Mic, Square, Play, Pause, Upload } from "lucide-react";
 import ContourCanvas from "./ui/ContourCanvas";
 import ReportCard from "./ui/ReportCard";
 import { startPitchStream, hzToNote, type PitchStream, type PitchFrame } from "./live/pitch";
@@ -9,6 +9,8 @@ import { analyze, type Report } from "./engine/analyze";
 import { gradeAudio, type DeepGrade } from "./engine/deepGrade";
 import { saveSession, listSessions } from "./engine/store";
 import { ladderRows, type LadderRow } from "./engine/ladder";
+import { extractContour } from "./engine/contour";
+import { compareContours, type CompareResult } from "./engine/align";
 
 // P0/P2 spike surface: live pitch trail while reciting; stopping produces the
 // reference-free report card. Word-level tajwīd scoring joins once the tester
@@ -23,6 +25,18 @@ export default function ReciteCoachClient() {
   const [grading, setGrading] = useState(false);
   const [ladder, setLadder] = useState<LadderRow[] | null>(null);
   const [recT0, setRecT0] = useState(0); // ctx time of PCM sample 0
+  // Practice: user-supplied reference clip (their own file — we never ship
+  // copyrighted recitations). Gold contour overlays the canvas; on stop the
+  // session is DTW-compared in interval space.
+  const [refFrames, setRefFrames] = useState<PitchFrame[] | null>(null);
+  const [refBuf, setRefBuf] = useState<AudioBuffer | null>(null);
+  const [refName, setRefName] = useState("");
+  const [playing, setPlaying] = useState(false);
+  const [refVol, setRefVol] = useState(0.8);
+  const [cmp, setCmp] = useState<CompareResult | null>(null);
+  const playRef = useRef<{ stop(): void } | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
+  const playCtxRef = useRef<AudioContext | null>(null);
   const framesRef = useRef<() => PitchFrame[]>(() => []);
 
   const frames = useCallback(() => framesRef.current(), []);
@@ -53,6 +67,7 @@ export default function ReciteCoachClient() {
       if (hist.length && hist[hist.length - 1].t - hist[0].t >= 3) {
         const rep = analyze(hist);
         setReport(rep);
+        setCmp(refFrames ? compareContours(hist, refFrames) : null);
         // Law layer: replay the captured PCM through the phoneme engine.
         // undefined = engine not installed → report omits the tier honestly.
         setGrading(true);
@@ -93,6 +108,46 @@ export default function ReciteCoachClient() {
     }
   }
 
+  async function loadRef(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErr("");
+    try {
+      const ctx = playCtxRef.current ?? (playCtxRef.current = new AudioContext());
+      const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+      // mono mixdown for the contour
+      const ch0 = buf.getChannelData(0);
+      const mono = buf.numberOfChannels > 1 ? new Float32Array(ch0.length) : ch0;
+      for (let c = 1; c < buf.numberOfChannels; c++) {
+        const d = buf.getChannelData(c);
+        for (let i = 0; i < d.length; i++) mono[i] += d[i] / buf.numberOfChannels;
+      }
+      setRefBuf(buf);
+      setRefFrames(extractContour(mono, buf.sampleRate));
+      setRefName(file.name);
+      setCmp(null);
+    } catch {
+      setErr("Couldn't decode that audio file.");
+    }
+    e.target.value = "";
+  }
+
+  function togglePlay() {
+    if (playing) { playRef.current?.stop(); playRef.current = null; setPlaying(false); return; }
+    if (!refBuf) return;
+    const ctx = playCtxRef.current ?? (playCtxRef.current = new AudioContext());
+    const src = ctx.createBufferSource();
+    src.buffer = refBuf;
+    const gain = ctx.createGain();
+    gain.gain.value = refVol;
+    gainRef.current = gain;
+    src.connect(gain).connect(ctx.destination);
+    src.onended = () => setPlaying(false);
+    src.start();
+    playRef.current = { stop: () => { try { src.stop(); } catch { /* already ended */ } } };
+    setPlaying(true);
+  }
+
   const listening = !!stream;
 
   return (
@@ -109,7 +164,43 @@ export default function ReciteCoachClient() {
           className="mx-4 mt-4 h-64 overflow-hidden rounded-xl border"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "#0E1116" }}
         >
-          <ContourCanvas getFrames={frames} active={listening} />
+          <ContourCanvas getFrames={frames} active={listening} reference={refFrames} />
+        </div>
+      )}
+
+      {/* reference clip — user-supplied audio, contour + playback + volume */}
+      {!report && (
+        <div className="mx-4 mt-3 flex items-center gap-2">
+          <label
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-transform active:scale-95"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            {refName || "Load a reference clip"}
+            <input type="file" accept="audio/*" className="hidden" onChange={(e) => void loadRef(e)} />
+          </label>
+          {refBuf && (
+            <>
+              <button
+                onClick={togglePlay}
+                className="flex h-8 w-8 items-center justify-center rounded-full border transition-transform active:scale-90"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)" }}
+                aria-label={playing ? "Pause reference" : "Play reference"}
+              >
+                {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              </button>
+              <input
+                type="range" min={0} max={1} step={0.05} value={refVol}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setRefVol(v);
+                  if (gainRef.current) gainRef.current.gain.value = v;
+                }}
+                className="w-20 accent-[#fbbf24]"
+                aria-label="Reference volume"
+              />
+            </>
+          )}
         </div>
       )}
 
@@ -156,7 +247,7 @@ export default function ReciteCoachClient() {
               Word-level grading needs the on-device Quran engine — install it in Quran Tester.
             </p>
           )}
-          <ReportCard report={report} deep={deep} ladder={ladder} recT0={recT0} />
+          <ReportCard report={report} deep={deep} ladder={ladder} recT0={recT0} cmp={cmp} />
           <div className="px-5 pb-8">
             <button
               onClick={() => setReport(null)}

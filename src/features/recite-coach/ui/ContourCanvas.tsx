@@ -10,8 +10,10 @@ import type { PitchFrame } from "../live/pitch";
 const FMIN = 60, FMAX = 600; // recitation voice range
 const TRAIL_MS = 3800;
 
-export default function ContourCanvas({ getFrames, active }: { getFrames: () => PitchFrame[]; active: boolean }) {
+export default function ContourCanvas({ getFrames, active, reference }: { getFrames: () => PitchFrame[]; active: boolean; reference?: PitchFrame[] | null }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
+  const refRef = useRef<PitchFrame[] | null>(null);
+  useEffect(() => { refRef.current = reference ?? null; }, [reference]);
 
   useEffect(() => {
     const cv = ref.current;
@@ -38,6 +40,27 @@ export default function ContourCanvas({ getFrames, active }: { getFrames: () => 
       for (let f = 65.4; f <= FMAX; f *= 2) {
         const y = yOf(f, h);
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      }
+
+      // gold reference contour — stretched to the canvas width, octaves
+      // ignored: we draw shape, not register (range-invariant compare).
+      const rf = refRef.current;
+      if (rf?.length) {
+        const r0 = rf[0].t, rDur = rf[rf.length - 1].t - r0 || 1;
+        const rMed = median(rf.filter((f) => f.voiced).map((f) => f.hz)) || 110;
+        ctx.beginPath();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(251,191,36,0.55)";
+        let started = false;
+        for (const f of rf) {
+          if (!f.voiced) { started = false; continue; }
+          // shift reference into the viewer's octave so shapes overlay
+          const shifted = nearestOctaveTo(f.hz, rMed);
+          const x = ((f.t - r0) / rDur) * w;
+          const y = yOf(shifted, h);
+          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
       }
 
       const frames = getFrames();
@@ -90,4 +113,19 @@ function yOf(hz: number, h: number): number {
   const lo = Math.log2(FMIN), hi = Math.log2(FMAX);
   const v = hz > 0 ? (Math.log2(hz) - lo) / (hi - lo) : 0;
   return h - 8 - v * (h - 16);
+}
+
+function median(xs: number[]): number {
+  if (!xs.length) return 0;
+  const s = xs.slice().sort((a, b) => a - b);
+  return s[s.length >> 1];
+}
+
+// Fold a reference note into the octave closest to the clip's own median so
+// the gold line sits in the band the student will actually sing in.
+function nearestOctaveTo(hz: number, target: number): number {
+  let out = hz;
+  while (out > target * 1.9) out /= 2;
+  while (out < target * 0.53) out *= 2;
+  return out;
 }
