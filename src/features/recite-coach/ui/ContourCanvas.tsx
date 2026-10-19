@@ -13,7 +13,12 @@ const TRAIL_MS = 3800;
 export default function ContourCanvas({ getFrames, active, reference }: { getFrames: () => PitchFrame[]; active: boolean; reference?: PitchFrame[] | null }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const refRef = useRef<PitchFrame[] | null>(null);
-  useEffect(() => { refRef.current = reference ?? null; }, [reference]);
+  const refMed = useRef(110);
+  useEffect(() => {
+    refRef.current = reference ?? null;
+    // median once per reference, not per animation frame
+    refMed.current = reference ? (median(reference.filter((f) => f.voiced).map((f) => f.hz)) || 110) : 110;
+  }, [reference]);
 
   useEffect(() => {
     const cv = ref.current;
@@ -47,7 +52,7 @@ export default function ContourCanvas({ getFrames, active, reference }: { getFra
       const rf = refRef.current;
       if (rf?.length) {
         const r0 = rf[0].t, rDur = rf[rf.length - 1].t - r0 || 1;
-        const rMed = median(rf.filter((f) => f.voiced).map((f) => f.hz)) || 110;
+        const rMed = refMed.current;
         ctx.beginPath();
         ctx.lineWidth = 1.5;
         ctx.strokeStyle = "rgba(251,191,36,0.55)";

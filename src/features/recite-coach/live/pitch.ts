@@ -30,6 +30,9 @@ export interface PitchStream {
 
 const RING = 360; // ~3.8s at ~95fps effective hop
 const MIN_RUN_MS = 80; // voiced runs shorter than this are blips
+// PCM capture cap — float32 at 48kHz is ~11.5MB/min; unbounded accumulation
+// kills the tab on long sessions and the deep grade can't decode it anyway.
+const MAX_PCM_SEC = 10 * 60;
 
 export async function startPitchStream(): Promise<PitchStream> {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -60,7 +63,12 @@ export async function startPitchStream(): Promise<PitchStream> {
 
   node.port.onmessage = (ev: MessageEvent) => {
     const d = ev.data;
-    if (d.kind === "pcm") { pcmChunks.push(d.samples); return; }
+    if (d.kind === "pcm") {
+      const cap = MAX_PCM_SEC * ctx.sampleRate;
+      const held = pcmChunks.reduce((s, c) => s + c.length, 0);
+      if (held < cap) pcmChunks.push(d.samples);
+      return;
+    }
     if (d.kind === "pcm-start") { pcmT0 = d.t; return; }
     if (d.kind === "pcm-done") { pcmDone?.(); pcmDone = null; return; }
     const { hz, clarity, rms, noiseFloor, t, zcr = 0, centroid = 0, nasalRatio = 0 } = d;
@@ -108,14 +116,19 @@ export async function startPitchStream(): Promise<PitchStream> {
     startRecording() { pcmChunks.length = 0; node.port.postMessage("record-start"); },
     stopRecording() {
       return new Promise<{ pcm: Float32Array; t0: number }>((resolve) => {
-        pcmDone = () => {
+        const finish = () => {
           const total = pcmChunks.reduce((s, c) => s + c.length, 0);
           const out = new Float32Array(total);
           let off = 0;
           for (const c of pcmChunks) { out.set(c, off); off += c.length; }
           resolve({ pcm: out, t0: pcmT0 });
         };
+        pcmDone = finish;
         node.port.postMessage("record-stop");
+        // If the worklet is already gone (mic died, stop() ran first) the
+        // pcm-done reply never comes — resolve with what we have rather
+        // than hanging the report forever.
+        setTimeout(() => { if (pcmDone === finish) { pcmDone = null; finish(); } }, 1500);
       });
     },
     sampleRate: ctx.sampleRate,
