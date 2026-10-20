@@ -363,7 +363,14 @@ export async function startQt(): Promise<void> {
   // would otherwise open a parallel mic stream + session.
   listen = "warming";
   emit({ type: "ui-listen", state: "warming" });
+  // Start the silent-media + notification NOW, inside the tap gesture —
+  // Chrome's transient activation expires during model warm, so playing the
+  // keep-alive track on `ready` gets autoplay-blocked and no media
+  // notification ever appears. armKeepAlive is idempotent (the `ready`
+  // handler calls it again harmlessly).
+  armKeepAlive();
   if (!(await acquireLock())) {
+    disarmKeepAlive();
     listen = "idle";
     emit({ type: "ui-listen", state: "idle" });
     emit({ type: "ui-error", message: "Quran Listener is already running in another tab." });
@@ -380,6 +387,7 @@ export async function startQt(): Promise<void> {
     const name = err instanceof DOMException ? err.name : "";
     // Reset fully — leaving `warming` here bricked the feature until reload
     // (every startQt early-returned) and held the cross-tab lock forever.
+    disarmKeepAlive();
     listen = "idle";
     emit({ type: "ui-listen", state: "idle" });
     dropLock();
@@ -433,6 +441,7 @@ export async function startQt(): Promise<void> {
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop());
     if (ctx) { try { await ctx.close(); } catch {} }
+    disarmKeepAlive();
     listen = "idle";
     emit({ type: "ui-listen", state: "idle" });
     emit({ type: "ui-error", message: err instanceof Error ? err.message : "Audio setup failed." });

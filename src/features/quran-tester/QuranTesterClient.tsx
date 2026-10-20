@@ -107,6 +107,7 @@ export default function QuranTesterClient() {
   const sessionStartRef = useRef(0);
   const sessionFlagsRef = useRef<Set<string>>(new Set());
   const sessionConfirmRef = useRef<Set<string>>(new Set()); // mistakes confirmed/marked this session
+  const sessionTouchedRef = useRef<Set<string>>(new Set()); // ayahs ≥30% heard this session
   const [statsSheet, setStatsSheet] = useState<{ ayahs: number; seconds: number; flags: number } | null>(null);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [pleased, setPleased] = useState(false); // listener's soft smile after a corrected re-read
@@ -190,24 +191,15 @@ export default function QuranTesterClient() {
    *  searches stay Quran-wide regardless. */
   const expectedSurahRef = useRef(0);
   function expectSurah(s: number) {
-    // Hold mode posts NO expected passage. `setExpected` cages every search
-    // (locate AND post-lost re-search) inside the pinned surah — so after a
-    // real move the engine could only lock onto the best fuzzy match inside
-    // the surah you left. With the window null, the engine's own relocate
-    // machinery does proper Quran-wide relocation; our classifier flags it.
-    if (anchorModeRef.current === "hold") {
-      if (expectedSurahRef.current !== 0) {
-        expectedSurahRef.current = 0;
-        qtPost({ type: "expect", passage: null });
-      }
-      return;
-    }
+    // `setExpected` cages EVERY search — locate, post-lost re-search, AND
+    // relocate. With a window set the engine literally cannot follow you
+    // into another surah: switching passages mid-session decoded nothing.
+    // Both modes leave the window null so Quran-wide relocation works; the
+    // client's own classifier is what decides whether a move flags. The ref
+    // just tracks the last-seen surah so redundant posts don't spam.
     if (s === expectedSurahRef.current) return;
     expectedSurahRef.current = s;
-    const ap = ayahPagesRef.current;
-    const ayahs = ap?.[s] ? Object.keys(ap[s]).map(Number) : [];
-    const ayahEnd = ayahs.length ? Math.max(...ayahs) : undefined;
-    qtPost({ type: "expect", passage: { surah: s, ayah: 1, ayahEnd } });
+    qtPost({ type: "expect", passage: null });
   }
 
   const spanDayRef = useRef("");
@@ -364,9 +356,9 @@ export default function QuranTesterClient() {
     if (j) {
       const back = distOf(ix, j.expected, loc);
       if (back != null && Math.abs(back) <= 3) { dismissJump(); anchorRef.current = loc; return; }
-      // Follow accepts the new spot — but only once the toast has been up
-      // long enough to see; relocate bursts would kill it in milliseconds.
-      if (anchorModeRef.current === "follow" && Date.now() - j.at > 2500) { dismissJump(); anchorRef.current = loc; return; }
+      // Follow does NOT auto-accept — the toast stays until you resolve it
+      // (Continue here / Go to pin / X) or recite back near the expected
+      // spot above. Auto-dismiss at 2.5s is what kept eating the popup.
       if (anchorModeRef.current === "hold") {
         // One deviation = ONE flag. While a hold jump is open the tracker
         // will keep re-relocating as you recite elsewhere — each event gets
@@ -514,6 +506,9 @@ export default function QuranTesterClient() {
     } else if (!h.loc) h.loc = { s, a };
     h.max = Math.max(h.max, word);
     h.total = Math.max(h.total, total);
+    // Touched = ≥30% of the ayah heard — counts toward "how much you read"
+    // even when it didn't reach the 60% covered bar.
+    if (h.loc && h.total > 0 && h.max >= Math.ceil(0.3 * h.total)) sessionTouchedRef.current.add(keyOf(h.loc));
   }
   function coverLoc(l: Loc) {
     sessionCovRef.current.add(keyOf(l));
@@ -626,6 +621,7 @@ export default function QuranTesterClient() {
     sessionCovRef.current = new Set();
     sessionFlagsRef.current = new Set();
     sessionConfirmRef.current = new Set();
+    sessionTouchedRef.current = new Set();
     sessionStartRef.current = Date.now();
     setStatsSheet(null);
     // Flags belong to a session — last take's unresolved suspects must not
@@ -653,14 +649,19 @@ export default function QuranTesterClient() {
   /** End-of-session stats — ayahs read, time spent, flags caught. Pops the
    *  stats sheet only when something was actually heard this session. */
   function maybeShowStats() {
-    const ayahs = sessionCovRef.current.size;
-    if (!ayahs || !sessionStartRef.current) return;
+    // Ayahs read = covered (≥60%) ∪ touched (≥30%) — a session where the
+    // tracker struggled still reports what it heard instead of nothing.
+    const ayahs = new Set([...sessionCovRef.current, ...sessionTouchedRef.current]).size;
+    const flags = suspectsRef.current.size + sessionConfirmRef.current.size;
+    const seconds = Math.max(1, Math.round((Date.now() - sessionStartRef.current) / 1000));
+    // Only skip when the session genuinely never ran (instant stop).
+    if (!sessionStartRef.current || (!ayahs && !flags && seconds < 5)) return;
     setStatsSheet({
       ayahs,
-      seconds: Math.max(1, Math.round((Date.now() - sessionStartRef.current) / 1000)),
+      seconds,
       // "Flags caught" = open suspects + mistakes confirmed this session —
       // dismissed/corrected flags don't count toward what was actually wrong.
-      flags: suspectsRef.current.size + sessionConfirmRef.current.size,
+      flags,
     });
   }
 
