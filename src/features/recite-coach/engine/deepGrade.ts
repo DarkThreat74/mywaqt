@@ -7,6 +7,7 @@
 // when they aren't, the report shows the style tier only and says so.
 
 import { engineInstalled } from "@/features/quran-tester/engine";
+import { borrowQtEngine, qtPost, subscribeQt } from "@/features/quran-tester/session";
 
 export interface DeepIssue {
   surah: number;
@@ -37,12 +38,29 @@ export interface WordVerdict {
   slip?: boolean;
 }
 
+export interface WordSpan {
+  surah: number;
+  ayah: number;
+  /** word position inside the āyah (1-based) */
+  word: number;
+  wordIndex: number;
+  /** seconds into the session audio */
+  startSec: number;
+  endSec: number;
+  /** phonemes the engine actually heard, joined */
+  heard: string;
+  madds: { ms: number; cls?: "lazim" | "jaiz" | "qasr"; haraka?: number }[];
+  ghunnahMs: number;
+}
+
 export interface DeepGrade {
   issues: DeepIssue[];
   /** per-word grading — the word-for-word breakdown */
   wordVerdicts: WordVerdict[];
   /** ayahs the tracker matched — where the recitation was */
   verses: string[];
+  /** per-word time spans + measured runs, via the tracker trail */
+  words: WordSpan[];
   wordsHeard: number;
   /** measured elongation (madd) run durations, ms */
   madds: SpanMeasure[];
@@ -103,31 +121,62 @@ export async function gradeAudio(
 ): Promise<DeepGrade | null> {
   if (!(await engineInstalled())) return null;
 
-  const worker = new Worker(new URL("../../quran-tester/recite.worker.ts", import.meta.url));
+  // Borrow the warm singleton when it's free — a fresh worker pays the
+  // ~66MB model load every take (the ~5s stall before verdicts arrive).
+  const borrowed = borrowQtEngine(sampleRate);
+  const worker = borrowed ?? new Worker(new URL("../../quran-tester/recite.worker.ts", import.meta.url));
   const issues: DeepIssue[] = [];
   const wordVerdicts: WordVerdict[] = [];
   const verses: string[] = [];
+  type RawWord = { surah: number; ayah: number; word: number; wordIndex: number; chars: { ch: string; frame: number; margin: number }[] };
+  // Worker events are heterogeneous — one loose-but-typed bag covers them all.
+  type EngineMsg = {
+    type: string;
+    message?: string;
+    issue?: { surah: number; ayah: number; wordIndex?: number; word?: number; kind: string };
+    surah?: number;
+    ayah?: number;
+    changes?: { wordIndex?: number; surah: number; ayah: number; word: number; state: string; gop: number; vowelErrors?: string[]; slip?: boolean }[];
+    matched_indices?: number[];
+    chars?: { ch: string; frame: number; margin: number }[];
+    words?: RawWord[];
+    framesDecoded?: number;
+  };
+  let rawWords: RawWord[] = [];
   let wordsHeard = 0;
   let heard: { ch: string; frame: number; margin: number }[] = [];
   let framesDecoded = 0;
 
+  // Event channel differs by worker kind: the shared session worker
+  // broadcasts through subscribeQt; a dedicated one uses onmessage.
+  const handlers = new Set<(m: EngineMsg) => void>();
+  let unsub: (() => void) | null = null;
+  if (borrowed) {
+    unsub = subscribeQt((ev) => { for (const h of handlers) h(ev as EngineMsg); });
+  } else {
+    worker.onmessage = (ev: MessageEvent) => { for (const h of handlers) h(ev.data); };
+  }
+  const post = (msg: Record<string, unknown>) =>
+    borrowed ? qtPost(msg) : worker.postMessage(msg);
+
   try {
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("engine init timed out")), 120_000);
-      worker.onmessage = (ev: MessageEvent) => {
-        const m = ev.data;
-        if (m.type === "ready") { clearTimeout(timer); resolve(); }
-        else if (m.type === "error") { clearTimeout(timer); reject(new Error(m.message)); }
-      };
-      worker.postMessage({ type: "init", sampleRate });
-    });
+    if (!borrowed) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("engine init timed out")), 120_000);
+        const h = (m: EngineMsg) => {
+          if (m.type === "ready") { clearTimeout(timer); handlers.delete(h); resolve(); }
+          else if (m.type === "error") { clearTimeout(timer); handlers.delete(h); reject(new Error(m.message ?? "engine error")); }
+        };
+        handlers.add(h);
+        worker.postMessage({ type: "init", sampleRate });
+      });
+    }
 
     // Correction notes + positions arrive on the shared onEvent channel —
     // swap handlers to collect, then feed the whole clip and stop.
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("engine decode timed out")), 300_000);
-      worker.onmessage = (ev: MessageEvent) => {
-        const m = ev.data;
+      const h = (m: EngineMsg) => {
         if (m.type === "correction_note" && m.issue) {
           issues.push({
             surah: m.issue.surah, ayah: m.issue.ayah,
@@ -149,26 +198,36 @@ export async function gradeAudio(
           wordsHeard = Math.max(wordsHeard, (m.matched_indices?.length ?? 0));
         } else if (m.type === "heard") {
           heard = m.chars ?? [];
+          rawWords = m.words ?? [];
           framesDecoded = m.framesDecoded ?? 0;
         } else if (m.type === "stopped") {
           clearTimeout(timer);
+          handlers.delete(h);
           resolve();
         } else if (m.type === "error") {
           clearTimeout(timer);
-          reject(new Error(m.message));
+          handlers.delete(h);
+          reject(new Error(m.message ?? "engine error"));
         }
       };
+      handlers.add(h);
       // Free-decode when no reference: a wrong read must stay wrong. When an
       // analyzed clip is loaded, lock to its passage for real per-word verdicts.
-      worker.postMessage({ type: "expect", passage: expected ?? null });
+      post({ type: "expect", passage: expected ?? null });
       const CHUNK = 16384;
       for (let i = 0; i < pcm.length; i += CHUNK) {
-        worker.postMessage({ type: "audio-sync", samples: pcm.slice(i, i + CHUNK) });
+        post({ type: "audio-sync", samples: pcm.slice(i, i + CHUNK) });
       }
-      worker.postMessage({ type: "stop" });
+      post({ type: "stop" });
     });
   } finally {
-    worker.terminate();
+    unsub?.();
+    if (borrowed) {
+      // Leave the shared engine clean for the next live take.
+      post({ type: "reset" });
+    } else {
+      worker.terminate();
+    }
   }
 
   // framesDecoded vs actual audio length self-calibrates ms/frame — no need
@@ -195,5 +254,21 @@ export async function gradeAudio(
   // heard one — the report matches long pauses to these positions.
   const saktahs = heard.filter((c) => c.ch.includes("ۜ")).map((c) => c.frame * msPerFrame);
 
-  return { issues, wordVerdicts, verses, wordsHeard, madds, ghunnahs, saktahs, msPerFrame };
+  // Per-word spans: same tracker-trail segmentation the clip-analyze script
+  // uses, now emitted by the worker. Each word gets its time window (for the
+  // report's click-a-word pitch view) plus its own madd/ghunnah measures.
+  const words: WordSpan[] = rawWords.map((w) => {
+    const runs = measureRuns(w.chars, msPerFrame);
+    for (const m of runs.madds) if (harakaMs > 0) m.haraka = m.ms / harakaMs;
+    return {
+      surah: w.surah, ayah: w.ayah, word: w.word, wordIndex: w.wordIndex,
+      startSec: (w.chars[0]?.frame ?? 0) * msPerFrame / 1000,
+      endSec: ((w.chars[w.chars.length - 1]?.frame ?? 0) + 1) * msPerFrame / 1000,
+      heard: w.chars.map((c) => c.ch).join(""),
+      madds: runs.madds,
+      ghunnahMs: runs.ghunnahs.reduce((s, g) => s + g.ms, 0),
+    };
+  });
+
+  return { issues, wordVerdicts, verses, words, wordsHeard, madds, ghunnahs, saktahs, msPerFrame };
 }

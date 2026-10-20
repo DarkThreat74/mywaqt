@@ -1,20 +1,24 @@
 "use client";
 
+import { useState } from "react";
 import type { Report } from "../engine/analyze";
-import type { DeepGrade } from "../engine/deepGrade";
+import type { DeepGrade, WordSpan, WordVerdict } from "../engine/deepGrade";
 import { nextRungs, type LadderRow } from "../engine/ladder";
 import type { CompareResult } from "../engine/align";
+import type { PitchFrame } from "../live/pitch";
+import { SURAHS } from "@/lib/content/quran";
 
-// Teacher-shaped report: composite + three tiers, fix-list, then the
-// evidence sections. Bars are the primary encoding (mobile comprehension),
-// never a radar. Tier weights mirror the rubric: Law 400, Craft 350, Mind 250.
+// Teacher-shaped report: composite score, then the recitation itself —
+// each matched āyah rendered word-by-word with its verdicts, elongations,
+// and a click-to-inspect pitch view. Axes carry a measured value plus a
+// plain-language "why" so a number never stands alone.
 
 const KIND_LABEL: Record<string, string> = {
-  possible_omission: "possible omission",
-  possible_substitution: "possible substitution",
-  possible_vowel: "possible vowel slip",
-  possible_repetition: "possible repetition",
-  possible_skipped_ayah: "possibly skipped āyah",
+  possible_omission: "missed word",
+  possible_substitution: "wrong word",
+  possible_vowel: "vowel slip",
+  possible_repetition: "repetition",
+  possible_skipped_ayah: "skipped āyah",
   unclear_ayah: "unclear āyah",
 };
 
@@ -32,26 +36,53 @@ function stageOf(score: number) {
     : score >= 320 ? "Mutamakkin" : score >= 160 ? "Muntasil" : "Ṭālib";
 }
 
-function TierBar({ label, sub, value, max, note }: { label: string; sub: string; value: number | null; max: number; note?: string }) {
-  const pct = value == null ? 0 : Math.min(100, (value / max) * 100);
+const clsName = (cls?: string) => cls === "lazim" ? "lāzim" : cls === "jaiz" ? "jāʾiz" : "madd";
+const minH = (cls?: string) => cls === "lazim" ? 5.5 : cls === "jaiz" ? 3.5 : 1.5;
+
+function verdictOf(verdicts: WordVerdict[], w: { surah: number; ayah: number; word: number; wordIndex: number }) {
+  return verdicts.find((v) =>
+    v.wordIndex === w.wordIndex ||
+    (v.surah === w.surah && v.ayah === w.ayah && v.word === w.word));
+}
+const verdictBad = (v?: WordVerdict | null) =>
+  !!v && (!!v.slip || (v.vowelErrors?.length ?? 0) > 0 || (v.state != null && v.state !== "heard" && v.state !== "ok"));
+
+// Tiny pitch sparkline for a word/span — voiced frames inside the window,
+// log-scaled, with the reached notes labelled. This is "show me my pitch
+// over there" made literal.
+function SpanPitch({ frames, t0, t1 }: { frames: PitchFrame[]; t0: number; t1: number }) {
+  const v = frames.filter((f) => f.t >= t0 - 0.05 && f.t <= t1 + 0.05 && f.voiced && f.hz > 0);
+  if (v.length < 2) return <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>no pitch data in this span</p>;
+  const lo = Math.min(...v.map((f) => f.hz)), hi = Math.max(...v.map((f) => f.hz));
+  const med = v.map((f) => f.hz).sort((a, b) => a - b)[v.length >> 1];
+  const W = 260, H = 56, pad = 4;
+  const loL = Math.log2(lo * 0.9), hiL = Math.log2(hi * 1.1);
+  const x = (t: number) => pad + ((t - v[0].t) / Math.max(0.01, v[v.length - 1].t - v[0].t)) * (W - pad * 2);
+  const y = (hz: number) => H - pad - ((Math.log2(hz) - loL) / (hiL - loL || 1)) * (H - pad * 2);
   return (
-    <div className="rounded-xl border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
-      <div className="flex items-baseline justify-between">
-        <p className="text-[11px] font-medium" style={{ color: "var(--color-ink)" }}>{label}</p>
-        <p className="text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-          {value == null ? "—" : Math.round(value)}<span style={{ opacity: 0.6 }}>/{max}</span>
-        </p>
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ display: "block" }}>
+        <polyline
+          points={v.map((f) => `${x(f.t).toFixed(1)},${y(f.hz).toFixed(1)}`).join(" ")}
+          fill="none" stroke="#4ade80" strokeWidth="1.5" strokeLinejoin="round"
+        />
+      </svg>
+      <div className="mt-0.5 flex justify-between text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+        <span>{noteOf(lo)} {Math.round(lo)}Hz</span>
+        <span style={{ color: "var(--color-ink)" }}>median {noteOf(med)} {Math.round(med)}Hz</span>
+        <span>{noteOf(hi)} {Math.round(hi)}Hz</span>
       </div>
-      <p className="text-[10px]" style={{ color: "var(--color-ink-muted)", opacity: 0.8 }}>{sub}</p>
-      <div className="mt-1.5 h-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: value == null ? "var(--color-paper-3)" : pct >= 75 ? "#4ade80" : pct >= 45 ? "var(--color-accent)" : "#f87171" }} />
-      </div>
-      {note && <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{note}</p>}
     </div>
   );
 }
 
-export default function ReportCard({ report, deep, ladder, recT0, cmp }: { report: Report; deep?: DeepGrade | null; ladder?: LadderRow[] | null; recT0?: number; cmp?: CompareResult | null }) {
+export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, verseText }: {
+  report: Report; deep?: DeepGrade | null; ladder?: LadderRow[] | null; recT0?: number;
+  cmp?: CompareResult | null; frames?: PitchFrame[] | null;
+  verseText?: (s: number, a: number) => string | undefined;
+}) {
+  const [sel, setSel] = useState<WordSpan | null>(null);
+
   // Classify each substantial pause: aligned with a heard saktah mark →
   // "saktah"; breathy → "breath"; otherwise a clean stop. Pause `start` is
   // AudioContext time; saktah positions are PCM ms — recT0 bridges them.
@@ -63,13 +94,15 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp }: { repor
       return { dur: p.dur, kind: saktah ? "saktah" : p.breathy ? "breath" : "stop" as const };
     });
 
-  // ---- tiers ----
-  const axisVal = (k: string) => report.axes.find((a) => a.key === k)?.value ?? 0;
-  const craft = ((axisVal("pitch") + axisVal("range") + axisVal("vibrato") + axisVal("cadence") + axisVal("ghunnah")) / 5) * 3.5;
-  const mind = ((axisVal("tempo") + axisVal("breath")) / 2) * 2.5;
-  const maddShort = deep?.madds.filter((m) => m.haraka != null && m.haraka < (m.cls === "lazim" ? 5.5 : m.cls === "jaiz" ? 3.5 : 1.5)).length ?? 0;
-  const law = deep ? Math.max(0, 400 - deep.issues.length * 40 - maddShort * 15) : null;
   const band = stageOf(report.score);
+
+  // Group measured words by āyah, in recitation order.
+  const ayahGroups: { s: number; a: number; words: WordSpan[] }[] = [];
+  for (const w of deep?.words ?? []) {
+    const g = ayahGroups[ayahGroups.length - 1];
+    if (g && g.s === w.surah && g.a === w.ayah) g.words.push(w);
+    else ayahGroups.push({ s: w.surah, a: w.ayah, words: [w] });
+  }
 
   return (
     <div className="px-5 pb-8">
@@ -92,124 +125,172 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp }: { repor
         </div>
       </div>
 
-      {/* three tiers */}
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <TierBar label="Law" sub="tajwīd" value={law} max={400}
-          note={law == null ? "engine off" : deep!.issues.length ? `${deep!.issues.length} flags` : "clean"} />
-        <TierBar label="Craft" sub="harmony" value={craft} max={350} />
-        <TierBar label="Mind" sub="structure" value={mind} max={250} />
-      </div>
-
-      {/* fix list */}
-      <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Work on first</h2>
-      <ol className="space-y-2">
-        {report.fixes.map((f, i) => (
-          <li key={i} className="flex gap-2.5 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
-            <span className="tabular-nums" style={{ color: "var(--color-accent)" }}>{i + 1}</span>{f}
-          </li>
-        ))}
-      </ol>
-
-      {/* tajwīd law tier — only when the engine deep-graded the audio */}
-      {deep && (
+      {/* the recitation itself — every matched āyah, word by word. Tap a
+          word for its pitch span, elongations, and what the engine heard. */}
+      {deep?.words && deep.words.length > 0 && (
         <>
-          <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Correctness</h2>
-          {(deep.madds.length > 0 || deep.ghunnahs.length > 0) && (
-            <div className="mb-2 rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
-              <div className="flex gap-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                {deep.madds.length > 0 && (
-                  <span>
-                    {deep.madds.length} elongation{deep.madds.length === 1 ? "" : "s"} ·
-                    longest {(Math.max(...deep.madds.map(m => m.ms)) / 1000).toFixed(1)}s
-                  </span>
+          <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+            Word by word · tap any word
+          </h2>
+          <div className="space-y-3">
+            {ayahGroups.map((g) => {
+              const text = verseText?.(g.s, g.a);
+              const textWords = text?.split(/\s+/).filter(Boolean) ?? [];
+              const gIssues = deep.issues.filter((i) => i.surah === g.s && i.ayah === g.a);
+              return (
+                <div key={`${g.s}:${g.a}`} className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <div className="flex items-baseline justify-between">
+                    <p className="text-[11px] font-medium" style={{ color: "var(--color-ink)" }}>
+                      {SURAHS[g.s - 1]?.name ?? `Surah ${g.s}`} · {g.s}:{g.a}
+                    </p>
+                    <p className="text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                      {g.words.filter((w) => !verdictBad(verdictOf(deep.wordVerdicts, w))).length}/{g.words.length} clean
+                    </p>
+                  </div>
+
+                  {/* the āyah — words tinted by verdict, tap to inspect */}
+                  <p dir="rtl" className="mt-2 leading-[2.1]" style={{ fontFamily: "var(--font-arabic)", fontSize: "1.25rem" }}>
+                    {textWords.length
+                      ? textWords.map((tw, i) => {
+                          const gw = g.words.find((w) => w.word === i + 1);
+                          const v = gw ? verdictOf(deep.wordVerdicts, gw) : undefined;
+                          const bad = verdictBad(v);
+                          const isSel = sel === gw;
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              disabled={!gw}
+                              onClick={() => setSel(isSel ? null : gw!)}
+                              className="rounded px-0.5 transition-colors"
+                              style={{
+                                fontFamily: "inherit", fontSize: "inherit",
+                                color: bad ? "#f87171" : "var(--color-ink)",
+                                backgroundColor: isSel ? "color-mix(in oklab, var(--color-accent) 20%, transparent)" : "transparent",
+                                textDecoration: bad ? "underline dotted" : "none",
+                              }}
+                            >
+                              {tw}{" "}
+                            </button>
+                          );
+                        })
+                      // No mushaf text loaded — numbered words still inspectable.
+                      : g.words.map((w) => {
+                          const v = verdictOf(deep.wordVerdicts, w);
+                          const bad = verdictBad(v);
+                          return (
+                            <button
+                              key={w.wordIndex}
+                              type="button"
+                              onClick={() => setSel(sel === w ? null : w)}
+                              className="rounded px-1.5 py-0.5 text-[11px] tabular-nums"
+                              style={{
+                                fontFamily: "var(--font-sans)",
+                                color: bad ? "#f87171" : "var(--color-ink-muted)",
+                                backgroundColor: sel === w ? "color-mix(in oklab, var(--color-accent) 20%, transparent)" : "var(--color-paper-2)",
+                                margin: "0 2px",
+                              }}
+                            >
+                              {w.word}
+                            </button>
+                          );
+                        })}
+                  </p>
+
+                  {/* issues anchored to this āyah */}
+                  {gIssues.length > 0 && (
+                    <ul className="mt-2 space-y-1" dir="ltr">
+                      {gIssues.map((it, i) => (
+                        <li key={i} className="flex items-center gap-2 text-[11px]" style={{ color: "#f87171" }}>
+                          <span aria-hidden>⚑</span>
+                          word {it.word} — {KIND_LABEL[it.kind] ?? it.kind}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* selected word — pitch across its span + the measured detail */}
+          {sel && (() => {
+            const v = verdictOf(deep.wordVerdicts, sel);
+            const issues = deep.issues.filter((i) => i.surah === sel.surah && i.ayah === sel.ayah && i.word === sel.word);
+            return (
+              <div className="mt-2 rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 5%, transparent)" }}>
+                <div className="flex items-baseline justify-between">
+                  <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>
+                    {sel.surah}:{sel.ayah} · word {sel.word}
+                  </p>
+                  <p className="text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                    {sel.startSec.toFixed(1)}–{sel.endSec.toFixed(1)}s · heard “{sel.heard}”
+                  </p>
+                </div>
+                {frames && (
+                  <div className="mt-2">
+                    <SpanPitch frames={frames} t0={(recT0 ?? 0) + sel.startSec} t1={(recT0 ?? 0) + sel.endSec} />
+                  </div>
                 )}
-                {deep.ghunnahs.length > 0 && (
-                  <span>
-                    {deep.ghunnahs.length} nasal hold{deep.ghunnahs.length === 1 ? "" : "s"} ·
-                    avg {(deep.ghunnahs.reduce((s, g) => s + g.ms, 0) / deep.ghunnahs.length).toFixed(0)}ms
-                  </span>
-                )}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {deep.madds.slice(0, 20).map((m, i) => {
-                  const minH = m.cls === "lazim" ? 5.5 : m.cls === "jaiz" ? 3.5 : 1.5;
-                  const short = m.haraka != null && m.haraka < minH;
-                  const clsLabel = m.cls === "lazim" ? "lāzim" : m.cls === "jaiz" ? "jāʾiz" : "madd";
-                  return (
-                    <span
-                      key={i}
-                      className="rounded px-1.5 py-0.5 text-[10px] tabular-nums"
-                      style={{
-                        backgroundColor: short ? "#f8717122" : "var(--color-paper-3)",
-                        color: short ? "#f87171" : "var(--color-ink-muted)",
-                      }}
-                      title={`${clsLabel} · ${(m.ms / 1000).toFixed(2)}s`}
-                    >
-                      {m.haraka != null ? `${m.haraka.toFixed(1)}ḥ` : `${(m.ms / 1000).toFixed(1)}s`}
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {sel.madds.map((m, i) => {
+                    const short = m.haraka != null && m.haraka < minH(m.cls);
+                    return (
+                      <span key={i} className="rounded px-1.5 py-0.5 text-[10px] tabular-nums"
+                        style={{ backgroundColor: short ? "#f8717122" : "var(--color-paper-3)", color: short ? "#f87171" : "var(--color-ink-muted)" }}
+                        title={`${clsName(m.cls)} · ${m.ms.toFixed(0)}ms`}>
+                        {clsName(m.cls)} {m.haraka != null ? `${m.haraka.toFixed(1)}ḥ` : `${m.ms.toFixed(0)}ms`}{short ? " short" : ""}
+                      </span>
+                    );
+                  })}
+                  {sel.ghunnahMs > 0 && (
+                    <span className="rounded px-1.5 py-0.5 text-[10px] tabular-nums"
+                      style={{ backgroundColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                      ghunnah {sel.ghunnahMs.toFixed(0)}ms
                     </span>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          {/* word-for-word verdicts — every word the tracker graded */}
-          {deep.wordVerdicts.length > 0 && (
-            <div className="mb-2 rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="mb-2 text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                Word for word · {deep.wordVerdicts.filter((w) => !w.slip && !(w.vowelErrors?.length)).length}/{deep.wordVerdicts.length} clean
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {deep.wordVerdicts.slice(0, 60).map((w, i) => {
-                  const bad = w.slip || (w.vowelErrors?.length ?? 0) > 0 || (w.state && w.state !== "heard" && w.state !== "ok");
-                  const loc = w.surah && w.ayah ? `${w.surah}:${w.ayah}` : "";
-                  return (
-                    <span
-                      key={i}
-                      className="rounded px-1.5 py-0.5 text-[10px] tabular-nums"
-                      style={{
-                        backgroundColor: bad ? "#f8717122" : "var(--color-paper-3)",
-                        color: bad ? "#f87171" : "var(--color-ink-muted)",
-                      }}
-                      title={`${loc}${w.word ? ` w${w.word}` : ""}${w.state ? ` · ${w.state}` : ""}${w.gop != null ? ` · gop ${w.gop.toFixed(2)}` : ""}${w.vowelErrors?.length ? ` · ${w.vowelErrors.length} vowel err` : ""}`}
-                    >
-                      w{w.wordIndex + 1}{bad ? " ⚑" : ""}
+                  )}
+                  {v && (
+                    <span className="rounded px-1.5 py-0.5 text-[10px]"
+                      style={{ backgroundColor: verdictBad(v) ? "#f8717122" : "#4ade8022", color: verdictBad(v) ? "#f87171" : "#4ade80" }}>
+                      {v.state ?? "heard"}{v.gop != null ? ` · gop ${v.gop.toFixed(2)}` : ""}{v.slip ? " · slip" : ""}
+                      {v.vowelErrors?.length ? ` · ${v.vowelErrors.length} vowel` : ""}
                     </span>
-                  );
-                })}
-                {deep.wordVerdicts.length > 60 && (
-                  <span className="px-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                    +{deep.wordVerdicts.length - 60}
-                  </span>
-                )}
+                  )}
+                  {issues.map((it, i) => (
+                    <span key={i} className="rounded px-1.5 py-0.5 text-[10px]" style={{ backgroundColor: "#f8717122", color: "#f87171" }}>
+                      {KIND_LABEL[it.kind] ?? it.kind}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-          {deep.issues.length === 0 ? (
-            <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="text-sm" style={{ color: "var(--color-ink)" }}>
-                No issues detected{deep.verses.length ? ` — ${deep.verses.length} verse${deep.verses.length === 1 ? "" : "s"} matched` : ""}.
-              </p>
-            </div>
-          ) : (
-            <ul className="space-y-1.5">
-              {deep.issues.slice(0, 12).map((it, i) => (
-                <li
-                  key={i}
-                  className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm"
-                  style={{ borderColor: "var(--color-paper-3)" }}
-                >
-                  <span style={{ color: "var(--color-ink)" }}>{it.surah}:{it.ayah}</span>
-                  <span className="text-xs" style={{ color: "#f87171" }}>{KIND_LABEL[it.kind] ?? it.kind}</span>
-                </li>
-              ))}
-              {deep.issues.length > 12 && (
-                <li className="text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  +{deep.issues.length - 12} more
-                </li>
-              )}
-            </ul>
-          )}
+            );
+          })()}
         </>
+      )}
+
+      {/* deep-grade verdicts without word spans (engine fell back) */}
+      {deep && !deep.words?.length && deep.wordVerdicts.length > 0 && (
+        <div className="mt-4 rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+          <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            {deep.wordVerdicts.filter((w) => !verdictBad(w)).length}/{deep.wordVerdicts.length} words clean
+            {deep.verses.length ? ` · ${deep.verses.join(", ")}` : ""}
+            {deep.issues.length ? ` · ${deep.issues.length} flag${deep.issues.length === 1 ? "" : "s"}` : ""}
+          </p>
+        </div>
+      )}
+
+      {/* madd/ghunnah roll-up when there was no per-word detail */}
+      {deep && !deep.words?.length && (deep.madds.length > 0 || deep.ghunnahs.length > 0) && (
+        <div className="mt-2 rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+          <div className="flex gap-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            {deep.madds.length > 0 && (
+              <span>{deep.madds.length} elongation{deep.madds.length === 1 ? "" : "s"} · longest {(Math.max(...deep.madds.map(m => m.ms)) / 1000).toFixed(1)}s</span>
+            )}
+            {deep.ghunnahs.length > 0 && (
+              <span>{deep.ghunnahs.length} nasal hold{deep.ghunnahs.length === 1 ? "" : "s"} · avg {(deep.ghunnahs.reduce((s, g) => s + g.ms, 0) / deep.ghunnahs.length).toFixed(0)}ms</span>
+            )}
+          </div>
+        </div>
       )}
 
       {/* vs reference — localized diffs lead, not a bare number */}
@@ -262,14 +343,15 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp }: { repor
         </>
       )}
 
-      {/* axes */}
+      {/* axes — each score carries its measurement AND the plain-language
+          reason, so "why is it like this" is answered inline */}
       <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>The breakdown</h2>
       <div className="space-y-2.5">
         {report.axes.map((a) => (
-          <div key={a.key}>
+          <div key={a.key} className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="flex items-baseline justify-between text-xs">
               <span style={{ color: "var(--color-ink)" }}>{a.label}</span>
-              <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{a.value}</span>
+              <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{a.value}<span style={{ opacity: 0.55 }}>/100</span></span>
             </div>
             <div className="mt-1 h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
               <div
@@ -280,7 +362,8 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp }: { repor
                 }}
               />
             </div>
-            <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{a.note}</p>
+            <p className="mt-1 text-[11px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{a.note}</p>
+            <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink)", opacity: 0.8 }}>{a.why}</p>
           </div>
         ))}
       </div>

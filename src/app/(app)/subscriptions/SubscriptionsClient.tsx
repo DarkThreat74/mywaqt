@@ -3,24 +3,28 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CreditCard,
+  ImagePlus,
   List,
   Loader2,
   Pencil,
   Plus,
+  Receipt,
   Trash2,
   X,
 } from "lucide-react";
-import type { Subscription } from "@/lib/db/schema";
-import SpendingLog from "./SpendingLog";
+import type { Expense, Subscription } from "@/lib/db/schema";
+import SpendingLog, { TAGS, compressPhoto } from "./SpendingLog";
 import {
   type Cycle,
   daysUntil,
   formatMoney,
   monthlyCents,
   nextRenewal,
+  paymentDates,
   paymentsElapsed,
   renewalsInMonth,
 } from "@/lib/subscriptions/math";
@@ -64,6 +68,41 @@ interface Enriched extends Subscription {
   spentCents: number;
 }
 
+// List API strips photo bytes — only the fields the feed needs.
+type ExpenseLite = Pick<Expense, "id" | "tag" | "amountCents" | "currency" | "occurredOn" | "place" | "detail" | "quantity" | "unit">;
+
+type MoneyTab = "subs" | "all" | string;
+
+interface ExpFormState {
+  tag: string;
+  amount: string;
+  quantity: string;
+  place: string;
+  detail: string;
+  occurredOn: string;
+  photoB64: string | null;
+  photoMime: string | null;
+  photoUrl: string | null;
+}
+
+const EMPTY_EXP_FORM: ExpFormState = {
+  tag: "gas",
+  amount: "",
+  quantity: "",
+  place: "",
+  detail: "",
+  occurredOn: new Date().toLocaleDateString("en-CA"),
+  photoB64: null,
+  photoMime: null,
+  photoUrl: null,
+};
+
+function tagMeta(id: string) {
+  return TAGS.find((t) => t.id === id) ?? { id, label: id.charAt(0).toUpperCase() + id.slice(1), icon: Receipt, unit: null, qtyLabel: null, placeLabel: "Place (optional)", detailLabel: null, photo: false };
+}
+
+const toDayStr = (d: Date) => d.toLocaleDateString("en-CA");
+
 export default function SubscriptionsClient() {
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -76,6 +115,16 @@ export default function SubscriptionsClient() {
   const [error, setError] = useState<string | null>(null);
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
+  const [moneyTab, setMoneyTab] = useState<MoneyTab>("subs");
+  const [titleOpen, setTitleOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+  const [logKind, setLogKind] = useState<"sub" | string>("sub");
+  const [newTagName, setNewTagName] = useState("");
+  const [expForm, setExpForm] = useState<ExpFormState>(EMPTY_EXP_FORM);
+  const [expenses, setExpenses] = useState<ExpenseLite[]>([]);
+  const [expBusy, setExpBusy] = useState(false);
+  const [expError, setExpError] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   useEffect(() => {
     fetch("/api/subscriptions")
@@ -84,6 +133,77 @@ export default function SubscriptionsClient() {
       .catch(() => null)
       .finally(() => setLoaded(true));
   }, []);
+
+  useEffect(() => {
+    const load = () =>
+      fetch("/api/expenses")
+        .then((r) => (r.ok ? r.json() : { expenses: [] }))
+        .then((d) => setExpenses(d.expenses ?? []))
+        .catch(() => null);
+    void load();
+    window.addEventListener("waqt:expense-logged", load);
+    return () => window.removeEventListener("waqt:expense-logged", load);
+  }, []);
+
+  // Tag tabs — only tags that actually have entries, in first-seen order.
+  const tagTabs = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const e of expenses) seen.set(e.tag, (seen.get(e.tag) ?? 0) + 1);
+    return [...seen.entries()].map(([id, count]) => ({ ...tagMeta(id), count }));
+  }, [expenses]);
+
+  const openLog = () => {
+    setLogOpen(true);
+    setLogKind("sub");
+    setNewTagName("");
+    setExpForm(EMPTY_EXP_FORM);
+    setExpError(null);
+  };
+
+  async function saveExpense(e: React.FormEvent) {
+    e.preventDefault();
+    const amount = parseFloat(expForm.amount);
+    const tag = logKind === "new-tag" ? newTagName.trim().toLowerCase().replace(/\s+/g, "-") : logKind;
+    if (!tag || !Number.isFinite(amount) || amount <= 0 || !expForm.occurredOn) {
+      setExpError("Amount and date are required.");
+      return;
+    }
+    setExpBusy(true);
+    setExpError(null);
+    const meta = tagMeta(tag);
+    const quantity = expForm.quantity ? parseFloat(expForm.quantity) : null;
+    try {
+      const res = await fetch("/api/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tag,
+          amount,
+          currency: "USD",
+          occurredOn: expForm.occurredOn,
+          quantity,
+          unit: meta.unit && quantity ? meta.unit : null,
+          place: expForm.place.trim() || null,
+          detail: expForm.detail.trim() || null,
+          photo: expForm.photoB64,
+          photoMime: expForm.photoB64 ? expForm.photoMime : null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.expense || data.offline)) {
+        setLogOpen(false);
+        setExpForm(EMPTY_EXP_FORM);
+        setMoneyTab(tag);
+        window.dispatchEvent(new Event("waqt:expense-logged"));
+      } else {
+        setExpError(data.error || "Could not save");
+      }
+    } catch {
+      setExpError("Network error — entry not saved");
+    } finally {
+      setExpBusy(false);
+    }
+  }
 
   // Enrich each ACTIVE subscription with derived renewal data;
   // cancelled ones only keep their lifetime spend.
@@ -112,6 +232,54 @@ export default function SubscriptionsClient() {
     const cur = subs[0]?.currency ?? "USD";
     return { monthly, yearly: monthly * 12, spent, cur };
   }, [active, subs]);
+
+  // "All" feed — every dollar actually paid, chronological. Subscription
+  // payments are generated from start dates/cycles (cancelled subs stop at
+  // their cancel date); expenses are logged entries. Grouped by month.
+  const allFeed = useMemo(() => {
+    type Item = { key: string; date: string; label: string; note: string; amountCents: number; currency: string; color: string };
+    const items: Item[] = [];
+    for (const s of subs) {
+      const until = s.cancelledAt ? new Date(s.cancelledAt) : new Date();
+      for (const d of paymentDates(s.startDate, s.cycle, until)) {
+        items.push({
+          key: `s${s.id}-${toDayStr(d)}`,
+          date: toDayStr(d),
+          label: s.company + (s.plan ? ` ${s.plan}` : ""),
+          note: "subscription",
+          amountCents: s.amountCents,
+          currency: s.currency,
+          color: s.color,
+        });
+      }
+    }
+    for (const e of expenses) {
+      const meta = tagMeta(e.tag);
+      items.push({
+        key: `e${e.id}`,
+        date: e.occurredOn,
+        label: e.place || meta.label,
+        note: e.detail ? `${meta.label} · ${e.detail}` : meta.label,
+        amountCents: e.amountCents,
+        currency: e.currency ?? "USD",
+        color: "var(--color-ink-muted)",
+      });
+    }
+    items.sort((a, b) => b.date.localeCompare(a.date));
+    const groups = new Map<string, { label: string; items: Item[]; total: number }>();
+    for (const it of items) {
+      const mk = it.date.slice(0, 7);
+      const g = groups.get(mk) ?? {
+        label: new Date(it.date + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+        items: [],
+        total: 0,
+      };
+      g.items.push(it);
+      g.total += it.amountCents;
+      groups.set(mk, g);
+    }
+    return [...groups.values()];
+  }, [subs, expenses]);
 
   // Renewals landing in the viewed calendar month
   const calDays = useMemo(() => {
@@ -257,75 +425,148 @@ export default function SubscriptionsClient() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
-        <div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-accent)" }}>
-            Money
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
-            Subscriptions
-          </h1>
-        </div>
-        <div
-          className="flex rounded-lg border p-0.5"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
-          role="tablist"
-          aria-label="View"
+      {/* Header — the title itself is the tab index: click it to jump anywhere. */}
+      <div className="relative">
+        <button
+          onClick={() => setTitleOpen((v) => !v)}
+          aria-expanded={titleOpen}
+          className="flex items-center gap-2"
         >
-          {(["list", "calendar"] as const).map((v) => (
-            <button
-              key={v}
-              role="tab"
-              aria-selected={view === v}
-              onClick={() => setView(v)}
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-              style={{
-                backgroundColor: view === v ? "var(--color-paper)" : "transparent",
-                color: view === v ? "var(--color-ink)" : "var(--color-ink-muted)",
-              }}
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+            Money
+          </h1>
+          <ChevronDown
+            className={`h-5 w-5 transition-transform ${titleOpen ? "rotate-180" : ""}`}
+            style={{ color: "var(--color-ink-muted)" }}
+          />
+        </button>
+        {titleOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setTitleOpen(false)} />
+            <div
+              className="absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border p-1.5 shadow-lg"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+              role="menu"
             >
-              {v === "list" ? <List className="h-3.5 w-3.5" /> : <CalendarDays className="h-3.5 w-3.5" />}
-              {v === "list" ? "List" : "Calendar"}
-            </button>
-          ))}
-        </div>
+              {[{ id: "subs", label: "Subscriptions", icon: CreditCard }, ...tagTabs, { id: "all", label: "Everything", icon: Receipt }].map((t) => {
+                const Icon = t.icon;
+                const on = moneyTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    role="menuitem"
+                    onClick={() => { setMoneyTab(t.id); setTitleOpen(false); }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ color: on ? "var(--color-accent)" : "var(--color-ink)" }}
+                  >
+                    <Icon className="h-4 w-4" style={{ color: on ? "var(--color-accent)" : "var(--color-ink-muted)" }} />
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Stats band — editorial figures, not cards */}
-      {subs.length > 0 && (
-        <div className="mt-6 flex flex-wrap items-baseline gap-x-8 gap-y-3 border-b pb-5" style={{ borderColor: "var(--color-paper-3)" }}>
-          <div>
-            <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--color-ink)" }}>
-              {formatMoney(totals.monthly, totals.cur)}
-            </p>
-            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-              per month
-            </p>
-          </div>
-          <div>
-            <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
-              {formatMoney(totals.yearly, totals.cur)}
-            </p>
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-              per year
-            </p>
-          </div>
-          <div>
-            <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--color-warmth)" }}>
-              {formatMoney(totals.spent, totals.cur)}
-            </p>
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-              spent so far
-            </p>
-          </div>
-          <p className="ml-auto text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            {subs.length} active
-          </p>
-        </div>
-      )}
+      {/* Tab row — Subscriptions, one per tag with entries, then the
+          chronological everything feed. + Log lives at the right end. */}
+      <div
+        className="mt-4 flex items-center gap-1 overflow-x-auto border-b pb-px"
+        style={{ borderColor: "var(--color-paper-3)" }}
+        role="tablist"
+        aria-label="Money sections"
+      >
+        {[{ id: "subs", label: "Subscriptions" }, ...tagTabs.map((t) => ({ id: t.id, label: t.label })), { id: "all", label: "All" }].map((t) => {
+          const on = moneyTab === t.id;
+          return (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={on}
+              onClick={() => setMoneyTab(t.id)}
+              className="shrink-0 border-b-2 px-3 pb-2 text-sm font-medium transition-colors"
+              style={{
+                borderColor: on ? "var(--color-accent)" : "transparent",
+                color: on ? "var(--color-ink)" : "var(--color-ink-muted)",
+              }}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+        <button
+          onClick={openLog}
+          className="ml-auto mb-1.5 flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90"
+          style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 32 }}
+        >
+          <Plus className="h-3.5 w-3.5" /> Log
+        </button>
+      </div>
 
-      {error && <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
+      {/* ── Subscriptions tab ── */}
+      {moneyTab === "subs" && (
+        <>
+          <div className="mt-3 flex justify-end">
+            <div
+              className="flex rounded-lg border p-0.5"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+              role="tablist"
+              aria-label="View"
+            >
+              {(["list", "calendar"] as const).map((v) => (
+                <button
+                  key={v}
+                  role="tab"
+                  aria-selected={view === v}
+                  onClick={() => setView(v)}
+                  className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                  style={{
+                    backgroundColor: view === v ? "var(--color-paper)" : "transparent",
+                    color: view === v ? "var(--color-ink)" : "var(--color-ink-muted)",
+                  }}
+                >
+                  {v === "list" ? <List className="h-3.5 w-3.5" /> : <CalendarDays className="h-3.5 w-3.5" />}
+                  {v === "list" ? "List" : "Calendar"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Stats band — editorial figures, not cards */}
+          {subs.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-baseline gap-x-8 gap-y-3 border-b pb-5" style={{ borderColor: "var(--color-paper-3)" }}>
+              <div>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--color-ink)" }}>
+                  {formatMoney(totals.monthly, totals.cur)}
+                </p>
+                <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                  per month
+                </p>
+              </div>
+              <div>
+                <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
+                  {formatMoney(totals.yearly, totals.cur)}
+                </p>
+                <p className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                  per year
+                </p>
+              </div>
+              <div>
+                <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--color-warmth)" }}>
+                  {formatMoney(totals.spent, totals.cur)}
+                </p>
+                <p className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                  spent so far
+                </p>
+              </div>
+              <p className="ml-auto text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                {subs.length} active
+              </p>
+            </div>
+          )}
+
+          {error && <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
 
       {/* Add / edit form */}
       {(adding || editingId) && (
@@ -513,18 +754,6 @@ export default function SubscriptionsClient() {
             </div>
           )}
         </form>
-      )}
-
-      {/* Add button */}
-      {!adding && !editingId && (
-        <button
-          onClick={() => { setAdding(true); setForm(EMPTY_FORM); setError(null); }}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-        >
-          <Plus className="h-4 w-4" />
-          Add a subscription
-        </button>
       )}
 
       {/* Content */}
@@ -783,10 +1012,269 @@ export default function SubscriptionsClient() {
         </div>
       )}
 
-      {/* Manual spending — tagged entries (gas, groceries, …) with
-          pattern-based yearly projection. Lives at the bottom of Money
-          rather than its own page. */}
-      <SpendingLog />
+        </>
+      )}
+
+      {/* ── Tag tabs — one per spending tag that has entries ── */}
+      {moneyTab !== "subs" && moneyTab !== "all" && <SpendingLog tag={moneyTab} />}
+
+      {/* ── All tab — everything paid so far, chronological ── */}
+      {moneyTab === "all" && (
+        <div className="mt-4">
+          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 border-b pb-5" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div>
+              <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--color-ink)" }}>
+                {formatMoney(totals.spent + expenses.reduce((s, e) => s + e.amountCents, 0), totals.cur)}
+              </p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                spent so far — everything
+              </p>
+            </div>
+          </div>
+          {allFeed.length === 0 ? (
+            <p className="py-16 text-center text-sm" style={{ color: "var(--color-ink-muted)" }}>
+              Nothing paid yet — log your first expense or subscription.
+            </p>
+          ) : (
+            allFeed.map((g) => (
+              <div key={g.label} className="mt-5">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                    {g.label}
+                  </p>
+                  <p className="text-xs tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
+                    {formatMoney(g.total, totals.cur)}
+                  </p>
+                </div>
+                <div className="mt-1 flex flex-col">
+                  {g.items.map((it) => (
+                    <div key={it.key} className="flex items-center gap-3 border-b py-2.5 last:border-0" style={{ borderColor: "var(--color-paper-3)" }}>
+                      <span className="w-12 shrink-0 text-xs font-medium tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                        {new Date(it.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </span>
+                      <div className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: it.color }} aria-hidden />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>{it.label}</p>
+                        <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{it.note}</p>
+                      </div>
+                      <span className="shrink-0 text-sm font-semibold tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
+                        {formatMoney(it.amountCents, it.currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── + Log sheet — one entry point for subscriptions and expenses ── */}
+      {logOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center"
+          style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
+          onClick={() => setLogOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-2xl border p-5 sm:rounded-2xl"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Log money"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Log</p>
+              <button
+                onClick={() => setLogOpen(false)}
+                className="rounded-md p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-ink-muted)" }}
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <label className="mt-4 block">
+              <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                What is it
+              </span>
+              <select
+                value={logKind}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setLogKind(v);
+                  setExpForm({ ...EMPTY_EXP_FORM, tag: v === "new-tag" ? "other" : v });
+                }}
+                className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+              >
+                <option value="sub">Subscription</option>
+                {TAGS.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+                {[...new Set(expenses.map((e) => e.tag))].filter((t) => !TAGS.some((d) => d.id === t)).map((t) => (
+                  <option key={t} value={t}>{tagMeta(t).label}</option>
+                ))}
+                <option value="new-tag">New tag…</option>
+              </select>
+            </label>
+
+            {logKind === "new-tag" && (
+              <label className="mt-3 block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  Tag name
+                </span>
+                <input
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  placeholder="e.g. coffee"
+                  className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                />
+              </label>
+            )}
+
+            {logKind === "sub" ? (
+              <div className="mt-4">
+                <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
+                  Subscriptions have a billing cycle, color, and reminder — it opens on the Subscriptions tab.
+                </p>
+                <button
+                  onClick={() => {
+                    setLogOpen(false);
+                    setMoneyTab("subs");
+                    setAdding(true);
+                    setEditingId(null);
+                    setForm(EMPTY_FORM);
+                    setError(null);
+                  }}
+                  className="mt-3 w-full rounded-full px-6 py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                >
+                  Continue
+                </button>
+              </div>
+            ) : (
+            <form onSubmit={saveExpense} className="mt-3 grid grid-cols-2 gap-3">
+              <label className="col-span-1 block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  Amount
+                </span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  inputMode="decimal"
+                  autoFocus
+                  value={expForm.amount}
+                  onChange={(e) => setExpForm({ ...expForm, amount: e.target.value })}
+                  placeholder="24.50"
+                  className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                />
+              </label>
+              <label className="col-span-1 block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  Date
+                </span>
+                <input
+                  type="date"
+                  value={expForm.occurredOn}
+                  onChange={(e) => setExpForm({ ...expForm, occurredOn: e.target.value })}
+                  className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                />
+              </label>
+              {tagMeta(logKind === "new-tag" ? "other" : logKind).qtyLabel && (
+                <label className="col-span-2 block">
+                  <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                    {tagMeta(logKind).qtyLabel}
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={expForm.quantity}
+                    onChange={(e) => setExpForm({ ...expForm, quantity: e.target.value })}
+                    placeholder="10.4"
+                    className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
+                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                  />
+                </label>
+              )}
+              <label className="col-span-2 block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  {tagMeta(logKind === "new-tag" ? "other" : logKind).placeLabel ?? "Place (optional)"}
+                </span>
+                <input
+                  value={expForm.place}
+                  onChange={(e) => setExpForm({ ...expForm, place: e.target.value })}
+                  className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                />
+              </label>
+              {tagMeta(logKind === "new-tag" ? "other" : logKind).detailLabel && (
+                <label className="col-span-2 block">
+                  <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                    {tagMeta(logKind).detailLabel}
+                  </span>
+                  <input
+                    value={expForm.detail}
+                    onChange={(e) => setExpForm({ ...expForm, detail: e.target.value })}
+                    className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
+                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
+                  />
+                </label>
+              )}
+              {tagMeta(logKind === "new-tag" ? "other" : logKind).photo && (
+                <div className="col-span-2">
+                  <input
+                    id="log-photo"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      setPhotoBusy(true);
+                      try {
+                        const { b64, dataUrl } = await compressPhoto(f);
+                        setExpForm({ ...expForm, photoB64: b64, photoMime: "image/jpeg", photoUrl: dataUrl });
+                      } finally {
+                        setPhotoBusy(false);
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="log-photo"
+                    className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-3 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                  >
+                    {photoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                    {expForm.photoUrl ? "Photo added — tap to replace" : "Add a photo"}
+                  </label>
+                  {expForm.photoUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element -- data-URL preview of a user file
+                    <img src={expForm.photoUrl} alt="Attached" className="mt-2 h-20 rounded-lg object-cover" />
+                  )}
+                </div>
+              )}
+              {expError && <p className="col-span-2 text-sm" style={{ color: "var(--color-error)" }}>{expError}</p>}
+              <button
+                type="submit"
+                disabled={expBusy}
+                className="col-span-2 mt-1 inline-flex items-center justify-center gap-2 rounded-full px-6 py-2.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+              >
+                {expBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+              </button>
+            </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

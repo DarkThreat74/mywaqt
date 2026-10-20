@@ -80,6 +80,21 @@ export function renewalsInMonth(
   return days;
 }
 
+/** Every payment date from startDate through `until` (default: today) —
+ *  feeds the "All" money feed, which lists actual payments chronologically. */
+export function paymentDates(startDate: string, cycle: Cycle, until: Date = new Date()): Date[] {
+  const end = parseDay(toDay(until));
+  const out: Date[] = [];
+  let d = parseDay(startDate);
+  if (!Number.isFinite(d.getTime())) return out;
+  let guard = 0;
+  while (d <= end && guard++ < 1200) {
+    out.push(new Date(d));
+    d = addCycle(d, cycle);
+  }
+  return out;
+}
+
 export function formatMoney(cents: number, currency = "USD"): string {
   try {
     return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);

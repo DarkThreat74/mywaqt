@@ -26,6 +26,20 @@ function emit(ev: QtEvent) {
 let worker: Worker | null = null;
 let audio: { ctx: AudioContext; stream: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode } | null = null;
 let listen: QtListen = "idle";
+let engineReady = false;   // init handshake completed — model in memory
+let workerRate = 0;        // sample rate the loaded engine was inited for
+
+/**
+ * Borrow the warm engine for a batch decode (recite-coach deep grade).
+ * A fresh worker pays the ~66MB model load every take (~5s) — the warmed
+ * singleton already has it in memory, so grading starts immediately.
+ * Returns null when the engine isn't up or a live session owns it; callers
+ * fall back to a dedicated worker in that case.
+ */
+export function borrowQtEngine(rate: number): Worker | null {
+  if (!worker || !engineReady || listen !== "idle" || (rate && workerRate && rate !== workerRate)) return null;
+  return worker;
+}
 
 // ── Screen-wake + background "orb" notification ────────────────────────
 // Wake Lock keeps the screen on while reciting. For the notification:
@@ -216,6 +230,7 @@ export function warmQt() {
         ensureWorker();
         if (!worker) return;
         const ctx = new AudioContext();
+        workerRate = ctx.sampleRate;
         worker.postMessage({ type: "init", sampleRate: ctx.sampleRate });
         void ctx.close();
       } finally {
@@ -238,6 +253,7 @@ function ensureWorker() {
     worker.onmessage = (e) => {
       const ev = e.data as QtEvent;
       if (ev.type === "ready") {
+        engineReady = true;
         // A warmQt() preload also posts init → ready — only flip to
         // listening when a mic session is actually warming up.
         if (listen === "warming") {
@@ -293,6 +309,7 @@ function ensureWorker() {
       // postMessage black-holes and init would hang "warming" forever.
       worker?.terminate();
       worker = null;
+      engineReady = false;
       emit({
         type: "ui-error",
         message: `Engine failed to start.${e.message ? ` ${e.message}` : ""}`,
@@ -404,6 +421,7 @@ export async function startQt(): Promise<void> {
   audio = { ctx, stream, src, node };
 
   emit({ type: "ui-status", message: "Warming up the engine…" });
+  workerRate = ctx.sampleRate;
   worker?.postMessage({ type: "init", sampleRate: ctx.sampleRate });
 }
 
@@ -487,4 +505,6 @@ export async function teardownQt(): Promise<void> {
   await stopQt();
   worker?.terminate();
   worker = null;
+  engineReady = false;
+  workerRate = 0;
 }

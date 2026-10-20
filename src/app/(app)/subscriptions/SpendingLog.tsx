@@ -2,12 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  ChevronDown,
   Fuel,
   ImagePlus,
   Loader2,
   Pencil,
-  Plus,
   Receipt,
   Scissors,
   ShoppingBag,
@@ -24,7 +22,7 @@ import { formatMoney } from "@/lib/subscriptions/math";
 // Small tag set — "gas" unlocks gallons + $/gal math; "haircut" unlocks
 // barber + photo thumbnail. Tags are stored free-form but the picker
 // keeps the list tight.
-const TAGS = [
+export const TAGS = [
   { id: "gas", label: "Gas", icon: Fuel, unit: "gal", qtyLabel: "Gallons", placeLabel: "Station (optional)", detailLabel: null, photo: false },
   { id: "groceries", label: "Groceries", icon: ShoppingBasket, unit: null, qtyLabel: null, placeLabel: "Store (optional)", detailLabel: null, photo: false },
   { id: "dining", label: "Dining", icon: UtensilsCrossed, unit: null, qtyLabel: null, placeLabel: "Restaurant (optional)", detailLabel: null, photo: false },
@@ -32,13 +30,13 @@ const TAGS = [
   { id: "shopping", label: "Shopping", icon: ShoppingBag, unit: null, qtyLabel: null, placeLabel: "Store (optional)", detailLabel: null, photo: false },
   { id: "other", label: "Other", icon: Receipt, unit: null, qtyLabel: null, placeLabel: "Where (optional)", detailLabel: null, photo: false },
 ] as const;
-type TagId = (typeof TAGS)[number]["id"];
+export type TagId = (typeof TAGS)[number]["id"];
 
 // The list API omits photo bytes and sends a flag instead.
 type ExpenseRow = Expense & { hasPhoto?: boolean };
 
 // Photo → ≤900px JPEG q0.72, ~60-150KB — small enough to live in the row.
-async function compressPhoto(file: File): Promise<{ b64: string; dataUrl: string }> {
+export async function compressPhoto(file: File): Promise<{ b64: string; dataUrl: string }> {
   const { data, dataUrl } = await compressImage(file, 1280, 0.8);
   return { b64: data, dataUrl };
 }
@@ -68,26 +66,31 @@ const EMPTY: FormState = { tag: "gas", amount: "", quantity: "", place: "", barb
 // the photo before the server row id exists (optimistic save).
 type Row = ExpenseRow & { localPhoto?: string };
 
-export default function SpendingLog() {
+export default function SpendingLog({ tag }: { tag: string | null }) {
   const [entries, setEntries] = useState<Row[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [activeTag, setActiveTag] = useState<TagId | null>(null);
+  const activeTag = tag;
   const [form, setForm] = useState<FormState>(EMPTY);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [tagsOpen, setTagsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    fetch("/api/expenses")
-      .then((r) => (r.ok ? r.json() : { expenses: [] }))
-      .then((d) => setEntries(d.expenses ?? []))
-      .catch(() => null)
-      .finally(() => setLoaded(true));
+    const load = () =>
+      fetch("/api/expenses")
+        .then((r) => (r.ok ? r.json() : { expenses: [] }))
+        .then((d) => setEntries(d.expenses ?? []))
+        .catch(() => null)
+        .finally(() => setLoaded(true));
+    void load();
+    // The unified + Log sheet (in the parent) fires this after a save —
+    // the tab's list refreshes instead of waiting for a remount.
+    window.addEventListener("waqt:expense-logged", load);
+    return () => window.removeEventListener("waqt:expense-logged", load);
   }, []);
 
   const filtered = useMemo(
@@ -207,7 +210,6 @@ export default function SpendingLog() {
     setForm({ ...EMPTY, tag });
     setAdding(false);
     setEditingId(null);
-    setActiveTag(tag);
 
     const revert = () =>
       setEntries((prev) =>
@@ -274,68 +276,7 @@ export default function SpendingLog() {
   }
 
   return (
-    <div className="mt-10 border-t pt-6" style={{ borderColor: "var(--color-paper-3)" }}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: "var(--color-accent)" }}>
-          Spending log
-        </p>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => {
-              // "Close" must actually close — while a filter is active the
-              // `|| activeTag` render condition kept the chips pinned, so the
-              // button looked dead. Closing clears the filter with it.
-              if (tagsOpen || activeTag) { setTagsOpen(false); setActiveTag(null); }
-              else setTagsOpen(true);
-            }}
-            aria-expanded={tagsOpen || activeTag !== null}
-            className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 36 }}
-          >
-            Tags <ChevronDown className={`h-3 w-3 transition-transform ${tagsOpen || activeTag ? "rotate-180" : ""}`} />
-          </button>
-          {!adding && (
-            <button
-              onClick={() => { setAdding(true); setError(null); }}
-              className="flex items-center gap-1 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 36 }}
-            >
-              <Plus className="h-3.5 w-3.5" /> Log
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Tag chips — tucked away until "Tags" is opened (or a filter is
-          already set, so the active scope stays visible + clearable). */}
-      {(tagsOpen || activeTag) && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {TAGS.map((t) => {
-            const Icon = t.icon;
-            const on = activeTag === t.id;
-            const count = entries.filter((e) => e.tag === t.id).length;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setActiveTag(on ? null : t.id)}
-                aria-pressed={on}
-                className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
-                style={{
-                  borderColor: on ? "var(--color-accent)" : "var(--color-paper-3)",
-                  backgroundColor: on ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "transparent",
-                  color: on ? "var(--color-accent)" : "var(--color-ink-muted)",
-                  minHeight: 34,
-                }}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {t.label}
-                {count > 0 && <span className="tabular-nums opacity-70">{count}</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
+    <div className="mt-4">
       {/* Pattern stats — editorial figures, same language as the subs band:
           spent so far, this month, your rhythm, the year it adds up to,
           and weighted avg unit price for measured tags (gas → avg $/gal). */}
@@ -346,7 +287,7 @@ export default function SpendingLog() {
               {formatMoney(stats.spent, stats.cur)}
             </p>
             <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-              {activeTag ? `${activeTag} so far` : "spent so far"}
+              {activeTag ? `${TAGS.find((t) => t.id === activeTag)?.label ?? activeTag} so far` : "spent so far"}
             </p>
           </div>
           {stats.thisMonth > 0 && (

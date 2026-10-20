@@ -20,7 +20,8 @@ export interface Cadence {
   fellCents: number;  // magnitude of terminal drop
   slowed: boolean;    // onset rate decelerated into the end
   faded: boolean;     // RMS decayed into silence
-  score: number;      // 0..3 rubric
+  held: boolean;      // terminal note sustained — a deliberate qaflah
+  score: number;      // 0..4 rubric, partial credit per signal
 }
 
 export interface Pause { start: number; dur: number; breathy: boolean }
@@ -41,7 +42,7 @@ export interface Report {
   fixes: string[];
 }
 
-export interface AxisScore { key: string; label: string; value: number; max: number; note: string }
+export interface AxisScore { key: string; label: string; value: number; max: number; note: string; why: string }
 
 const C = (hz: number, ref: number) => 1200 * Math.log2(hz / ref); // cents vs ref
 
@@ -128,13 +129,24 @@ export function analyze(frames: PitchFrame[]): Report {
   const meanNasal = mean(v.map((f) => f.nasalRatio));
 
   // ---- axes (0-100 style subscores scaled into the /1000 model) ----
+  const cadenceMean = phrases.length ? mean(phrases.map((x) => x.cadence.score)) / 4 : 0;
+  const cleanLandings = phrases.filter((x) => x.cadence.score >= 2.5).length;
   const axes: AxisScore[] = [
     axis("tempo", "Pace", syl > 0 ? clamp(100 - Math.abs(drift) * 400, 0, 100) : 0,
-      `${syl.toFixed(1)} onsets/s · drift ${(drift * 100).toFixed(0)}%`),
+      `${syl.toFixed(1)} onsets/s · drift ${(drift * 100).toFixed(0)}%`,
+      Math.abs(drift) < 0.15
+        ? `Your speed held steady — under ~15% drift reads as one locked tempo.`
+        : `You drifted ${(drift * 100).toFixed(0)}% ${drift > 0 ? "faster" : "slower"} over the take — pick a tempo on the first word and hold it.`),
     axis("pitch", "Pitch control", clamp(100 - jitter * 1.4, 0, 100),
-      `median ${med.toFixed(0)}Hz · step jitter ${jitter.toFixed(1)}¢`),
+      `median ${med.toFixed(0)}Hz · step jitter ${jitter.toFixed(1)}¢`,
+      jitter < 40
+        ? `Steps averaged ${jitter.toFixed(0)}¢ — under ~40¢ your slides read as smooth.`
+        : `Steps averaged ${jitter.toFixed(0)}¢ between frames — the line jagged instead of gliding. Aim for slides, not stairs.`),
     axis("range", "Range use", monotone ? 35 : clamp((range[1] - range[0]) / 6, 0, 100),
-      `${Math.round(range[1] - range[0])}¢ used`),
+      `${Math.round(range[1] - range[0])}¢ used`,
+      monotone
+        ? `You stayed inside ${Math.round(range[1] - range[0])}¢ — under ~120¢ reads monotone; let phrases rise and fall across ~300¢+.`
+        : `You spanned ${Math.round(range[1] - range[0])}¢ — enough movement to carry melody without straining.`),
     axis("vibrato", "Vibrato",
       vibN ? clamp(((presentCount / vibN) * 60) + ((regCount / Math.max(1, vibN)) * 40), 0, 100) : 0,
       vibN
@@ -143,13 +155,29 @@ export function analyze(frames: PitchFrame[]): Report {
           : presentCount
             ? `light in ${presentCount}/${vibN} phrases · ~${Math.round(meanExtent)}¢ — irregular`
             : `steady-held · extent ~${Math.round(meanExtent)}¢`
-        : "no long phrases"),
-    axis("cadence", "Endings", phrases.length ? (mean(phrases.map((x) => x.cadence.score)) / 4) * 100 : 0,
-      `${phrases.filter((x) => x.cadence.score >= 3).length}/${phrases.length} clean landings`),
+        : "no long phrases",
+      !vibN
+        ? `No phrase ran long enough (>0.6s) to measure — sustained endings are where vibrato shows.`
+        : regCount
+          ? `Your sustained notes oscillated ~${Math.round(extSum / Math.max(1, regCount))}¢ at a regular rate — that's a controlled waver, what teachers mean by vibrato.`
+          : presentCount
+            ? `You wavered ~${Math.round(meanExtent)}¢ on held notes but not at a steady rate — settle the pitch for a beat, then let it pulse evenly.`
+            : `Your held notes stayed flat (~${Math.round(meanExtent)}¢ wobble) — for a warmer ending, let the last note pulse gently.`),
+    axis("cadence", "Endings", cadenceMean * 100,
+      `${cleanLandings}/${phrases.length} clean landings`,
+      cleanLandings === phrases.length && phrases.length
+        ? `Every phrase landed — fell, held, or faded.`
+        : `A landing is one of three moves at the last syllable: pitch falls, the note holds steady, or the voice fades out. ${phrases.length - cleanLandings} of ${phrases.length} phrases ended mid-air.`),
     axis("breath", "Breath", breathScore,
-      gasps ? `${gasps} mid-phrase gasp${gasps > 1 ? "s" : ""}` : longPauses ? `${longPauses} long pause${longPauses > 1 ? "s" : ""}` : "planned pauses"),
+      gasps ? `${gasps} mid-phrase gasp${gasps > 1 ? "s" : ""}` : longPauses ? `${longPauses} long pause${longPauses > 1 ? "s" : ""}` : "planned pauses",
+      gasps || longPauses
+        ? `${gasps ? `${gasps} inhale${gasps > 1 ? "s" : ""} cut a phrase short` : ""}${gasps && longPauses ? "; " : ""}${longPauses ? `${longPauses} pause${longPauses > 1 ? "s" : ""} ran over 3s` : ""} — plan the stop at the āyah end before air runs out.`
+        : `Your inhales landed at phrase boundaries — nothing flagged, which is why this reads high.`),
     axis("ghunnah", "Nasal color", clamp(meanNasal * 400, 0, 100),
-      `nasal band ${(meanNasal * 100).toFixed(0)}% mean`),
+      `nasal band ${(meanNasal * 100).toFixed(0)}% mean`,
+      meanNasal > 0.18
+        ? `Strong nasal resonance — your noon/meem hums resonate.`
+        : `Nasal band averaged ${(meanNasal * 100).toFixed(0)}% — ghunnah letters (noon/meem shaddah) should hum for two counts.`),
   ];
 
   // composite /1000 over measured axes, confidence-scaled by voiced coverage
@@ -181,8 +209,8 @@ export function analyze(frames: PitchFrame[]): Report {
 const AXIS_MAX = { tempo: 130, pitch: 140, range: 90, vibrato: 90, cadence: 150, breath: 120, ghunnah: 120 } as const;
 type AxisKey = keyof typeof AXIS_MAX;
 
-function axis(key: AxisKey, label: string, value: number, note: string): AxisScore {
-  return { key, label, value: Math.round(clamp(value, 0, 100)), max: AXIS_MAX[key], note };
+function axis(key: AxisKey, label: string, value: number, note: string, why: string): AxisScore {
+  return { key, label, value: Math.round(clamp(value, 0, 100)), max: AXIS_MAX[key], note, why };
 }
 
 function fixFor(key: string, a: AxisScore): string {
@@ -216,11 +244,18 @@ function makePhrase(start: number, end: number, frames: PitchFrame[], med: numbe
   // sustained: the terminal third holds one note (low spread) — a deliberate
   // qaflah hold reads as a clean landing even without a fade
   const tailSpread = tailC.length ? Math.max(...tailC) - Math.min(...tailC) : 0;
-  const sustained = tailSpread < 90;
+  const held = tailSpread < 90;
+  // Partial credit per signal — a beautiful ending is usually a held note
+  // that fades, or a clear fall. Requiring all three at full strength is
+  // what kept honest landings at 0.
+  const toneScore = fellCents > 120 ? 2 : fellCents > 60 ? 1.6 : fellCents > 25 ? 1
+    : tailSpread < 60 ? 1.4 : held ? 1.2 : tailSpread < 160 ? 0.6 : 0;
+  const energyScore = faded ? 1 : endRms < peakRms * 0.55 ? 0.6 : 0;
+  const paceScore = slowed ? 1 : 0;
   return {
     start, end, frames,
     meanCents: mean(cs),
-    cadence: { fell, fellCents: Math.round(fellCents), slowed, faded, score: (fell ? 1 : 0) + (slowed ? 1 : 0) + (faded ? 1 : 0) + (sustained ? 1 : 0) },
+    cadence: { fell, fellCents: Math.round(fellCents), slowed, faded, held, score: toneScore + energyScore + paceScore },
   };
 }
 

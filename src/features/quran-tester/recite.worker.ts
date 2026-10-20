@@ -200,12 +200,55 @@ self.onmessage = (e: MessageEvent) => {
         // runtime though TS-private. framesDecoded lets callers convert
         // frames→ms against the actual audio length.
         const z = session.zipformer as unknown as {
-          engine?: { buffer?: { ch: string; frame: number; margin: number }[] };
+          engine?: {
+            buffer?: { ch: string; frame: number; margin: number }[];
+            tracker?: {
+              heard?: { ch: string; frame: number; margin: number }[];
+              trail?: number[];
+              localWordOfPos?: Int32Array;
+              firstWord?: number;
+            };
+            corpus?: {
+              wordSurah?: Int32Array;
+              wordAyah?: Int32Array;
+              wordInAyah?: Int32Array;
+            };
+          };
           decoder?: { framesDecoded?: number };
         } | null;
+        // Per-word spans via the tracker trail — heard char i maps to
+        // expected position trail[i], and localWordOfPos turns a position
+        // into a word inside the locked passage. This is what powers the
+        // report's word-by-word timing (pitch + madds land on real words).
+        const tr = z?.engine?.tracker;
+        const corpus = z?.engine?.corpus;
+        const words: {
+          surah: number; ayah: number; word: number; wordIndex: number;
+          chars: { ch: string; frame: number }[];
+        }[] = [];
+        if (tr?.heard && tr.trail && tr.localWordOfPos && corpus?.wordSurah && tr.trail.length === tr.heard.length) {
+          const byWord = new Map<number, { ch: string; frame: number }[]>();
+          tr.heard.forEach((c, i) => {
+            const cell = tr.trail![i];
+            if (cell <= 0) return;
+            const w = tr.localWordOfPos![Math.min(cell, tr.localWordOfPos!.length) - 1];
+            const arr = byWord.get(w) ?? [];
+            arr.push({ ch: c.ch, frame: c.frame });
+            byWord.set(w, arr);
+          });
+          const first = tr.firstWord ?? 0;
+          for (const [local, chars] of [...byWord.entries()].sort((a, b) => a[0] - b[0])) {
+            const gi = first + local;
+            words.push({
+              surah: corpus.wordSurah[gi], ayah: corpus.wordAyah![gi], word: corpus.wordInAyah![gi],
+              wordIndex: gi, chars,
+            });
+          }
+        }
         postMessage({
           type: "heard",
           chars: z?.engine?.buffer ?? [],
+          words,
           framesDecoded: z?.decoder?.framesDecoded ?? 0,
         });
         postMessage({ type: "stopped" });

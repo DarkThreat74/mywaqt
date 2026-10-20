@@ -16,6 +16,8 @@ import { ladderRows, nextRungs, type LadderRow } from "./engine/ladder";
 import { extractContour } from "./engine/contour";
 import { compareContours, type CompareResult } from "./engine/align";
 import { SURAHS } from "@/lib/content/quran";
+import { engineInstalled } from "@/features/quran-tester/engine";
+import { warmQt } from "@/features/quran-tester/session";
 
 // Three surfaces, no header:
 //   Stats    — where you started, session-by-session, per-axis ladder
@@ -83,6 +85,8 @@ export default function ReciteCoachClient() {
   const [recT0, setRecT0] = useState(0);
   const [cmp, setCmp] = useState<CompareResult | null>(null);
   const [mismatch, setMismatch] = useState(false);
+  // the take's frame stream, kept for the report's per-word pitch views
+  const [takeFrames, setTakeFrames] = useState<PitchFrame[] | null>(null);
 
   // reference (practice)
   const [refFrames, setRefFrames] = useState<PitchFrame[] | null>(null);
@@ -133,6 +137,9 @@ export default function ReciteCoachClient() {
       .then((d) => setClips(Array.isArray(d.clips) ? d.clips : []))
       .catch(() => setClips([]));
     void listSessions().then(setSessions).catch(() => setSessions([]));
+    // Warm the phoneme engine during idle — deep grading borrows the warm
+    // worker instead of paying a fresh ~66MB model load after every take.
+    void engineInstalled().then((ok) => { if (ok) warmQt(); }).catch(() => {});
     return () => window.removeEventListener("waqt:audio-cache-changed", refreshCached);
   }, []);
 
@@ -421,6 +428,7 @@ export default function ReciteCoachClient() {
     if (!(hist.length && hist[hist.length - 1].t - hist[0].t >= 3)) return;
     const rep = analyze(hist);
     setReport(rep);
+    setTakeFrames(hist);
     setCmp(refFrames && k === "practice" ? compareContours(hist, refFrames) : null);
     setGrading(true);
     let d: DeepGrade | undefined;
@@ -549,7 +557,11 @@ export default function ReciteCoachClient() {
           {reportLabel}
         </p>
       )}
-      <ReportCard report={report} deep={deep} ladder={ladder} recT0={recT0} cmp={cmp} />
+      <ReportCard
+        report={report} deep={deep} ladder={ladder} recT0={recT0} cmp={cmp}
+        frames={takeFrames}
+        verseText={(s, a) => quran?.find((x) => x.s === s)?.verses.find((v) => v[0] === a)?.[1]}
+      />
       <div className="px-5 pb-8">
         <button
           onClick={() => { setReport(null); setMismatch(false); }}
