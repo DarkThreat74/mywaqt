@@ -149,11 +149,12 @@ export function AdminRecite() {
       });
 
       setProgress("Filtering + encoding…");
-      await fetch("/api/admin/recite-clips/process", {
+      const proc = await fetch("/api/admin/recite-clips/process", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ clipId: clip.id }),
       }).catch(() => null);
+      if (!proc?.ok) setError("Uploaded, but server processing didn't start — hit Process on the clip row.");
 
       setCaption(""); setFile(null);
       uploadedKey = null; // clip row owns the key now
@@ -220,11 +221,15 @@ export function AdminRecite() {
     try {
       if (clip.processingStatus === "processing") await post({ action: "force-reprocess", clipId: clip.id });
       if (clip.processingStatus === "failed") await post({ action: "retry-processing", clipId: clip.id });
-      await fetch("/api/admin/recite-clips/process", {
+      const proc = await fetch("/api/admin/recite-clips/process", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ clipId: clip.id }),
       });
+      if (!proc.ok) {
+        const d = await proc.json().catch(() => ({}));
+        throw new Error(d.error || `Process start failed (HTTP ${proc.status}).`);
+      }
       await load();
       pollUntilDone(clip.id);
     } catch (err) { setError(err instanceof Error ? err.message : "Reprocess failed."); }
@@ -378,6 +383,11 @@ export function AdminRecite() {
                     {(c.processingStatus === "failed" || c.canRetryProcessing) && (
                       <button onClick={() => void reprocess(c)} className="flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
                         <RefreshCw className="h-3 w-3" /> {c.processingStatus === "processing" ? "Restart" : "Retry"}
+                      </button>
+                    )}
+                    {c.processingStatus === "pending" && (
+                      <button onClick={() => void reprocess(c)} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium" style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
+                        <Play className="h-3 w-3" /> Process
                       </button>
                     )}
                     {confirmDelete === c.id ? (
