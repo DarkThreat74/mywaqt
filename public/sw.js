@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v89";
+const CACHE_VERSION = "waqt-v90";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -1141,7 +1141,8 @@ self.addEventListener("fetch", (event) => {
   // ── API GET requests (events, prayer-times, homework): stale-while-revalidate with TTL ──
   // Per-endpoint TTL prevents stale data from being served indefinitely.
   // The cachedAt timestamp is stored in a custom response header.
-  if (url.pathname.startsWith("/api/") && !(url.pathname === "/api/talks" && url.searchParams.has("stream"))) {
+  if (url.pathname.startsWith("/api/") &&
+      !((url.pathname === "/api/talks" || url.pathname === "/api/recite-clips") && url.searchParams.has("stream"))) {
     // TTL per endpoint (in ms). Prayer times change daily, events change frequently,
     // talks change rarely. Default 5 min for unknown endpoints.
     const API_TTL = (() => {
