@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   RefreshCw, Upload, Trash2, AlertCircle, CheckCircle2,
-  Loader2, FileAudio, Play, Pause, Globe, GlobeLock, Pencil,
+  Loader2, FileAudio, Play, Pause, Globe, GlobeLock, Pencil, Info,
 } from "lucide-react";
 
 interface AdminClip {
@@ -20,7 +20,26 @@ interface AdminClip {
   addedAt: string;
   publishedAt: string | null;
   canRetryProcessing: boolean;
-  analysis: { words?: unknown[]; madds?: unknown[]; passage?: { surah: number; ayah: number; ayahEnd: number } } | null;
+  analysis: ClipAnalysis | null;
+}
+
+interface ClipAnalysis {
+  located?: boolean;
+  passage?: { surah: number; ayah: number; ayahEnd: number };
+  durationSec?: number;
+  harakaMs?: number;
+  words?: {
+    surah: number; ayah: number; word: number; wordIndex: number;
+    startMs: number; endMs: number; heard: string;
+    madds: { ms: number; haraka?: number; cls: string }[];
+    ghunnahMs: number;
+  }[];
+  madds?: { ms: number; haraka?: number; cls: string }[];
+  ghunnahs?: number[];
+  saktahs?: number[];
+  pauses?: { atMs: number; ms: number }[];
+  verdicts?: { wordIndex?: number; state?: string; heardRatio?: number; gop?: number; vowelErrors?: unknown; slip?: boolean }[];
+  issues?: Record<string, unknown>[];
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }> }> = {
@@ -47,6 +66,7 @@ export function AdminRecite() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [infoId, setInfoId] = useState<string | null>(null);
   const [editFields, setEditFields] = useState({ title: "", reciter: "", passage: "", style: "" });
   const [savingEdit, setSavingEdit] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -386,6 +406,11 @@ export function AdminRecite() {
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">
+                    {c.analysis?.located && (
+                      <button onClick={() => setInfoId(infoId === c.id ? null : c.id)} className="flex h-8 w-8 items-center justify-center rounded-lg border" style={{ borderColor: "var(--color-paper-3)", color: infoId === c.id ? "var(--color-accent)" : "var(--color-ink-muted)" }} aria-label="Analysis details">
+                        <Info className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     <button onClick={() => (editingId === c.id ? setEditingId(null) : startEdit(c))} className="flex h-8 w-8 items-center justify-center rounded-lg border" style={{ borderColor: "var(--color-paper-3)", color: editingId === c.id ? "var(--color-accent)" : "var(--color-ink-muted)" }} aria-label="Edit">
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
@@ -426,6 +451,7 @@ export function AdminRecite() {
                     )}
                   </div>
                 </div>
+                {infoId === c.id && c.analysis && <AnalysisPanel a={c.analysis} />}
                 {editingId === c.id && (
                   <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -453,6 +479,81 @@ export function AdminRecite() {
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const MADD_CLS: Record<string, string> = { lazim: "lāzim", jaiz: "jāʾiz", qasr: "qaṣr" };
+
+function fmtMs(ms: number) {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
+}
+
+function AnalysisPanel({ a }: { a: ClipAnalysis }) {
+  const verdictByWord = new Map((a.verdicts ?? []).filter((v) => v.wordIndex != null).map((v) => [v.wordIndex!, v]));
+  return (
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
+      <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+        {[
+          a.passage ? `located ${a.passage.surah}:${a.passage.ayah}${a.passage.ayahEnd !== a.passage.ayah ? `-${a.passage.ayahEnd}` : ""}` : null,
+          a.durationSec ? `${a.durationSec}s` : null,
+          a.harakaMs ? `ḥaraka ≈ ${a.harakaMs}ms` : null,
+          a.words ? `${a.words.length} words` : null,
+          a.madds ? `${a.madds.length} madds` : null,
+          a.ghunnahs?.length ? `${a.ghunnahs.length} ghunnahs` : null,
+          a.saktahs?.length ? `${a.saktahs.length} saktah` : null,
+          a.pauses?.length ? `${a.pauses.length} pauses` : null,
+        ].filter(Boolean).join(" · ")}
+      </p>
+
+      {a.words && a.words.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
+          <table className="w-full text-left text-[11px]">
+            <thead>
+              <tr style={{ color: "var(--color-ink-muted)", backgroundColor: "var(--color-paper-2)" }}>
+                <th className="px-2 py-1.5 font-medium">word</th>
+                <th className="px-2 py-1.5 font-medium">heard</th>
+                <th className="px-2 py-1.5 font-medium">span</th>
+                <th className="px-2 py-1.5 font-medium">madds</th>
+                <th className="px-2 py-1.5 font-medium">ghunnah</th>
+                <th className="px-2 py-1.5 font-medium">verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              {a.words.map((w) => {
+                const v = verdictByWord.get(w.wordIndex);
+                return (
+                  <tr key={w.wordIndex} className="border-t" style={{ borderColor: "var(--color-paper-3)" }}>
+                    <td className="whitespace-nowrap px-2 py-1.5" style={{ color: "var(--color-ink-muted)" }}>{w.surah}:{w.ayah} · w{w.word + 1}</td>
+                    <td className="px-2 py-1.5 text-sm" dir="rtl" style={{ color: "var(--color-ink)" }}>{w.heard}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5" style={{ color: "var(--color-ink-muted)" }}>{fmtMs(w.startMs)}–{fmtMs(w.endMs)}</td>
+                    <td className="px-2 py-1.5">
+                      {w.madds.length ? w.madds.map((m, i) => (
+                        <span key={i} className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[10px]" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }}>
+                          {m.haraka ? `${m.haraka}ḥ ` : ""}{MADD_CLS[m.cls] ?? m.cls} {fmtMs(m.ms)}
+                        </span>
+                      )) : <span style={{ color: "var(--color-ink-muted)" }}>—</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-1.5" style={{ color: "var(--color-ink-muted)" }}>{w.ghunnahMs ? fmtMs(w.ghunnahMs) : "—"}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5" style={{ color: v ? (v.state === "ok" ? "var(--color-success)" : "var(--color-error)") : "var(--color-ink-muted)" }}>
+                      {v ? `${v.state ?? "?"}${v.gop != null ? ` ${v.gop.toFixed(2)}` : ""}` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {a.issues && a.issues.length > 0 && (
+        <div>
+          <p className="mb-1 text-[11px] font-medium" style={{ color: "var(--color-ink)" }}>issues</p>
+          <ul className="space-y-0.5 text-[11px]" style={{ color: "var(--color-error)" }}>
+            {a.issues.map((iss, i) => <li key={i}>{JSON.stringify(iss)}</li>)}
+          </ul>
         </div>
       )}
     </div>
