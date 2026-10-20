@@ -37,8 +37,7 @@ export function AdminRecite() {
   const [clips, setClips] = useState<AdminClip[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [reciter, setReciter] = useState("");
+  const [caption, setCaption] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState("");
@@ -103,16 +102,12 @@ export function AdminRecite() {
 
   function pickFile(f: File) {
     setFile(f);
-    if (!title.trim()) {
-      const base = f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
-      if (base) setTitle(base);
-    }
   }
 
   async function upload(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!title.trim() || !file) { setError("Title and audio file are required."); return; }
+    if (!file) { setError("Choose an audio file first."); return; }
     if (!/\.(mp3|m4a|aac|wav|ogg|opus|flac|wma)$/i.test(file.name)) {
       setError("Choose an audio file (mp3, m4a, aac, wav, ogg, opus, flac).");
       return;
@@ -127,7 +122,7 @@ export function AdminRecite() {
         action: "get-upload-url",
         filename: file.name,
         fileSize: file.size,
-        reciter: reciter || undefined,
+        reciter: caption || undefined,
       })) as { uploadUrl: string; storageKey: string; contentType: string };
 
       setProgress(`Uploading ${file.name}…`);
@@ -150,7 +145,7 @@ export function AdminRecite() {
       setProgress("Saving clip…");
       const clip = await post({
         action: "create-clip",
-        title, reciter: reciter || undefined, storageKey, fileSize: file.size,
+        reciter: caption || undefined, storageKey, fileSize: file.size,
       });
 
       setProgress("Filtering + encoding…");
@@ -160,7 +155,7 @@ export function AdminRecite() {
         body: JSON.stringify({ clipId: clip.id }),
       }).catch(() => null);
 
-      setTitle(""); setReciter(""); setFile(null);
+      setCaption(""); setFile(null);
       uploadedKey = null; // clip row owns the key now
       await load();
       pollUntilDone(clip.id);
@@ -265,10 +260,13 @@ export function AdminRecite() {
           <Upload className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
           <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>New reference clip</h2>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <input placeholder="Title (e.g. Al-Fātiḥah — slow murattal)" value={title} onChange={(e) => setTitle(e.target.value)} className={INPUT} style={INPUT_STYLE} />
-          <input placeholder="Reciter (e.g. Minshawi)" value={reciter} onChange={(e) => setReciter(e.target.value)} className={INPUT} style={INPUT_STYLE} />
-        </div>
+        <input
+          placeholder="Caption (e.g. by Ibby Idrees · most rhyming verse in the Quran)"
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+          className={INPUT}
+          style={INPUT_STYLE}
+        />
         <label
           className="mt-2 flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-colors hover:border-[var(--color-accent)]"
           style={{
@@ -294,7 +292,7 @@ export function AdminRecite() {
         <div className="mt-3 flex items-center gap-3">
           <button
             type="submit"
-            disabled={uploading || !title.trim() || !file}
+            disabled={uploading || !file}
             className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition-transform active:scale-95 disabled:opacity-50"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
           >
@@ -309,7 +307,7 @@ export function AdminRecite() {
           </div>
         )}
         <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-          Filtered + encoded like talks, then the passage and style are auto-detected and every field is editable — needs a publish tap to appear in the app.
+          Filtered + encoded like talks. The surah, passage and style are detected automatically and become the title — everything stays editable afterwards. Needs a publish tap to appear in the app.
         </p>
       </form>
 
@@ -397,8 +395,8 @@ export function AdminRecite() {
                 {editingId === c.id && (
                   <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <input placeholder="Title" value={editFields.title} onChange={(e) => setEditFields((f) => ({ ...f, title: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
-                      <input placeholder="Reciter" value={editFields.reciter} onChange={(e) => setEditFields((f) => ({ ...f, reciter: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
+                      <input placeholder="Title (auto-named from the detected passage)" value={editFields.title} onChange={(e) => setEditFields((f) => ({ ...f, title: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
+                      <input placeholder="Caption" value={editFields.reciter} onChange={(e) => setEditFields((f) => ({ ...f, reciter: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
                       <input placeholder="Passage (e.g. 33:35)" value={editFields.passage} onChange={(e) => setEditFields((f) => ({ ...f, passage: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
                       <input placeholder="Style (murattal / mujawwad / muʿallim)" value={editFields.style} onChange={(e) => setEditFields((f) => ({ ...f, style: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
                     </div>

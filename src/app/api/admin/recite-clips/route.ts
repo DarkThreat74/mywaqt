@@ -91,9 +91,6 @@ export async function POST(request: NextRequest) {
         title?: string; reciter?: string; passage?: string; style?: string;
         storageKey?: string; fileSize?: number; duration?: number;
       };
-      if (!title?.trim()) {
-        return NextResponse.json({ error: "Title is required." }, { status: 400 });
-      }
       if (!storageKey || !STORAGE_KEY_REGEX.test(storageKey) || !Number.isInteger(fileSize) || fileSize! <= 0 || fileSize! > MAX_AUDIO_BYTES) {
         return NextResponse.json({ error: "Invalid uploaded audio file." }, { status: 400 });
       }
@@ -101,7 +98,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid audio duration." }, { status: 400 });
       }
       const [clip] = await db.insert(schema.reciteClips).values({
-        title: title.trim().slice(0, 200),
+        // Placeholder until analysis locates the passage and names the clip.
+        title: title?.trim().slice(0, 200) || "New clip",
         reciter: reciter?.trim().slice(0, 100) || null,
         passage: passage?.trim().slice(0, 50) || null,
         style: style?.trim().slice(0, 50) || null,

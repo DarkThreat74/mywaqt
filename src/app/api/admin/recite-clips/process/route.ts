@@ -7,6 +7,7 @@ import { logError } from "@/lib/logError";
 import { downloadObjectToFile, uploadBuffer } from "@/lib/r2/client";
 import { compressAudioFile } from "@/lib/audio/process";
 import { analyzeClipAudio } from "@/lib/recite/analyze";
+import { SURAHS } from "@/lib/content/quran";
 import { isValidUUID } from "@/lib/validation";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { join } from "path";
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
 
     const [clip] = await db.select({
       id: schema.reciteClips.id,
+      title: schema.reciteClips.title,
       storageKey: schema.reciteClips.storageKey,
       passage: schema.reciteClips.passage,
       style: schema.reciteClips.style,
@@ -114,12 +116,14 @@ export async function POST(request: NextRequest) {
         // Best-effort — a clip without analysis still publishes fine.
         let analysis: Record<string, unknown> | undefined;
         let locatedPassage: string | null = null;
+        let autoTitle: string | null = null;
         let guessedStyle: string | null = null;
         try {
           const a = await analyzeClipAudio(inputPath);
           analysis = a.analysis;
           if (a.passage) {
             locatedPassage = `${a.passage.surah}:${a.passage.ayah}${a.passage.ayahEnd !== a.passage.ayah ? `-${a.passage.ayahEnd}` : ""}`;
+            autoTitle = `${SURAHS[a.passage.surah - 1]?.name ?? "Qur'an"} · ${locatedPassage}`;
           }
           guessedStyle = a.style;
         } catch (e) {
@@ -136,6 +140,8 @@ export async function POST(request: NextRequest) {
           processingError: analysis ? null : "processed without analysis",
           ...(analysis ? { analysis } : {}),
           // Only auto-fill what the admin left blank — manual fields win.
+          // Title stays "New clip" until a located passage names it; an admin-set title is kept.
+          ...(clip.title === "New clip" && autoTitle ? { title: autoTitle } : {}),
           ...(!clip.passage && locatedPassage ? { passage: locatedPassage } : {}),
           ...(!clip.style && guessedStyle ? { style: guessedStyle } : {}),
         }).where(eq(schema.reciteClips.id, clipId));
