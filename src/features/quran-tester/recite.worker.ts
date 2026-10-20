@@ -125,16 +125,21 @@ async function init(sampleRate: number) {
       // eagerly, a wrong WORD reads as "you moved", the tracker abandons
       // the passage on ~1 word of evidence, and the correction observer
       // (gated off while struggling) never flags the slip. Rebalance:
-      // holdRate raised so observation keeps running through a rough
-      // stretch, lostRate raised so it takes a genuinely sustained failure
-      // to go lost, and the relocate search needs ~2 ayahs of unheard text
-      // (80 chars) — enough that a false hit can't land on a fluke.
+      // holdRate/lostRate raised so observation keeps running through a
+      // rough stretch, and the relocate search needs ~4 ayahs of unheard
+      // text (120 chars) — a one-word slip can no longer drag the tracker
+      // onto a look-alike ayah (the mutashabihat false-jump).
       holdWindow: 22,
-      holdRate: 0.6,
-      lostRate: 0.45,
+      holdRate: 0.7,
+      lostRate: 0.55,
       relocateEveryFrames: 30,
-      relocateQueryChars: 80,
+      relocateQueryChars: 120,
     },
+    // Structural rules — the second detection layer. `stop`-timing only
+    // flags at end of audio; `pause` raises them live as segments close:
+    // skipped ayahs (ayahOrder, guarded mode) and look-alike-verse swaps
+    // (similarVerse — the mutashabihat case the word rules can't see).
+    structural: { ayahOrder: "guarded", similarVerse: true, timing: "pause" },
     debug: true,
   } as Parameters<typeof createRecognitionSession>[0]);
   // Correction mode: word-level suspects (omission / substitution / vowel /

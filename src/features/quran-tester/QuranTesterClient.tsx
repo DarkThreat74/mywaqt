@@ -92,15 +92,23 @@ export default function QuranTesterClient() {
   // whole tab session (sessionStorage survives in-app navigation, dies
   // with the tab). Confirming the spot as a mistake upgrades it to red.
   const [pin, setPin] = useState<{ s: number; a: number; w: number } | null>(null); // last-good WORD, blue underline
-  // Double-tap a word, then tap the end word — marks the whole range as a
-  // confirmed mistake (kind "manual").
-  const [selStart, setSelStart] = useState<{ s: number; a: number; w: number } | null>(null);
   const [diversions, setDiversions] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(sessionStorage.getItem("qt:diversions") ?? "[]")); }
     catch { return new Set(); }
   });
   const [pending, setPending] = useState<{ s: number; a: number; w: number; kind: string } | null>(null);
   const lastIssueKeyRef = useRef<string | null>(null); // suspect raised by the live correction
+  // While an issue sits in the engine's `retrying` phase the main tracker
+  // is frozen — if you keep reciting forward instead of re-reading, ALL
+  // detection dies silently. The defer timer releases it back to tracking
+  // after a grace window; the flag + banner stay either way.
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Per-session tallies for the end-of-session stats sheet.
+  const sessionStartRef = useRef(0);
+  const sessionFlagsRef = useRef<Set<string>>(new Set());
+  const [statsSheet, setStatsSheet] = useState<{ ayahs: number; seconds: number; flags: number } | null>(null);
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [pleased, setPleased] = useState(false); // listener's soft smile after a corrected re-read
 
   // Memorize mode: words hide until recited past or peeked. Peeks are logged
   // so weak spots are reviewable — same idea as Tarteel's Verse Peeking.
@@ -283,13 +291,10 @@ export default function QuranTesterClient() {
   // Re-resolve today's span whenever plan/coverage context shifts.
   useEffect(() => { refreshSpan(); }, [plan, ayahPages]);
 
-  // Jump toast auto-dismisses after 10s — the pin/bookmark survives
-  // (silenceJump only hides the popup, hold state stays armed).
-  useEffect(() => {
-    if (!jump) return;
-    const t = setTimeout(() => { jumpRef.current = null; setJump(null); }, 10000);
-    return () => clearTimeout(t);
-  }, [jump]);
+  // The jump toast stays until you act on it — Continue here, Go to pin,
+  // or X. Auto-dismissal was the "popup appears then disappears" report:
+  // the flag vanished while the hold stayed armed, so tracking looked
+  // dead with no visible reason. It only leaves with a real resolution.
 
   // Keep the current ayah on screen while listening — reciting down a page
   // on mobile shouldn't leave the highlight scrolled out of view.
@@ -417,7 +422,7 @@ export default function QuranTesterClient() {
     for (const [k, ord] of ix.ord) {
       if (ord > o0 && ord < o1) {
         const key = `${k}:0`;
-        if (!next.has(key)) { next.set(key, "possible_skipped_ayah"); added++; }
+        if (!next.has(key)) { next.set(key, "possible_skipped_ayah"); sessionFlagsRef.current.add(key); added++; }
       }
     }
     if (!added) return;
@@ -575,6 +580,9 @@ export default function QuranTesterClient() {
     if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
     heardRef.current = { loc: null, max: 0, total: 0 };
     sessionCovRef.current = new Set();
+    sessionFlagsRef.current = new Set();
+    sessionStartRef.current = Date.now();
+    setStatsSheet(null);
     anchorRef.current = null;
     setDayDone(isDayDone(todayKey()));
     refreshSpan();
@@ -583,6 +591,18 @@ export default function QuranTesterClient() {
     } catch (err) {
       setMicError(err instanceof Error ? err.message : "Failed to start the engine.");
     }
+  }
+
+  /** End-of-session stats — ayahs read, time spent, flags caught. Pops the
+   *  stats sheet only when something was actually heard this session. */
+  function maybeShowStats() {
+    const ayahs = sessionCovRef.current.size;
+    if (!ayahs || !sessionStartRef.current) return;
+    setStatsSheet({
+      ayahs,
+      seconds: Math.max(1, Math.round((Date.now() - sessionStartRef.current) / 1000)),
+      flags: sessionFlagsRef.current.size,
+    });
   }
 
   async function stopRecite() {
@@ -596,6 +616,7 @@ export default function QuranTesterClient() {
     await stopQt();
     setStatus(null);
     setWordIdx(null);
+    maybeShowStats();
   }
 
   function onEngineEvent(ev: Record<string, unknown>) {
@@ -611,6 +632,9 @@ export default function QuranTesterClient() {
         dismissJump();
         setPending(null);
         lastIssueKeyRef.current = null;
+        if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+        // Session ended outside stopRecite — surface the same stats sheet.
+        maybeShowStats();
       }
     } else if (ev.type === "ui-status") {
       setStatus(String(ev.message));
@@ -712,6 +736,7 @@ export default function QuranTesterClient() {
       const e = ev as { state?: { phase?: string; outcome?: string | null; issue?: { surah: number; ayah: number; word: number; kind: string } }; issue?: { surah: number; ayah: number; word: number; kind: string } };
       // A clean re-read resolved the flagged word — clear its yellow.
       if (e.state?.outcome === "corrected") {
+        if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
         const k = lastIssueKeyRef.current;
         if (k) {
           suspectsRef.current.delete(k);
@@ -722,6 +747,8 @@ export default function QuranTesterClient() {
         }
         setPending(null);
         setStatus("Corrected — nice");
+        setPleased(true);
+        setTimeout(() => setPleased(false), 3200);
         return;
       }
       const i = e.state?.issue ?? e.issue;
@@ -742,16 +769,26 @@ export default function QuranTesterClient() {
           void ayahSnippet(i.surah, i.ayah).then((t) => qtOrb("alert", t));
           setSuspects((prev) => new Map(prev).set(skey, i.kind));
         }
+        sessionFlagsRef.current.add(skey);
         if (ev.type === "correction") {
           lastIssueKeyRef.current = skey;
+          if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
           if (ayahLevel) {
             // Ayah-level flags can't be re-read word-for-word — release the
             // controller but still open the banner for confirm/dismiss.
             qtPost({ type: "correction-act", action: "continue" });
           } else {
             // Pause-for-retry: a clean re-read auto-clears; an un-acted
-            // issue freezes all further detection.
+            // issue freezes all further detection — while `retrying`, the
+            // whole tracker is paused. Give the re-read ~8s; if the flag is
+            // still open, defer it back to tracking so detection resumes.
             qtPost({ type: "correction-act", action: "retry" });
+            const key = skey;
+            retryTimerRef.current = setTimeout(() => {
+              retryTimerRef.current = null;
+              if (suspectsRef.current.has(key))
+                qtPost({ type: "correction-act", action: "review_later" });
+            }, 8000);
           }
           setPending({ s: i.surah, a: i.ayah, w: i.word ?? 0, kind: i.kind });
         }
@@ -784,26 +821,49 @@ export default function QuranTesterClient() {
     if (diversions.has(`${s}:${a}`)) setPending({ s, a, w: 0, kind: "diversion" });
   }
 
-  async function confirmMistake() {
-    if (!pending) return;
-    const m: Omit<Mistake, "id"> = { surah: pending.s, ayah: pending.a, word: pending.w, kind: pending.kind, confirmedAt: nowMs() };
+  /** Confirm/dismiss for BOTH the live banner and the verify sheet — same
+   *  action on an explicit spot instead of whatever `pending` points at. */
+  async function confirmSpot(spot: { s: number; a: number; w: number; kind: string }) {
+    const m: Omit<Mistake, "id"> = { surah: spot.s, ayah: spot.a, word: spot.w, kind: spot.kind, confirmedAt: nowMs() };
     await saveMistake(m).catch(() => {});
     const key = `${m.surah}:${m.ayah}:${m.word}`;
     setConfirmed((prev) => new Map(prev).set(key, { ...m }));
     suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
-    qtPost({ type: "correction-act", action: "continue" });
-    setPending(null);
-    checkDay(); // a resolved suspect may unblock today's checkmark
+    if (pending && pending.s === spot.s && pending.a === spot.a && pending.w === spot.w) {
+      qtPost({ type: "correction-act", action: "continue" });
+      setPending(null);
+    }
+    checkDay();
   }
 
-  async function dismissMistake() {
-    if (!pending) return;
-    const key = `${pending.s}:${pending.a}:${pending.w}`;
+  async function dismissSpot(spot: { s: number; a: number; w: number }) {
+    const key = `${spot.s}:${spot.a}:${spot.w}`;
     suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
-    qtPost({ type: "correction-act", action: "dismiss" });
-    setPending(null);
+    if (pending && pending.s === spot.s && pending.a === spot.a && pending.w === spot.w) {
+      qtPost({ type: "correction-act", action: "dismiss" });
+      setPending(null);
+    }
+    checkDay();
+  }
+
+  const confirmMistake = () => pending && void confirmSpot(pending);
+  const dismissMistake = () => pending && void dismissSpot(pending);
+
+  /** Double-tap a word = mark it a confirmed mistake (red). Double-tap a
+   *  confirmed word again = unmark. Consecutive marked words read as one
+   *  joined highlight — a word-gap in between is a separate mistake. */
+  async function markManual(s: number, a: number, w: number) {
+    const key = `${s}:${a}:${w}`;
+    const existing = confirmed.get(key);
+    if (existing) { void deleteMistake(existing); return; }
+    const kind = suspects.get(key);
+    if (kind) { void confirmSpot({ s, a, w, kind }); return; }
+    const m: Omit<Mistake, "id"> = { surah: s, ayah: a, word: w, kind: "manual", confirmedAt: nowMs() };
+    await saveMistake(m).catch(() => {});
+    setConfirmed((prev) => new Map(prev).set(key, { ...m }));
+    sessionFlagsRef.current.add(key);
     checkDay();
   }
 
@@ -881,23 +941,6 @@ export default function QuranTesterClient() {
       void saveMistake({ surah: loc.surah, ayah: loc.ayah, word: wiN, kind: "peek", confirmedAt: nowMs() }).catch(() => {});
   }
 
-  async function finishRange(wEnd: number) {
-    const st = selStart;
-    setSelStart(null);
-    if (!st) return;
-    const lo = Math.min(st.w, wEnd), hi = Math.max(st.w, wEnd);
-    const next = new Map(confirmed);
-    for (let w = lo; w <= hi; w++) {
-      const m: Omit<Mistake, "id"> = { surah: st.s, ayah: st.a, word: w, kind: "manual", confirmedAt: nowMs() };
-      void saveMistake(m).catch(() => {});
-      next.set(`${st.s}:${st.a}:${w}`, { ...m });
-      suspectsRef.current.delete(`${st.s}:${st.a}:${w}`);
-    }
-    setConfirmed(next);
-    setSuspects(new Map(suspectsRef.current));
-    checkDay();
-  }
-
   async function deleteMistake(m: Mistake) {
     if (m.id) await removeMistake(m.id).catch(() => {});
     const key = `${m.surah}:${m.ayah}:${m.word}`;
@@ -927,8 +970,6 @@ export default function QuranTesterClient() {
       return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // the pinned bookmark
     if (pin && pin.s === s && pin.a === a && w === pin.w)
       return { ...bridge, boxShadow: "inset 0 -3px 0 #3b82f6" } as const; // last word read right — blue underline
-    if (selStart && selStart.s === s && selStart.a === a && w >= selStart.w)
-      return { ...bridge, backgroundColor: "color-mix(in oklab, var(--color-accent) 22%, transparent)" } as const; // range-select preview
     if (loc && loc.surah === s && loc.ayah === a) {
       if (wordIdx === w)
         return { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } as const;
@@ -1022,14 +1063,16 @@ export default function QuranTesterClient() {
                   <span
                     key={wi}
                     data-loc={w.location}
-                    onDoubleClick={() => setSelStart({ s, a, w: wiN })}
-                    onClick={selStart
-                      ? (s === selStart.s && a === selStart.a ? () => void finishRange(wiN) : () => setSelStart(null))
-                      : isSuspect || isConfirmed ? () => onWordTap(s, a, wiN) : undefined}
+                    // Double-tap marks the word a confirmed mistake (red);
+                    // preventDefault kills the browser's select-the-word
+                    // gesture — the "Google search" bar that popped up.
+                    onDoubleClick={(e) => { e.preventDefault(); void markManual(s, a, wiN); }}
+                    onClick={isSuspect || isConfirmed ? () => onWordTap(s, a, wiN) : undefined}
+                    onContextMenu={(e) => e.preventDefault()}
                     // shrink-0: a shrunken word box lets the glyph overflow
                     // onto its neighbour — that's the text-on-end-marker
                     // overlap. Lines must fit honestly instead.
-                    className={`shrink-0 rounded px-px transition-colors duration-150${isSuspect || isConfirmed || selStart ? " cursor-pointer" : ""}`}
+                    className={`shrink-0 select-none rounded px-px transition-colors duration-150${isSuspect || isConfirmed ? " cursor-pointer" : ""}`}
                     style={{
                       ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
                       // Scale by whichever axis is tighter — vw alone left
@@ -1194,8 +1237,8 @@ export default function QuranTesterClient() {
         </div>
       )}
 
-      {/* Jump toast — full-width off-track alert, auto-dismisses in 10s;
-          in hold mode the pin survives dismissal (the bookmark stays). */}
+      {/* Jump toast — full-width off-track alert; stays until you act.
+          In hold mode X hides it but the pin survives (the bookmark). */}
       {jump && (
         <div className="fixed inset-x-3 top-16 z-40">
           <div
@@ -1310,6 +1353,7 @@ export default function QuranTesterClient() {
             wordIdx={wordIdx}
             level={level}
             alert={!!pending || (!!jump && !jump.silent)}
+            pleased={pleased}
             pages={pages}
             ayahPages={ayahPages}
             suspects={suspects}
@@ -1324,7 +1368,9 @@ export default function QuranTesterClient() {
             borderColor: "var(--color-paper-3)",
             backgroundColor: "var(--color-paper-2)",
             boxShadow: "inset 0 0 0 6px var(--color-paper-2), inset 0 0 0 7px var(--color-paper-3), inset 0 0 0 12px var(--color-paper-2)",
-          }}
+            WebkitTouchCallout: "none",
+          } as React.CSSProperties}
+          onContextMenu={(e) => e.preventDefault()}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -1383,18 +1429,6 @@ export default function QuranTesterClient() {
         />
       )}
 
-      {/* Range-select hint */}
-      {selStart && (
-        <div className="fixed inset-x-0 top-16 z-40 flex justify-center px-4">
-          <div
-            className="rounded-full border px-4 py-2 text-xs font-semibold shadow-lg"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", animation: "drawer-app-in 0.18s ease-out" }}
-          >
-            Tap the last word of the mistake — or tap elsewhere to cancel
-          </div>
-        </div>
-      )}
-
       {pending && (
         <div
           className="qt-confirm-bar fixed inset-x-0 z-40 flex justify-center px-4"
@@ -1425,6 +1459,146 @@ export default function QuranTesterClient() {
                 <X className="h-4 w-4" /> Not a mistake
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* End-of-session stats — what you read, how long, flags caught.
+          "Review flags" opens the verify sheet underneath it. */}
+      {statsSheet && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 45%, transparent)" }}
+          onClick={() => setStatsSheet(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-t-3xl border p-6 sm:rounded-3xl"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--color-accent)" }}>
+              Session
+            </p>
+            <div className="mt-3 flex items-baseline gap-8">
+              <div>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums" style={{ color: "var(--color-ink)" }}>
+                  {statsSheet.ayahs}
+                </p>
+                <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  ayah{statsSheet.ayahs === 1 ? "" : "s"} read
+                </p>
+              </div>
+              <div>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums" style={{ color: "var(--color-ink)" }}>
+                  {statsSheet.seconds >= 60 ? `${Math.floor(statsSheet.seconds / 60)}m ${statsSheet.seconds % 60}s` : `${statsSheet.seconds}s`}
+                </p>
+                <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  reciting
+                </p>
+              </div>
+              <div>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums" style={{ color: statsSheet.flags ? "#c9a227" : "var(--color-ink)" }}>
+                  {statsSheet.flags}
+                </p>
+                <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                  flag{statsSheet.flags === 1 ? "" : "s"} caught
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex gap-2">
+              {statsSheet.flags > 0 ? (
+                <button
+                  onClick={() => { setStatsSheet(null); setVerifyOpen(true); }}
+                  className="flex-1 rounded-full px-4 py-2.5 text-sm font-bold transition-opacity hover:opacity-80"
+                  style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                >
+                  Review flags
+                </button>
+              ) : null}
+              <button
+                onClick={() => setStatsSheet(null)}
+                className={`rounded-full px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-80 ${statsSheet.flags ? "border" : "flex-1"}`}
+                style={statsSheet.flags ? { borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" } : { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Verify sheet — every open flag this session, grouped into single
+          mistakes where marked words sit adjacent. Confirm = red, dismiss
+          = gone; either way the flag resolves. */}
+      {verifyOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 45%, transparent)" }}
+          onClick={() => setVerifyOpen(false)}
+        >
+          <div
+            className="max-h-[70dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border p-5"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
+            <h2 className="text-base font-bold" style={{ color: "var(--color-ink)" }}>Verify flags</h2>
+            <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              Adjacent flagged words show as one mistake. Confirm what was really wrong — the rest dismisses.
+            </p>
+            {suspects.size === 0 ? (
+              <p className="mt-6 text-center text-sm" style={{ color: "var(--color-ink-muted)" }}>
+                All clear — nothing left to verify.
+              </p>
+            ) : (
+              <div className="mt-3">
+                {[...suspects.entries()].map(([key, kind]) => {
+                  const [s, a, w] = key.split(":").map(Number);
+                  return (
+                    <div
+                      key={key}
+                      className="flex items-center gap-3 border-b py-2.5 last:border-b-0"
+                      style={{ borderColor: "var(--color-paper-3)" }}
+                    >
+                      <button
+                        onClick={() => { goToAyah(s, a); setVerifyOpen(false); }}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                          {s}:{a}{w > 0 ? ` · word ${w}` : ""}
+                        </p>
+                        <p className="text-[11px]" style={{ color: "#c9a227" }}>{issueLabel(kind)}</p>
+                      </button>
+                      <button
+                        onClick={() => void confirmSpot({ s, a, w, kind })}
+                        className="flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition-opacity hover:opacity-80"
+                        style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
+                        aria-label={`Confirm mistake at ${s}:${a} word ${w}`}
+                      >
+                        <Check className="h-3 w-3" /> Confirm
+                      </button>
+                      <button
+                        onClick={() => void dismissSpot({ s, a, w })}
+                        className="rounded-full p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                        style={{ color: "var(--color-ink-muted)" }}
+                        aria-label={`Dismiss flag at ${s}:${a} word ${w}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {suspects.size > 0 && (
+              <button
+                onClick={() => { for (const [key, kind] of [...suspects.entries()]) { const [s, a, w] = key.split(":").map(Number); void confirmSpot({ s, a, w, kind }); } }}
+                className="mt-4 w-full rounded-full border px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-80"
+                style={{ borderColor: "#b34a3a", color: "#b34a3a" }}
+              >
+                Confirm all
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -2050,12 +2224,13 @@ function PlanSheet({
 // and beneath it the ayah before/now/after — the current one stays centered
 // and auto-scrolls as you move through the text.
 function ListenerView({
-  loc, wordIdx, level, alert, pages, ayahPages, suspects, pin, surahName, listening,
+  loc, wordIdx, level, alert, pleased, pages, ayahPages, suspects, pin, surahName, listening,
 }: {
   loc: { surah: number; ayah: number } | null;
   wordIdx: number | null;
   level: number;
   alert: boolean;
+  pleased: boolean;
   pages: Map<number, MushafPage>;
   ayahPages: AyahPages | null;
   suspects: Map<string, string>;
@@ -2104,14 +2279,14 @@ function ListenerView({
       }}
     >
       {/* The listener — a face that breathes while it hears you and burns
-          red on a flag. Aura size tracks the live mic level. */}
-      <div className="relative mx-auto mt-6 flex h-24 w-24 shrink-0 items-center justify-center">
+          red on a flag. Aura stays tight so it never covers the ayah. */}
+      <div className="relative mx-auto mt-6 flex h-20 w-20 shrink-0 items-center justify-center">
         <span
           aria-hidden
           className="absolute inset-0 rounded-full"
           style={{
-            backgroundColor: `color-mix(in oklab, ${aura} ${alert ? 34 : 14 + Math.round(level * 26)}%, transparent)`,
-            transform: `scale(${listening ? 1.12 + level * 0.35 : 1.02})`,
+            backgroundColor: `color-mix(in oklab, ${aura} ${alert ? 30 : 10 + Math.round(level * 14)}%, transparent)`,
+            transform: `scale(${listening ? 1.03 + level * 0.11 : 1})`,
             transition: "transform 0.25s ease-out, background-color 0.3s",
             animation: alert ? "qt-listener-pulse 0.7s ease-in-out infinite alternate" : undefined,
           }}
@@ -2125,32 +2300,66 @@ function ListenerView({
             transition: "border-color 0.3s",
           }}
         >
-          {/* eyes */}
-          <span className="flex gap-3.5">
+          {/* brows — angled inward on a flag (angry), arched soft when pleased */}
+          <span className="absolute top-[19px] flex w-[30px] justify-between">
             <span
-              className="block h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: alert ? "#b34a3a" : "var(--color-ink)", transform: alert ? "scaleY(0.5)" : "none", transition: "transform 0.2s, background-color 0.3s" }}
+              className="block h-[2px] w-2.5 rounded-full"
+              style={{
+                backgroundColor: alert ? "#b34a3a" : "var(--color-ink-muted)",
+                transform: alert ? "rotate(16deg)" : pleased ? "rotate(-8deg) translateY(-1px)" : "none",
+                opacity: alert || pleased ? 1 : 0.55,
+                transition: "transform 0.2s, background-color 0.3s, opacity 0.3s",
+              }}
             />
             <span
-              className="block h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: alert ? "#b34a3a" : "var(--color-ink)", transform: alert ? "scaleY(0.5)" : "none", transition: "transform 0.2s, background-color 0.3s" }}
+              className="block h-[2px] w-2.5 rounded-full"
+              style={{
+                backgroundColor: alert ? "#b34a3a" : "var(--color-ink-muted)",
+                transform: alert ? "rotate(-16deg)" : pleased ? "rotate(8deg) translateY(-1px)" : "none",
+                opacity: alert || pleased ? 1 : 0.55,
+                transition: "transform 0.2s, background-color 0.3s, opacity 0.3s",
+              }}
             />
           </span>
-          {/* mouth — opens with mic level */}
-          <span
-            className="absolute bottom-4 block rounded-full"
-            style={{
-              width: 12,
-              height: alert ? 1.5 : Math.max(1.5, level * 9),
-              backgroundColor: alert ? "#b34a3a" : "var(--color-ink-muted)",
-              transition: "height 0.15s ease-out, background-color 0.3s",
-            }}
-          />
+          {/* eyes — blink on a slow cycle; narrow on a flag; sleepy when off */}
+          <span className="flex gap-3.5">
+            {[0, 1].map((i) => (
+              <span
+                key={i}
+                className="block h-1.5 w-1.5 rounded-full"
+                style={{
+                  backgroundColor: alert ? "#b34a3a" : "var(--color-ink)",
+                  transform: alert ? "scaleY(0.45)" : !listening ? "scaleY(0.5)" : "none",
+                  animation: listening && !alert ? "qt-listener-blink 4.6s ease-in-out infinite" : "none",
+                  animationDelay: `${i * 0.04}s`,
+                  transition: "transform 0.2s, background-color 0.3s",
+                }}
+              />
+            ))}
+          </span>
+          {/* mouth — opens with mic level, flat when flagged, a soft smile
+              for a beat after a corrected re-read, a thin line at rest */}
+          {pleased ? (
+            <span
+              className="absolute bottom-4 block h-2.5 w-3.5 rounded-b-full border-b-2"
+              style={{ borderColor: "var(--color-accent)", transition: "border-color 0.3s" }}
+            />
+          ) : (
+            <span
+              className="absolute bottom-4 block rounded-full"
+              style={{
+                width: 12,
+                height: alert ? 1.5 : Math.max(1.5, level * 9),
+                backgroundColor: alert ? "#b34a3a" : "var(--color-ink-muted)",
+                transition: "height 0.15s ease-out, background-color 0.3s",
+              }}
+            />
+          )}
         </span>
       </div>
 
-      <p className="mt-2 shrink-0 text-center text-[10px] font-semibold" style={{ color: alert ? "#b34a3a" : "var(--color-ink-muted)" }}>
-        {!listening ? "The listener is off — start the mic" : alert ? "Something flagged — check the notice" : loc ? `Listening — ${surahName(loc.surah)} ${loc.surah}:${loc.ayah}` : "Listening — recite anything"}
+      <p className="mt-2 shrink-0 text-center text-[10px] font-semibold" style={{ color: alert ? "#b34a3a" : pleased ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+        {!listening ? "The listener is off — start the mic" : alert ? "Something flagged — check the notice" : pleased ? "Nice — corrected" : loc ? `Listening — ${surahName(loc.surah)} ${loc.surah}:${loc.ayah}` : "Listening — recite anything"}
       </p>
 
       {/* Ayah strip — prev dimmed, current centered + marked, next dimmed.
@@ -2219,8 +2428,12 @@ function ListenerView({
           75% { transform: translateX(-1.5px) rotate(-1.4deg); }
         }
         @keyframes qt-listener-pulse {
-          from { transform: scale(1.05); opacity: 0.7; }
-          to { transform: scale(1.3); opacity: 1; }
+          from { transform: scale(1.02); opacity: 0.7; }
+          to { transform: scale(1.14); opacity: 1; }
+        }
+        @keyframes qt-listener-blink {
+          0%, 46%, 50%, 100% { transform: scaleY(1); }
+          48% { transform: scaleY(0.08); }
         }
       `}</style>
     </div>
