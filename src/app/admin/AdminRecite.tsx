@@ -42,6 +42,8 @@ export function AdminRecite() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState("");
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -99,6 +101,14 @@ export function AdminRecite() {
     await post({ action: "delete-upload", storageKey }).catch(() => null);
   }
 
+  function pickFile(f: File) {
+    setFile(f);
+    if (!title.trim()) {
+      const base = f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+      if (base) setTitle(base);
+    }
+  }
+
   async function upload(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -113,16 +123,28 @@ export function AdminRecite() {
     let uploadedKey: string | null = null;
     try {
       setProgress("Getting upload URL…");
-      const { uploadUrl, storageKey } = await post({
+      const { uploadUrl, storageKey, contentType } = (await post({
         action: "get-upload-url",
         filename: file.name,
         fileSize: file.size,
         reciter: reciter || undefined,
-      });
+      })) as { uploadUrl: string; storageKey: string; contentType: string };
 
       setProgress(`Uploading ${file.name}…`);
-      const up = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "audio/mpeg" }, body: file });
-      if (!up.ok) { setError(`Upload failed (HTTP ${up.status}).`); return; }
+      setUploadPct(0);
+      // XHR (not fetch) so upload progress events fire.
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Type", contentType || "application/octet-stream");
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setUploadPct(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed (HTTP ${xhr.status}).`)));
+        xhr.onerror = () => reject(new Error("Upload failed — the browser couldn't reach storage (check connection/ad-blocker)."));
+        xhr.send(file);
+      });
+      setUploadPct(null);
       uploadedKey = storageKey;
 
       setProgress("Saving clip…");
@@ -148,6 +170,7 @@ export function AdminRecite() {
     } finally {
       setUploading(false);
       setProgress("");
+      setUploadPct(null);
     }
   }
 
@@ -248,11 +271,25 @@ export function AdminRecite() {
         </div>
         <label
           className="mt-2 flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-colors hover:border-[var(--color-accent)]"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 40 }}
+          style={{
+            borderColor: dragOver ? "var(--color-accent)" : "var(--color-paper-3)",
+            borderStyle: dragOver ? "solid" : "dashed",
+            color: "var(--color-ink-soft)",
+            minHeight: 40,
+            backgroundColor: dragOver ? "var(--color-paper-2)" : undefined,
+          }}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const f = e.dataTransfer.files?.[0];
+            if (f) pickFile(f);
+          }}
         >
           <FileAudio className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
-          {file ? <span style={{ color: "var(--color-ink)" }}>{file.name} ({(file.size / 1024 / 1024).toFixed(1)} MB)</span> : <span>Choose an audio file — mp3, m4a, wav, opus… (≤40 MB)</span>}
-          <input type="file" accept="audio/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} disabled={uploading} />
+          {file ? <span style={{ color: "var(--color-ink)" }}>{file.name} ({(file.size / 1024 / 1024).toFixed(1)} MB)</span> : <span>Drop an audio file or click to choose — mp3, m4a, wav, opus… (≤40 MB)</span>}
+          <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) pickFile(f); }} disabled={uploading} />
         </label>
         <div className="mt-3 flex items-center gap-3">
           <button
@@ -266,6 +303,11 @@ export function AdminRecite() {
           </button>
           {progress && <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{progress}</span>}
         </div>
+        {uploadPct !== null && (
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+            <div className="h-full rounded-full transition-all" style={{ width: `${uploadPct}%`, backgroundColor: "var(--color-accent)" }} />
+          </div>
+        )}
         <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
           Filtered + encoded like talks, then the passage and style are auto-detected and every field is editable — needs a publish tap to appear in the app.
         </p>

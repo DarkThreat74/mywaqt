@@ -68,8 +68,9 @@ export async function POST(request: NextRequest) {
         wav: "audio/wav", ogg: "audio/ogg", opus: "audio/ogg",
         flac: "audio/flac", wma: "audio/x-ms-wma",
       };
-      const uploadUrl = await getUploadUrl(storageKey, contentTypeMap[ext || ""] || "audio/mpeg");
-      return NextResponse.json({ uploadUrl, storageKey, fileSize: fileSize || null });
+      const contentType = contentTypeMap[ext || ""] || "audio/mpeg";
+      const uploadUrl = await getUploadUrl(storageKey, contentType);
+      return NextResponse.json({ uploadUrl, storageKey, contentType, fileSize: fileSize || null });
     }
 
     if (action === "delete-upload") {
