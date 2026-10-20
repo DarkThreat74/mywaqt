@@ -54,6 +54,36 @@ function drainMicChunks(): Float32Array | null {
 // background listening can't die silently.
 let deferTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Worker liveness + heap hygiene.
+// - `beat`: the worker posts every 5s. A wedged WASM decode emits no events
+//   AND no onerror (the thread is stuck, not crashed) — without the beat a
+//   dead engine is indistinguishable from quiet recitation.
+// - WASM heaps grow but never shrink (microsoft/onnxruntime#21673); the
+//   official workaround is terminating the worker. We retire it a few
+//   seconds after each real take and pre-warm a fresh one, so peak heap
+//   can't accumulate across a long evening of sessions.
+let lastMsgAt = 0;
+let stallTimer: ReturnType<typeof setInterval> | null = null;
+let lastRecycleAt = 0;
+let recycleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function recycleWorker(reason: "stall" | "post-session") {
+  const w = worker;
+  worker = null;
+  engineReady = false;
+  lastMsgAt = Date.now();
+  lastRecycleAt = Date.now();
+  try { w?.terminate(); } catch {}
+  if (listen === "idle") {
+    warmQt(); // pre-load the replacement during idle
+  } else {
+    ensureWorker()?.postMessage({ type: "init", sampleRate: workerRate || 16000 });
+    if (reason === "stall") {
+      emit({ type: "ui-status", message: "Engine stalled — restarting…" });
+    }
+  }
+}
+
 /**
  * Borrow the warm engine for a batch decode (recite-coach deep grade).
  * A fresh worker pays the ~66MB model load every take (~5s) — the warmed
@@ -278,12 +308,13 @@ export function warmQt() {
   }
 }
 
-function ensureWorker() {
-  if (worker) return;
+function ensureWorker(): Worker | null {
+  if (worker) return worker;
     // A dedicated worker's CSP comes from its script response's headers —
     // stale cached/edge entries are re-stamped by the SW (_next/static branch).
     worker = new Worker(new URL("./recite.worker.ts", import.meta.url));
     worker.onmessage = (e) => {
+      lastMsgAt = Date.now();
       const ev = e.data as QtEvent;
       if (ev.type === "ready") {
         engineReady = true;
@@ -368,6 +399,17 @@ function ensureWorker() {
       void stopQt(); // releases the mic tracks too
       e.preventDefault();
     };
+    // Stall watchdog — one interval for the worker's lifetime. Only fires
+    // while actively listening (idle/paused states are allowed to be quiet),
+    // and at most one recycle per minute so a pathological model can't
+    // thrash restart loops.
+    stallTimer ??= setInterval(() => {
+      if (!worker || listen !== "listening" || borrowed) return;
+      if (!lastMsgAt || Date.now() - lastMsgAt < 25000) return;
+      if (Date.now() - lastRecycleAt < 60000) return;
+      recycleWorker("stall");
+    }, 10000);
+    return worker;
 }
 
 export async function startQt(): Promise<void> {
@@ -558,6 +600,7 @@ if (typeof document !== "undefined") {
 }
 
 export async function stopQt(): Promise<void> {
+  const wasActive = listen !== "idle";
   disarmKeepAlive();
   // Flush the batched-but-unsent tail (up to ~100ms — the end of the last
   // word) BEFORE stop, else the last syllable is never judged.
@@ -577,6 +620,15 @@ export async function stopQt(): Promise<void> {
   }
   listen = "idle";
   emit({ type: "ui-listen", state: "idle" });
+  // Retire the worker after a real take — the 3s delay lets the posted
+  // 'stop' drain the decode tail; skipped if the user starts again first.
+  if (wasActive && worker && !borrowed) {
+    if (recycleTimer) clearTimeout(recycleTimer);
+    recycleTimer = setTimeout(() => {
+      recycleTimer = null;
+      if (worker && !borrowed && listen === "idle") recycleWorker("post-session");
+    }, 3000);
+  }
 }
 
 /**

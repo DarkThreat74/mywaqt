@@ -20,6 +20,14 @@ let session: RecognitionSession | null = null;
 let sourceRate = 48000;
 let queue: Promise<void> = Promise.resolve();
 
+// Liveness heartbeat — a wedged WASM decode produces no events AND no
+// onerror (the thread is stuck, not crashed), so the page can't distinguish
+// "quiet recitation" from "dead engine" without a beat. 5s cadence lets the
+// page detect a stall in ~25s instead of never.
+setInterval(() => {
+  try { postMessage({ type: "beat" }); } catch {}
+}, 5000);
+
 // Audio goes through a dedicated pump, but pump calls are themselves queued —
 // a control message (stop/reset/reanchor/expect) can no longer interleave with
 // an in-flight feed and decode stale audio into a reset tracker. The pump
@@ -110,11 +118,12 @@ async function init(sampleRate: number) {
     cached("/qt/corpus.json"),
   ]);
 
-  // Threaded WASM needs cross-origin isolation (SharedArrayBuffer). The page
-  // opts in via scoped COOP/COEP on /quran-tester — when those headers are
-  // absent (or an embedder can't offer them) it silently stays single-thread.
+  // Threaded WASM needs cross-origin isolation. The page opts in via scoped
+  // COOP/COEP on /quran-tester — `crossOriginIsolated` is the canonical
+  // signal (SAB presence alone can lag the header check on some browsers);
+  // absent headers degrade silently to single-thread, never a hard failure.
   ort.env.wasm.numThreads =
-    typeof SharedArrayBuffer !== "undefined"
+    self.crossOriginIsolated === true && typeof SharedArrayBuffer !== "undefined"
       ? Math.min(4, navigator.hardwareConcurrency || 4)
       : 1;
   ort.env.wasm.wasmPaths = "/qt/";

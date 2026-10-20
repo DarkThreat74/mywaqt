@@ -87,6 +87,10 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
+          // Satisfies COEP: require-corp for every same-origin subresource
+          // (mushaf fonts via FontFace are no-cors loads — without this the
+          // scoped isolation on /quran-tester would break glyph loading).
+          { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(self)" },
