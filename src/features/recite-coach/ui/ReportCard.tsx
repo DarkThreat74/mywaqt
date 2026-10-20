@@ -20,6 +20,13 @@ const KIND_LABEL: Record<string, string> = {
 
 const STAGE_TICKS = [160, 320, 480, 640, 800];
 
+function noteOf(hz: number): string {
+  if (hz <= 0) return "—";
+  const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  const midi = Math.round(69 + 12 * Math.log2(hz / 440));
+  return `${names[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
+}
+
 function stageOf(score: number) {
   return score >= 800 ? "Muqrin-adjacent" : score >= 640 ? "Mubdiʿ" : score >= 480 ? "Mujawwid"
     : score >= 320 ? "Mutamakkin" : score >= 160 ? "Muntasil" : "Ṭālib";
@@ -142,6 +149,38 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp }: { repor
                     </span>
                   );
                 })}
+              </div>
+            </div>
+          )}
+          {/* word-for-word verdicts — every word the tracker graded */}
+          {deep.wordVerdicts.length > 0 && (
+            <div className="mb-2 rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="mb-2 text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
+                Word for word · {deep.wordVerdicts.filter((w) => !w.slip && !(w.vowelErrors?.length)).length}/{deep.wordVerdicts.length} clean
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {deep.wordVerdicts.slice(0, 60).map((w, i) => {
+                  const bad = w.slip || (w.vowelErrors?.length ?? 0) > 0 || (w.state && w.state !== "heard" && w.state !== "ok");
+                  const loc = w.surah && w.ayah ? `${w.surah}:${w.ayah}` : "";
+                  return (
+                    <span
+                      key={i}
+                      className="rounded px-1.5 py-0.5 text-[10px] tabular-nums"
+                      style={{
+                        backgroundColor: bad ? "#f8717122" : "var(--color-paper-3)",
+                        color: bad ? "#f87171" : "var(--color-ink-muted)",
+                      }}
+                      title={`${loc}${w.word ? ` w${w.word}` : ""}${w.state ? ` · ${w.state}` : ""}${w.gop != null ? ` · gop ${w.gop.toFixed(2)}` : ""}${w.vowelErrors?.length ? ` · ${w.vowelErrors.length} vowel err` : ""}`}
+                    >
+                      w{w.wordIndex + 1}{bad ? " ⚑" : ""}
+                    </span>
+                  );
+                })}
+                {deep.wordVerdicts.length > 60 && (
+                  <span className="px-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    +{deep.wordVerdicts.length - 60}
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -288,6 +327,10 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp }: { repor
           [`${report.phrases.length}`, "phrases"],
           [`${report.pauses.length}`, "pauses"],
           [`${report.pitch.medianHz.toFixed(0)} Hz`, "median pitch"],
+          [
+            `${noteOf(report.pitch.medianHz * Math.pow(2, report.pitch.rangeCents[0] / 1200))}–${noteOf(report.pitch.medianHz * Math.pow(2, report.pitch.rangeCents[1] / 1200))}`,
+            "pitch reached",
+          ],
         ].map(([v, l]) => (
           <div key={l} className="rounded-lg border px-2 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
             <p className="text-sm font-medium tabular-nums" style={{ color: "var(--color-ink)" }}>{v}</p>

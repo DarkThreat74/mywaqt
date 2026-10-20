@@ -73,22 +73,38 @@ export default function ContourCanvas({ getFrames, active, reference }: { getFra
       const now = frames[frames.length - 1].t;
       const x0 = w - 8;
 
-      // trail
+      // trail — voiced frames only, but short unvoiced gaps (<~250ms, the
+      // saktah/faṣl breath gaps) bridge straight across so the melody reads
+      // as one line instead of stuttering. Longer gaps stay a real break.
       ctx.beginPath();
       ctx.lineWidth = 2;
       ctx.strokeStyle = "rgba(74,222,128,0.85)";
       let started = false;
       let lx = 0, ly = 0;
+      let gapStartT = -1;
+      let lastVoiced: { x: number; y: number } | null = null;
       for (let i = frames.length - 1; i >= 0; i--) {
         const f = frames[i];
         const dt = (now - f.t) * 1000;
         if (dt > TRAIL_MS) break;
         const x = x0 - (dt / TRAIL_MS) * (w - 8);
-        const y = yOf(f.hz || 0, h);
-        if (!f.voiced) { started = false; continue; }
-        if (!started) { ctx.moveTo(x, y); started = true; }
-        else if (x - lx > 0.5 || Math.abs(y - ly) > 1.5) ctx.lineTo(x, y); // skip sub-pixel dupes
+        if (!f.voiced) {
+          if (gapStartT < 0) gapStartT = f.t;
+          continue;
+        }
+        const y = yOf(f.hz, h);
+        if (lastVoiced && gapStartT >= 0 && lastVoiced.x - x > 0) {
+          const gapMs = (gapStartT - f.t) * 1000;
+          if (gapMs < 250) { ctx.lineTo(lastVoiced.x, lastVoiced.y); ctx.lineTo(x, y); }
+          else ctx.moveTo(x, y);
+        } else if (!started) {
+          ctx.moveTo(x, y); started = true;
+        } else if (x - lx > 0.5 || Math.abs(y - ly) > 1.5) {
+          ctx.lineTo(x, y);
+        }
+        gapStartT = -1;
         lx = x; ly = y;
+        lastVoiced = { x, y };
       }
       ctx.stroke();
 

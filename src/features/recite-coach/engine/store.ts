@@ -5,6 +5,8 @@
 
 export interface SessionRow {
   ts: number;
+  /** what was recited — "33:35", clip title, or free read */
+  label?: string;
   score: number;
   durationSec: number;
   axes: Record<string, number>;

@@ -25,8 +25,22 @@ export interface SpanMeasure {
   haraka?: number;
 }
 
+export interface WordVerdict {
+  wordIndex: number;
+  surah?: number;
+  ayah?: number;
+  word?: number;
+  /** "heard" | "partial" | "unheard" | "mismatch" — engine verdict state */
+  state?: string;
+  gop?: number;
+  vowelErrors?: unknown[];
+  slip?: boolean;
+}
+
 export interface DeepGrade {
   issues: DeepIssue[];
+  /** per-word grading — the word-for-word breakdown */
+  wordVerdicts: WordVerdict[];
   /** ayahs the tracker matched — where the recitation was */
   verses: string[];
   wordsHeard: number;
@@ -91,6 +105,7 @@ export async function gradeAudio(
 
   const worker = new Worker(new URL("../../quran-tester/recite.worker.ts", import.meta.url));
   const issues: DeepIssue[] = [];
+  const wordVerdicts: WordVerdict[] = [];
   const verses: string[] = [];
   let wordsHeard = 0;
   let heard: { ch: string; frame: number; margin: number }[] = [];
@@ -121,6 +136,15 @@ export async function gradeAudio(
         } else if (m.type === "verse_match" && m.surah) {
           const v = `${m.surah}:${m.ayah}`;
           if (!verses.includes(v)) verses.push(v);
+        } else if (m.type === "verdicts" && Array.isArray(m.changes)) {
+          for (const c of m.changes) {
+            wordVerdicts.push({
+              wordIndex: c.wordIndex ?? 0,
+              surah: c.surah, ayah: c.ayah, word: c.word,
+              state: c.state, gop: c.gop,
+              vowelErrors: c.vowelErrors, slip: c.slip,
+            });
+          }
         } else if (m.type === "word_progress") {
           wordsHeard = Math.max(wordsHeard, (m.matched_indices?.length ?? 0));
         } else if (m.type === "heard") {
@@ -171,5 +195,5 @@ export async function gradeAudio(
   // heard one — the report matches long pauses to these positions.
   const saktahs = heard.filter((c) => c.ch.includes("ۜ")).map((c) => c.frame * msPerFrame);
 
-  return { issues, verses, wordsHeard, madds, ghunnahs, saktahs, msPerFrame };
+  return { issues, wordVerdicts, verses, wordsHeard, madds, ghunnahs, saktahs, msPerFrame };
 }

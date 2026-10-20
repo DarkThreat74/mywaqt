@@ -58,7 +58,7 @@ export function analyze(frames: PitchFrame[]): Report {
   for (const f of frames) {
     if (f.voiced) {
       if (gapStart >= 0 && f.t - gapStart >= 0.4)
-        pauses.push({ start: gapStart, dur: f.t - gapStart, breathy: breathy(frames.filter((x) => !x.voiced), frames, gapStart, f.t) });
+        pauses.push({ start: gapStart, dur: f.t - gapStart, breathy: breathy(frames, gapStart, f.t) });
       gapStart = -1;
       if (runStart < 0) runStart = f.t;
       run.push(f);
@@ -95,8 +95,10 @@ export function analyze(frames: PitchFrame[]): Report {
   const jitter = mean(jit);
   const monotone = range[1] - range[0] < 120; // < ~1.2 semitone band used = flat
 
-  // ---- vibrato: for phrases >600ms, detrended F0 oscillation ----
-  let regCount = 0, extSum = 0, vibN = 0;
+  // ---- vibrato: for phrases >600ms, detrended F0 oscillation. Present
+  // (any measurable oscillation) and regular (4–8Hz, 25–160¢) are tracked
+  // separately so a subtle waver still shows a number, not "none detected".
+  let regCount = 0, extSum = 0, vibN = 0, presentCount = 0;
   const vibs: VibratoStat[] = [];
   for (const ph of phrases) {
     if (ph.end - ph.start < 0.6) continue;
@@ -104,12 +106,22 @@ export function analyze(frames: PitchFrame[]): Report {
     vibs.push(vs);
     vibN++;
     if (vs.regular) { regCount++; extSum += vs.extentCents; }
+    if (vs.rate >= 2 && vs.rate <= 11 && vs.extentCents >= 8) presentCount++;
   }
+  const meanExtent = vibN ? mean(vibs.map((x) => x.extentCents)) : 0;
 
-  // ---- breath: short unvoiced gaps with energy spike = gasp ----
+  // ---- breath: two measurable signals. Inhalation surfaces as a ZCR spike
+  // inside the gap (fricative air = broadband noise) — RMS alone can't see it
+  // when the noise floor is near zero, which is why the old check always
+  // scored 100. Placement: pauses at phrase ends are planned; very long
+  // pauses and frequent mid-phrase stops cost points. ----
   const gasps = pauses.filter((p) => p.breathy && p.dur < 0.8).length;
   const breathyPauses = pauses.filter((p) => p.breathy).length;
   const plannedRatio = pauses.length ? pauses.filter((p) => !p.breathy).length / pauses.length : 1;
+  const longPauses = pauses.filter((p) => p.dur > 3).length;
+  // pause density: pauses per voiced phrase — more than ~1 per phrase = choppy
+  const pauseDensity = phrases.length ? pauses.length / phrases.length : 0;
+  const breathScore = clamp(plannedRatio * 100 - gasps * 12 - longPauses * 8 - Math.max(0, pauseDensity - 1.2) * 15, 0, 100);
 
   // ---- ghunnah proxy: share of voiced time with high nasal-band ratio ----
   const nasalShare = v.length ? v.filter((f) => f.nasalRatio > 0.12).length / v.length : 0;
@@ -123,12 +135,19 @@ export function analyze(frames: PitchFrame[]): Report {
       `median ${med.toFixed(0)}Hz · step jitter ${jitter.toFixed(1)}¢`),
     axis("range", "Range use", monotone ? 35 : clamp((range[1] - range[0]) / 6, 0, 100),
       `${Math.round(range[1] - range[0])}¢ used`),
-    axis("vibrato", "Vibrato", vibN ? (regCount / vibN) * 100 : 0,
-      regCount ? `regular in ${regCount}/${vibN} phrases · ~${Math.round(extSum / Math.max(1, regCount))}¢` : "none detected"),
-    axis("cadence", "Endings", phrases.length ? (mean(phrases.map((x) => x.cadence.score)) / 3) * 100 : 0,
-      `${phrases.filter((x) => x.cadence.score === 3).length}/${phrases.length} clean landings`),
-    axis("breath", "Breath", clamp(plannedRatio * 100 - gasps * 12, 0, 100),
-      gasps ? `${gasps} mid-phrase gasp${gasps > 1 ? "s" : ""}` : "planned pauses"),
+    axis("vibrato", "Vibrato",
+      vibN ? clamp(((presentCount / vibN) * 60) + ((regCount / Math.max(1, vibN)) * 40), 0, 100) : 0,
+      vibN
+        ? regCount
+          ? `regular in ${regCount}/${vibN} phrases · ~${Math.round(extSum / Math.max(1, regCount))}¢`
+          : presentCount
+            ? `light in ${presentCount}/${vibN} phrases · ~${Math.round(meanExtent)}¢ — irregular`
+            : `steady-held · extent ~${Math.round(meanExtent)}¢`
+        : "no long phrases"),
+    axis("cadence", "Endings", phrases.length ? (mean(phrases.map((x) => x.cadence.score)) / 4) * 100 : 0,
+      `${phrases.filter((x) => x.cadence.score >= 3).length}/${phrases.length} clean landings`),
+    axis("breath", "Breath", breathScore,
+      gasps ? `${gasps} mid-phrase gasp${gasps > 1 ? "s" : ""}` : longPauses ? `${longPauses} long pause${longPauses > 1 ? "s" : ""}` : "planned pauses"),
     axis("ghunnah", "Nasal color", clamp(meanNasal * 400, 0, 100),
       `nasal band ${(meanNasal * 100).toFixed(0)}% mean`),
   ];
@@ -194,10 +213,14 @@ function makePhrase(start: number, end: number, frames: PitchFrame[], med: numbe
   const slowed = onFirst > 0 && onLast / onFirst < 0.75;
   const fell = fellCents > 60;
   const faded = endRms < peakRms * 0.35;
+  // sustained: the terminal third holds one note (low spread) — a deliberate
+  // qaflah hold reads as a clean landing even without a fade
+  const tailSpread = tailC.length ? Math.max(...tailC) - Math.min(...tailC) : 0;
+  const sustained = tailSpread < 90;
   return {
     start, end, frames,
     meanCents: mean(cs),
-    cadence: { fell, fellCents: Math.round(fellCents), slowed, faded, score: (fell ? 1 : 0) + (slowed ? 1 : 0) + (faded ? 1 : 0) },
+    cadence: { fell, fellCents: Math.round(fellCents), slowed, faded, score: (fell ? 1 : 0) + (slowed ? 1 : 0) + (faded ? 1 : 0) + (sustained ? 1 : 0) },
   };
 }
 
@@ -215,13 +238,21 @@ function vibratoOf(frames: PitchFrame[], med: number): VibratoStat {
   return { phrase: 0, rate, extentCents: extent, regular };
 }
 
-function breathy(unvoiced: PitchFrame[], frames: PitchFrame[], gapStart: number, gapEnd: number): boolean {
+// Inhale inside a silence gap. Two probes because rooms differ:
+//   1. RMS spike — works when the gap floor isn't fully zero
+//   2. ZCR spike — fricative air is broadband; catches inhales even when the
+//      silence floor sits at ~0 (the case that always scored 100 before)
+function breathy(frames: PitchFrame[], gapStart: number, gapEnd: number): boolean {
   const gap = frames.filter((f) => f.t >= gapStart && f.t <= gapEnd);
+  if (!gap.length) return false;
   const peak = Math.max(...gap.map((f) => f.rms), 0);
-  // floor is the SILENCE level (unvoiced frames), not session mean — speech
-  // RMS would swamp any inhale and the test could never fire.
+  const unvoiced = frames.filter((f) => !f.voiced);
   const floor = median(unvoiced.map((f) => f.rms)) || 0;
-  return peak > floor * 3; // energy spike inside a silence = inhale/gasp
+  if (floor > 0 && peak > floor * 3) return true;
+  const zFloor = median(unvoiced.map((f) => f.zcr)) || 0;
+  const zPeak = Math.max(...gap.map((f) => f.zcr), 0);
+  // zcr of 0 across the session means the worklet didn't report it — no probe
+  return zFloor > 0 && zPeak > zFloor * 1.8 && peak > floor * 1.5;
 }
 
 // Syllable onsets across the full stream: a voiced-run start, or an RMS crest
