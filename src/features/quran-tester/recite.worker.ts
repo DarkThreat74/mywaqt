@@ -150,8 +150,18 @@ async function init(sampleRate: number) {
       holdWindow: 22,
       holdRate: 0.7,
       lostRate: 0.55,
-      relocateEveryFrames: 30,
+      relocateEveryFrames: 40,
       relocateQueryChars: 120,
+      // A wrong word must be decisively worse than staying: demand the remote
+      // hit beat local cost by 0.25 (was 0.12 — a moderate stumble could pass).
+      relocateRateMargin: 0.25,
+      // Silent-slide guard: DP restart edges used to reach ANY word in the
+      // surah for a flat 12 — a mispronounced word could teleport the cursor
+      // onto a mutashabih and the mistake scored "ok" against the wrong ayah.
+      // Restarts now pay 2/word of distance and cap at 10 words; farther moves
+      // must go through lost -> relocate (which emits an event the UI shows).
+      jumpPerWord: 2,
+      maxJumpWords: 10,
     },
     // Structural rules — the second detection layer. `stop`-timing only
     // flags at end of audio; `pause` raises them live as segments close:
@@ -168,11 +178,20 @@ async function init(sampleRate: number) {
   // substitutions need a clearly different word, vowel slips need a confident
   // decoder read. Tighter than this (0.15/0.9) made real slips never surface.
   if (session.zipformer) Object.assign(session.zipformer.correction.thresholds, {
-    omissionMaxHeard: 0.5,
+    // 0.5 meant a word heard half-way (only the onset clipped) could never flag
+    // as an omission — 0.75 restores partial-word omission detection.
+    omissionMaxHeard: 0.75,
     // 0.7 only fired on a completely different word — real learner slips
     // (1–2 phonemes off in a 3–6 token word) sit at 0.2–0.5 and could never
     // flag. 0.45 still requires a clearly different word.
     substitutionDistance: 0.45,
+    // Neighbour anchors demanded margin >= 0.55 — almost never met on learner
+    // audio, so the aligner rules were dead before they ran. 0.4 = the word
+    // decoded clearly enough to trust as an anchor.
+    clearMargin: 0.4,
+    // Same story for the word's own margin: decoder confidence >= 0.35 that it
+    // heard a real word (not mush), down from the unreachable default 0.5.
+    subMargin: 0.35,
     vowelMargin: 0.08,
     // 0.85 token margin is unreachable on learner audio — vowel slips were
     // a dead channel. 0.6 keeps the confidence requirement meaningful.

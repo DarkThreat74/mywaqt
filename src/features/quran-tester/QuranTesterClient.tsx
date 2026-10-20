@@ -721,7 +721,9 @@ export default function QuranTesterClient() {
       if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
       setStatus("Lost you — keep going, or tap the page to re-anchor");
     } else if (ev.type === "verse_match" || ev.type === "relocated" || ev.type === "verse_candidate") {
-      const c = (ev.candidates as { surah: number; ayah: number }[] | undefined)?.[0] ?? ev;
+      // `relocated` carries {from,to:{surah,ayah,word}} — no candidates.
+      const c = (ev.candidates as { surah: number; ayah: number }[] | undefined)?.[0]
+        ?? (ev.to as { surah: number; ayah: number } | undefined) ?? ev;
       const s = c.surah as number, a = c.ayah as number;
       if (typeof s !== "number" || typeof a !== "number") return;
       // Hold mode with an open jump: the tracker keeps wandering while you
@@ -766,10 +768,22 @@ export default function QuranTesterClient() {
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {
       // While validating: surface what the engine decoded so a silent
       // session is visible instead of just spinning.
+      if (ev.event === "lost") preambleGraceRef.current = Date.now();
       const t = String(ev.text ?? ev.event ?? ev.message ?? "");
       if (t) setStatus(t.slice(0, 80));
     } else if (ev.type === "word_progress") {
       const s = ev.surah as number, a = ev.ayah as number;
+      const prev = locLiveRef.current;
+      // Silent DP-slide guard: legit ayah crossings land on word 0–1 of the
+      // NEXT ayah. Landing mid-ayah in a different ayah (or leaping >1 ayah)
+      // without a `relocated` event means the tracker slid onto a look-alike —
+      // don't chase it; route it through the jump classifier instead.
+      if (prev && s === prev.s && (a - prev.a > 1 || (a !== prev.a && (ev.word_index as number) > 1))) {
+        locLiveRef.current = { s, a };
+        noteHeard(s, a, (ev.word_index as number) + 1, ev.total_words as number);
+        classifyJump({ s, a });
+        return;
+      }
       locLiveRef.current = { s, a };
       // Hold mode with an open jump: the engine keeps decoding wherever you
       // wandered to, but the tracker must NOT chase it — the pin marks the

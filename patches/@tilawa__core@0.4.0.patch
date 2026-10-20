@@ -1,6 +1,8 @@
+diff --git a/dist/recitation/correction.js b/dist/recitation/correction.js
+index a7301ef..c622cc4 100644
 --- a/dist/recitation/correction.js
 +++ b/dist/recitation/correction.js
-@@ -5,10 +5,10 @@
+@@ -5,17 +5,17 @@ export const AYAH_ISSUE_KINDS = new Set(['possible_skipped_ayah', 'unclear_ayah'
  export const DEFAULT_CORRECTION_THRESHOLDS = {
      vowelMargin: 0.05, vowelWordMargin: 0.8, omissionMaxHeard: 1, gopFlag: -Infinity, gopAnchor: -1, settle: true,
      repetitionGain: 5, gopOnWrong: true, gopOnSkipped: false, gopOmission: false, gopSubstitution: true,
@@ -13,7 +15,34 @@
  const withDefaults = (th) => ({ ...DEFAULT_CORRECTION_THRESHOLDS, ...th });
  // Margins are differences of token probabilities, not calibrated word confidence.
  // Only gross mismatches surrounded by clear aligned words are actionable. These
-@@ -71,11 +71,16 @@
+ // are possible word errors, never pronunciation/tajweed grades.
+-function clearWord(v) {
++function clearWord(v, minMargin = 0.55) {
+     return !!v && v.state === 'ok' && Number.isFinite(v.distance) && v.distance <= 0.15
+-        && Number.isFinite(v.margin) && v.margin >= 0.55
++        && Number.isFinite(v.margin) && v.margin >= minMargin
+         && Number.isFinite(v.heardRatio) && v.heardRatio >= 0.75 && v.heardRatio <= 1.3;
+ }
+ const hasGop = (v) => !!v && v.state !== 'pending' && typeof v.gop === 'number' && Number.isFinite(v.gop);
+@@ -30,7 +30,7 @@ function gopIssue(v, before, after, th) {
+         return null;
+     if (!((v.state === 'wrong' && th.gopOnWrong) || (v.state === 'skipped' && th.gopOnSkipped)))
+         return null;
+-    const anchored = (n) => clearWord(n) || (hasGop(n) && n.gop >= th.gopAnchor && n.state !== 'skipped');
++    const anchored = (n) => clearWord(n, th.clearMargin ?? 0.55) || (hasGop(n) && n.gop >= th.gopAnchor && n.state !== 'skipped');
+     if (!anchored(before) || !anchored(after))
+         return null;
+     if (th.gopLocalMin && ((hasGop(before) && before.gop < v.gop) || (hasGop(after) && after.gop < v.gop)))
+@@ -61,7 +61,7 @@ function slipIssue(v, _before, _after, th) {
+  * also repeats vetoes the flag. */
+ function repetitionIssue(v, before, after, th) {
+     const repeats = (n) => typeof n.repGain === 'number' && n.repGain >= th.repetitionGain;
+-    return hasGop(v) && v.gop >= th.gopAnchor && repeats(v) && clearWord(before) && !repeats(before) && !repeats(after);
++    return hasGop(v) && v.gop >= th.gopAnchor && repeats(v) && clearWord(before, th.clearMargin ?? 0.55) && !repeats(before) && !repeats(after);
+ }
+ export function possibleWordIssues(verdicts, thresholds = DEFAULT_CORRECTION_THRESHOLDS) {
+     return ruledWordIssues(verdicts, withDefaults(thresholds)).map(r => r.issue);
+@@ -71,22 +71,27 @@ function ruledWordIssues(verdicts, th) {
      return verdicts.flatMap((v) => {
          const before = byIndex.get(v.wordIndex - 1);
          const after = byIndex.get(v.wordIndex + 1);
@@ -33,7 +62,11 @@
          const gopKind = gopIssue(v, before, after, th);
          const rep = !gopKind && th.repetitionMode !== 'off' && repetitionIssue(v, before, after, th);
          const extra = gopKind ? at(gopKind, 'gop') : rep ? at('possible_repetition', 'repetition') : [];
-@@ -86,7 +91,7 @@
+         const slip = !gopKind && !rep ? slipIssue(v, before, after, th) : null;
+-        if (!clearWord(before) || !clearWord(after))
++        if (!clearWord(before, th.clearMargin ?? 0.55) || !clearWord(after, th.clearMargin ?? 0.55))
+             return slip ? at(slip, 'slip') : extra;
+         // A partly heard word (the aligner lent it a few chars of its neighbours,
          // or the reciter said only its onset) is still an omission.
          const omission = v.state === 'skipped' && (v.heardRatio === 0 || v.heardRatio <= th.omissionMaxHeard);
          const substitution = v.state === 'wrong' && Number.isFinite(v.distance) && v.distance >= th.substitutionDistance
@@ -42,7 +75,16 @@
              && v.heardRatio >= 0.5 && v.heardRatio <= 1.5;
          // Harakah error: consonant skeleton matches (distance within `ok`), but at
          // least one aligned short vowel differs and the decoder was sure about it.
-@@ -145,7 +150,7 @@
+@@ -136,7 +141,7 @@ export class CorrectionController {
+             const prefix = verdicts.filter(v => v.surah === issue.surah && v.ayah === issue.ayah && v.word <= through);
+             // A retry that repeats a confident vowel error, or says a word twice
+             // again, is not a correction.
+-            const good = Array.from({ length: through + 1 }, (_, word) => prefix.find(v => v.word === word)).every(v => clearWord(v)
++            const good = Array.from({ length: through + 1 }, (_, word) => prefix.find(v => v.word === word)).every(v => clearWord(v, th.clearMargin ?? 0.55)
+                 && ((v.vowelErrors ?? 0) === 0 || v.vowelMargin < th.vowelMargin)
+                 && !((v.repGain ?? -Infinity) >= th.repetitionGain));
+             if (!good) {
+@@ -145,7 +150,7 @@ export class CorrectionController {
              }
              if (this.retryFrame === null || frame < this.retryFrame)
                  this.retryFrame = frame;
@@ -51,9 +93,75 @@
                  return false;
              this.state = { ...this.state, phase: 'corrected', outcome: 'corrected' };
              return true;
+@@ -159,14 +164,19 @@ export class CorrectionController {
+         }
+         const issues = ruledWordIssues(verdicts, th).filter(r => !this.suppressed.has(r.issue.wordIndex));
+         const live = new Set(issues.map(r => r.issue.wordIndex));
+-        for (const key of this.candidates.keys())
+-            if (!live.has(key))
++        // A single fluttering frame does not evict a candidate — verdicts jitter
++        // word to word on real audio, so allow one miss before resetting the clock.
++        for (const [key, cand] of this.candidates) {
++            if (live.has(key))
++                cand.miss = 0;
++            else if ((cand.miss = (cand.miss ?? 0) + 1) > (th.persistGrace ?? 1))
+                 this.candidates.delete(key);
++        }
+         for (const { issue, rule } of issues) {
+             const old = this.candidates.get(issue.wordIndex);
+             const persist = rule === 'gop' ? th.gopPersistFrames : PERSIST_FRAMES;
+             if (!old || old.kind !== issue.kind || frame < old.frame) {
+-                this.candidates.set(issue.wordIndex, { kind: issue.kind, frame });
++                this.candidates.set(issue.wordIndex, { kind: issue.kind, frame, miss: 0 });
+             }
+             else if (frame - old.frame >= persist) {
+                 if (this.queueNote(issue, rule, th))
+@@ -206,7 +216,11 @@ export class CorrectionController {
+         if (this.mode !== 'correction' || this.state.phase !== 'idle' || !th.settle)
+             return false;
+         const ruled = ruledWordIssues(verdicts, th)
+-            .filter(r => !this.suppressed.has(r.issue.wordIndex) && !seen.has(r.issue.wordIndex)
++            .filter(r => !this.suppressed.has(r.issue.wordIndex)
++            // A word still carrying a live persistence candidate must be
++            // re-judged at settle even if observe() already saw it settled —
++            // otherwise flags die whenever the tracker drops mid-countdown.
++            && (!seen.has(r.issue.wordIndex) || this.candidates.has(r.issue.wordIndex))
+             && (r.issue.kind !== 'possible_vowel' || r.rule === 'slip')
+             && (th.settleGop || r.rule !== 'gop'))
+             .sort((a, b) => a.issue.wordIndex - b.issue.wordIndex);
+diff --git a/dist/recitation/engine.js b/dist/recitation/engine.js
+index 0a41219..64c451b 100644
+--- a/dist/recitation/engine.js
++++ b/dist/recitation/engine.js
+@@ -293,7 +293,9 @@ export class RecitationEngine {
+         if (hit &&
+             rate !== null &&
+             rate >= this.cfg.lostRate &&
+-            hit.surah !== this.tracker.surah &&
++            // Same-surah hits are allowed now — a mutashabih jump inside one
++            // surah is a real move; only an identical landing is not.
++            (hit.surah !== this.tracker.surah || hit.ayah !== this.corpus.wordAyah[this.tracker.cursorWordIndex]) &&
+             hit.distance <= this.cfg.relocateMaxDistance &&
+             hit.distance + this.cfg.relocateRateMargin <= rate &&
+             agrees) {
+diff --git a/dist/recitation/session.d.ts b/dist/recitation/session.d.ts
+index 24b499d..6d4790b 100644
+--- a/dist/recitation/session.d.ts
++++ b/dist/recitation/session.d.ts
+@@ -230,6 +230,8 @@ export declare class ZipformerSession {
+     private correctionMessage;
+     /** Alias of {@link stop} — end of audio, flush the tail, emit the sequence. */
+     flush(): Promise<WorkerOutbound[]>;
++    /** Move the tracker to an explicit position (re-anchor after a rejected relocation). */
++    track(surah: number, ayah: number, word?: number): void;
+     stop(): Promise<WorkerOutbound[]>;
+     private finish;
+     private makeEngine;
+diff --git a/dist/recitation/session.js b/dist/recitation/session.js
+index 3d7030c..fe7d200 100644
 --- a/dist/recitation/session.js
 +++ b/dist/recitation/session.js
-@@ -33,7 +33,7 @@
+@@ -33,7 +33,7 @@ const TAIL_SECONDS = 2.0;
  /** Mean heard ratio over an unmatched ayah's words at or above which the gap
   * counts as heard-but-unfollowed (`unclear_ayah`) rather than skipped. */
  export const AYAH_HEARD_FRACTION = 0.5;
@@ -62,7 +170,7 @@
  /** I/O manifest of the default `zipformer_a0w_ep1_a05.int8.onnx` (its encoder-frame
   * output is optional, so the same manifest drives `zipformer_interp_gentle_a05.int8.onnx`). */
  export const DEFAULT_ZIPFORMER_IO = DEFAULT_IO;
-@@ -340,6 +340,14 @@
+@@ -340,6 +340,14 @@ export class ZipformerSession {
              out.push(...this.raiseStructural());
          return this.dispatch(out);
      }
@@ -77,7 +185,7 @@
      correctionMessage() {
          const issue = this.correction.state.issue;
          return { type: 'correction', state: { ...this.correction.state },
-@@ -540,7 +548,7 @@
+@@ -540,7 +548,7 @@ export class ZipformerSession {
                  if (raised)
                      out.push(this.correctionMessage());
              }
@@ -86,7 +194,7 @@
                  this.correction.clearEvidence();
              return out;
          }
-@@ -565,10 +573,13 @@
+@@ -565,10 +573,13 @@ export class ZipformerSession {
              else
                  out.push(...this.checkSkippedAyah(false));
          }
@@ -101,37 +209,53 @@
          if (this.structuralRules)
              out.push(...this.structuralTick(false));
          if (tokens.length) {
-@@ -734,7 +745,8 @@
+@@ -734,12 +745,17 @@ export class ZipformerSession {
              case "lost": {
                  // Transient: the tracker keeps its place. Losing and recovering inside
                  // one surah is exactly the unclear-ayah case, so the match chain stays.
 -                this.correction.clearEvidence();
 +                // Evidence is frozen, not wiped — a real slip in the rough stretch
 +                // that caused `lost` must still complete its persistence frames.
++                out.push({ type: "lost" });
                  break;
              }
              case "relocated": {
---- a/dist/recitation/session.d.ts
-+++ b/dist/recitation/session.d.ts
-@@ -230,6 +230,8 @@
-     private correctionMessage;
-     /** Alias of {@link stop} — end of audio, flush the tail, emit the sequence. */
-     flush(): Promise<WorkerOutbound[]>;
-+    /** Move the tracker to an explicit position (re-anchor after a rejected relocation). */
-+    track(surah: number, ayah: number, word?: number): void;
-     stop(): Promise<WorkerOutbound[]>;
-     private finish;
-     private makeEngine;
---- a/dist/recitation/engine.js
-+++ b/dist/recitation/engine.js
-@@ -293,7 +293,9 @@
-         if (hit &&
-             rate !== null &&
-             rate >= this.cfg.lostRate &&
--            hit.surah !== this.tracker.surah &&
-+            // Same-surah hits are allowed now — a mutashabih jump inside one
-+            // surah is a real move; only an identical landing is not.
-+            (hit.surah !== this.tracker.surah || hit.ayah !== this.corpus.wordAyah[this.tracker.cursorWordIndex]) &&
-             hit.distance <= this.cfg.relocateMaxDistance &&
-             hit.distance + this.cfg.relocateRateMargin <= rate &&
-             agrees) {
+                 this.correction.clearEvidence();
+                 this.lastMatch = null;
++                // Forward the move — hosts need from/to to decide whether to
++                // follow the jump or re-anchor to a pinned position.
++                out.push({ type: "relocated", from: ev.from, to: ev.to });
+                 break;
+             }
+             case "located": {
+diff --git a/dist/recitation/tracker.js b/dist/recitation/tracker.js
+index 5c554eb..7456eb8 100644
+--- a/dist/recitation/tracker.js
++++ b/dist/recitation/tracker.js
+@@ -165,9 +165,25 @@ export class Tracker {
+             if (del < next[m])
+                 next[m] = del;
+         }
++        const cursorW = Math.max(0, this.cursorLocalWord);
++        const maxJump = this.cfg.maxJumpWords ?? Infinity;
++        const perWord = this.cfg.jumpPerWord ?? 0;
+         for (let i = 0; i < this.wordStarts.length; i++) {
+             const m = this.wordStarts[i];
+-            const restart = m <= cursorPos && this.ayahAtStart[i] === cursorAyah ? repeat : jump + this.jumpExtra[i];
++            let restart;
++            if (m <= cursorPos && this.ayahAtStart[i] === cursorAyah) {
++                restart = repeat;
++            }
++            else {
++                // A word-level slip must NOT teleport the cursor to a look-alike
++                // word far away in the surah: jump cost now scales with distance
++                // and is capped outright beyond maxJumpWords, so far moves have
++                // to go through lost -> maybeRelocate (which emits an event).
++                const dist = Math.abs(i - cursorW);
++                if (dist > maxJump)
++                    continue;
++                restart = jump + this.jumpExtra[i] + perWord * dist;
++            }
+             if (restart < next[m]) {
+                 next[m] = restart;
+                 for (let j = m + 1; j <= this.len && next[j - 1] + 1 < next[j]; j++) {
