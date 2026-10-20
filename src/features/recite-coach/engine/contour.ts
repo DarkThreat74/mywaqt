@@ -6,7 +6,7 @@ import type { PitchFrame } from "../live/pitch";
 
 const N = 2048;
 
-export function extractContour(pcm: Float32Array, sr: number): PitchFrame[] {
+export async function extractContour(pcm: Float32Array, sr: number): Promise<PitchFrame[]> {
   const frames: PitchFrame[] = [];
   const hop = Math.floor(sr / 93); // ~10.7ms hop, matches the worklet
   const tauMin = Math.floor(sr / 1000);
@@ -15,8 +15,14 @@ export function extractContour(pcm: Float32Array, sr: number): PitchFrame[] {
   const m = new Float32Array(tauMax + 1);
   let runStart = -1;
   const med: number[] = [];
+  let sinceYield = 0;
 
   for (let off = 0; off + N <= pcm.length; off += hop) {
+    // Yield every ~2s of audio — a long clip must not freeze the tab.
+    if (++sinceYield >= 186) {
+      sinceYield = 0;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
     const t = off / sr;
     let e = 0;
     for (let i = 0; i < N; i++) e += pcm[off + i] * pcm[off + i];

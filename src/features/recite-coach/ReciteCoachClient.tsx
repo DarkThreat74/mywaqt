@@ -164,7 +164,7 @@ export default function ReciteCoachClient() {
       try {
         row.id = await saveRef(row);
         setRefs((rs) => [row, ...rs]);
-        setRefFromPcm(row.pcm, row.sr, row.name);
+        void setRefFromPcm(row.pcm, row.sr, row.name);
         setTab("practice");
       } catch { /* storage best-effort */ }
       return;
@@ -192,18 +192,34 @@ export default function ReciteCoachClient() {
     }
   }
 
-  function setRefFromPcm(pcm: Float32Array, sr: number, name: string) {
+  // Pitch analysis needs 16kHz mono — anything higher triples the work and
+  // buys nothing for a 60–600Hz voice range. Playback keeps the original.
+  function downmix16k(pcm: Float32Array, sr: number) {
+    if (sr <= 16000) return pcm;
+    const ratio = sr / 16000;
+    const out = new Float32Array(Math.floor(pcm.length / ratio));
+    for (let i = 0; i < out.length; i++) {
+      const s = Math.floor(i * ratio);
+      // tiny boxcar — kills aliasing, ~free
+      let sum = 0, n = 0;
+      for (let j = s; j < Math.min(s + Math.ceil(ratio), pcm.length); j++) { sum += pcm[j]; n++; }
+      out[i] = sum / n;
+    }
+    return out;
+  }
+
+  async function setRefFromPcm(pcm: Float32Array, sr: number, name: string) {
     const ctx = playCtxRef.current ?? (playCtxRef.current = new AudioContext());
     const buf = ctx.createBuffer(1, pcm.length, sr);
     buf.copyToChannel(pcm as Float32Array<ArrayBuffer>, 0);
     setRefBuf(buf);
-    setRefFrames(extractContour(pcm, sr));
+    setRefFrames(await extractContour(downmix16k(pcm, sr), Math.min(sr, 16000)));
     setRefName(name);
     setRefExpected(null);
     setCmp(null);
   }
 
-  function setRefFromBuffer(buf: AudioBuffer, name: string) {
+  async function setRefFromBuffer(buf: AudioBuffer, name: string) {
     const ch0 = buf.getChannelData(0);
     // mono mixdown: start from channel 0, fold the rest in at 1/n — the
     // previous version initialized zeros and skipped ch0 entirely
@@ -213,14 +229,14 @@ export default function ReciteCoachClient() {
       for (let i = 0; i < d.length; i++) mono[i] += d[i] / buf.numberOfChannels;
     }
     setRefBuf(buf);
-    setRefFrames(extractContour(mono, buf.sampleRate));
+    setRefFrames(await extractContour(downmix16k(mono, buf.sampleRate), Math.min(buf.sampleRate, 16000)));
     setRefName(name);
     setRefExpected(null);
     setCmp(null);
   }
 
   function selectRef(row: RefRow) {
-    setRefFromPcm(row.pcm, row.sr, row.name);
+    void setRefFromPcm(row.pcm, row.sr, row.name);
   }
 
   function clipUrl(c: ServerClip) {
@@ -239,7 +255,7 @@ export default function ReciteCoachClient() {
       if (!res.ok) throw new Error();
       const ctx = playCtxRef.current ?? (playCtxRef.current = new AudioContext());
       const buf = await ctx.decodeAudioData(await res.arrayBuffer());
-      setRefFromBuffer(buf, `${c.reciter ? c.reciter + " — " : ""}${c.title}`);
+      await setRefFromBuffer(buf, `${c.reciter ? c.reciter + " — " : ""}${c.title}`);
       if (c.analysis?.passage?.surah && c.analysis.passage.ayah) {
         setRefExpected({
           surah: c.analysis.passage.surah,
@@ -290,7 +306,7 @@ export default function ReciteCoachClient() {
     try {
       const ctx = playCtxRef.current ?? (playCtxRef.current = new AudioContext());
       const buf = await ctx.decodeAudioData(await file.arrayBuffer());
-      setRefFromBuffer(buf, file.name);
+      await setRefFromBuffer(buf, file.name);
     } catch {
       setErr("Couldn't decode that audio file.");
     }
