@@ -47,19 +47,30 @@ let divLooks: Map<string, { m: [number, number]; regions: number[][] }[]> | null
 let divCorpus: { wordSurah: Int32Array; wordAyah: Int32Array; wordInAyah: Int32Array } | null = null;
 const mutaSeen = new Set<string>();
 
-function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: number; wordIndex?: number; changes?: { state?: string; wordIndex?: number }[] }) {
+function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: number; wordIndex?: number; changes?: { state?: string; wordIndex?: number; lookalike?: { surah: number; ayah: number } }[] }) {
   if (!divLooks || !divCorpus) return;
   if (ev.type === "cursor" && ev.wordIndex != null) {
     flagDiv(ev.surah!, ev.ayah!, ev.word!, "approach");
   } else if (ev.type === "verdicts" && Array.isArray(ev.changes)) {
     for (const v of ev.changes) {
       if (v.state !== "wrong" && v.state !== "unsure" || v.wordIndex == null) continue;
-      flagDiv(
-        divCorpus.wordSurah[v.wordIndex],
-        divCorpus.wordAyah[v.wordIndex],
-        divCorpus.wordInAyah[v.wordIndex],
-        "diverge",
-      );
+      // Judge-level dual-score already named the alternative — ding it
+      // directly (covers insert/delete regions the position scan can't).
+      const look = (v as { lookalike?: { surah: number; ayah: number } }).lookalike;
+      const s = divCorpus.wordSurah[v.wordIndex];
+      const a = divCorpus.wordAyah[v.wordIndex];
+      const w = divCorpus.wordInAyah[v.wordIndex];
+      if (look) {
+        const key = `x:${s}:${a}:${w}:${look.surah}:${look.ayah}`;
+        if (!mutaSeen.has(key)) {
+          mutaSeen.add(key);
+          postMessage({
+            type: "muta_diverge", surah: s, ayah: a, word: w + 1,
+            altSurah: look.surah, altAyah: look.ayah, certain: true,
+          });
+        }
+      }
+      flagDiv(s, a, w, "diverge");
     }
   }
 }
