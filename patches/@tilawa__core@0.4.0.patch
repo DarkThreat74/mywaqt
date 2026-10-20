@@ -1,8 +1,6 @@
-diff --git a/dist/recitation/correction.js b/dist/recitation/correction.js
-index a7301ef1e1808b17266cd4579ce67a545df80f93..527aa16b6a9185b7fbfe3aaddf51b7d72ebe7f6d 100644
 --- a/dist/recitation/correction.js
 +++ b/dist/recitation/correction.js
-@@ -5,10 +5,10 @@ export const AYAH_ISSUE_KINDS = new Set(['possible_skipped_ayah', 'unclear_ayah'
+@@ -5,10 +5,10 @@
  export const DEFAULT_CORRECTION_THRESHOLDS = {
      vowelMargin: 0.05, vowelWordMargin: 0.8, omissionMaxHeard: 1, gopFlag: -Infinity, gopAnchor: -1, settle: true,
      repetitionGain: 5, gopOnWrong: true, gopOnSkipped: false, gopOmission: false, gopSubstitution: true,
@@ -15,7 +13,36 @@ index a7301ef1e1808b17266cd4579ce67a545df80f93..527aa16b6a9185b7fbfe3aaddf51b7d7
  const withDefaults = (th) => ({ ...DEFAULT_CORRECTION_THRESHOLDS, ...th });
  // Margins are differences of token probabilities, not calibrated word confidence.
  // Only gross mismatches surrounded by clear aligned words are actionable. These
-@@ -145,7 +145,7 @@ export class CorrectionController {
+@@ -71,11 +71,16 @@
+     return verdicts.flatMap((v) => {
+         const before = byIndex.get(v.wordIndex - 1);
+         const after = byIndex.get(v.wordIndex + 1);
++        const at = (kind, rule) => [{ issue: { surah: v.surah, ayah: v.ayah, word: v.word, wordIndex: v.wordIndex, kind }, rule }];
+         // Do not infer leading/trailing omissions, uncertain audio, or skipped ayahs.
++        // First/last word of an ayah has no same-ayah neighbour on one side:
++        // the aligner rules need both anchors, but the acoustic slip head and
++        // GOP margin can still judge a boundary word on its own.
+         if (!before || !after || before.surah !== v.surah || after.surah !== v.surah
+-            || before.ayah !== v.ayah || after.ayah !== v.ayah)
+-            return [];
+-        const at = (kind, rule) => [{ issue: { surah: v.surah, ayah: v.ayah, word: v.word, wordIndex: v.wordIndex, kind }, rule }];
++            || before.ayah !== v.ayah || after.ayah !== v.ayah) {
++            const slip = slipIssue(v, before, after, th);
++            return slip ? at(slip, 'slip') : [];
++        }
+         const gopKind = gopIssue(v, before, after, th);
+         const rep = !gopKind && th.repetitionMode !== 'off' && repetitionIssue(v, before, after, th);
+         const extra = gopKind ? at(gopKind, 'gop') : rep ? at('possible_repetition', 'repetition') : [];
+@@ -86,7 +91,7 @@
+         // or the reciter said only its onset) is still an omission.
+         const omission = v.state === 'skipped' && (v.heardRatio === 0 || v.heardRatio <= th.omissionMaxHeard);
+         const substitution = v.state === 'wrong' && Number.isFinite(v.distance) && v.distance >= th.substitutionDistance
+-            && Number.isFinite(v.margin) && v.margin >= 0.65
++            && Number.isFinite(v.margin) && v.margin >= (th.subMargin ?? 0.5)
+             && v.heardRatio >= 0.5 && v.heardRatio <= 1.5;
+         // Harakah error: consonant skeleton matches (distance within `ok`), but at
+         // least one aligned short vowel differs and the decoder was sure about it.
+@@ -145,7 +150,7 @@
              }
              if (this.retryFrame === null || frame < this.retryFrame)
                  this.retryFrame = frame;
@@ -24,24 +51,9 @@ index a7301ef1e1808b17266cd4579ce67a545df80f93..527aa16b6a9185b7fbfe3aaddf51b7d7
                  return false;
              this.state = { ...this.state, phase: 'corrected', outcome: 'corrected' };
              return true;
-diff --git a/dist/recitation/session.d.ts b/dist/recitation/session.d.ts
-index 24b499da2620635fe81a758e92e6b043b90caae2..6d4790ba8860738c9517fdd67cf628232619a1a0 100644
---- a/dist/recitation/session.d.ts
-+++ b/dist/recitation/session.d.ts
-@@ -230,6 +230,8 @@ export declare class ZipformerSession {
-     private correctionMessage;
-     /** Alias of {@link stop} — end of audio, flush the tail, emit the sequence. */
-     flush(): Promise<WorkerOutbound[]>;
-+    /** Move the tracker to an explicit position (re-anchor after a rejected relocation). */
-+    track(surah: number, ayah: number, word?: number): void;
-     stop(): Promise<WorkerOutbound[]>;
-     private finish;
-     private makeEngine;
-diff --git a/dist/recitation/session.js b/dist/recitation/session.js
-index 3d7030cac860a410c42f7a14ba5042fa160bb0f6..39414f58d24e40f4b1f4d42e0d01772d0825a2b6 100644
 --- a/dist/recitation/session.js
 +++ b/dist/recitation/session.js
-@@ -33,7 +33,7 @@ const TAIL_SECONDS = 2.0;
+@@ -33,7 +33,7 @@
  /** Mean heard ratio over an unmatched ayah's words at or above which the gap
   * counts as heard-but-unfollowed (`unclear_ayah`) rather than skipped. */
  export const AYAH_HEARD_FRACTION = 0.5;
@@ -50,7 +62,7 @@ index 3d7030cac860a410c42f7a14ba5042fa160bb0f6..39414f58d24e40f4b1f4d42e0d01772d
  /** I/O manifest of the default `zipformer_a0w_ep1_a05.int8.onnx` (its encoder-frame
   * output is optional, so the same manifest drives `zipformer_interp_gentle_a05.int8.onnx`). */
  export const DEFAULT_ZIPFORMER_IO = DEFAULT_IO;
-@@ -340,6 +340,14 @@ export class ZipformerSession {
+@@ -340,6 +340,14 @@
              out.push(...this.raiseStructural());
          return this.dispatch(out);
      }
@@ -65,71 +77,61 @@ index 3d7030cac860a410c42f7a14ba5042fa160bb0f6..39414f58d24e40f4b1f4d42e0d01772d
      correctionMessage() {
          const issue = this.correction.state.issue;
          return { type: 'correction', state: { ...this.correction.state },
-+diff --git a/dist/recitation/correction.js b/dist/recitation/correction.js
-+--- a/dist/recitation/correction.js
-++++ b/dist/recitation/correction.js
-+@@ -69,10 +69,15 @@ function ruledWordIssues(verdicts, th) {
-+     const byIndex = new Map(verdicts.map(v => [v.wordIndex, v]));
-+     return verdicts.flatMap((v) => {
-+         const before = byIndex.get(v.wordIndex - 1);
-+         const after = byIndex.get(v.wordIndex + 1);
-++        const at = (kind, rule) => [{ issue: { surah: v.surah, ayah: v.ayah, word: v.word, wordIndex: v.wordIndex, kind }, rule }];
-+         // Do not infer leading/trailing omissions, uncertain audio, or skipped ayahs.
-++        // First/last word of an ayah has no same-ayah neighbour on one side:
-++        // the aligner rules need both anchors, but the acoustic slip head and
-++        // GOP margin can still judge a boundary word on its own.
-+         if (!before || !after || before.surah !== v.surah || after.surah !== v.surah
-+-            || before.ayah !== v.ayah || after.ayah !== v.ayah)
-+-            return [];
-+-        const at = (kind, rule) => [{ issue: { surah: v.surah, ayah: v.ayah, word: v.word, wordIndex: v.wordIndex, kind }, rule }];
-++            || before.ayah !== v.ayah || after.ayah !== v.ayah) {
-++            const slip = slipIssue(v, before, after, th);
-++            return slip ? at(slip, 'slip') : [];
-++        }
-+         const gopKind = gopIssue(v, before, after, th);
-+diff --git a/dist/recitation/session.js b/dist/recitation/session.js
-+--- a/dist/recitation/session.js
-++++ b/dist/recitation/session.js
-+@@ -549,7 +549,7 @@ export class ZipformerSession {
-+                     out.push(this.correctionMessage());
-+             }
-+-            else
-++            else if (!engine.tracker || engine.tracker.lost)
-+                 this.correction.clearEvidence();
-+             return out;
-+         }
-+@@ -573,7 +573,11 @@ export class ZipformerSession {
-+             else
-+                 out.push(...this.checkSkippedAyah(false));
-+         }
-+-        else {
-++        else if (!tracker || !this.lastCursor || tracker.lost) {
-+             this.correction.clearEvidence();
-+             this.skipCandidate = null;
-+         }
-++        // Held (rough stretch) does NOT clear evidence — the persistence clock
-++        // just pauses, so a real mistake inside a stumble still flags once
-++        // observation resumes. Clearing here made bad patches unflaggable.
-+         if (this.structuralRules)
-+             out.push(...this.structuralTick(false));
-+@@ -742,7 +742,9 @@ export class ZipformerSession {
-+             case "lost": {
-+                 // Transient: the tracker keeps its place. Losing and recovering inside
-+                 // one surah is exactly the unclear-ayah case, so the match chain stays.
-+-                this.correction.clearEvidence();
-++                // Evidence is frozen, not wiped — a real slip in the rough stretch
-++                // that caused `lost` must still complete its persistence frames.
-+                 break;
-+             }
-+diff --git a/dist/recitation/engine.js b/dist/recitation/engine.js
-+--- a/dist/recitation/engine.js
-++++ b/dist/recitation/engine.js
-+@@ -293,7 +293,9 @@ export class RecitationEngine {
-+         if (hit &&
-+             rate !== null &&
-+             rate >= this.cfg.lostRate &&
-+-            hit.surah !== this.tracker.surah &&
-++            // Same-surah hits are allowed now — a mutashabih jump inside one
-++            // surah is a real move; only an identical landing is not.
-++            (hit.surah !== this.tracker.surah || hit.ayah !== this.corpus.wordAyah[this.tracker.cursorWordIndex]) &&
-+             hit.distance <= this.cfg.relocateMaxDistance &&
+@@ -540,7 +548,7 @@
+                 if (raised)
+                     out.push(this.correctionMessage());
+             }
+-            else
++            else if (!engine.tracker || engine.tracker.lost)
+                 this.correction.clearEvidence();
+             return out;
+         }
+@@ -565,10 +573,13 @@
+             else
+                 out.push(...this.checkSkippedAyah(false));
+         }
+-        else {
++        else if (!tracker || !this.lastCursor || tracker.lost) {
+             this.correction.clearEvidence();
+             this.skipCandidate = null;
+         }
++        // Held (rough stretch) does NOT clear evidence — the persistence clock
++        // just pauses, so a real mistake inside a stumble still flags once
++        // observation resumes. Clearing here made bad patches unflaggable.
+         if (this.structuralRules)
+             out.push(...this.structuralTick(false));
+         if (tokens.length) {
+@@ -734,7 +745,8 @@
+             case "lost": {
+                 // Transient: the tracker keeps its place. Losing and recovering inside
+                 // one surah is exactly the unclear-ayah case, so the match chain stays.
+-                this.correction.clearEvidence();
++                // Evidence is frozen, not wiped — a real slip in the rough stretch
++                // that caused `lost` must still complete its persistence frames.
+                 break;
+             }
+             case "relocated": {
+--- a/dist/recitation/session.d.ts
++++ b/dist/recitation/session.d.ts
+@@ -230,6 +230,8 @@
+     private correctionMessage;
+     /** Alias of {@link stop} — end of audio, flush the tail, emit the sequence. */
+     flush(): Promise<WorkerOutbound[]>;
++    /** Move the tracker to an explicit position (re-anchor after a rejected relocation). */
++    track(surah: number, ayah: number, word?: number): void;
+     stop(): Promise<WorkerOutbound[]>;
+     private finish;
+     private makeEngine;
+--- a/dist/recitation/engine.js
++++ b/dist/recitation/engine.js
+@@ -293,7 +293,9 @@
+         if (hit &&
+             rate !== null &&
+             rate >= this.cfg.lostRate &&
+-            hit.surah !== this.tracker.surah &&
++            // Same-surah hits are allowed now — a mutashabih jump inside one
++            // surah is a real move; only an identical landing is not.
++            (hit.surah !== this.tracker.surah || hit.ayah !== this.corpus.wordAyah[this.tracker.cursorWordIndex]) &&
+             hit.distance <= this.cfg.relocateMaxDistance &&
+             hit.distance + this.cfg.relocateRateMargin <= rate &&
+             agrees) {

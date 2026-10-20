@@ -169,9 +169,14 @@ async function init(sampleRate: number) {
   // decoder read. Tighter than this (0.15/0.9) made real slips never surface.
   if (session.zipformer) Object.assign(session.zipformer.correction.thresholds, {
     omissionMaxHeard: 0.5,
-    substitutionDistance: 0.7,
+    // 0.7 only fired on a completely different word — real learner slips
+    // (1–2 phonemes off in a 3–6 token word) sit at 0.2–0.5 and could never
+    // flag. 0.45 still requires a clearly different word.
+    substitutionDistance: 0.45,
     vowelMargin: 0.08,
-    vowelWordMargin: 0.85,
+    // 0.85 token margin is unreachable on learner audio — vowel slips were
+    // a dead channel. 0.6 keeps the confidence requirement meaningful.
+    vowelWordMargin: 0.6,
     // Acoustic channel: GOP scores were computed but could never raise a flag
     // (gopFlag -Infinity). -5 per the engine's own tuning note — flags only
     // `wrong` substitutions whose forced alignment badly mismatches the free
