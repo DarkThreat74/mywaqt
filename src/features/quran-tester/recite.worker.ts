@@ -20,30 +20,48 @@ let session: RecognitionSession | null = null;
 let sourceRate = 48000;
 let queue: Promise<void> = Promise.resolve();
 
-// Audio goes through a dedicated pump, NOT the message queue. Queuing every
-// chunk in order means a device that infers slower than realtime falls
-// behind permanently — the queue just grows. The pump merges pending chunks
-// and drops the oldest past a 1.5s backlog, so latency self-corrects.
+// Audio goes through a dedicated pump, but pump calls are themselves queued —
+// a control message (stop/reset/reanchor/expect) can no longer interleave with
+// an in-flight feed and decode stale audio into a reset tracker. The pump
+// merges pending chunks and drops the oldest past a 1.5s backlog, so latency
+// self-corrects; pendingCtl lets a queued control message interrupt the drain.
 let feeding = false;
-let audioPending: Float32Array[] = [];
+let audioPending: { samples: Float32Array; rate: number }[] = [];
+let pendingCtl = 0;
 const MAX_BACKLOG_SEC = 1.5;
 
 async function pumpAudio() {
   if (feeding) return;
   feeding = true;
   try {
-    while (audioPending.length && session) {
+    while (audioPending.length && session && !pendingCtl) {
       const chunks = audioPending.splice(0);
-      const total = chunks.reduce((s, c) => s + c.length, 0);
-      const merged = new Float32Array(total);
+      // Pending chunks can carry different source rates (ctx swapped
+      // mid-warm) — resample each at its own rate, then merge.
+      const parts = chunks.map((c) => resample(c.samples, c.rate));
+      const outLen = parts.reduce((s, p) => s + p.length, 0);
+      const merged = new Float32Array(outLen);
       let off = 0;
-      for (const c of chunks) { merged.set(c, off); off += c.length; }
-      await session.feed(resample(merged, sourceRate));
+      for (const p of parts) { merged.set(p, off); off += p.length; }
+      await session.feed(merged);
     }
   } catch (err) {
     void reportErr(err);
   } finally {
     feeding = false;
+  }
+}
+
+/** Drain every buffered chunk into the engine (used by stop — the tail of
+ *  the take must be judged too, never silently dropped). */
+async function drainAudio() {
+  while (audioPending.length && session) {
+    const chunks = audioPending.splice(0);
+    const parts = chunks.map((c) => resample(c.samples, c.rate));
+    const merged = new Float32Array(parts.reduce((s, p) => s + p.length, 0));
+    let off = 0;
+    for (const p of parts) { merged.set(p, off); off += p.length; }
+    await session.feed(merged);
   }
 }
 
@@ -154,6 +172,11 @@ async function init(sampleRate: number) {
     substitutionDistance: 0.7,
     vowelMargin: 0.08,
     vowelWordMargin: 0.85,
+    // Acoustic channel: GOP scores were computed but could never raise a flag
+    // (gopFlag -Infinity). -5 per the engine's own tuning note — flags only
+    // `wrong` substitutions whose forced alignment badly mismatches the free
+    // decode, and only between anchored neighbours.
+    gopFlag: -5,
   });
   postMessage({ type: "ready" });
 }
@@ -174,21 +197,31 @@ function resample(input: Float32Array, from: number): Float32Array {
 
 self.onmessage = (e: MessageEvent) => {
   const m = e.data;
+  // Control messages interrupt the audio drain — count them while they wait
+  // so pumpAudio yields instead of starving stop/reset behind a live stream.
+  if (m.type !== "audio" && m.type !== "init") pendingCtl++;
   // Serialize work — feed() and init() must never interleave.
   queue = queue.then(async () => {
     try {
       if (m.type === "init") {
         await init(m.sampleRate);
       } else if (m.type === "audio") {
-        audioPending.push(m.samples);
+        // Capture the rate at enqueue — the engine's sourceRate can change
+        // on re-init while old chunks still wait.
+        audioPending.push({ samples: m.samples as Float32Array, rate: sourceRate });
         // Drop the oldest frames past the backlog cap — better to skip a
-        // syllable than to trail the reciter by a growing delay.
-        let backlog = audioPending.reduce((s, c) => s + c.length, 0);
+        // syllable than to trail the reciter by a growing delay. The drop is
+        // surfaced (never silent): the heard stream has a hole and every
+        // later word's timing shifts early by the dropped duration.
+        let backlog = audioPending.reduce((s, c) => s + c.samples.length, 0);
+        let dropped = 0;
         while (backlog > MAX_BACKLOG_SEC * sourceRate && audioPending.length > 1) {
-          backlog -= audioPending[0].length;
+          backlog -= audioPending[0].samples.length;
+          dropped += audioPending[0].samples.length;
           audioPending.shift();
         }
-        void pumpAudio();
+        if (dropped) postMessage({ type: "audio-gap", seconds: dropped / sourceRate });
+        queue = queue.then(pumpAudio);
       } else if (m.type === "audio-sync" && session) {
         // Offline replay (recite-coach deep grade): every chunk MUST decode —
         // the realtime pump drops backlog, which corrupts the heard stream
@@ -198,6 +231,7 @@ self.onmessage = (e: MessageEvent) => {
       } else if (m.type === "expect" && session) {
         session.zipformer?.setExpected(m.passage ?? null);
       } else if (m.type === "stop" && session) {
+        await drainAudio(); // the tail of the take is judged too — never dropped
         await session.stop(); // events flow through onEvent
         // Deep-grade tap: dump the heard phoneme stream (chars + CTC frame
         // index each) so callers can measure madd/ghunnah durations. The
@@ -271,6 +305,10 @@ self.onmessage = (e: MessageEvent) => {
       }
     } catch (err) {
       void reportErr(err);
+    } finally {
+      if (m.type !== "audio" && m.type !== "init") pendingCtl--;
+      // A control message may have paused the drain — resume feeding.
+      if (audioPending.length) queue = queue.then(pumpAudio);
     }
   });
 };

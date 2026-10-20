@@ -106,6 +106,7 @@ export default function QuranTesterClient() {
   // Per-session tallies for the end-of-session stats sheet.
   const sessionStartRef = useRef(0);
   const sessionFlagsRef = useRef<Set<string>>(new Set());
+  const sessionConfirmRef = useRef<Set<string>>(new Set()); // mistakes confirmed/marked this session
   const [statsSheet, setStatsSheet] = useState<{ ayahs: number; seconds: number; flags: number } | null>(null);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [pleased, setPleased] = useState(false); // listener's soft smile after a corrected re-read
@@ -138,6 +139,10 @@ export default function QuranTesterClient() {
   const [spanSnap, setSpanSnap] = useState<Loc[]>([]);
   const [spanText, setSpanText] = useState("");
   const anchorRef = useRef<Loc | null>(null);
+  // Look-alike pairs ("s:a" → Set<"s:a">) — when the tracker lands on a
+  // known mutashabih of the anchor, the move gets flagged as suspect, not
+  // silently accepted: confusable verses are the #1 false-jump source.
+  const mutaRef = useRef<Map<string, Set<string>> | null>(null);
   const heardRef = useRef<{ loc: Loc | null; max: number; total: number }>({ loc: null, max: 0, total: 0 });
   const sessionCovRef = useRef<Set<string>>(new Set());
   const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -149,6 +154,7 @@ export default function QuranTesterClient() {
   const lockFxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planRef = useRef(plan);
   const suspectsRef = useRef(suspects);
+  const pinRef = useRef(pin);
 
   // Swipe — dragX tracks the finger; turn animates a committed page turn
   // (-1 = turn to next page/left, +1 = back/right). CSS transition does the
@@ -168,6 +174,7 @@ export default function QuranTesterClient() {
     ayahPagesRef.current = ayahPages;
     planRef.current = plan;
     suspectsRef.current = suspects;
+    pinRef.current = pin;
     anchorModeRef.current = anchorMode;
     try {
       localStorage.setItem("qt:anchor-mode", anchorMode);
@@ -237,6 +244,20 @@ export default function QuranTesterClient() {
     loadAyahPages().then((ap) => { setAyahPages(ap); ixRef.current = buildIndex(ap); refreshSpan(); }).catch(() => {});
     loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
     loadSurahMeta().then(setSurahMeta).catch(() => {});
+    // Look-alike index (shared with the Mutashabihat game) — one small JSON,
+    // best-effort: tracking works without it, just less skeptically.
+    fetch("/data/mutashabihat.json").then((r) => (r.ok ? r.json() : [])).then((fams: { instances?: { s: number; a: number }[] }[]) => {
+      const m = new Map<string, Set<string>>();
+      for (const f of Array.isArray(fams) ? fams : []) {
+        const keys = (f.instances ?? []).map((i) => `${i.s}:${i.a}`);
+        for (const k of keys) {
+          const s = m.get(k) ?? new Set<string>();
+          for (const o of keys) if (o !== k) s.add(o);
+          m.set(k, s);
+        }
+      }
+      mutaRef.current = m;
+    }).catch(() => {});
     engineInstalled()
       .then((ok) => {
         setInstalled(ok);
@@ -263,7 +284,9 @@ export default function QuranTesterClient() {
       unsub();
       window.removeEventListener("online", onUp);
       window.removeEventListener("offline", onDown);
-      if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
+      for (const t of [jumpChimeRef.current, retryTimerRef.current, candTimerRef.current, lockFxTimer.current, turnTimer.current])
+        if (t) clearTimeout(t as ReturnType<typeof setTimeout>);
+      jumpChimeRef.current = retryTimerRef.current = candTimerRef.current = lockFxTimer.current = turnTimer.current = null;
     };
   }, []);
 
@@ -352,7 +375,7 @@ export default function QuranTesterClient() {
         // "Continue here", or dismiss.
         const drift = distOf(ix, j.to, loc);
         if (drift != null && Math.abs(drift) <= 3) j.to = loc;
-        const pin = lastGoodWord(j.expected);
+        const pin = resumeWord(j.expected);
         qtPost({ type: "reanchor", s: pin.s, a: pin.a, w: pin.w });
         return;
       }
@@ -381,30 +404,51 @@ export default function QuranTesterClient() {
     const pa = pageOf(anchor), pl = pageOf(loc);
     if (pa >= 0 && pl >= 0 && pl - pa <= 2) {
       markSkippedBetween(anchor, loc);
-      setPin(lastGoodWord(anchor)); // the last word you read good — blue underline
+      setPin(pinWord(anchor)); // the last word you read good — blue underline
       anchorRef.current = loc;
       setStatus(`Skipped ahead — the missed ayahs are marked yellow`);
       return;
     }
-    // Outside the buffer — a real jump.
+    // Outside the buffer — a real jump. Except: if the landing is a known
+    // mutashabih (look-alike) of the anchor, the engine was likely lured
+    // there by shared wording — flag it yellow so you can confirm it was a
+    // slip, on top of the usual jump question.
+    const muta = mutaRef.current;
+    if (muta?.get(keyOf(anchor))?.has(keyOf(loc))) {
+      const k = `${keyOf(loc)}:0`;
+      if (!suspectsRef.current.has(k)) {
+        const next = new Map(suspectsRef.current);
+        next.set(k, "similar_verse");
+        suspectsRef.current = next;
+        setSuspects(next);
+        sessionFlagsRef.current.add(k);
+      }
+    }
     // "follow" lets the anchor drift; "hold" pins it at `anchor` AND pulls
     // the tracker back — in hold there is no relocation, only a flagged
     // move. The cursor stays on the pin until "Continue here".
     if (anchorModeRef.current === "follow") anchorRef.current = loc;
-    else qtPost({ type: "reanchor", s: anchor.s, a: anchor.a, w: lastGoodWord(anchor).w });
+    else qtPost({ type: "reanchor", s: anchor.s, a: anchor.a, w: resumeWord(anchor).w });
     jumpRef.current = { to: loc, expected: anchor, at: Date.now() };
     setJump(jumpRef.current);
-    setPin(lastGoodWord(anchor)); // last word read correctly, underlined blue
+    setPin(pinWord(anchor)); // last word read correctly, underlined blue
     markDiversion(loc);
     ding3(); // ding-ding-ding — you moved
     void ayahSnippet(anchor.s, anchor.a).then((t) => qtOrb("alert", t));
     qtPost({ type: "correction-act", action: "continue" }); // release a stale issue — else detection freezes
   }
-  /** The last word actually heard in `l`'s ayah — the exact resume point. */
-  function lastGoodWord(l: Loc): { s: number; a: number; w: number } {
+  /** Engine-space resume point for reanchor/track — 0-based word index,
+   *  the word just before the last one heard good. */
+  function resumeWord(l: Loc): { s: number; a: number; w: number } {
     const h = heardRef.current;
     const same = h.loc && h.loc.s === l.s && h.loc.a === l.a;
-    return { s: l.s, a: l.a, w: same ? Math.max(0, h.max - 1) : 0 };
+    return { s: l.s, a: l.a, w: same ? Math.max(0, h.max - 2) : 0 };
+  }
+  /** Display-space pin — 1-based wiN of the last word heard good. */
+  function pinWord(l: Loc): { s: number; a: number; w: number } {
+    const h = heardRef.current;
+    const same = h.loc && h.loc.s === l.s && h.loc.a === l.a;
+    return { s: l.s, a: l.a, w: same && h.max >= 1 ? h.max : 1 };
   }
   function pageOf(l: Loc): number {
     return ayahPagesRef.current?.[l.s]?.[l.a] ?? -1;
@@ -581,8 +625,21 @@ export default function QuranTesterClient() {
     heardRef.current = { loc: null, max: 0, total: 0 };
     sessionCovRef.current = new Set();
     sessionFlagsRef.current = new Set();
+    sessionConfirmRef.current = new Set();
     sessionStartRef.current = Date.now();
     setStatsSheet(null);
+    // Flags belong to a session — last take's unresolved suspects must not
+    // leak into this one's verify sheet while the counter restarts at 0.
+    suspectsRef.current = new Map();
+    setSuspects(new Map());
+    setPending(null);
+    lastIssueKeyRef.current = null;
+    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+    jumpRef.current = null;
+    setJump(null);
+    setPin(null);
+    setDiversions(new Set());
+    try { sessionStorage.removeItem("qt:diversions"); } catch {}
     anchorRef.current = null;
     setDayDone(isDayDone(todayKey()));
     refreshSpan();
@@ -601,7 +658,9 @@ export default function QuranTesterClient() {
     setStatsSheet({
       ayahs,
       seconds: Math.max(1, Math.round((Date.now() - sessionStartRef.current) / 1000)),
-      flags: sessionFlagsRef.current.size,
+      // "Flags caught" = open suspects + mistakes confirmed this session —
+      // dismissed/corrected flags don't count toward what was actually wrong.
+      flags: suspectsRef.current.size + sessionConfirmRef.current.size,
     });
   }
 
@@ -614,7 +673,6 @@ export default function QuranTesterClient() {
     const n = sessionCovRef.current.size;
     if (n > 0) setStatus(`Session saved — ${n} ayah${n === 1 ? "" : "s"} covered${isDayDone(todayKey()) ? " · today ✓" : ""}`);
     await stopQt();
-    setStatus(null);
     setWordIdx(null);
     maybeShowStats();
   }
@@ -653,6 +711,10 @@ export default function QuranTesterClient() {
       setLevel(ev.value as number);
     } else if (ev.type === "ui-error") {
       setMicError(String(ev.message));
+    } else if (ev.type === "audio-gap") {
+      // Worker dropped a burst of audio to stay real-time — tracking already
+      // resumed from the live edge; just say so instead of silently drifting.
+      setStatus(`Audio gap — skipped ${Math.round((ev.seconds as number) * 1000)} ms to keep up`);
     } else if (ev.type === "lost") {
       preambleGraceRef.current = Date.now();
       if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
@@ -725,19 +787,28 @@ export default function QuranTesterClient() {
       }
       setLoc({ surah: s, ayah: a });
       expectSurah(s); // smooth crossings into the next surah never fire relocate
-      setWordIdx(ev.word_index as number);
-      noteHeard(s, a, ev.word_index as number, ev.total_words as number);
+      // Engine word_index is 0-BASED; the mushaf location ("s:a:w") is
+      // 1-BASED. Normalize at the boundary — before this, the highlight lagged
+      // one word and flags landed on the word before the real mistake.
+      const wDisp = (ev.word_index as number) + 1;
+      setWordIdx(wDisp);
+      noteHeard(s, a, wDisp, ev.total_words as number);
       // Resumed from the blue-underlined word — the resume marker's job is
       // done, clear it.
-      if (pin && pin.s === s && pin.a === a) setPin(null);
+      if (pinRef.current && pinRef.current.s === s && pinRef.current.a === a) setPin(null);
       const p = ayahPage(s, a);
       if (p && p !== pageRef.current) setPage(p);
     } else if (ev.type === "correction" || ev.type === "correction_note") {
       const e = ev as { state?: { phase?: string; outcome?: string | null; issue?: { surah: number; ayah: number; word: number; kind: string } }; issue?: { surah: number; ayah: number; word: number; kind: string } };
-      // A clean re-read resolved the flagged word — clear its yellow.
+      // A clean re-read resolved the flagged word — clear its yellow. Match
+      // the outcome's own issue: lastIssueKeyRef can point at a DIFFERENT
+      // flag raised after the one that was actually corrected.
       if (e.state?.outcome === "corrected") {
         if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
-        const k = lastIssueKeyRef.current;
+        const iss = e.state?.issue;
+        const k = iss && typeof iss.surah === "number"
+          ? `${iss.surah}:${iss.ayah}:${iss.kind === "possible_skipped_ayah" || iss.kind === "unclear_ayah" ? 0 : iss.word + 1}`
+          : lastIssueKeyRef.current;
         if (k) {
           suspectsRef.current.delete(k);
           setSuspects((prev) => { const n = new Map(prev); n.delete(k); return n; });
@@ -754,7 +825,8 @@ export default function QuranTesterClient() {
       const i = e.state?.issue ?? e.issue;
       if (i && typeof i.surah === "number") {
         const ayahLevel = i.kind === "possible_skipped_ayah" || i.kind === "unclear_ayah";
-        const skey = `${i.surah}:${i.ayah}:${ayahLevel ? 0 : i.word}`;
+        // +1: engine word is 0-based, display/DB space is 1-based.
+        const skey = `${i.surah}:${i.ayah}:${ayahLevel ? 0 : i.word + 1}`;
         // Settle noise: finishing a surah can raise skipped/unclear on an
         // ayah you JUST read. If it's covered, release the controller and
         // move on — retrying here is what paused every surah ending.
@@ -790,7 +862,7 @@ export default function QuranTesterClient() {
                 qtPost({ type: "correction-act", action: "review_later" });
             }, 8000);
           }
-          setPending({ s: i.surah, a: i.ayah, w: i.word ?? 0, kind: i.kind });
+          setPending({ s: i.surah, a: i.ayah, w: ayahLevel ? 0 : (i.word ?? -1) + 1, kind: i.kind });
         }
       }
     }
@@ -807,6 +879,7 @@ export default function QuranTesterClient() {
       possible_vowel: "possible vowel slip",
       possible_repetition: "possible repetition",
       possible_skipped_ayah: "skipped ayah",
+      similar_verse: "look-alike verse",
       unclear_ayah: "unclear ayah",
       manual: "marked mistake",
       diversion: "jumped here",
@@ -817,8 +890,9 @@ export default function QuranTesterClient() {
     const kind = suspects.get(key);
     if (kind) { setPending({ s, a, w, kind }); return; }
     // A diversion-marked ayah (jumped here this session) can be confirmed
-    // into a real red mistake on tap.
-    if (diversions.has(`${s}:${a}`)) setPending({ s, a, w: 0, kind: "diversion" });
+    // into a real red mistake on tap — keep the tapped word, not w:0, or the
+    // whole ayah goes red instead of the word you meant.
+    if (diversions.has(`${s}:${a}`)) setPending({ s, a, w, kind: "diversion" });
   }
 
   /** Confirm/dismiss for BOTH the live banner and the verify sheet — same
@@ -827,10 +901,11 @@ export default function QuranTesterClient() {
     const m: Omit<Mistake, "id"> = { surah: spot.s, ayah: spot.a, word: spot.w, kind: spot.kind, confirmedAt: nowMs() };
     await saveMistake(m).catch(() => {});
     const key = `${m.surah}:${m.ayah}:${m.word}`;
+    sessionConfirmRef.current.add(key);
     setConfirmed((prev) => new Map(prev).set(key, { ...m }));
     suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
-    if (pending && pending.s === spot.s && pending.a === spot.a && pending.w === spot.w) {
+    if (pending && pending.s === spot.s && pending.a === spot.a && (pending.w === spot.w || pending.w === 0 || spot.w === 0)) {
       qtPost({ type: "correction-act", action: "continue" });
       setPending(null);
     }
@@ -841,7 +916,7 @@ export default function QuranTesterClient() {
     const key = `${spot.s}:${spot.a}:${spot.w}`;
     suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
-    if (pending && pending.s === spot.s && pending.a === spot.a && pending.w === spot.w) {
+    if (pending && pending.s === spot.s && pending.a === spot.a && (pending.w === spot.w || pending.w === 0 || spot.w === 0)) {
       qtPost({ type: "correction-act", action: "dismiss" });
       setPending(null);
     }
@@ -862,6 +937,7 @@ export default function QuranTesterClient() {
     if (kind) { void confirmSpot({ s, a, w, kind }); return; }
     const m: Omit<Mistake, "id"> = { surah: s, ayah: a, word: w, kind: "manual", confirmedAt: nowMs() };
     await saveMistake(m).catch(() => {});
+    sessionConfirmRef.current.add(key);
     setConfirmed((prev) => new Map(prev).set(key, { ...m }));
     sessionFlagsRef.current.add(key);
     checkDay();
@@ -1067,7 +1143,7 @@ export default function QuranTesterClient() {
                     // preventDefault kills the browser's select-the-word
                     // gesture — the "Google search" bar that popped up.
                     onDoubleClick={(e) => { e.preventDefault(); void markManual(s, a, wiN); }}
-                    onClick={isSuspect || isConfirmed ? () => onWordTap(s, a, wiN) : undefined}
+                    onClick={isSuspect || isConfirmed || diversions.has(`${s}:${a}`) ? () => onWordTap(s, a, wiN) : undefined}
                     onContextMenu={(e) => e.preventDefault()}
                     // shrink-0: a shrunken word box lets the glyph overflow
                     // onto its neighbour — that's the text-on-end-marker
@@ -1363,7 +1439,7 @@ export default function QuranTesterClient() {
           />
         ) : (
         <div
-          className="qt-mushaf relative mt-2 min-h-0 flex-1 touch-pan-y select-none overflow-hidden rounded-lg border"
+          className="qt-mushaf relative mt-2 min-h-0 flex-1 touch-manipulation select-none overflow-hidden rounded-lg border"
           style={{
             borderColor: "var(--color-paper-3)",
             backgroundColor: "var(--color-paper-2)",
@@ -1418,7 +1494,7 @@ export default function QuranTesterClient() {
             // Switching to hold pins where you ARE right now.
             if (m === "hold" && loc) {
               anchorRef.current = { s: loc.surah, a: loc.ayah };
-              setPin(lastGoodWord(anchorRef.current));
+              setPin(pinWord(anchorRef.current));
               setStatus(`Holding at ${surahName(loc.surah)} ${loc.surah}:${loc.ayah} — the blue underline is your pin`);
             } else if (m === "follow") {
               setPin(null);

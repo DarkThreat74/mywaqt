@@ -20,7 +20,11 @@ export function subscribeQt(fn: (ev: QtEvent) => void) {
   return () => { listeners.delete(fn); };
 }
 function emit(ev: QtEvent) {
-  for (const fn of listeners) fn(ev);
+  // One throwing listener must never starve the rest (or kill fan-out into
+  // worker.onmessage) — a subscriber error is isolated, not propagated.
+  for (const fn of listeners) {
+    try { fn(ev); } catch {}
+  }
 }
 
 let worker: Worker | null = null;
@@ -28,6 +32,14 @@ let audio: { ctx: AudioContext; stream: MediaStream; src: MediaStreamAudioSource
 let listen: QtListen = "idle";
 let engineReady = false;   // init handshake completed — model in memory
 let workerRate = 0;        // sample rate the loaded engine was inited for
+let borrowed = false;      // recite-coach deep grade owns the engine right now
+let warmWatchdog: ReturnType<typeof setTimeout> | null = null;
+let micBuf = new Float32Array(0); // batched-but-unsent mic audio (flushed on stop)
+// Session-level safety net: an un-acted `correction` freezes the engine's
+// whole tracker in `retrying`. The page's own 8s defer covers normal use —
+// this one exists for when the page is unmounted (navigated away), so
+// background listening can't die silently.
+let deferTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Borrow the warm engine for a batch decode (recite-coach deep grade).
@@ -37,8 +49,15 @@ let workerRate = 0;        // sample rate the loaded engine was inited for
  * fall back to a dedicated worker in that case.
  */
 export function borrowQtEngine(rate: number): Worker | null {
-  if (!worker || !engineReady || listen !== "idle" || (rate && workerRate && rate !== workerRate)) return null;
+  if (!worker || !engineReady || listen !== "idle" || borrowed || (rate && workerRate && rate !== workerRate)) return null;
+  borrowed = true;
   return worker;
+}
+
+/** Return the shared engine after a batch decode. Without this, a second
+ *  grade could interleave on the same worker and corrupt both decodes. */
+export function releaseQtEngine() {
+  borrowed = false;
 }
 
 // ── Screen-wake + background "orb" notification ────────────────────────
@@ -155,10 +174,11 @@ function armKeepAlive() {
     if (!silentEl) {
       silentEl = new Audio(silentWav());
       silentEl.loop = true;
-      // Muted media is exempt from autoplay policy — play() from the
-      // worker's `ready` callback has no user gesture.
-      silentEl.muted = true;
-      silentEl.volume = 0;
+      // muted=true elements often don't count as "playing media" — which is
+      // what grants the notification AND exempts the tab from freezing.
+      // Near-zero volume keeps it inaudible while registering as playback.
+      silentEl.muted = false;
+      silentEl.volume = 0.01;
     }
     void silentEl.play().catch(() => {});
     if ("mediaSession" in navigator) {
@@ -254,6 +274,7 @@ function ensureWorker() {
       const ev = e.data as QtEvent;
       if (ev.type === "ready") {
         engineReady = true;
+        if (warmWatchdog) { clearTimeout(warmWatchdog); warmWatchdog = null; }
         // A warmQt() preload also posts init → ready — only flip to
         // listening when a mic session is actually warming up.
         if (listen === "warming") {
@@ -276,6 +297,7 @@ function ensureWorker() {
         } catch {
           docBlocked = "yes";
         }
+        if (warmWatchdog) { clearTimeout(warmWatchdog); warmWatchdog = null; }
         emit({ type: "ui-error", message: `${msg} [doc-eval-blocked: ${docBlocked}]` });
         void stopQt();
         // If this is a wasm/CSP failure, the running document may just be
@@ -301,6 +323,22 @@ function ensureWorker() {
             .catch(() => {});
         }
         return;
+      }
+      // Background-listening safety net: a `correction` event leaves the
+      // engine frozen in `retrying` until someone acts. The mounted page
+      // defers it after ~8s; if nobody does (navigated away), release it
+      // here at ~14s so detection can't die silently off-screen.
+      if (ev.type === "correction") {
+        if (deferTimer) clearTimeout(deferTimer);
+        const outcome = (ev.state as { outcome?: string | null } | undefined)?.outcome;
+        if (!outcome) {
+          deferTimer = setTimeout(() => {
+            deferTimer = null;
+            qtPost({ type: "correction-act", action: "review_later" });
+          }, 14000);
+        }
+      } else if (ev.type === "stopped" || ev.type === "heard") {
+        if (deferTimer) { clearTimeout(deferTimer); deferTimer = null; }
       }
       emit(ev);
     };
@@ -340,6 +378,11 @@ export async function startQt(): Promise<void> {
     });
   } catch (err) {
     const name = err instanceof DOMException ? err.name : "";
+    // Reset fully — leaving `warming` here bricked the feature until reload
+    // (every startQt early-returned) and held the cross-tab lock forever.
+    listen = "idle";
+    emit({ type: "ui-listen", state: "idle" });
+    dropLock();
     emit({
       type: "ui-mic-denied",
       message:
@@ -381,6 +424,12 @@ export async function startQt(): Promise<void> {
         URL.revokeObjectURL(url);
       }
     }
+    // iOS 17+: lets the AudioContext survive backgrounding — the OS won't
+    // suspend a play-and-record session the way it kills a plain one.
+    try {
+      const nav = navigator as { audioSession?: { type?: string } };
+      if (nav.audioSession) nav.audioSession.type = "play-and-record";
+    } catch {}
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop());
     if (ctx) { try { await ctx.close(); } catch {} }
@@ -395,34 +444,65 @@ export async function startQt(): Promise<void> {
   // chance of a monitor path feeding back into the mic.
   const mute = ctx.createGain();
   mute.gain.value = 0;
-  let buf = new Float32Array(0);
+  micBuf = new Float32Array(0);
+  let lastLevelAt = 0;
   node.port.onmessage = (e) => {
     const chunk: Float32Array = e.data;
-    const merged = new Float32Array(buf.length + chunk.length);
-    merged.set(buf);
-    merged.set(chunk, buf.length);
-    buf = merged;
+    const merged = new Float32Array(micBuf.length + chunk.length);
+    merged.set(micBuf);
+    merged.set(chunk, micBuf.length);
+    micBuf = merged;
     // 100ms sends (was 250ms): the encoder emits on a 480ms hop, so every
     // ms shaved here comes straight off perceived word-follow latency.
-    if (buf.length >= ctx.sampleRate / 10) {
-      // Mic level for the UI meter — proves audio is flowing before the
-      // model says anything.
-      let sum = 0;
-      for (let i = 0; i < buf.length; i += 8) sum += buf[i] * buf[i];
-      const rms = Math.sqrt(sum / (buf.length / 8));
-      emit({ type: "ui-level", value: Math.min(1, rms * 6) });
-      worker?.postMessage({ type: "audio", samples: buf }, [buf.buffer]);
-      buf = new Float32Array(0);
+    if (micBuf.length >= ctx.sampleRate / 10) {
+      // Mic level for the UI meter — throttled to ~5Hz: every emit repaints
+      // the full mushaf tree, which is the main thread's biggest cost.
+      const now = Date.now();
+      if (now - lastLevelAt >= 200) {
+        lastLevelAt = now;
+        let sum = 0;
+        for (let i = 0; i < micBuf.length; i += 8) sum += micBuf[i] * micBuf[i];
+        const rms = Math.sqrt(sum / (micBuf.length / 8));
+        emit({ type: "ui-level", value: Math.min(1, rms * 6) });
+      }
+      worker?.postMessage({ type: "audio", samples: micBuf }, [micBuf.buffer]);
+      micBuf = new Float32Array(0);
     }
   };
   src.connect(node);
   node.connect(mute);
   mute.connect(ctx.destination);
   audio = { ctx, stream, src, node };
+  // If the OS kills capture (iOS ~30s background kill, Android 9+ background
+  // mic restriction) the track ends silently — surface it instead of leaving
+  // the orb saying "Reciting" over dead audio.
+  for (const t of stream.getTracks()) {
+    t.onended = () => {
+      if (listen === "listening" || listen === "paused") {
+        emit({ type: "ui-error", message: "Microphone was lost — tap record to restart." });
+        void stopQt();
+      }
+    };
+  }
+  ctx.onstatechange = () => {
+    if (ctx.state === "suspended" && listen === "listening" && !document.hidden)
+      void ctx.resume().catch(() => {});
+  };
 
   emit({ type: "ui-status", message: "Warming up the engine…" });
   workerRate = ctx.sampleRate;
   worker?.postMessage({ type: "init", sampleRate: ctx.sampleRate });
+  // Watchdog: if neither `ready` nor `error` arrives (wasm deadlock, hung
+  // init), the UI would spin "Warming up…" forever. 120s matches the
+  // dedicated-worker guard in deepGrade.
+  if (warmWatchdog) clearTimeout(warmWatchdog);
+  warmWatchdog = setTimeout(() => {
+    warmWatchdog = null;
+    if (listen === "warming") {
+      emit({ type: "ui-error", message: "Engine warmup timed out — try again." });
+      void stopQt();
+    }
+  }, 120_000);
 }
 
 // Recitation keeps running when the app is backgrounded — that's what the
@@ -447,7 +527,15 @@ if (typeof document !== "undefined") {
 
 export async function stopQt(): Promise<void> {
   disarmKeepAlive();
+  // Flush the batched-but-unsent tail (up to ~100ms — the end of the last
+  // word) BEFORE stop, else the last syllable is never judged.
+  if (micBuf.length) {
+    worker?.postMessage({ type: "audio", samples: micBuf }, [micBuf.buffer]);
+    micBuf = new Float32Array(0);
+  }
   worker?.postMessage({ type: "stop" });
+  if (deferTimer) { clearTimeout(deferTimer); deferTimer = null; }
+  if (warmWatchdog) { clearTimeout(warmWatchdog); warmWatchdog = null; }
   dropLock();
   const a = audio;
   audio = null;

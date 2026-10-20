@@ -41,12 +41,30 @@ export const ENGINE_ASSETS: EngineAsset[] = [
 export const ENGINE_CACHE = "quran-tester-engine-v1";
 const LS_KEY = "qt:engine-installed";
 
+// ort WASM runtime + capture worklet + basmala font — vendored statics,
+// prefetched into the bucket so "installed" means truly offline-ready.
+// (QPC2BSML holds the ﭑﭒﭓ glyph codepoints — without it every basmala
+// renders as plain letters offline.)
+const RUNTIME_FILES: [string, string][] = [
+  ["ort-wasm-simd-threaded.mjs", "/qt/ort-wasm-simd-threaded.mjs"],
+  ["ort-wasm-simd-threaded.wasm", "/qt/ort-wasm-simd-threaded.wasm"],
+  ["ort-wasm-simd-threaded.jsep.mjs", "/qt/ort-wasm-simd-threaded.jsep.mjs"],
+  ["ort-wasm-simd-threaded.jsep.wasm", "/qt/ort-wasm-simd-threaded.jsep.wasm"],
+  ["qt-capture.js", "/worklets/qt-capture.js"],
+  ["QPC2BSML.ttf", "/fonts/qpc2/QPC2BSML.ttf"],
+];
+
 export async function engineInstalled(): Promise<boolean> {
   if (typeof caches === "undefined") return false;
   if (localStorage.getItem(LS_KEY) !== "1") return false;
   const cache = await caches.open(ENGINE_CACHE);
   for (const a of ENGINE_ASSETS) {
     if (!(await cache.match(engineUrl(a)))) return false;
+  }
+  // Legacy installs predate the runtime prefetch — check those files too,
+  // or an offline first-run would fail on a missing ort wasm/worklet.
+  for (const [key] of RUNTIME_FILES) {
+    if (!(await cache.match(`${self.location.origin}/qt/${key}`))) return false;
   }
   return true;
 }
@@ -107,18 +125,12 @@ export async function downloadEngine(
     onProgress(done, total, a.file);
   }
 
-  // ort WASM runtime + capture worklet — vendored statics, prefetched into
-  // the bucket so "installed" means truly offline-ready. The worklet lives
-  // under /qt/ too because Capacitor's WebView has no reliable service
-  // worker: the session falls back to a blob: module URL built from this
-  // cached copy when the plain /worklets/ load fails.
-  const RUNTIME_FILES: [string, string][] = [
-    ["ort-wasm-simd-threaded.mjs", "/qt/ort-wasm-simd-threaded.mjs"],
-    ["ort-wasm-simd-threaded.wasm", "/qt/ort-wasm-simd-threaded.wasm"],
-    ["ort-wasm-simd-threaded.jsep.mjs", "/qt/ort-wasm-simd-threaded.jsep.mjs"],
-    ["ort-wasm-simd-threaded.jsep.wasm", "/qt/ort-wasm-simd-threaded.jsep.wasm"],
-    ["qt-capture.js", "/worklets/qt-capture.js"],
-  ];
+  // Vendored statics prefetched into the bucket so "installed" means truly
+  // offline-ready. The worklet lives under /qt/ too because Capacitor's
+  // WebView has no reliable service worker: the session falls back to a
+  // blob: module URL built from this cached copy when the plain /worklets/
+  // load fails. Doubles as a repair for installs predating these files —
+  // cached entries are skipped, only missing ones download.
   for (const [key, url] of RUNTIME_FILES) {
     const k = `${self.location.origin}/qt/${key}`;
     if (await cache.match(k)) continue;
@@ -126,6 +138,11 @@ export async function downloadEngine(
     if (!res.ok) throw new Error(`download failed: ${key}`);
     await cache.put(k, res);
   }
+
+  // ~160MB sits in best-effort storage by default — the browser can silently
+  // evict the whole bucket under disk pressure. Ask for durable storage;
+  // denial is normal (engagement heuristic) and harmless.
+  try { await navigator.storage.persist(); } catch {}
 
   localStorage.setItem(LS_KEY, "1");
 }

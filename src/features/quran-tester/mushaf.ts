@@ -142,8 +142,13 @@ export function warmMushaf(): void {
   const conn = (navigator as { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
   if (conn?.saveData || conn?.effectiveType === "slow-2g") return;
   let p = Math.max(1, Math.min(PAGE_COUNT + 1, Number(localStorage.getItem(WARM_KEY)) || 1));
-  if (p > PAGE_COUNT) return; // already fully warm
   warming = true;
+  // The small shared assets warm with the run — without these an offline
+  // first-open has page JSON but broken basmalas and no surah names.
+  void cachedAsset(`/qt/QPC2BSML.ttf`, `${FONT_BASE}/QPC2BSML.ttf`).catch(() => {});
+  void cachedAsset(`/qt/ayah-pages.json`, `/data/ayah-pages.json`).catch(() => {});
+  void cachedAsset(`/qt/surah-meta.json`, `/data/surah-meta.json`).catch(() => {});
+  if (p > PAGE_COUNT) { warming = false; return; } // already fully warm
 
   const tick = () => {
     if (p > PAGE_COUNT) { warming = false; return; }
