@@ -90,7 +90,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://fonts.openfreemap.org",
               "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tiles.openfreemap.org",
               "font-src 'self' data: https://fonts.openfreemap.org https://tiles.openfreemap.org",
-              "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com",
+              "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com https://*.r2.cloudflarestorage.com",
               "worker-src 'self' blob:",
               "media-src 'self' blob: https:",
               "frame-src https://challenges.cloudflare.com",

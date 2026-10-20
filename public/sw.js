@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v88";
+const CACHE_VERSION = "waqt-v89";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -31,7 +31,7 @@ const CURRENT_CSP = [
   "style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://fonts.openfreemap.org",
   "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tiles.openfreemap.org",
   "font-src 'self' data: https://fonts.openfreemap.org https://tiles.openfreemap.org",
-  "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com",
+  "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com https://*.r2.cloudflarestorage.com",
   "worker-src 'self' blob:",
   "media-src 'self' blob: https:",
   "frame-src https://challenges.cloudflare.com",
