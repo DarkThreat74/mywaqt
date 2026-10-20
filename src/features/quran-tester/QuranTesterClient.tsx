@@ -779,6 +779,27 @@ export default function QuranTesterClient() {
         expectSurah(s); // anchor ayah-order checks to wherever you actually are
         classifyJump({ s, a }); // sounds only on first locate / off-track jumps
       }
+    } else if (ev.type === "muta_approach") {
+      // Entering a word region that differs from a known look-alike ayah —
+      // heads-up only, no accusation (Qiraa's asymmetric rule).
+      const altS = Number(ev.altSurah), altA = Number(ev.altAyah);
+      setStatus(`Look-alike ahead — differs from ${surahName(altS)} ${altS}:${altA}`);
+    } else if (ev.type === "muta_diverge") {
+      // A wrong/unsure verdict landed inside a divergent region — the slip
+      // may be the look-alike's wording, so name the alternative now instead
+      // of waiting for the pause-timed structural pass.
+      const s = Number(ev.surah), a = Number(ev.ayah), w = Number(ev.word);
+      const altS = Number(ev.altSurah), altA = Number(ev.altAyah);
+      const k = `${s}:${a}:${w}`;
+      if (!suspectsRef.current.has(k)) {
+        const next = new Map(suspectsRef.current);
+        next.set(k, "similar_verse");
+        suspectsRef.current = next;
+        setSuspects(next);
+        sessionFlagsRef.current.add(k);
+      }
+      ding3();
+      setStatus(`Look-alike slip? — ${surahName(altS)} ${altS}:${altA} reads differently here`);
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {
       // While validating: surface what the engine decoded so a silent
       // session is visible instead of just spinning.

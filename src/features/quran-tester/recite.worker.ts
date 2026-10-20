@@ -38,6 +38,51 @@ let audioPending: { samples: Float32Array; rate: number }[] = [];
 let pendingCtl = 0;
 const MAX_BACKLOG_SEC = 1.5;
 
+// ── Mutashabihat divergence watcher ─────────────────────────────────────
+// Filled at init from structuralRules.looks. `muta_approach` fires once per
+// differing region when the cursor steps INTO it; `muta_diverge` fires when
+// a wrong/unsure verdict lands inside one — the page dings immediately
+// instead of waiting for the pause-timed structural pass.
+let divLooks: Map<string, { m: [number, number]; regions: number[][] }[]> | null = null;
+let divCorpus: { wordSurah: Int32Array; wordAyah: Int32Array; wordInAyah: Int32Array } | null = null;
+const mutaSeen = new Set<string>();
+
+function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: number; wordIndex?: number; changes?: { state?: string; wordIndex?: number }[] }) {
+  if (!divLooks || !divCorpus) return;
+  if (ev.type === "cursor" && ev.wordIndex != null) {
+    flagDiv(ev.surah!, ev.ayah!, ev.word!, "approach");
+  } else if (ev.type === "verdicts" && Array.isArray(ev.changes)) {
+    for (const v of ev.changes) {
+      if (v.state !== "wrong" && v.state !== "unsure" || v.wordIndex == null) continue;
+      flagDiv(
+        divCorpus.wordSurah[v.wordIndex],
+        divCorpus.wordAyah[v.wordIndex],
+        divCorpus.wordInAyah[v.wordIndex],
+        "diverge",
+      );
+    }
+  }
+}
+
+function flagDiv(s: number, a: number, w: number, mode: "approach" | "diverge") {
+  const rows = divLooks!.get(`${s}:${a}`);
+  if (!rows) return;
+  for (const row of rows) {
+    for (const r of row.regions) {
+      const i1 = r[1], i2 = r[2]; // [tag, i1, i2, j1, j2]
+      if (i2 <= i1 || w < i1 || w >= i2) continue;
+      const key = `${s}:${a}:${i1}:${row.m[0]}:${row.m[1]}:${mode}`;
+      if (mutaSeen.has(key)) continue;
+      mutaSeen.add(key);
+      postMessage({
+        type: mode === "approach" ? "muta_approach" : "muta_diverge",
+        surah: s, ayah: a, word: w + 1, // 1-based in-ayah for the page
+        altSurah: row.m[0], altAyah: row.m[1],
+      });
+    }
+  }
+}
+
 async function pumpAudio() {
   if (feeding) return;
   feeding = true;
@@ -137,7 +182,10 @@ async function init(sampleRate: number) {
     corpus,
     // Deliver events via the callback — feed()'s return carries the same
     // messages, but callback delivery can't be lost to a stalled promise.
-    onEvent: (m: unknown) => postMessage(m),
+    onEvent: (m: unknown) => {
+      try { watchMuta(m as Parameters<typeof watchMuta>[0]); } catch {}
+      postMessage(m);
+    },
     // Slip head: a logistic probe over the model's encoder frames that
     // scores each tracker's word span acoustically — catches wrong-sounding
     // words (kaf-vs-ha level substitutions) without waiting for word-level
@@ -187,6 +235,19 @@ async function init(sampleRate: number) {
   // repetition / skipped ayah) stream out as `correction` events. The page
   // turns them into yellow suspects; only user-confirmed mistakes persist.
   session.zipformer?.correction.setMode("correction");
+  // Mutashabihat watch — the engine already ships a per-word look-alike
+  // index (structural-index.json → structuralRules.looks: "s:a" → rows of
+  // {m:[s,a], regions:[[tag,i1,i2,j1,j2]]}, engine word space). The
+  // structural pass only flags at pauses; this watcher turns it live:
+  // entering a region that DIFFERS from a look-alike raises muta_approach,
+  // and a wrong/unsure verdict inside one raises muta_diverge instantly —
+  // the exact "wait for the word that differs, then ding" rule.
+  const zp = session.zipformer as unknown as {
+    engine?: { corpus?: { wordSurah: Int32Array; wordAyah: Int32Array; wordInAyah: Int32Array } };
+    structuralRules?: { looks?: Map<string, { m: [number, number]; regions: number[][] }[]> };
+  } | null;
+  divLooks = zp?.structuralRules?.looks ?? null;
+  divCorpus = zp?.engine?.corpus ?? null;
   // Balanced flagging: omissions flag when under half the word was heard,
   // substitutions need a clearly different word, vowel slips need a confident
   // decoder read. Tighter than this (0.15/0.9) made real slips never surface.
@@ -330,6 +391,7 @@ self.onmessage = (e: MessageEvent) => {
         postMessage({ type: "stopped" });
       } else if (m.type === "reset" && session) {
         audioPending = [];
+        mutaSeen.clear(); // fresh take — divergent regions may ding again
         session.reset();
       } else if (m.type === "correction-act" && session) {
         session.zipformer?.correction.act(m.action);
