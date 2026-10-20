@@ -178,9 +178,13 @@ export async function gradeAudio(
       const timer = setTimeout(() => reject(new Error("engine decode timed out")), 300_000);
       const h = (m: EngineMsg) => {
         if (m.type === "correction_note" && m.issue) {
+          // issue.word is 0-BASED in-ayah; wordIndex is GLOBAL — using the
+          // global index here rendered as "word 4523". Display space is
+          // 1-based; ayah-level kinds carry no word at all (0).
+          const ayahLevel = m.issue.kind === "possible_skipped_ayah" || m.issue.kind === "unclear_ayah";
           issues.push({
             surah: m.issue.surah, ayah: m.issue.ayah,
-            word: m.issue.wordIndex ?? m.issue.word ?? 0, kind: m.issue.kind,
+            word: ayahLevel ? 0 : (m.issue.word ?? 0) + 1, kind: m.issue.kind,
           });
         } else if (m.type === "verse_match" && m.surah) {
           const v = `${m.surah}:${m.ayah}`;
@@ -189,7 +193,7 @@ export async function gradeAudio(
           for (const c of m.changes) {
             wordVerdicts.push({
               wordIndex: c.wordIndex ?? 0,
-              surah: c.surah, ayah: c.ayah, word: c.word,
+              surah: c.surah, ayah: c.ayah, word: c.word + 1, // 0-based in-ayah → 1-based display
               state: c.state, gop: c.gop,
               vowelErrors: c.vowelErrors, slip: c.slip,
             });

@@ -96,9 +96,22 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
 
   const band = stageOf(report.score);
 
+  // The āyah-by-āyah view is the report's centerpiece — it must render
+  // whenever the engine produced ANY word-level data. Prefer measured
+  // spans (timing + madds); fall back to bare verdicts so the breakdown
+  // never disappears when tracker-trail internals are missing.
+  const displayWords: WordSpan[] = deep?.words?.length
+    ? deep.words
+    : (deep?.wordVerdicts ?? [])
+        .filter((v) => v.surah != null && v.ayah != null && v.word != null)
+        .map((v) => ({
+          surah: v.surah!, ayah: v.ayah!, word: v.word!, wordIndex: v.wordIndex,
+          startSec: 0, endSec: 0, heard: "", madds: [], ghunnahMs: 0,
+        }));
+
   // Group measured words by āyah, in recitation order.
   const ayahGroups: { s: number; a: number; words: WordSpan[] }[] = [];
-  for (const w of deep?.words ?? []) {
+  for (const w of displayWords) {
     const g = ayahGroups[ayahGroups.length - 1];
     if (g && g.s === w.surah && g.a === w.ayah) g.words.push(w);
     else ayahGroups.push({ s: w.surah, a: w.ayah, words: [w] });
@@ -127,7 +140,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
 
       {/* the recitation itself — every matched āyah, word by word. Tap a
           word for its pitch span, elongations, and what the engine heard. */}
-      {deep?.words && deep.words.length > 0 && (
+      {deep && ayahGroups.length > 0 && (
         <>
           <h2 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
             Word by word · tap any word
@@ -223,11 +236,13 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
                   <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>
                     {sel.surah}:{sel.ayah} · word {sel.word}
                   </p>
-                  <p className="text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                    {sel.startSec.toFixed(1)}–{sel.endSec.toFixed(1)}s · heard “{sel.heard}”
-                  </p>
+                  {(sel.endSec > sel.startSec || sel.heard) && (
+                    <p className="text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                      {sel.startSec.toFixed(1)}–{sel.endSec.toFixed(1)}s · heard “{sel.heard}”
+                    </p>
+                  )}
                 </div>
-                {frames && (
+                {frames && sel.endSec > sel.startSec && (
                   <div className="mt-2">
                     <SpanPitch frames={frames} t0={(recT0 ?? 0) + sel.startSec} t1={(recT0 ?? 0) + sel.endSec} />
                   </div>
@@ -268,13 +283,11 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
         </>
       )}
 
-      {/* deep-grade verdicts without word spans (engine fell back) */}
-      {deep && !deep.words?.length && deep.wordVerdicts.length > 0 && (
+      {/* no word-level data at all — say so plainly instead of a blank gap */}
+      {deep && ayahGroups.length === 0 && (
         <div className="mt-4 rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
           <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            {deep.wordVerdicts.filter((w) => !verdictBad(w)).length}/{deep.wordVerdicts.length} words clean
-            {deep.verses.length ? ` · ${deep.verses.join(", ")}` : ""}
-            {deep.issues.length ? ` · ${deep.issues.length} flag${deep.issues.length === 1 ? "" : "s"}` : ""}
+            The engine couldn&rsquo;t place any words in this take{deep.verses.length ? ` — nearest match ${deep.verses.join(", ")}` : ""}.
           </p>
         </div>
       )}

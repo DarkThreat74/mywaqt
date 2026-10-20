@@ -5,7 +5,7 @@ import Link from "next/link";
 import { BookOpen, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, Home, ListChecks, Loader2, Mic, MicOff, Pause, Play, Settings, Square, Trash2, User2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
 import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, loadSurahMeta, warmMushaf, type AyahPages, type MushafPage, type SurahMetaEntry } from "./mushaf";
-import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
+import { removeMistakeAt, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import {
   buildIndex, coveredInSpan, distOf, JUZ_START, keyOf, loadCoverage, loadPlan, markCovered,
   savePlan, stampDay, isDayDone, maybeKhatma, todayKey, todaySpan,
@@ -873,6 +873,41 @@ export default function QuranTesterClient() {
   // textually after onEngineEvent so the binding is already declared.
   useEffect(() => { handlerRef.current = onEngineEvent; });
 
+  /** Adjacent words in one ayah are ONE mistake — group "s:a:w" entries
+   *  into contiguous runs so two neighbouring marks show as a single row,
+   *  not two separate mistakes. Kinds stay separate (a peek never merges
+   *  into a flagged mistake). */
+  function groupRuns<T extends { s: number; a: number; w: number; kind: string }>(items: T[]) {
+    const byKey = new Map<string, T[]>();
+    for (const it of items) {
+      const k = `${it.s}:${it.a}:${it.kind}`;
+      const arr = byKey.get(k) ?? [];
+      arr.push(it);
+      byKey.set(k, arr);
+    }
+    const runs: { s: number; a: number; kind: string; items: T[] }[] = [];
+    for (const list of byKey.values()) {
+      list.sort((x, y) => x.w - y.w);
+      let run: T[] = [];
+      for (const it of list) {
+        if (run.length && it.w !== run[run.length - 1].w + 1 && !(it.w === 0 || run[0].w === 0)) {
+          runs.push({ s: run[0].s, a: run[0].a, kind: run[0].kind, items: run });
+          run = [];
+        }
+        run.push(it);
+      }
+      if (run.length) runs.push({ s: run[0].s, a: run[0].a, kind: run[0].kind, items: run });
+    }
+    return runs.sort((x, y) => x.s - y.s || x.a - y.a || x.items[0].w - y.items[0].w);
+  }
+
+  /** "word 4" / "words 3–5" / "whole ayah" for a run. */
+  function runLabel(items: { w: number }[]) {
+    const ws = items.map((i) => i.w);
+    if (ws.includes(0)) return "whole ayah";
+    return ws.length > 1 ? `words ${ws[0]}–${ws[ws.length - 1]}` : `word ${ws[0]}`;
+  }
+
   const issueLabel = (kind: string) =>
     ({
       possible_omission: "possible missed word",
@@ -1019,7 +1054,9 @@ export default function QuranTesterClient() {
   }
 
   async function deleteMistake(m: Mistake) {
-    if (m.id) await removeMistake(m.id).catch(() => {});
+    // Always delete by position — rows confirmed this session carry no id,
+    // so an id-only delete would clear the map and resurrect on reload.
+    await removeMistakeAt(m.surah, m.ayah, m.word).catch(() => {});
     const key = `${m.surah}:${m.ayah}:${m.word}`;
     setConfirmed((prev) => { const n = new Map(prev); n.delete(key); return n; });
   }
@@ -1629,11 +1666,14 @@ export default function QuranTesterClient() {
               </p>
             ) : (
               <div className="mt-3">
-                {[...suspects.entries()].map(([key, kind]) => {
+                {groupRuns([...suspects.entries()].map(([key, kind]) => {
                   const [s, a, w] = key.split(":").map(Number);
+                  return { s, a, w, kind };
+                })).map((run) => {
+                  const { s, a } = run;
                   return (
                     <div
-                      key={key}
+                      key={`${s}:${a}:${run.items[0].w}-${run.items[run.items.length - 1].w}:${run.kind}`}
                       className="flex items-center gap-3 border-b py-2.5 last:border-b-0"
                       style={{ borderColor: "var(--color-paper-3)" }}
                     >
@@ -1642,23 +1682,23 @@ export default function QuranTesterClient() {
                         className="min-w-0 flex-1 text-left"
                       >
                         <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                          {s}:{a}{w > 0 ? ` · word ${w}` : ""}
+                          {surahName(s)} {s}:{a} · {runLabel(run.items)}
                         </p>
-                        <p className="text-[11px]" style={{ color: "#c9a227" }}>{issueLabel(kind)}</p>
+                        <p className="text-[11px]" style={{ color: "#c9a227" }}>{issueLabel(run.kind)}</p>
                       </button>
                       <button
-                        onClick={() => void confirmSpot({ s, a, w, kind })}
+                        onClick={() => { for (const it of run.items) void confirmSpot({ s: it.s, a: it.a, w: it.w, kind: it.kind }); }}
                         className="flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition-opacity hover:opacity-80"
                         style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
-                        aria-label={`Confirm mistake at ${s}:${a} word ${w}`}
+                        aria-label={`Confirm mistake at ${s}:${a} ${runLabel(run.items)}`}
                       >
                         <Check className="h-3 w-3" /> Confirm
                       </button>
                       <button
-                        onClick={() => void dismissSpot({ s, a, w })}
+                        onClick={() => { for (const it of run.items) void dismissSpot({ s: it.s, a: it.a, w: it.w }); }}
                         className="rounded-full p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
                         style={{ color: "var(--color-ink-muted)" }}
-                        aria-label={`Dismiss flag at ${s}:${a} word ${w}`}
+                        aria-label={`Dismiss flag at ${s}:${a} ${runLabel(run.items)}`}
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -1900,25 +1940,25 @@ export default function QuranTesterClient() {
               </p>
             ) : (
               <div className="mt-3">
-                {[...confirmed.values()].map((m) => (
+                {groupRuns([...confirmed.values()].map((m) => ({ s: m.surah, a: m.ayah, w: m.word, kind: m.kind, m }))).map((run) => (
                   <div
-                    key={`${m.surah}:${m.ayah}:${m.word}`}
+                    key={`${run.s}:${run.a}:${run.items[0].w}-${run.items[run.items.length - 1].w}:${run.kind}`}
                     className="flex items-center gap-3 border-b py-2.5 last:border-b-0"
                     style={{ borderColor: "var(--color-paper-3)" }}
                   >
                     <button
-                      onClick={() => { goToAyah(m.surah, m.ayah); setReviewOpen(false); }}
+                      onClick={() => { goToAyah(run.s, run.a); setReviewOpen(false); }}
                       className="min-w-0 flex-1 text-left"
                     >
                       <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                        {m.surah}:{m.ayah} · word {m.word}
+                        {surahName(run.s)} {run.s}:{run.a} · {runLabel(run.items)}
                       </p>
-                      <p className="text-[11px]" style={{ color: m.kind === "peek" ? "var(--color-accent)" : "#b34a3a" }}>
-                        {m.kind === "peek" ? "peeked" : issueLabel(m.kind)}
+                      <p className="text-[11px]" style={{ color: run.kind === "peek" ? "var(--color-accent)" : "#b34a3a" }}>
+                        {run.kind === "peek" ? "peeked" : issueLabel(run.kind)}
                       </p>
                     </button>
                     <button
-                      onClick={() => void deleteMistake(m)}
+                      onClick={() => { for (const it of run.items) void deleteMistake(it.m); }}
                       className="rounded-full p-2 transition-colors hover:bg-[var(--color-paper-2)]"
                       style={{ color: "var(--color-ink-muted)" }}
                       aria-label="Remove"

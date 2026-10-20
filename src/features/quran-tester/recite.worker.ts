@@ -279,7 +279,7 @@ self.onmessage = (e: MessageEvent) => {
           for (const [local, chars] of [...byWord.entries()].sort((a, b) => a[0] - b[0])) {
             const gi = first + local;
             words.push({
-              surah: corpus.wordSurah[gi], ayah: corpus.wordAyah![gi], word: corpus.wordInAyah![gi],
+              surah: corpus.wordSurah[gi], ayah: corpus.wordAyah![gi], word: corpus.wordInAyah![gi] + 1,
               wordIndex: gi, chars,
             });
           }

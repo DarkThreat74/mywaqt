@@ -92,11 +92,22 @@ export async function syncMistakes(): Promise<Mistake[]> {
 export async function removeMistake(id: number): Promise<void> {
   const row = await db.mistakes.get(id);
   await db.mistakes.delete(id);
-  if (row) {
-    void fetch("/api/quran-tester/mistakes", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ surah: row.surah, ayah: row.ayah, word: row.word }),
-    }).catch(() => {});
-  }
+  if (row) await removeRemote(row);
+}
+
+/** Delete by position — rows stored without an id (in-memory confirms,
+ *  manual marks) would otherwise only vanish from state and resurrect on
+ *  the next load. */
+export async function removeMistakeAt(surah: number, ayah: number, word: number): Promise<void> {
+  const row = await db.mistakes.where("[surah+ayah+word]").equals([surah, ayah, word]).first();
+  if (row) await db.mistakes.delete(row.id!);
+  await removeRemote({ surah, ayah, word });
+}
+
+async function removeRemote(row: { surah: number; ayah: number; word: number }) {
+  void fetch("/api/quran-tester/mistakes", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ surah: row.surah, ayah: row.ayah, word: row.word }),
+  }).catch(() => {});
 }
