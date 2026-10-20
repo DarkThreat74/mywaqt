@@ -70,6 +70,7 @@ export async function POST(request: NextRequest) {
 
     const [claimed] = await db.update(schema.reciteClips).set({
       processingStatus: "processing",
+      processingStage: "starting",
       processedAt: startedAt,
       processingError: null,
     }).where(and(
@@ -91,6 +92,7 @@ export async function POST(request: NextRequest) {
         try {
           await db.update(schema.reciteClips).set({
             processingStatus: "failed",
+            processingStage: null,
             processingError: `Processing timed out after ${maxDuration - 30}s.`,
           }).where(eq(schema.reciteClips.id, clipId));
         } catch (e) {
@@ -102,14 +104,20 @@ export async function POST(request: NextRequest) {
       await mkdir(tmpDir, { recursive: true });
       const inputPath = join(tmpDir, `clip-input-${clipId}-${Date.now()}`);
 
+      const stage = (s: string) =>
+        db.update(schema.reciteClips).set({ processingStage: s }).where(eq(schema.reciteClips.id, clipId)).catch(() => {});
+
       try {
+        await stage("downloading");
         await downloadObjectToFile(clip.storageKey!, inputPath);
 
+        await stage("filtering + encoding");
         const result = await compressAudioFile(inputPath, 0);
 
         const processedKey = clip.storageKey!
           .replace(/^recite-clips\//, "recite-clips/processed/")
           .replace(/\.\w+$/, ".opus");
+        await stage("uploading");
         await uploadBuffer(processedKey, result.buffer, "audio/ogg");
 
         // One-time analysis: locate the passage, measure per-word tajwid.
@@ -118,6 +126,7 @@ export async function POST(request: NextRequest) {
         let locatedPassage: string | null = null;
         let autoTitle: string | null = null;
         let guessedStyle: string | null = null;
+        await stage("analyzing recitation");
         try {
           const a = await analyzeClipAudio(inputPath);
           analysis = a.analysis;
@@ -133,6 +142,7 @@ export async function POST(request: NextRequest) {
 
         await db.update(schema.reciteClips).set({
           processingStatus: "ready",
+          processingStage: null,
           processedStorageKey: processedKey,
           processedAt: new Date(),
           duration: result.duration || clip.duration,
@@ -155,6 +165,7 @@ export async function POST(request: NextRequest) {
         try {
           await db.update(schema.reciteClips).set({
             processingStatus: "failed",
+            processingStage: null,
             processingError: errorMsg.slice(0, 500),
           }).where(eq(schema.reciteClips.id, clipId));
         } catch (updateError) {

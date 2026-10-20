@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
@@ -31,10 +31,16 @@ export async function GET(request: NextRequest) {
       const [clip] = await db.select({
         storageKey: schema.reciteClips.storageKey,
         processedStorageKey: schema.reciteClips.processedStorageKey,
-      }).from(schema.reciteClips).where(and(
-        eq(schema.reciteClips.id, streamId),
-        eq(schema.reciteClips.processingStatus, "published"),
-      )).limit(1);
+        processingStatus: schema.reciteClips.processingStatus,
+      }).from(schema.reciteClips).where(eq(schema.reciteClips.id, streamId)).limit(1);
+      // Unpublished clips stream for admins only (editor preview).
+      if (clip && clip.processingStatus !== "published") {
+        const [u] = await db.select({ role: schema.users.role })
+          .from(schema.users).where(eq(schema.users.id, session.userId)).limit(1);
+        if (u?.role !== "admin") {
+          return NextResponse.json({ error: "Clip audio not found." }, { status: 404 });
+        }
+      }
       const key = clip?.processedStorageKey || clip?.storageKey;
       if (!key) return NextResponse.json({ error: "Clip audio not found." }, { status: 404 });
       const signed = await getStreamUrl(key);

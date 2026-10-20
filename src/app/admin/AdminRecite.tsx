@@ -15,6 +15,7 @@ interface AdminClip {
   fileSize: number | null;
   duration: number | null;
   processingStatus: string;
+  processingStage: string | null;
   processingError: string | null;
   addedAt: string;
   publishedAt: string | null;
@@ -59,6 +60,11 @@ export function AdminRecite() {
       const list = Array.isArray(data.clips) ? (data.clips as AdminClip[]) : [];
       setClips(list);
       setError(null);
+      // Keep polling while anything is mid-pipeline (survives page reloads).
+      if (pollRef.current) clearTimeout(pollRef.current);
+      if (list.some((c) => c.processingStatus === "pending" || c.processingStatus === "processing")) {
+        pollRef.current = setTimeout(() => void load(), 4000);
+      }
       return list;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load clips.");
@@ -255,6 +261,7 @@ export function AdminRecite() {
 
   return (
     <div className="space-y-4">
+      <style>{`@keyframes recite-stage-slide { 0% { margin-left: 0 } 50% { margin-left: 65% } 100% { margin-left: 0 } }`}</style>
       {/* Upload form */}
       <form
         onSubmit={(e) => void upload(e)}
@@ -357,6 +364,23 @@ export function AdminRecite() {
                         <span style={{ color: "var(--color-success)" }}> · {c.analysis.words.length} words analyzed</span>
                       )}
                     </p>
+                    {(c.processingStatus === "processing" || c.processingStatus === "pending") && (
+                      <div className="mt-2">
+                        <div className="h-1 w-full max-w-xs overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}>
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: "35%",
+                              backgroundColor: "var(--color-accent)",
+                              animation: "recite-stage-slide 1.4s ease-in-out infinite",
+                            }}
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                          {c.processingStatus === "pending" ? "queued" : (c.processingStage || "working…")}
+                        </p>
+                      </div>
+                    )}
                     {c.processingError && (
                       <p className="mt-1 text-[11px]" style={{ color: "var(--color-error)" }}>{c.processingError}</p>
                     )}

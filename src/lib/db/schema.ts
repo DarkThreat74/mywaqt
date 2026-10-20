@@ -787,6 +787,7 @@ export const reciteClips = pgTable('recite_clips', {
   analysis: jsonb('analysis'),
   // Processing pipeline status: pending → processing → ready → published / failed
   processingStatus: text('processing_status').default('pending').notNull(),
+  processingStage: text('processing_stage'),
   processedAt: timestamp('processed_at', { withTimezone: true }),
   publishedAt: timestamp('published_at', { withTimezone: true }),
   processingError: text('processing_error'),
