@@ -130,7 +130,7 @@ index a7301ef..c622cc4 100644
              && (th.settleGop || r.rule !== 'gop'))
              .sort((a, b) => a.issue.wordIndex - b.issue.wordIndex);
 diff --git a/dist/recitation/engine.js b/dist/recitation/engine.js
-index 0a41219..f558f80 100644
+index 0a41219..5b0e5c9 100644
 --- a/dist/recitation/engine.js
 +++ b/dist/recitation/engine.js
 @@ -156,6 +156,7 @@ export class RecitationEngine {
@@ -141,7 +141,7 @@ index 0a41219..f558f80 100644
          this.tracer.anchorAyahEnd = this.correction ? this.cfg.anchorAyahEnd : 0;
          if (win)
              this.expectedLocked = true;
-@@ -275,6 +276,47 @@ export class RecitationEngine {
+@@ -275,6 +276,57 @@ export class RecitationEngine {
          }
          return events;
      }
@@ -150,6 +150,10 @@ index 0a41219..f558f80 100644
 +     * mutashabih jump that has no divergent-tail evidence — the
 +     * shared-prefix lure case. */
 +    looks = null;
++    /** Ayahs in identical-text families (the `ident` guard set) — injected
++     * alongside `looks`. An ident→ident move is unprovable by definition,
++     * and the resting spot renders the same text anyway, so it's vetoed. */
++    idents = null;
 +    /** False only when the relocation hit is a look-alike partner AND the
 +     * recent decode contains no word from EITHER side's divergent region —
 +     * i.e. the match is entirely inside the shared span, which cannot
@@ -159,6 +163,12 @@ index 0a41219..f558f80 100644
 +        if (!this.looks)
 +            return true;
 +        const curA = this.corpus.wordAyah[this.tracker.cursorWordIndex];
++        // ident→ident: undecidable move — the resting spot already shows
++        // the exact text being recited, so relocating buys nothing but a
++        // spurious "you moved" event.
++        if (this.idents?.has(`${this.tracker.surah}:${curA}`) &&
++            this.idents.has(`${hit.surah}:${hit.ayah}`))
++            return false;
 +        const rows = this.looks.get(`${this.tracker.surah}:${curA}`) ?? [];
 +        const row = rows.find((r) => r.m[0] === hit.surah && r.m[1] === hit.ayah);
 +        if (!row)
@@ -189,7 +199,7 @@ index 0a41219..f558f80 100644
      maybeRelocate() {
          if (!this.tracker || this.buffer.length < this.cfg.searchMinChars)
              return null;
-@@ -293,10 +335,13 @@ export class RecitationEngine {
+@@ -293,10 +345,13 @@ export class RecitationEngine {
          if (hit &&
              rate !== null &&
              rate >= this.cfg.lostRate &&
@@ -205,7 +215,7 @@ index 0a41219..f558f80 100644
              const from = {
                  surah: this.tracker.surah,
                  ayah: this.corpus.wordAyah[this.tracker.cursorWordIndex],
-@@ -424,6 +469,7 @@ export class RecitationEngine {
+@@ -424,6 +479,7 @@ export class RecitationEngine {
          const tracker = new Tracker(this.corpus, this.index.table, surah, wordIndex, this.cfg, win && win.surah === surah ? win : null);
          tracker.feed(chars);
          const tracer = new VerdictTracer(tracker, this.index.table, this.cfg);
@@ -227,7 +237,7 @@ index 24b499d..6d4790b 100644
      private finish;
      private makeEngine;
 diff --git a/dist/recitation/session.js b/dist/recitation/session.js
-index 3d7030c..3d17329 100644
+index 3d7030c..a5f0b1d 100644
 --- a/dist/recitation/session.js
 +++ b/dist/recitation/session.js
 @@ -33,7 +33,7 @@ const TAIL_SECONDS = 2.0;
@@ -257,18 +267,23 @@ index 3d7030c..3d17329 100644
              return;
          }
          if (!this.structuralRules || opts.index) {
-@@ -207,6 +211,10 @@ export class ZipformerSession {
+@@ -207,6 +211,15 @@ export class ZipformerSession {
          this.svOn = sv;
          this.svNearSkip = opts.suppressNearSkip ?? true;
          this.structuralLive = opts.timing === "pause";
 +        // Hand the live engine the look-alike map so maybeRelocate can veto
 +        // shared-prefix lures and tracers can dual-score divergent words.
-+        if (this.engine)
-+            this.engine.looks = this.structuralRules?.looks ?? null;
++        // `both` is the bidirectional view (the raw index only runs
++        // source→target — standing on a look-alike target needs the
++        // reversed rows or the features see nothing).
++        if (this.engine) {
++            this.engine.looks = this.structuralRules?.both ?? this.structuralRules?.looks ?? null;
++            this.engine.idents = this.structuralRules?.ident ?? null;
++        }
      }
      static freshStructural() {
          return {
-@@ -267,6 +275,8 @@ export class ZipformerSession {
+@@ -267,6 +280,8 @@ export class ZipformerSession {
          this.accumulated = new Map();
          this.emitted = new Set();
          this.transcriptParts = [];
@@ -277,7 +292,7 @@ index 3d7030c..3d17329 100644
          this.lastCursor = null;
          this.lastMatch = null;
          this.ayahIssuesRaised = new Set();
-@@ -340,6 +350,14 @@ export class ZipformerSession {
+@@ -340,6 +355,14 @@ export class ZipformerSession {
              out.push(...this.raiseStructural());
          return this.dispatch(out);
      }
@@ -292,15 +307,16 @@ index 3d7030c..3d17329 100644
      correctionMessage() {
          const issue = this.correction.state.issue;
          return { type: 'correction', state: { ...this.correction.state },
-@@ -436,6 +454,7 @@ export class ZipformerSession {
+@@ -436,6 +459,8 @@ export class ZipformerSession {
          engine.startSearch();
          engine.onBeforeRelocate = () => this.dumpTallies();
          this.attachPosteriors(engine);
-+        engine.looks = this.structuralRules?.looks ?? null;
++        engine.looks = this.structuralRules?.both ?? this.structuralRules?.looks ?? null;
++        engine.idents = this.structuralRules?.ident ?? null;
          engine.setExpected(this.expected);
          return engine;
      }
-@@ -540,12 +559,13 @@ export class ZipformerSession {
+@@ -540,12 +565,13 @@ export class ZipformerSession {
                  if (raised)
                      out.push(this.correctionMessage());
              }
@@ -315,7 +331,7 @@ index 3d7030c..3d17329 100644
          for (const ev of this.engine.feed(tokens, this.decoder.framesDecoded)) {
              out.push(...this.handle(ev));
          }
-@@ -565,16 +585,22 @@ export class ZipformerSession {
+@@ -565,16 +591,22 @@ export class ZipformerSession {
              else
                  out.push(...this.checkSkippedAyah(false));
          }
@@ -341,7 +357,7 @@ index 3d7030c..3d17329 100644
                  confidence: 1,
              });
          }
-@@ -734,12 +760,17 @@ export class ZipformerSession {
+@@ -734,12 +766,17 @@ export class ZipformerSession {
              case "lost": {
                  // Transient: the tracker keeps its place. Losing and recovering inside
                  // one surah is exactly the unclear-ayah case, so the match chain stays.
@@ -360,6 +376,42 @@ index 3d7030c..3d17329 100644
                  break;
              }
              case "located": {
+diff --git a/dist/recitation/structural.js b/dist/recitation/structural.js
+index df64e95..7a33f39 100644
+--- a/dist/recitation/structural.js
++++ b/dist/recitation/structural.js
+@@ -254,6 +254,31 @@ export class StructuralRules {
+             }));
+         }
+         this.ident = new Set(index.ident);
++        // Bidirectional view: `looks` only runs source→target — 1,183
++        // look-alike targets have no key of their own, so standing ON one
++        // gave the divergence features nothing to see. `both` adds reversed
++        // rows keyed by the target (same contract: row.m = the partner,
++        // regions [i1,i2) on this side, [j1,j2) on the partner side).
++        // `looks` itself is left untouched for variantsFor/similarVerse.
++        this.both = new Map();
++        for (const [key, rows] of this.looks)
++            this.both.set(key, rows.slice());
++        for (const [key, rows] of this.looks) {
++            const [ks, ka] = key.split(":");
++            for (const row of rows) {
++                const mk = `${row.m[0]}:${row.m[1]}`;
++                const rev = {
++                    m: [Number(ks), Number(ka)],
++                    regions: row.regions.map((r) => [r[0], r[3], r[4], r[1], r[2]]),
++                };
++                const arr = this.both.get(mk) ?? [];
++                const sig = (x) => `${x.m.join(":")}|${x.regions.map((r) => r.join(",")).join(";")}`;
++                if (!arr.some((x) => sig(x) === sig(rev))) {
++                    arr.push(rev);
++                    this.both.set(mk, arr);
++                }
++            }
++        }
+     }
+     has(s, a) {
+         return this.corpus.hasAyah(s, a);
 diff --git a/dist/recitation/tracker.js b/dist/recitation/tracker.js
 index 5c554eb..7232ba5 100644
 --- a/dist/recitation/tracker.js

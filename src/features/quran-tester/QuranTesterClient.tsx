@@ -144,6 +144,9 @@ export default function QuranTesterClient() {
   // known mutashabih of the anchor, the move gets flagged as suspect, not
   // silently accepted: confusable verses are the #1 false-jump source.
   const mutaRef = useRef<Map<string, Set<string>> | null>(null);
+  // Identical-text ayahs (refrain families) — relocations between them are
+  // undecidable, so they never earn a similar_verse accusation.
+  const identRef = useRef<Set<string>>(new Set());
   const heardRef = useRef<{ loc: Loc | null; max: number; total: number }>({ loc: null, max: 0, total: 0 });
   const sessionCovRef = useRef<Set<string>>(new Set());
   const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -412,7 +415,7 @@ export default function QuranTesterClient() {
     // there by shared wording — flag it yellow so you can confirm it was a
     // slip, on top of the usual jump question.
     const muta = mutaRef.current;
-    if (muta?.get(keyOf(anchor))?.has(keyOf(loc))) {
+    if (muta?.get(keyOf(anchor))?.has(keyOf(loc)) && !identRef.current.has(keyOf(loc))) {
       const k = `${keyOf(loc)}:0`;
       if (!suspectsRef.current.has(k)) {
         const next = new Map(suspectsRef.current);
@@ -799,7 +802,11 @@ export default function QuranTesterClient() {
         sessionFlagsRef.current.add(k);
       }
       ding3();
-      setStatus(`Look-alike slip? — ${surahName(altS)} ${altS}:${altA} reads differently here`);
+      setStatus(ev.certain
+        ? `You recited ${surahName(altS)} ${altS}:${altA}'s wording here`
+        : `Look-alike slip? — ${surahName(altS)} ${altS}:${altA} reads differently here`);
+    } else if (ev.type === "muta_ident") {
+      identRef.current = new Set((ev.ayahs as string[]) ?? []);
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {
       // While validating: surface what the engine decoded so a silent
       // session is visible instead of just spinning.

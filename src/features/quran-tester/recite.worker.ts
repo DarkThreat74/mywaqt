@@ -81,7 +81,9 @@ function flagDiv(s: number, a: number, w: number, mode: "approach" | "diverge") 
   for (const row of rows) {
     for (const r of row.regions) {
       const i1 = r[1], i2 = r[2]; // [tag, i1, i2, j1, j2]
-      if (i2 <= i1 || w < i1 || w >= i2) continue;
+      // Approach fires a word EARLY — the heads-up has to land before the
+      // divergent word is recited, not as it arrives.
+      if (i2 <= i1 || w < i1 - (mode === "approach" ? 1 : 0) || w >= i2) continue;
       const key = `${s}:${a}:${i1}:${row.m[0]}:${row.m[1]}:${mode}`;
       if (mutaSeen.has(key)) continue;
       mutaSeen.add(key);
@@ -255,10 +257,15 @@ async function init(sampleRate: number) {
   // the exact "wait for the word that differs, then ding" rule.
   const zp = session.zipformer as unknown as {
     engine?: { corpus?: { wordSurah: Int32Array; wordAyah: Int32Array; wordInAyah: Int32Array } };
-    structuralRules?: { looks?: Map<string, { m: [number, number]; regions: number[][] }[]> };
+    structuralRules?: { looks?: Map<string, { m: [number, number]; regions: number[][] }[]>; both?: Map<string, { m: [number, number]; regions: number[][] }[]>; ident?: Set<string> };
   } | null;
-  divLooks = zp?.structuralRules?.looks ?? null;
+  divLooks = zp?.structuralRules?.both ?? zp?.structuralRules?.looks ?? null;
   divCorpus = zp?.engine?.corpus ?? null;
+  // Identical-text ayahs (refrains like Ar-Rahman's) — relocations and
+  // flags between them are undecidable, so the page suppresses the
+  // similar_verse accusation on landings inside this set.
+  if (zp?.structuralRules?.ident?.size)
+    postMessage({ type: "muta_ident", ayahs: [...zp.structuralRules.ident] });
   // Balanced flagging: omissions flag when under half the word was heard,
   // substitutions need a clearly different word, vowel slips need a confident
   // decoder read. Tighter than this (0.15/0.9) made real slips never surface.
