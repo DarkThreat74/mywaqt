@@ -14,7 +14,6 @@
  * Style is a tempo heuristic (median phoneme gap), not a certainty — the
  * admin can still override the column.
  */
-import * as ort from "onnxruntime-node";
 import { createRecognitionSession, type RecognitionSession } from "@tilawa/core";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -45,6 +44,9 @@ function decodePcm(path: string): Float32Array {
 }
 
 async function makeSession(onEvent: (m: Record<string, unknown>) => void): Promise<RecognitionSession> {
+  // Lazy import — if the native binding is missing in this runtime, analysis
+  // fails but the clip still compresses and goes ready.
+  const ort = await import("onnxruntime-node");
   const model = readFileSync(join(ENGINE_DIR, "model.onnx"));
   const corpus = JSON.parse(readFileSync(join(ENGINE_DIR, "corpus.json"), "utf8"));
   const session = await createRecognitionSession({

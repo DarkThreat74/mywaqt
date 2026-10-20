@@ -19,6 +19,15 @@ const nextConfig: NextConfig = {
   // Without this, ffmpeg-static resolves to a wrong path on Vercel and
   // the binary is missing from the deployed function.
   serverExternalPackages: ["ffmpeg-static", "fluent-ffmpeg", "onnxruntime-node"],
+  // The tracer misses onnxruntime-node's native .node/.so binaries — force them
+  // into the clip-processing function (pnpm symlink + real path both covered).
+  outputFileTracingIncludes: {
+    "/api/admin/recite-clips/process": [
+      "./node_modules/onnxruntime-node/bin/**/*",
+      "./node_modules/onnxruntime-node/dist/**/*",
+      "./node_modules/.pnpm/onnxruntime-node@*/node_modules/onnxruntime-node/**/*",
+    ],
+  },
   // Image optimization
   images: {
     formats: ["image/avif", "image/webp"],
