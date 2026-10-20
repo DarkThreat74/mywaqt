@@ -156,25 +156,40 @@ await ensureAssets();
 const pcm = decodePcm(audioPath!);
 console.log(`decoded ${(pcm.length / 16000).toFixed(1)}s of audio`);
 
-// holder object: TS doesn't narrow property reads across the closure below
-const found = { loc: null as { surah: number; ayah: number; lastAyah: number } | null };
-const verses = new Set<string>();
+// Confirmed hits (verse_match/relocated/cursor) drive the range; speculative
+// verse_candidate is the fallback when nothing confirmed.
+const strong: { surah: number; ayah: number }[] = [];
+const weak: { surah: number; ayah: number }[] = [];
+const evTally: Record<string, number> = {};
 const s1 = await makeSession((m) => {
-  if (m.type === "located" || m.type === "relocated") {
-    const loc = m as { from?: { surah: number; ayah: number }; to?: { surah: number; ayah: number } };
-    if (loc.from) found.loc = { surah: loc.from.surah, ayah: loc.from.ayah, lastAyah: loc.from.ayah };
+  evTally[String(m.type)] = (evTally[String(m.type)] ?? 0) + 1;
+  if (m.type === "relocated") {
+    const to = (m as { to?: { surah: number; ayah: number } }).to;
+    if (to) strong.push({ surah: to.surah, ayah: to.ayah });
+    return;
   }
-  if (m.type === "cursor") {
-    const c = m as { surah: number; ayah: number };
-    if (found.loc && c.surah === found.loc.surah) found.loc.lastAyah = Math.max(found.loc.lastAyah, c.ayah);
+  if (m.type === "verse_match" || m.type === "located" || m.type === "cursor") {
+    const cands = (m.candidates as { surah: number; ayah: number }[] | undefined)
+      ?? [m as { surah?: number; ayah?: number }];
+    for (const c of cands) if (c?.surah && c?.ayah) strong.push({ surah: c.surah, ayah: c.ayah });
   }
-  if (m.type === "verse_match") {
-    const v = m as { surah: number; ayah: number };
-    if (v.surah && v.ayah) verses.add(`${v.surah}:${v.ayah}`);
+  if (m.type === "verse_candidate") {
+    const cands = (m.candidates as { surah: number; ayah: number }[] | undefined)
+      ?? [m as { surah?: number; ayah?: number }];
+    for (const c of cands) if (c?.surah && c?.ayah) weak.push({ surah: c.surah, ayah: c.ayah });
   }
 });
 console.log("pass 1: locating…");
 await decode(s1, pcm);
+
+const hits = strong.length ? strong : weak;
+const bySurah = new Map<number, number[]>();
+for (const h of hits) {
+  const arr = bySurah.get(h.surah) ?? [];
+  arr.push(h.ayah);
+  bySurah.set(h.surah, arr);
+}
+const modal = hits.length ? [...bySurah.entries()].sort((a, b) => b[1].length - a[1].length)[0] : null;
 
 let passage: { surah: number; ayah: number; ayahEnd: number };
 if (passageArg) {
@@ -182,9 +197,10 @@ if (passageArg) {
   if (!m) { console.error("--passage must look like 1:1-7"); process.exit(1); }
   passage = { surah: +m[1], ayah: +m[2], ayahEnd: +(m[3] ?? m[2]) };
 } else {
-  if (!found.loc) { console.error("couldn't locate the passage — pass --passage S:A-B"); process.exit(1); }
-  const guess = { surah: found.loc.surah, ayah: found.loc.ayah, ayahEnd: found.loc.lastAyah };
-  console.log(`located: ${guess.surah}:${guess.ayah}-${guess.ayahEnd}  (verses seen: ${[...verses].join(", ") || "none"})`);
+  if (!modal) { console.error("couldn't locate the passage — pass --passage S:A-B"); console.error("events:", JSON.stringify(evTally)); process.exit(1); }
+  const [mSurah, mAyahs] = modal;
+  const guess = { surah: mSurah, ayah: Math.min(...mAyahs), ayahEnd: Math.max(...mAyahs) };
+  console.log(`located: ${guess.surah}:${guess.ayah}-${guess.ayahEnd}  (${hits.length} hits, ${strong.length ? "confirmed" : "candidates only"})`);
   if (YES) {
     passage = guess;
   } else {
@@ -210,7 +226,7 @@ console.log(`passage: ${passage.surah}:${passage.ayah}-${passage.ayahEnd}`);
 const verdicts: Record<string, unknown>[] = [];
 const correctionNotes: Record<string, unknown>[] = [];
 const s2 = await makeSession((m) => {
-  if (m.type === "verdicts" && Array.isArray(m.verdicts)) verdicts.push(...(m.verdicts as Record<string, unknown>[]));
+  if (m.type === "verdicts" && Array.isArray(m.changes)) verdicts.push(...(m.changes as Record<string, unknown>[]));
   if (m.type === "correction_note") correctionNotes.push(m.issue as Record<string, unknown>);
 });
 s2.zipformer?.setExpected({ surah: passage.surah, ayah: passage.ayah, ayahEnd: passage.ayahEnd });

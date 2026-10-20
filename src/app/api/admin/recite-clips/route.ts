@@ -86,9 +86,9 @@ export async function POST(request: NextRequest) {
 
     // ── Create clip (after upload completes) ──
     if (action === "create-clip") {
-      const { title, reciter, passage, style, storageKey, fileSize, duration, analysis } = body as {
+      const { title, reciter, passage, style, storageKey, fileSize, duration } = body as {
         title?: string; reciter?: string; passage?: string; style?: string;
-        storageKey?: string; fileSize?: number; duration?: number; analysis?: unknown;
+        storageKey?: string; fileSize?: number; duration?: number;
       };
       if (!title?.trim()) {
         return NextResponse.json({ error: "Title is required." }, { status: 400 });
@@ -99,28 +99,11 @@ export async function POST(request: NextRequest) {
       if (duration !== undefined && (!Number.isInteger(duration) || duration < 0)) {
         return NextResponse.json({ error: "Invalid audio duration." }, { status: 400 });
       }
-      // Clip analysis sidecar: produced by scripts/clip-analyze.mts — must be
-      // a plain object under ~512KB. Passage inside analysis can fill the
-      // column when the form left it blank.
-      const analysisObj = analysis && typeof analysis === "object" && !Array.isArray(analysis)
-        ? analysis as { passage?: { surah?: number; ayah?: number; ayahEnd?: number } }
-        : null;
-      if (analysis && !analysisObj) {
-        return NextResponse.json({ error: "Analysis must be the JSON object produced by clip-analyze." }, { status: 400 });
-      }
-      if (analysisObj && JSON.stringify(analysis).length > 512 * 1024) {
-        return NextResponse.json({ error: "Analysis JSON is too large." }, { status: 400 });
-      }
-      const autoPassage = !passage?.trim() && analysisObj?.passage?.surah && analysisObj.passage.ayah
-        ? `${analysisObj.passage.surah}:${analysisObj.passage.ayah}${analysisObj.passage.ayahEnd && analysisObj.passage.ayahEnd !== analysisObj.passage.ayah ? `-${analysisObj.passage.ayahEnd}` : ""}`
-        : null;
-
       const [clip] = await db.insert(schema.reciteClips).values({
         title: title.trim().slice(0, 200),
         reciter: reciter?.trim().slice(0, 100) || null,
-        passage: passage?.trim().slice(0, 50) || autoPassage,
+        passage: passage?.trim().slice(0, 50) || null,
         style: style?.trim().slice(0, 50) || null,
-        analysis: analysisObj,
         storageKey,
         fileSize: fileSize || null,
         duration: duration || null,

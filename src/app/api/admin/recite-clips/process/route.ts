@@ -6,6 +6,7 @@ import { requireAdmin, AdminAuthError } from "@/lib/auth/admin";
 import { logError } from "@/lib/logError";
 import { downloadObjectToFile, uploadBuffer } from "@/lib/r2/client";
 import { compressAudioFile } from "@/lib/audio/process";
+import { analyzeClipAudio } from "@/lib/recite/analyze";
 import { isValidUUID } from "@/lib/validation";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 import { join } from "path";
@@ -43,6 +44,8 @@ export async function POST(request: NextRequest) {
     const [clip] = await db.select({
       id: schema.reciteClips.id,
       storageKey: schema.reciteClips.storageKey,
+      passage: schema.reciteClips.passage,
+      style: schema.reciteClips.style,
       duration: schema.reciteClips.duration,
       processedAt: schema.reciteClips.processedAt,
       processingStatus: schema.reciteClips.processingStatus,
@@ -101,12 +104,28 @@ export async function POST(request: NextRequest) {
         await downloadObjectToFile(clip.storageKey!, inputPath);
 
         const result = await compressAudioFile(inputPath, 0);
-        await unlink(inputPath).catch(() => {});
 
         const processedKey = clip.storageKey!
           .replace(/^recite-clips\//, "recite-clips/processed/")
           .replace(/\.\w+$/, ".opus");
         await uploadBuffer(processedKey, result.buffer, "audio/ogg");
+
+        // One-time analysis: locate the passage, measure per-word tajwid.
+        // Best-effort — a clip without analysis still publishes fine.
+        let analysis: Record<string, unknown> | undefined;
+        let locatedPassage: string | null = null;
+        let guessedStyle: string | null = null;
+        try {
+          const a = await analyzeClipAudio(inputPath);
+          analysis = a.analysis;
+          if (a.passage) {
+            locatedPassage = `${a.passage.surah}:${a.passage.ayah}${a.passage.ayahEnd !== a.passage.ayah ? `-${a.passage.ayahEnd}` : ""}`;
+          }
+          guessedStyle = a.style;
+        } catch (e) {
+          logError(e, { route: "admin/recite-clips/process", clipId, phase: "analysis" });
+        }
+        await unlink(inputPath).catch(() => {});
 
         await db.update(schema.reciteClips).set({
           processingStatus: "ready",
@@ -114,7 +133,11 @@ export async function POST(request: NextRequest) {
           processedAt: new Date(),
           duration: result.duration || clip.duration,
           fileSize: result.processedSize,
-          processingError: null,
+          processingError: analysis ? null : "processed without analysis",
+          ...(analysis ? { analysis } : {}),
+          // Only auto-fill what the admin left blank — manual fields win.
+          ...(!clip.passage && locatedPassage ? { passage: locatedPassage } : {}),
+          ...(!clip.style && guessedStyle ? { style: guessedStyle } : {}),
         }).where(eq(schema.reciteClips.id, clipId));
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

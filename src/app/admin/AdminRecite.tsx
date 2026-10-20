@@ -42,7 +42,6 @@ export function AdminRecite() {
   const [passage, setPassage] = useState("");
   const [style, setStyle] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [analysisFile, setAnalysisFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState("");
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -125,24 +124,11 @@ export function AdminRecite() {
       if (!up.ok) { setError(`Upload failed (HTTP ${up.status}).`); return; }
       uploadedKey = storageKey;
 
-      let analysis: unknown;
-      if (analysisFile) {
-        setProgress("Reading analysis…");
-        try {
-          analysis = JSON.parse(await analysisFile.text());
-        } catch {
-          setError("Analysis file isn't valid JSON — run scripts/clip-analyze.mts first.");
-          if (uploadedKey) await cleanupUpload(uploadedKey);
-          return;
-        }
-      }
-
       setProgress("Saving clip…");
       const clip = await post({
         action: "create-clip",
         title, reciter: reciter || undefined, passage: passage || undefined,
         style: style || undefined, storageKey, fileSize: file.size,
-        analysis,
       });
 
       setProgress("Filtering + encoding…");
@@ -152,7 +138,7 @@ export function AdminRecite() {
         body: JSON.stringify({ clipId: clip.id }),
       }).catch(() => null);
 
-      setTitle(""); setReciter(""); setPassage(""); setStyle(""); setFile(null); setAnalysisFile(null);
+      setTitle(""); setReciter(""); setPassage(""); setStyle(""); setFile(null);
       uploadedKey = null; // clip row owns the key now
       await load();
       pollUntilDone(clip.id);
@@ -231,8 +217,8 @@ export function AdminRecite() {
         <div className="grid gap-2 sm:grid-cols-2">
           <input placeholder="Title (e.g. Al-Fātiḥah — slow murattal)" value={title} onChange={(e) => setTitle(e.target.value)} className={INPUT} style={INPUT_STYLE} />
           <input placeholder="Reciter (e.g. Minshawi)" value={reciter} onChange={(e) => setReciter(e.target.value)} className={INPUT} style={INPUT_STYLE} />
-          <input placeholder="Passage (e.g. 1:1-7)" value={passage} onChange={(e) => setPassage(e.target.value)} className={INPUT} style={INPUT_STYLE} />
-          <input placeholder="Style (murattal / mujawwad / muʿallim)" value={style} onChange={(e) => setStyle(e.target.value)} className={INPUT} style={INPUT_STYLE} />
+          <input placeholder="Passage (auto-detected — override, e.g. 1:1-7)" value={passage} onChange={(e) => setPassage(e.target.value)} className={INPUT} style={INPUT_STYLE} />
+          <input placeholder="Style (auto-detected — override)" value={style} onChange={(e) => setStyle(e.target.value)} className={INPUT} style={INPUT_STYLE} />
         </div>
         <label
           className="mt-2 flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-colors hover:border-[var(--color-accent)]"
@@ -242,14 +228,9 @@ export function AdminRecite() {
           {file ? <span style={{ color: "var(--color-ink)" }}>{file.name} ({(file.size / 1024 / 1024).toFixed(1)} MB)</span> : <span>Choose an audio file — mp3, m4a, wav, opus… (≤40 MB)</span>}
           <input type="file" accept="audio/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} disabled={uploading} />
         </label>
-        <label
-          className="mt-2 flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors hover:border-[var(--color-accent)]"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 36 }}
-        >
-          <FileAudio className="h-4 w-4 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
-          {analysisFile ? <span style={{ color: "var(--color-success)" }}>{analysisFile.name} — word stats attached</span> : <span>Optional: *.analysis.json from <code className="text-[10px]">pnpm tsx scripts/clip-analyze.mts</code> (per-word tajwīd stats)</span>}
-          <input type="file" accept=".json,application/json" className="hidden" onChange={(e) => setAnalysisFile(e.target.files?.[0] || null)} disabled={uploading} />
-        </label>
+        <p className="mt-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+          Passage and style are auto-detected during processing — only fill them to override.
+        </p>
         <div className="mt-3 flex items-center gap-3">
           <button
             type="submit"
