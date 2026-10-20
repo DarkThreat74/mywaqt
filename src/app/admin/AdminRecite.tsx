@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   RefreshCw, Upload, Trash2, AlertCircle, CheckCircle2,
-  Loader2, FileAudio, Play, Pause, Globe, GlobeLock,
+  Loader2, FileAudio, Play, Pause, Globe, GlobeLock, Pencil,
 } from "lucide-react";
 
 interface AdminClip {
@@ -39,13 +39,14 @@ export function AdminRecite() {
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [reciter, setReciter] = useState("");
-  const [passage, setPassage] = useState("");
-  const [style, setStyle] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState("");
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editFields, setEditFields] = useState({ title: "", reciter: "", passage: "", style: "" });
+  const [savingEdit, setSavingEdit] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -127,8 +128,7 @@ export function AdminRecite() {
       setProgress("Saving clip…");
       const clip = await post({
         action: "create-clip",
-        title, reciter: reciter || undefined, passage: passage || undefined,
-        style: style || undefined, storageKey, fileSize: file.size,
+        title, reciter: reciter || undefined, storageKey, fileSize: file.size,
       });
 
       setProgress("Filtering + encoding…");
@@ -138,7 +138,7 @@ export function AdminRecite() {
         body: JSON.stringify({ clipId: clip.id }),
       }).catch(() => null);
 
-      setTitle(""); setReciter(""); setPassage(""); setStyle(""); setFile(null);
+      setTitle(""); setReciter(""); setFile(null);
       uploadedKey = null; // clip row owns the key now
       await load();
       pollUntilDone(clip.id);
@@ -161,6 +161,34 @@ export function AdminRecite() {
     setError(null);
     try { await post({ action: "unpublish-clip", clipId }); await load(); }
     catch (err) { setError(err instanceof Error ? err.message : "Unpublish failed."); }
+  }
+
+  function startEdit(c: AdminClip) {
+    setEditingId(c.id);
+    setEditFields({
+      title: c.title,
+      reciter: c.reciter ?? "",
+      passage: c.passage ?? "",
+      style: c.style ?? "",
+    });
+  }
+
+  async function saveEdit(clipId: string) {
+    setError(null);
+    setSavingEdit(true);
+    try {
+      await post({
+        action: "update-clip", clipId,
+        title: editFields.title, reciter: editFields.reciter,
+        passage: editFields.passage, style: editFields.style,
+      });
+      setEditingId(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed.");
+    } finally {
+      setSavingEdit(false);
+    }
   }
 
   async function remove(clipId: string) {
@@ -217,8 +245,6 @@ export function AdminRecite() {
         <div className="grid gap-2 sm:grid-cols-2">
           <input placeholder="Title (e.g. Al-Fātiḥah — slow murattal)" value={title} onChange={(e) => setTitle(e.target.value)} className={INPUT} style={INPUT_STYLE} />
           <input placeholder="Reciter (e.g. Minshawi)" value={reciter} onChange={(e) => setReciter(e.target.value)} className={INPUT} style={INPUT_STYLE} />
-          <input placeholder="Passage (auto-detected — override, e.g. 1:1-7)" value={passage} onChange={(e) => setPassage(e.target.value)} className={INPUT} style={INPUT_STYLE} />
-          <input placeholder="Style (auto-detected — override)" value={style} onChange={(e) => setStyle(e.target.value)} className={INPUT} style={INPUT_STYLE} />
         </div>
         <label
           className="mt-2 flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-colors hover:border-[var(--color-accent)]"
@@ -228,9 +254,6 @@ export function AdminRecite() {
           {file ? <span style={{ color: "var(--color-ink)" }}>{file.name} ({(file.size / 1024 / 1024).toFixed(1)} MB)</span> : <span>Choose an audio file — mp3, m4a, wav, opus… (≤40 MB)</span>}
           <input type="file" accept="audio/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} disabled={uploading} />
         </label>
-        <p className="mt-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-          Passage and style are auto-detected during processing — only fill them to override.
-        </p>
         <div className="mt-3 flex items-center gap-3">
           <button
             type="submit"
@@ -244,7 +267,7 @@ export function AdminRecite() {
           {progress && <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{progress}</span>}
         </div>
         <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-          Goes through the same 10-stage filter chain as talks, encoded to Opus, then needs a publish tap to appear in the app.
+          Filtered + encoded like talks, then the passage and style are auto-detected and every field is editable — needs a publish tap to appear in the app.
         </p>
       </form>
 
@@ -294,6 +317,9 @@ export function AdminRecite() {
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">
+                    <button onClick={() => (editingId === c.id ? setEditingId(null) : startEdit(c))} className="flex h-8 w-8 items-center justify-center rounded-lg border" style={{ borderColor: "var(--color-paper-3)", color: editingId === c.id ? "var(--color-accent)" : "var(--color-ink-muted)" }} aria-label="Edit">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
                     {(c.processingStatus === "ready" || c.processingStatus === "published") && (
                       <button onClick={() => togglePlay(c.id)} className="flex h-8 w-8 items-center justify-center rounded-lg border" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)" }} aria-label="Preview">
                         {playingId === c.id ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
@@ -326,6 +352,30 @@ export function AdminRecite() {
                     )}
                   </div>
                 </div>
+                {editingId === c.id && (
+                  <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <input placeholder="Title" value={editFields.title} onChange={(e) => setEditFields((f) => ({ ...f, title: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
+                      <input placeholder="Reciter" value={editFields.reciter} onChange={(e) => setEditFields((f) => ({ ...f, reciter: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
+                      <input placeholder="Passage (e.g. 33:35)" value={editFields.passage} onChange={(e) => setEditFields((f) => ({ ...f, passage: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
+                      <input placeholder="Style (murattal / mujawwad / muʿallim)" value={editFields.style} onChange={(e) => setEditFields((f) => ({ ...f, style: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => void saveEdit(c.id)}
+                        disabled={savingEdit || !editFields.title.trim()}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium disabled:opacity-50"
+                        style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                      >
+                        {savingEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                        Save
+                      </button>
+                      <button onClick={() => setEditingId(null)} className="rounded-lg border px-3 py-1.5 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

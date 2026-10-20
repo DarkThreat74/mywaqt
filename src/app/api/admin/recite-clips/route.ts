@@ -112,6 +112,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(clip, { status: 201 });
     }
 
+    // ── Edit clip metadata (title/reciter/passage/style — any state) ──
+    if (action === "update-clip") {
+      const { clipId, title, reciter, passage, style } = body as {
+        clipId?: string; title?: string; reciter?: string | null; passage?: string | null; style?: string | null;
+      };
+      if (!clipId || !isValidUUID(clipId)) {
+        return NextResponse.json({ error: "Clip ID is required." }, { status: 400 });
+      }
+      if (title !== undefined && !title?.trim()) {
+        return NextResponse.json({ error: "Title can't be empty." }, { status: 400 });
+      }
+      const [updated] = await db.update(schema.reciteClips).set({
+        ...(title !== undefined ? { title: title.trim().slice(0, 200) } : {}),
+        ...(reciter !== undefined ? { reciter: reciter?.trim().slice(0, 100) || null } : {}),
+        ...(passage !== undefined ? { passage: passage?.trim().slice(0, 50) || null } : {}),
+        ...(style !== undefined ? { style: style?.trim().slice(0, 50) || null } : {}),
+      }).where(eq(schema.reciteClips.id, clipId)).returning();
+      if (!updated) return NextResponse.json({ error: "Clip not found." }, { status: 404 });
+      return NextResponse.json(updated);
+    }
+
     // ── Publish clip (after processing is complete) ──
     if (action === "publish-clip") {
       const { clipId } = body as { clipId?: string };
