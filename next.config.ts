@@ -66,6 +66,17 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // Cross-origin isolation scoped to the Quran Tester only — enables
+        // SharedArrayBuffer so the WASM recognizer can run multi-threaded.
+        // Everything it loads is same-origin (/qt/*, /data/*, fonts), so
+        // require-corp is safe here; app-wide COEP would break Turnstile/tiles.
+        source: "/quran-tester",
+        headers: [
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+        ],
+      },
+      {
         source: "/manifest.webmanifest",
         headers: [
           { key: "Cache-Control", value: "public, max-age=86400" },

@@ -48,11 +48,12 @@ const LS_KEY = "qt:engine-installed";
 const RUNTIME_FILES: [string, string][] = [
   ["ort-wasm-simd-threaded.mjs", "/qt/ort-wasm-simd-threaded.mjs"],
   ["ort-wasm-simd-threaded.wasm", "/qt/ort-wasm-simd-threaded.wasm"],
-  ["ort-wasm-simd-threaded.jsep.mjs", "/qt/ort-wasm-simd-threaded.jsep.mjs"],
-  ["ort-wasm-simd-threaded.jsep.wasm", "/qt/ort-wasm-simd-threaded.jsep.wasm"],
   ["qt-capture.js", "/worklets/qt-capture.js"],
   ["QPC2BSML.ttf", "/fonts/qpc2/QPC2BSML.ttf"],
 ];
+// The .jsep/.asyncify ORT variants sit in public/qt but the wasm-only build
+// never loads them — keeping them required made a prefetch gap permanently
+// report "not installed". They're still served static-first when present.
 
 export async function engineInstalled(): Promise<boolean> {
   if (typeof caches === "undefined") return false;

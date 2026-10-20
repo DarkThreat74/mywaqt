@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { BookOpen, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, Home, ListChecks, Loader2, Mic, MicOff, Pause, Play, Settings, Square, Trash2, User2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
-import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, loadSurahMeta, warmMushaf, type AyahPages, type MushafPage, type SurahMetaEntry } from "./mushaf";
+import { loadAyahPages, loadBasmalaFont, loadMutashabihat, loadPage, loadPageFont, loadSurahMeta, warmMushaf, type AyahPages, type MushafPage, type SurahMetaEntry } from "./mushaf";
 import { removeMistakeAt, saveMistake, syncMistakes, type Mistake } from "./mistakes";
 import {
-  buildIndex, coveredInSpan, distOf, JUZ_START, keyOf, loadCoverage, loadPlan, markCovered,
+  buildIndex, coveredInSpan, distOf, flushCoverage, JUZ_START, keyOf, loadCoverage, loadPlan, markCovered,
   savePlan, stampDay, isDayDone, maybeKhatma, todayKey, todaySpan,
   type AyahIndex, type Loc, type Plan,
 } from "./plan";
@@ -151,6 +151,7 @@ export default function QuranTesterClient() {
   const preambleGraceRef = useRef(0); // 'lost' timestamp — basmala/isti'adhah window
   const candTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // unstable-lock dwell
   const locLiveRef = useRef<{ s: number; a: number } | null>(null);
+  const locShownRef = useRef<{ s: number; a: number } | null>(null); // displayed loc — dedupes per-word setLoc renders
   const [lockFx, setLockFx] = useState<{ s: number; a: number; n: number } | null>(null); // first-lock wave
   const lockFxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planRef = useRef(plan);
@@ -177,11 +178,16 @@ export default function QuranTesterClient() {
     suspectsRef.current = suspects;
     pinRef.current = pin;
     anchorModeRef.current = anchorMode;
+  });
+
+  // Persisted prefs — was inside the unconditional sync effect, so two sync
+  // localStorage writes ran on EVERY render (every engine event).
+  useEffect(() => {
     try {
       localStorage.setItem("qt:anchor-mode", anchorMode);
       localStorage.setItem("qt:view-mode", viewMode);
     } catch {}
-  });
+  }, [anchorMode, viewMode]);
 
   /** Expected = the surah the engine actually locked onto. setExpected
    *  constrains searches to its passage, so it must NEVER be sent before
@@ -238,7 +244,7 @@ export default function QuranTesterClient() {
     loadSurahMeta().then(setSurahMeta).catch(() => {});
     // Look-alike index (shared with the Mutashabihat game) — one small JSON,
     // best-effort: tracking works without it, just less skeptically.
-    fetch("/data/mutashabihat.json").then((r) => (r.ok ? r.json() : [])).then((fams: { instances?: { s: number; a: number }[] }[]) => {
+    loadMutashabihat().then((raw) => (Array.isArray(raw) ? raw : [])).then((fams: { instances?: { s: number; a: number }[] }[]) => {
       const m = new Map<string, Set<string>>();
       for (const f of Array.isArray(fams) ? fams : []) {
         const keys = (f.instances ?? []).map((i) => `${i.s}:${i.a}`);
@@ -614,6 +620,7 @@ export default function QuranTesterClient() {
     setMicError(null);
     setMicDenied(false);
     setLoc(null);
+    locShownRef.current = null;
     setWordIdx(null);
     locLiveRef.current = null;
     if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
@@ -670,6 +677,7 @@ export default function QuranTesterClient() {
     const h = heardRef.current;
     if (h.loc && heardEnough(h.loc, h.max, h.total)) coverLoc(h.loc);
     heardRef.current = { loc: null, max: 0, total: 0 };
+    flushCoverage(covRef.current);
     dismissJump();
     const n = sessionCovRef.current.size;
     if (n > 0) setStatus(`Session saved — ${n} ayah${n === 1 ? "" : "s"} covered${isDayDone(todayKey()) ? " · today ✓" : ""}`);
@@ -734,34 +742,40 @@ export default function QuranTesterClient() {
         if (ev.type !== "verse_candidate") classifyJump({ s, a });
         return;
       }
-      // First lock (or a re-lock after `lost`) gets the wave — the ayah
-      // flashes word-by-word and the location chip drops in.
-      if (!locLiveRef.current) {
-        setLockFx({ s, a, n: Date.now() });
-        if (lockFxTimer.current) clearTimeout(lockFxTimer.current);
-        lockFxTimer.current = setTimeout(() => setLockFx(null), 1900);
-      }
+      const hadLoc = !!locLiveRef.current;
       locLiveRef.current = { s, a };
-      setLoc({ surah: s, ayah: a });
-      setStatus(`Found you — ${String(ev.surah_name ?? "")} ${s}:${a}`);
-      goToAyah(s, a);
+      const showLoc = () => {
+        // First lock (or a re-lock after `lost`) gets the wave — the ayah
+        // flashes word-by-word and the location chip drops in.
+        if (!hadLoc) {
+          setLockFx({ s, a, n: Date.now() });
+          if (lockFxTimer.current) clearTimeout(lockFxTimer.current);
+          lockFxTimer.current = setTimeout(() => setLockFx(null), 1900);
+        }
+        if (locShownRef.current?.s !== s || locShownRef.current?.a !== a)
+          setLoc({ surah: s, ayah: a });
+        locShownRef.current = { s, a };
+        setStatus(`Found you — ${String(ev.surah_name ?? "")} ${s}:${a}`);
+        goToAyah(s, a);
+      };
       if (ev.type === "verse_candidate") {
         // Unstable discovery lock — a single weak search hit can teleport
-        // the tracker to a false hit (the phantom Surah-Qaf jumps). Let the
-        // display follow it, but only treat it as a real move if the lock
-        // is still standing ~1.2s later; a confirmed match, a newer
-        // candidate, or `lost` cancels it.
+        // the tracker to a false hit (the phantom Surah-Qaf jumps). The
+        // display does NOT follow until the lock is still standing ~1.2s
+        // later; a confirmed match, a newer candidate, or `lost` cancels it.
         if (candTimerRef.current) clearTimeout(candTimerRef.current);
         candTimerRef.current = setTimeout(() => {
           candTimerRef.current = null;
           const live = locLiveRef.current;
           if (live && live.s === s && Math.abs(live.a - a) <= 2) {
+            showLoc();
             expectSurah(s);
             classifyJump({ s, a });
           }
         }, 1200);
       } else {
         if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
+        showLoc();
         expectSurah(s); // anchor ayah-order checks to wherever you actually are
         classifyJump({ s, a }); // sounds only on first locate / off-track jumps
       }
@@ -769,19 +783,22 @@ export default function QuranTesterClient() {
       // While validating: surface what the engine decoded so a silent
       // session is visible instead of just spinning.
       if (ev.event === "lost") preambleGraceRef.current = Date.now();
-      const t = String(ev.text ?? ev.event ?? ev.message ?? "");
-      if (t) setStatus(t.slice(0, 80));
+      // Events already surfaced by their real branches must not stomp the
+      // status line with raw event names ("lost", "relocated"…).
+      const DBG_HANDLED = new Set(["lost", "relocated", "located", "idle", "completed", "locateFailed"]);
+      const t = String(ev.text ?? (ev.event ? "" : (ev.message ?? "")) ?? "");
+      if (t && !DBG_HANDLED.has(String(ev.event))) setStatus(t.slice(0, 80));
     } else if (ev.type === "word_progress") {
       const s = ev.surah as number, a = ev.ayah as number;
       const prev = locLiveRef.current;
-      // Silent DP-slide guard: legit ayah crossings land on word 0–1 of the
-      // NEXT ayah. Landing mid-ayah in a different ayah (or leaping >1 ayah)
-      // without a `relocated` event means the tracker slid onto a look-alike —
-      // don't chase it; route it through the jump classifier instead.
-      if (prev && s === prev.s && (a - prev.a > 1 || (a !== prev.a && (ev.word_index as number) > 1))) {
+      // Silent DP-slide guard: the ONLY legit same-surah crossing is onto the
+      // next ayah's first word or two. Any other ayah landing without a
+      // `relocated` event means the tracker slid onto a look-alike — don't
+      // chase it; route it through the jump classifier instead.
+      if (prev && s === prev.s && a !== prev.a && !(a === prev.a + 1 && (ev.word_index as number) <= 1)) {
         locLiveRef.current = { s, a };
-        noteHeard(s, a, (ev.word_index as number) + 1, ev.total_words as number);
         classifyJump({ s, a });
+        noteHeard(s, a, (ev.word_index as number) + 1, ev.total_words as number);
         return;
       }
       locLiveRef.current = { s, a };
@@ -800,7 +817,12 @@ export default function QuranTesterClient() {
           return;
         }
       }
-      setLoc({ surah: s, ayah: a });
+      // Dedupe: word_progress fires per word — only re-render when the ayah
+      // actually changes (was: fresh object → full mushaf re-render per word).
+      if (locShownRef.current?.s !== s || locShownRef.current?.a !== a) {
+        locShownRef.current = { s, a };
+        setLoc({ surah: s, ayah: a });
+      }
       expectSurah(s); // smooth crossings into the next surah never fire relocate
       // Engine word_index is 0-BASED; the mushaf location ("s:a:w") is
       // 1-BASED. Normalize at the boundary — before this, the highlight lagged

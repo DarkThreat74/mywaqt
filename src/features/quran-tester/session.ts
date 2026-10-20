@@ -34,7 +34,20 @@ let engineReady = false;   // init handshake completed — model in memory
 let workerRate = 0;        // sample rate the loaded engine was inited for
 let borrowed = false;      // recite-coach deep grade owns the engine right now
 let warmWatchdog: ReturnType<typeof setTimeout> | null = null;
-let micBuf = new Float32Array(0); // batched-but-unsent mic audio (flushed on stop)
+// Batched-but-unsent mic audio as chunk refs (flushed on stop). Concat only
+// at send time — a full-copy merge per 128-sample worklet message was ~375x
+// O(n) copying per second on the main thread.
+let micChunks: Float32Array[] = [];
+let micLen = 0;
+function drainMicChunks(): Float32Array | null {
+  if (!micLen) return null;
+  const out = new Float32Array(micLen);
+  let off = 0;
+  for (const c of micChunks) { out.set(c, off); off += c.length; }
+  micChunks = [];
+  micLen = 0;
+  return out;
+}
 // Session-level safety net: an un-acted `correction` freezes the engine's
 // whole tracker in `retrying`. The page's own 8s defer covers normal use —
 // this one exists for when the page is unmounted (navigated away), so
@@ -381,7 +394,17 @@ export async function startQt(): Promise<void> {
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      // AGC off: Chrome's default-on gain-riding pumps quiet recitation and
+      // amplifies room noise during pauses — the single biggest "can't pick
+      // up sound" cause. EC off: there's no monitor path, and its nonlinear
+      // stage smears consonants a 251-phoneme CTC needs. Keep browser NS —
+      // it helps against steady background noise more than it hurts.
+      audio: {
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: true,
+        autoGainControl: false,
+      },
     });
   } catch (err) {
     const name = err instanceof DOMException ? err.name : "";
@@ -409,7 +432,10 @@ export async function startQt(): Promise<void> {
 
   let ctx: AudioContext | undefined;
   try {
-    ctx = new AudioContext();
+    // Ask for 16 kHz directly — the recognizer resamples to 16k anyway, so
+    // this kills the linear resampler's aliasing and cuts port traffic ~3x.
+    // Where unsupported the worker's resample() still handles the rate.
+    ctx = new AudioContext({ sampleRate: 16000 });
     // iOS/Android browsers often create the context suspended even inside a
     // tap handler — mic shows "recording" but the worklet never runs and the
     // engine starves silently. Resume before wiring anything.
@@ -453,29 +479,26 @@ export async function startQt(): Promise<void> {
   // chance of a monitor path feeding back into the mic.
   const mute = ctx.createGain();
   mute.gain.value = 0;
-  micBuf = new Float32Array(0);
   let lastLevelAt = 0;
   node.port.onmessage = (e) => {
     const chunk: Float32Array = e.data;
-    const merged = new Float32Array(micBuf.length + chunk.length);
-    merged.set(micBuf);
-    merged.set(chunk, micBuf.length);
-    micBuf = merged;
+    micChunks.push(chunk);
+    micLen += chunk.length;
     // 100ms sends (was 250ms): the encoder emits on a 480ms hop, so every
     // ms shaved here comes straight off perceived word-follow latency.
-    if (micBuf.length >= ctx.sampleRate / 10) {
+    if (micLen >= ctx.sampleRate / 10) {
       // Mic level for the UI meter — throttled to ~5Hz: every emit repaints
       // the full mushaf tree, which is the main thread's biggest cost.
       const now = Date.now();
       if (now - lastLevelAt >= 200) {
         lastLevelAt = now;
         let sum = 0;
-        for (let i = 0; i < micBuf.length; i += 8) sum += micBuf[i] * micBuf[i];
-        const rms = Math.sqrt(sum / (micBuf.length / 8));
+        for (let i = 0; i < chunk.length; i += 8) sum += chunk[i] * chunk[i];
+        const rms = Math.sqrt(sum / (chunk.length / 8));
         emit({ type: "ui-level", value: Math.min(1, rms * 6) });
       }
-      worker?.postMessage({ type: "audio", samples: micBuf }, [micBuf.buffer]);
-      micBuf = new Float32Array(0);
+      const out = drainMicChunks();
+      if (out) worker?.postMessage({ type: "audio", samples: out }, [out.buffer]);
     }
   };
   src.connect(node);
@@ -538,10 +561,8 @@ export async function stopQt(): Promise<void> {
   disarmKeepAlive();
   // Flush the batched-but-unsent tail (up to ~100ms — the end of the last
   // word) BEFORE stop, else the last syllable is never judged.
-  if (micBuf.length) {
-    worker?.postMessage({ type: "audio", samples: micBuf }, [micBuf.buffer]);
-    micBuf = new Float32Array(0);
-  }
+  const tail = drainMicChunks();
+  if (tail) worker?.postMessage({ type: "audio", samples: tail }, [tail.buffer]);
   worker?.postMessage({ type: "stop" });
   if (deferTimer) { clearTimeout(deferTimer); deferTimer = null; }
   if (warmWatchdog) { clearTimeout(warmWatchdog); warmWatchdog = null; }

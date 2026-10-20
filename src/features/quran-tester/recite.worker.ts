@@ -110,9 +110,13 @@ async function init(sampleRate: number) {
     cached("/qt/corpus.json"),
   ]);
 
-  // Single-threaded WASM is the reliable path in workers — threaded WASM
-  // needs cross-origin isolation, which an auth'd app can't always offer.
-  ort.env.wasm.numThreads = 1;
+  // Threaded WASM needs cross-origin isolation (SharedArrayBuffer). The page
+  // opts in via scoped COOP/COEP on /quran-tester — when those headers are
+  // absent (or an embedder can't offer them) it silently stays single-thread.
+  ort.env.wasm.numThreads =
+    typeof SharedArrayBuffer !== "undefined"
+      ? Math.min(4, navigator.hardwareConcurrency || 4)
+      : 1;
   ort.env.wasm.wasmPaths = "/qt/";
 
   const model = await modelRes.arrayBuffer();

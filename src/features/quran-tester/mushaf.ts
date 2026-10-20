@@ -56,7 +56,14 @@ export async function loadSurahMeta(): Promise<SurahMetaEntry[]> {
   return res.json();
 }
 
-async function cachedAsset(path: string, url: string): Promise<Response> {
+/** Look-alike-verse index — plain fetch bypassed the engine bucket, so a
+ * fresh-offline install ran with mutashabih detection silently off. */
+export async function loadMutashabihat(): Promise<unknown> {
+  const res = await cachedAsset("/qt/mutashabihat.json", "/data/mutashabihat.json");
+  return res.json();
+}
+
+export async function cachedAsset(path: string, url: string): Promise<Response> {
   // CacheStorage only exists in secure contexts — fall back to a plain
   // fetch (HTTP dev over LAN, older WebViews) so pages still load.
   if (typeof caches !== "undefined") {
@@ -148,6 +155,8 @@ export function warmMushaf(): void {
   void cachedAsset(`/qt/QPC2BSML.ttf`, `${FONT_BASE}/QPC2BSML.ttf`).catch(() => {});
   void cachedAsset(`/qt/ayah-pages.json`, `/data/ayah-pages.json`).catch(() => {});
   void cachedAsset(`/qt/surah-meta.json`, `/data/surah-meta.json`).catch(() => {});
+  void cachedAsset(`/qt/mutashabihat.json`, `/data/mutashabihat.json`).catch(() => {});
+  void cachedAsset(`/qt/quran.json`, `/data/quran.json`).catch(() => {});
   if (p > PAGE_COUNT) { warming = false; return; } // already fully warm
 
   const tick = () => {

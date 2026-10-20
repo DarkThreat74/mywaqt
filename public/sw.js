@@ -60,6 +60,8 @@ const PRECACHE_URLS = [
   "/data/ayah-pages.json",
   "/data/surah-meta.json",
   "/worklets/qt-capture.js",
+  "/rc/pitch-worklet.js",
+  "/data/mutashabihat.json",
 ];
 
 // Core app pages — prefetched on install for offline boot.

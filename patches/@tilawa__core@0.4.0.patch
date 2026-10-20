@@ -158,7 +158,7 @@ index 24b499d..6d4790b 100644
      private finish;
      private makeEngine;
 diff --git a/dist/recitation/session.js b/dist/recitation/session.js
-index 3d7030c..fe7d200 100644
+index 3d7030c..58ab48c 100644
 --- a/dist/recitation/session.js
 +++ b/dist/recitation/session.js
 @@ -33,7 +33,7 @@ const TAIL_SECONDS = 2.0;
@@ -170,7 +170,25 @@ index 3d7030c..fe7d200 100644
  /** I/O manifest of the default `zipformer_a0w_ep1_a05.int8.onnx` (its encoder-frame
   * output is optional, so the same manifest drives `zipformer_interp_gentle_a05.int8.onnx`). */
  export const DEFAULT_ZIPFORMER_IO = DEFAULT_IO;
-@@ -340,6 +340,14 @@ export class ZipformerSession {
+@@ -112,6 +112,8 @@ export class ZipformerSession {
+     accumulated = new Map();
+     emitted = new Set();
+     transcriptParts = [];
++    transcriptLen = 0;
++    transcriptEmitted = 0;
+     lastCursor = null;
+     /** Last `verse_match` emitted by the current tracker lock. Cleared on
+      * locate / relocate / lost so an ayah gap across a jump never flags. */
+@@ -267,6 +269,8 @@ export class ZipformerSession {
+         this.accumulated = new Map();
+         this.emitted = new Set();
+         this.transcriptParts = [];
++        this.transcriptLen = 0;
++        this.transcriptEmitted = 0;
+         this.lastCursor = null;
+         this.lastMatch = null;
+         this.ayahIssuesRaised = new Set();
+@@ -340,6 +344,14 @@ export class ZipformerSession {
              out.push(...this.raiseStructural());
          return this.dispatch(out);
      }
@@ -185,7 +203,7 @@ index 3d7030c..fe7d200 100644
      correctionMessage() {
          const issue = this.correction.state.issue;
          return { type: 'correction', state: { ...this.correction.state },
-@@ -540,7 +548,7 @@ export class ZipformerSession {
+@@ -540,12 +552,13 @@ export class ZipformerSession {
                  if (raised)
                      out.push(this.correctionMessage());
              }
@@ -194,7 +212,13 @@ index 3d7030c..fe7d200 100644
                  this.correction.clearEvidence();
              return out;
          }
-@@ -565,10 +573,13 @@ export class ZipformerSession {
+         for (const t of tokens)
+             this.transcriptParts.push(t.sym);
++            this.transcriptLen += t.sym.length;
+         for (const ev of this.engine.feed(tokens, this.decoder.framesDecoded)) {
+             out.push(...this.handle(ev));
+         }
+@@ -565,16 +578,22 @@ export class ZipformerSession {
              else
                  out.push(...this.checkSkippedAyah(false));
          }
@@ -208,8 +232,19 @@ index 3d7030c..fe7d200 100644
 +        // observation resumes. Clearing here made bad patches unflaggable.
          if (this.structuralRules)
              out.push(...this.structuralTick(false));
-         if (tokens.length) {
-@@ -734,12 +745,17 @@ export class ZipformerSession {
+-        if (tokens.length) {
++        // Ship growth only — joining + cloning the whole transcript every chunk
++        // is O(history) work and postMessage churn nobody reads.
++        if (tokens.length && this.transcriptLen - this.transcriptEmitted >= 120) {
++            this.transcriptEmitted = this.transcriptLen;
+             out.push({
+                 type: "raw_transcript",
+-                text: this.transcript,
++                text: this.transcript.slice(-160),
+                 confidence: 1,
+             });
+         }
+@@ -734,12 +753,17 @@ export class ZipformerSession {
              case "lost": {
                  // Transient: the tracker keeps its place. Losing and recovering inside
                  // one surah is exactly the unclear-ayah case, so the match chain stays.
@@ -229,10 +264,48 @@ index 3d7030c..fe7d200 100644
              }
              case "located": {
 diff --git a/dist/recitation/tracker.js b/dist/recitation/tracker.js
-index 5c554eb..7456eb8 100644
+index 5c554eb..7232ba5 100644
 --- a/dist/recitation/tracker.js
 +++ b/dist/recitation/tracker.js
-@@ -165,9 +165,25 @@ export class Tracker {
+@@ -68,9 +68,18 @@ export class Tracker {
+         this.column = new Float32Array(this.len + 1);
+         this.column.fill(Number.POSITIVE_INFINITY);
+         const jump = cfg.jumpCost;
++        const perWord = cfg.jumpPerWord ?? 0;
++        const maxJump = cfg.maxJumpWords ?? Infinity;
++        const startW = this.localWordOfPos[Math.max(0, this.startLocal - 1)] ?? 0;
+         for (let i = 0; i < nWords; i++) {
+             const m = this.wordStarts[i];
+-            this.column[m] = m === this.startLocal ? 0 : jump + this.jumpExtra[i];
++            // Seed only words near the start — a flat 12 into every word of the
++            // surah let the cursor teleport to any look-alike once the local
++            // path accumulated ~12 cost (the seed survives via the ins edge).
++            const dist = Math.abs(i - startW);
++            this.column[m] = m === this.startLocal ? 0
++                : dist <= maxJump ? jump + this.jumpExtra[i] + perWord * dist
++                : Number.POSITIVE_INFINITY;
+         }
+         for (let m = 1; m <= this.len; m++) {
+             this.column[m] = Math.min(this.column[m], this.column[m - 1] + 1);
+@@ -116,10 +125,16 @@ export class Tracker {
+     }
+     resetColumn() {
+         const jump = this.cfg.jumpCost;
++        const perWord = this.cfg.jumpPerWord ?? 0;
++        const maxJump = this.cfg.maxJumpWords ?? Infinity;
++        const startW = Math.max(0, this.cursorLocalWord);
+         this.column.fill(Number.POSITIVE_INFINITY);
+         for (let i = 0; i < this.wordStarts.length; i++) {
+             const m = this.wordStarts[i];
+-            this.column[m] = m === this.startLocal ? 0 : jump + this.jumpExtra[i];
++            const dist = Math.abs(i - startW);
++            this.column[m] = m === this.startLocal ? 0
++                : dist <= maxJump ? jump + this.jumpExtra[i] + perWord * dist
++                : Number.POSITIVE_INFINITY;
+         }
+         for (let m = 1; m <= this.len; m++) {
+             this.column[m] = Math.min(this.column[m], this.column[m - 1] + 1);
+@@ -165,9 +180,25 @@ export class Tracker {
              if (del < next[m])
                  next[m] = del;
          }
@@ -259,3 +332,40 @@ index 5c554eb..7456eb8 100644
              if (restart < next[m]) {
                  next[m] = restart;
                  for (let j = m + 1; j <= this.len && next[j - 1] + 1 < next[j]; j++) {
+diff --git a/dist/recitation/verdicts.js b/dist/recitation/verdicts.js
+index 96da26c..13486da 100644
+--- a/dist/recitation/verdicts.js
++++ b/dist/recitation/verdicts.js
+@@ -58,6 +58,13 @@ export class VerdictTracer {
+     cfg;
+     cache = new Map();
+     cacheRevision = -1;
++    /** Whole-call memo: verdicts() can only change when new chars were heard,
++     *  the tracker revision changed (retract/restore), or `settled` flips.
++     *  Callers invoke this 3-4x per audio chunk; without memoization each call
++     *  re-segments the full trail and re-judges every word — O(history) per
++     *  call, the main reason latency grew over a long session. */
++    vKey = "";
++    vOut = [];
+     gopCache = new Map();
+     idsCache = new Map();
+     pairCache = new Map();
+@@ -81,6 +88,9 @@ export class VerdictTracer {
+     }
+     verdicts(settled = false) {
+         const t = this.tracker;
++        const key = `${t.heard.length}:${t.revision}:${settled ? 1 : 0}`;
++        if (this.vKey === key)
++            return this.vOut;
+         if (this.cacheRevision !== t.revision) {
+             this.cache.clear();
+             this.gopCache.clear();
+@@ -117,6 +127,8 @@ export class VerdictTracer {
+             this.score(out, spans);
+         if (this.encoder && this.slipHead)
+             this.attachSlip(out);
++        this.vKey = key;
++        this.vOut = out;
+         return out;
+     }
+     /** Ref cell just past the ayah holding `cell`, when `cell` lies within the

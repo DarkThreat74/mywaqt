@@ -82,10 +82,23 @@ export function savePlan(p: Plan | null) {
 export function loadCoverage(): Set<string> {
   try { return new Set(JSON.parse(ls.get(COV_KEY) ?? "[]") as string[]); } catch { return new Set(); }
 }
+// Debounced persistence — an O(coverage) JSON.stringify + sync localStorage
+// write per covered ayah became a visible stall on long sessions.
+let covFlushTimer: ReturnType<typeof setTimeout> | null = null;
 export function markCovered(cov: Set<string>, l: Loc) {
   if (cov.has(keyOf(l))) return;
   cov.add(keyOf(l));
-  // Write-through per ayah — cheap (Set is ~7k entries max).
+  if (covFlushTimer) return;
+  covFlushTimer = setTimeout(() => {
+    covFlushTimer = null;
+    ls.set(COV_KEY, JSON.stringify([...cov]));
+  }, 4000);
+}
+/** Flush any pending coverage write (call on session stop/unmount). */
+export function flushCoverage(cov: Set<string>) {
+  if (!covFlushTimer) return;
+  clearTimeout(covFlushTimer);
+  covFlushTimer = null;
   ls.set(COV_KEY, JSON.stringify([...cov]));
 }
 
