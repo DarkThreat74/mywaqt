@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, ListChecks, Loader2, Mic, MicOff, Pause, Play, Search, Settings, Square, Trash2, X } from "lucide-react";
+import { BookOpen, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, Home, ListChecks, Loader2, Mic, MicOff, Pause, Play, Settings, Square, Trash2, User2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
 import { loadAyahPages, loadBasmalaFont, loadPage, loadPageFont, loadSurahMeta, warmMushaf, type AyahPages, type MushafPage, type SurahMetaEntry } from "./mushaf";
 import { removeMistake, saveMistake, syncMistakes, type Mistake } from "./mistakes";
@@ -67,7 +67,9 @@ export default function QuranTesterClient() {
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   const [dl, setDl] = useState<{ done: number; total: number } | null>(null);
   const [dlError, setDlError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"mushaf" | "listener">(
+    () => (typeof localStorage !== "undefined" && localStorage.getItem("qt:view-mode") === "listener" ? "listener" : "mushaf"),
+  );
   const [setupOpen, setSetupOpen] = useState(false);
 
   const [listen, setListen] = useState<ListenState>(() => qtState());
@@ -112,7 +114,7 @@ export default function QuranTesterClient() {
   // ── Recite Plan ──
   const [plan, setPlan] = useState<Plan | null>(() => loadPlan());
   const [planOpen, setPlanOpen] = useState(false);
-  const [jump, setJump] = useState<{ to: Loc; expected: Loc; at: number } | null>(null);
+  const [jump, setJump] = useState<{ to: Loc; expected: Loc; at: number; silent?: boolean } | null>(null);
   // Anchor policy: "follow" drifts with you; "hold" pins where you left off
   // until you return or accept the new spot. Persisted — works with no goal.
   const [anchorMode, setAnchorMode] = useState<"follow" | "hold">(
@@ -159,7 +161,10 @@ export default function QuranTesterClient() {
     planRef.current = plan;
     suspectsRef.current = suspects;
     anchorModeRef.current = anchorMode;
-    try { localStorage.setItem("qt:anchor-mode", anchorMode); } catch {}
+    try {
+      localStorage.setItem("qt:anchor-mode", anchorMode);
+      localStorage.setItem("qt:view-mode", viewMode);
+    } catch {}
   });
 
   /** Expected = the surah the engine actually locked onto. setExpected
@@ -532,14 +537,6 @@ export default function QuranTesterClient() {
     return m ? `${m.name} · ${m.en ?? s}` : `سورة ${s}`;
   }
 
-  function onSearch(v: string) {
-    setSearch(v);
-    const m = v.trim().match(/^(\d{1,3})(?::(\d{1,3}))?$/); // "2" or "2:255" → jump
-    if (m) {
-      const s = Math.min(114, Math.max(1, parseInt(m[1], 10)));
-      goToAyah(s, m[2] ? parseInt(m[2], 10) : 1);
-    }
-  }
 
   async function install() {
     setDlError(null);
@@ -687,6 +684,21 @@ export default function QuranTesterClient() {
     } else if (ev.type === "word_progress") {
       const s = ev.surah as number, a = ev.ayah as number;
       locLiveRef.current = { s, a };
+      // Hold mode with an open jump: the engine keeps decoding wherever you
+      // wandered to, but the tracker must NOT chase it — the pin marks the
+      // held spot until you resolve. Hearing words back near the pin IS the
+      // resolution: dismiss and hand control back to the normal path.
+      const j = jumpRef.current;
+      if (anchorModeRef.current === "hold" && j) {
+        const back = ixRef.current ? distOf(ixRef.current, j.expected, { s, a }) : null;
+        if (back != null && Math.abs(back) <= 3) {
+          dismissJump();
+          anchorRef.current = { s, a };
+        } else {
+          noteHeard(s, a, ev.word_index as number, ev.total_words as number);
+          return;
+        }
+      }
       setLoc({ surah: s, ayah: a });
       expectSurah(s); // smooth crossings into the next surah never fire relocate
       setWordIdx(ev.word_index as number);
@@ -1057,10 +1069,34 @@ export default function QuranTesterClient() {
           href="/calendar/day"
           className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-muted)", minHeight: 34, minWidth: 34 }}
-          aria-label="Back"
+          aria-label="Home"
         >
-          <ArrowLeft className="h-4.5 w-4.5" />
+          <Home className="h-4.5 w-4.5" />
         </Link>
+        {/* View mode — the mushaf book that follows you, or the listener
+            figure that watches. Top-level so it never hides in settings. */}
+        <div
+          className="flex items-center rounded-full border p-0.5"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+          role="tablist" aria-label="View mode"
+        >
+          {([["mushaf", BookOpen, "Mushaf"], ["listener", User2, "Listener"]] as const).map(([m, Ic, label]) => (
+            <button
+              key={m}
+              role="tab" aria-selected={viewMode === m} aria-label={`${label} view`}
+              onClick={() => setViewMode(m)}
+              className="flex items-center justify-center rounded-full transition-colors"
+              style={{
+                minHeight: 26, minWidth: 30,
+                backgroundColor: viewMode === m ? "var(--color-paper)" : "transparent",
+                color: viewMode === m ? "var(--color-ink)" : "var(--color-ink-muted)",
+                boxShadow: viewMode === m ? "0 1px 3px color-mix(in oklab, var(--color-ink) 18%, transparent)" : "none",
+              }}
+            >
+              <Ic className="h-3.5 w-3.5" />
+            </button>
+          ))}
+        </div>
         {installed === false && (
           <button
             onClick={() => setSetupOpen(true)}
@@ -1078,19 +1114,9 @@ export default function QuranTesterClient() {
             <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#c9a227" }} />
           </button>
         )}
-        <div
-          className="flex flex-1 items-center gap-2 rounded-full border px-3 py-1.5"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
-        >
-          <Search className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
-          <input
-            value={search}
-            onChange={(e) => onSearch(e.target.value)}
-            placeholder="Jump — 2:255"
-            className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--color-ink-muted)]"
-            style={{ color: "var(--color-ink)" }}
-          />
-        </div>
+        {/* Jump bar removed — the surah/juz picker (rightmost chip) covers
+            navigation without the text box compressing the mushaf. */}
+        <div className="flex-1" />
         <button
           onClick={() => setReviewOpen(true)}
           className="relative flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
@@ -1276,7 +1302,22 @@ export default function QuranTesterClient() {
             pushed the mushaf layout. */}
 
         {/* Mushaf page — swipe. On desktop it becomes a centered portrait
-            card at the real mushaf page ratio, with an inner double frame. */}
+            card at the real mushaf page ratio, with an inner double frame.
+            In listener mode the whole card swaps for the watching figure. */}
+        {viewMode === "listener" ? (
+          <ListenerView
+            loc={loc}
+            wordIdx={wordIdx}
+            level={level}
+            alert={!!pending || (!!jump && !jump.silent)}
+            pages={pages}
+            ayahPages={ayahPages}
+            suspects={suspects}
+            pin={pin}
+            surahName={surahName}
+            listening={listen === "listening"}
+          />
+        ) : (
         <div
           className="qt-mushaf relative mt-2 min-h-0 flex-1 touch-pan-y select-none overflow-hidden rounded-lg border"
           style={{
@@ -1299,21 +1340,23 @@ export default function QuranTesterClient() {
               willChange: "transform",
             }}
           >
-            {/* prev page (right side in RTL reading) */}
+            {/* prev page waits off the left edge — swiping right pulls it in */}
             {page > 1 && (
-              <div className="absolute inset-0" style={{ transform: "translateX(100%)" }}>
+              <div className="absolute inset-0" style={{ transform: "translateX(-100%)" }}>
                 {renderPage(page - 1, false)}
               </div>
             )}
             <div className="absolute inset-0">{renderPage(page, true)}</div>
-            {/* next page (left side — mushaf turns left) */}
+            {/* next page waits off the right edge — a left swipe drags it in,
+                so the page sliding in is always the page commitTurn lands on */}
             {page < PAGE_COUNT && (
-              <div className="absolute inset-0" style={{ transform: "translateX(-100%)" }}>
+              <div className="absolute inset-0" style={{ transform: "translateX(100%)" }}>
                 {renderPage(page + 1, false)}
               </div>
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* Mistake confirm bar */}
@@ -1322,7 +1365,19 @@ export default function QuranTesterClient() {
           plan={plan}
           loc={loc}
           anchorMode={anchorMode}
-          onAnchorMode={setAnchorMode}
+          onAnchorMode={(m) => {
+            setAnchorMode(m);
+            // Hold needs a visible pin the moment it's chosen — "doesn't
+            // label it" was this: the bookmark only appeared after a jump.
+            // Switching to hold pins where you ARE right now.
+            if (m === "hold" && loc) {
+              anchorRef.current = { s: loc.surah, a: loc.ayah };
+              setPin(lastGoodWord(anchorRef.current));
+              setStatus(`Holding at ${surahName(loc.surah)} ${loc.surah}:${loc.ayah} — the blue underline is your pin`);
+            } else if (m === "follow") {
+              setPin(null);
+            }
+          }}
           onClose={() => setPlanOpen(false)}
           onSave={(p) => { savePlan(p); setPlan(p); setPlanOpen(false); setDayDone(isDayDone(todayKey())); }}
         />
@@ -1985,6 +2040,189 @@ function PlanSheet({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Listener mode ────────────────────────────────────────────────────────
+// The alternative surface: someone visibly listening. A figure that idles
+// with a slow sway while it hears you, flushes red the moment a flag pops,
+// and beneath it the ayah before/now/after — the current one stays centered
+// and auto-scrolls as you move through the text.
+function ListenerView({
+  loc, wordIdx, level, alert, pages, ayahPages, suspects, pin, surahName, listening,
+}: {
+  loc: { surah: number; ayah: number } | null;
+  wordIdx: number | null;
+  level: number;
+  alert: boolean;
+  pages: Map<number, MushafPage>;
+  ayahPages: AyahPages | null;
+  suspects: Map<string, string>;
+  pin: { s: number; a: number; w: number } | null;
+  surahName: (s: number) => string;
+  listening: boolean;
+}) {
+  const curRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep the current ayah centered — same follow behavior as the mushaf.
+  useEffect(() => {
+    curRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [loc?.surah, loc?.ayah]);
+
+  // Words for one ayah, pulled out of the already-loaded mushaf pages.
+  // Returns null while the page hasn't been fetched yet.
+  function wordsOf(s: number, a: number) {
+    const p = ayahPages?.[s]?.[a];
+    if (!p) return null;
+    const pg = pages.get(p);
+    if (!pg) return null;
+    return pg.lines
+      .flatMap((l) => l.words ?? [])
+      .filter((w) => w.location.startsWith(`${s}:${a}:`));
+  }
+
+  const neighbors: { s: number; a: number; role: "prev" | "now" | "next" }[] = [];
+  if (loc) {
+    const ap = ayahPages?.[loc.surah];
+    const nums = ap ? Object.keys(ap).map(Number).sort((x, y) => x - y) : [];
+    const i = nums.indexOf(loc.ayah);
+    if (i > 0) neighbors.push({ s: loc.surah, a: nums[i - 1], role: "prev" });
+    neighbors.push({ s: loc.surah, a: loc.ayah, role: "now" });
+    if (i >= 0 && i < nums.length - 1) neighbors.push({ s: loc.surah, a: nums[i + 1], role: "next" });
+  }
+
+  const aura = alert ? "#b34a3a" : "var(--color-accent)";
+
+  return (
+    <div
+      className="relative mt-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border"
+      style={{
+        borderColor: "var(--color-paper-3)",
+        backgroundColor: "var(--color-paper-2)",
+        boxShadow: "inset 0 0 0 6px var(--color-paper-2), inset 0 0 0 7px var(--color-paper-3), inset 0 0 0 12px var(--color-paper-2)",
+      }}
+    >
+      {/* The listener — a face that breathes while it hears you and burns
+          red on a flag. Aura size tracks the live mic level. */}
+      <div className="relative mx-auto mt-6 flex h-24 w-24 shrink-0 items-center justify-center">
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full"
+          style={{
+            backgroundColor: `color-mix(in oklab, ${aura} ${alert ? 34 : 14 + Math.round(level * 26)}%, transparent)`,
+            transform: `scale(${listening ? 1.12 + level * 0.35 : 1.02})`,
+            transition: "transform 0.25s ease-out, background-color 0.3s",
+            animation: alert ? "qt-listener-pulse 0.7s ease-in-out infinite alternate" : undefined,
+          }}
+        />
+        <span
+          className="relative flex h-16 w-16 items-center justify-center rounded-full border"
+          style={{
+            borderColor: `color-mix(in oklab, ${aura} 45%, transparent)`,
+            backgroundColor: "var(--color-paper)",
+            animation: listening ? "qt-listener-sway 3.2s ease-in-out infinite" : "none",
+            transition: "border-color 0.3s",
+          }}
+        >
+          {/* eyes */}
+          <span className="flex gap-3.5">
+            <span
+              className="block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: alert ? "#b34a3a" : "var(--color-ink)", transform: alert ? "scaleY(0.5)" : "none", transition: "transform 0.2s, background-color 0.3s" }}
+            />
+            <span
+              className="block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: alert ? "#b34a3a" : "var(--color-ink)", transform: alert ? "scaleY(0.5)" : "none", transition: "transform 0.2s, background-color 0.3s" }}
+            />
+          </span>
+          {/* mouth — opens with mic level */}
+          <span
+            className="absolute bottom-4 block rounded-full"
+            style={{
+              width: 12,
+              height: alert ? 1.5 : Math.max(1.5, level * 9),
+              backgroundColor: alert ? "#b34a3a" : "var(--color-ink-muted)",
+              transition: "height 0.15s ease-out, background-color 0.3s",
+            }}
+          />
+        </span>
+      </div>
+
+      <p className="mt-2 shrink-0 text-center text-[10px] font-semibold" style={{ color: alert ? "#b34a3a" : "var(--color-ink-muted)" }}>
+        {!listening ? "The listener is off — start the mic" : alert ? "Something flagged — check the notice" : loc ? `Listening — ${surahName(loc.surah)} ${loc.surah}:${loc.ayah}` : "Listening — recite anything"}
+      </p>
+
+      {/* Ayah strip — prev dimmed, current centered + marked, next dimmed.
+          Words keep their verdict colors so slips are visible live. */}
+      <div dir="rtl" className="mt-3 min-h-0 flex-1 overflow-y-auto px-5 pb-6" style={{ scrollbarWidth: "none" }}>
+        {!loc && (
+          <p className="pt-10 text-center text-sm" style={{ color: "var(--color-ink-muted)" }}>
+            Start reciting — the āyah you&rsquo;re on shows here.
+          </p>
+        )}
+        {neighbors.map((n) => {
+          const words = wordsOf(n.s, n.a);
+          const isNow = n.role === "now";
+          return (
+            <div
+              key={`${n.s}:${n.a}`}
+              ref={isNow ? curRef : undefined}
+              className="mx-auto max-w-md text-center"
+              style={{
+                padding: isNow ? "18px 12px" : "10px 12px",
+                margin: isNow ? "6px 0" : "0",
+                borderRadius: 14,
+                backgroundColor: isNow ? "color-mix(in oklab, var(--color-accent) 7%, transparent)" : "transparent",
+                opacity: isNow ? 1 : 0.38,
+                fontFamily: "var(--font-arabic)",
+                fontSize: isNow ? "clamp(1.15rem, 4.6vw, 1.7rem)" : "clamp(0.9rem, 3.4vw, 1.15rem)",
+                lineHeight: 2.1,
+                color: "var(--color-ink)",
+                transition: "opacity 0.3s",
+              }}
+            >
+              {words
+                ? words.map((w) => {
+                    const wi = parseInt(w.location.split(":")[2] ?? "0", 10);
+                    const flagged = suspects.get(`${n.s}:${n.a}:${wi}`);
+                    const isWord = isNow && wordIdx === wi;
+                    const pinned = pin && pin.s === n.s && pin.a === n.a && pin.w === wi;
+                    return (
+                      <span
+                        key={w.location}
+                        style={{
+                          color: flagged === "possible_omission" || flagged === "possible_substitution" ? "#b34a3a"
+                            : flagged ? "#c9a227"
+                            : undefined,
+                          backgroundColor: isWord ? "color-mix(in oklab, var(--color-accent) 22%, transparent)" : undefined,
+                          borderRadius: isWord ? 6 : undefined,
+                          textDecoration: pinned ? "underline" : undefined,
+                          textDecorationColor: pinned ? "var(--color-accent)" : undefined,
+                          textUnderlineOffset: pinned ? 6 : undefined,
+                        }}
+                      >
+                        {w.word}{" "}
+                      </span>
+                    );
+                  })
+                : <span style={{ fontSize: "0.8rem", fontFamily: "var(--font-sans)", color: "var(--color-ink-muted)" }}>{n.s}:{n.a}</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      <style>{`
+        @keyframes qt-listener-sway {
+          0%, 100% { transform: translateX(0) rotate(0deg); }
+          25% { transform: translateX(1.5px) rotate(1.4deg); }
+          75% { transform: translateX(-1.5px) rotate(-1.4deg); }
+        }
+        @keyframes qt-listener-pulse {
+          from { transform: scale(1.05); opacity: 0.7; }
+          to { transform: scale(1.3); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }

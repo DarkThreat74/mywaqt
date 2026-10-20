@@ -139,13 +139,29 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     evictRoute(app.href);
   }
 
-  function tileClick(item: LayoutItem) {
+  // App-store open: the tapped icon expands to fill the screen while the
+  // (already-prefetched) route mounts underneath — covers the navigation gap
+  // instead of staring at the drawer closing into a blank beat.
+  const [launch, setLaunch] = useState<{ key: string; x: number; y: number; s: number } | null>(null);
+  const launchEl = useRef<HTMLDivElement | null>(null);
+
+  function openApp(e: React.MouseEvent, app: { key: string; href: string }) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setFolderOpen(null);
+    setOpen(false);
+    setLaunch({ key: app.key, x: r.left, y: r.top, s: r.width });
+    router.prefetch(app.href);
+    setTimeout(() => router.push(app.href), 300);
+    setTimeout(() => setLaunch(null), 950);
+  }
+
+  function tileClick(e: React.MouseEvent, item: LayoutItem) {
     if (suppressClick.current) { suppressClick.current = false; return; }
     // Folders open in edit mode too — that's where the rename input lives.
     if (item.type === "folder") { setFolderOpen(item.id); return; }
     if (editing) return;
     const app = APP_BY_KEY.get(item.key);
-    if (app) { setOpen(false); router.push(app.href); }
+    if (app) openApp(e, app);
   }
 
   function iconTile(appKey: string | "store", size: number) {
@@ -188,8 +204,35 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") dismiss(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-     
+
   }, [open]);
+
+  // Warm every installed route while the drawer is open — the RSC payloads
+  // land in the router cache before a tile is ever tapped, so app-open is
+  // mostly the launch animation, not a fetch wait.
+  useEffect(() => {
+    if (!open) return;
+    for (const k of installedKeys) {
+      const href = APP_BY_KEY.get(k)?.href;
+      if (href) router.prefetch(href);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // The launch tile expands from the icon's rect to the full viewport —
+  // WAAPI because the start rect is only known at tap time.
+  useEffect(() => {
+    if (!launch || !launchEl.current) return;
+    const el = launchEl.current;
+    el.animate(
+      [
+        { top: `${launch.y}px`, left: `${launch.x}px`, width: `${launch.s}px`, height: `${launch.s}px`, borderRadius: "16px" },
+        { top: "0px", left: "0px", width: "100vw", height: "100dvh", borderRadius: "0px" },
+      ],
+      { duration: 340, easing: "cubic-bezier(0.32,0.72,0,1)", fill: "forwards" },
+    );
+    el.animate([{ opacity: 1 }, { opacity: 1, offset: 0.72 }, { opacity: 0 }], { duration: 950, fill: "forwards" });
+  }, [launch]);
 
   useEffect(() => {
     const handler = () => setOpen(true);
@@ -424,7 +467,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                         key={item.id}
                         type="button"
                         onPointerDown={(e) => onTilePointerDown(e, item)}
-                        onClick={() => tileClick(item)}
+                        onClick={(e) => tileClick(e, item)}
                         className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted && !pressed ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
                         style={{
                           animation: editing ? undefined : `drawer-app-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) ${delay} both`,
@@ -473,7 +516,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                       key={item.key}
                       type="button"
                       onPointerDown={(e) => onTilePointerDown(e, item)}
-                      onClick={() => tileClick(item)}
+                      onClick={(e) => tileClick(e, item)}
                       className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted && !pressed ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
                       style={{
                         animation: editing ? undefined : `drawer-app-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) ${delay} both`,
@@ -551,12 +594,16 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
             </div>
           )}
 
-          {/* Expanded folder — iOS-style panel above the grid */}
+          {/* Expanded folder — iOS-style panel above the grid. This overlay
+              sits OUTSIDE the dialog's stopPropagation — without its own
+              stop, the tap bubbles to the root backdrop and dismisses the
+              whole drawer. Backdrop tap closes the folder only; the drawer
+              closes on X (or its own backdrop, which is covered anyway). */}
           {openFolder && (
             <div
               className="absolute inset-0 z-10 flex items-center justify-center p-6"
               style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 30%, transparent)" }}
-              onClick={() => setFolderOpen(null)}
+              onClick={(e) => { e.stopPropagation(); setFolderOpen(null); }}
             >
               <div
                 className="w-full max-w-xs rounded-3xl p-4"
@@ -582,14 +629,12 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                       <button
                         key={k}
                         type="button"
-                        onClick={() => {
+                        onClick={(e) => {
                           if (editing) {
                             // ×-style pull-out: remove from folder → grid end.
                             commit(items.map((i) => i.type === "folder" && i.id === openFolder.id ? { ...i, keys: i.keys.filter((x: string) => x !== k) } : i).concat({ type: "app", key: k }));
                           } else {
-                            setFolderOpen(null);
-                            setOpen(false);
-                            router.push(app.href);
+                            openApp(e, app);
                           }
                         }}
                         className="relative flex flex-col items-center gap-1"
@@ -611,6 +656,21 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
           )}
         </div>,
         document.body
+      )}
+
+      {/* App-store launch: the tapped icon expands to cover the viewport
+          while the route mounts underneath, then fades to reveal it. */}
+      {launch && (
+        <div
+          ref={launchEl}
+          className="pointer-events-none fixed z-[130] flex items-center justify-center overflow-hidden"
+          style={{
+            top: launch.y, left: launch.x, width: launch.s, height: launch.s,
+            backgroundColor: "var(--color-paper)",
+          }}
+        >
+          <LaunchIcon appKey={launch.key} />
+        </div>
       )}
 
       <style>{`
@@ -644,5 +704,24 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
         }
       `}</style>
     </>
+  );
+}
+
+// The icon inside the launch overlay — iOS-style it zooms up and out as the
+// app surface takes over, so the handoff feels like one motion.
+function LaunchIcon({ appKey }: { appKey: string }) {
+  const Art = APP_BY_KEY.get(appKey)?.art;
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    ref.current?.animate(
+      [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(1.9)" }],
+      { duration: 420, easing: "ease-out", fill: "forwards" },
+    );
+  }, []);
+  if (!Art) return null;
+  return (
+    <div ref={ref} style={{ width: 96, height: 96, color: "var(--color-ink-soft)" }}>
+      <Art />
+    </div>
   );
 }

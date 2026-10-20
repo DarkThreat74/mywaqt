@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v90";
+const CACHE_VERSION = "waqt-v91";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -538,7 +538,10 @@ self.addEventListener("fetch", (event) => {
         const cached = await caches.match(request);
         if (cached) return withFixedCSP(cached);
         try {
-          const response = await fetch(request);
+          // timedFetch: a cache miss on lie-fi would otherwise hang the
+          // whole hydration — chunks must fail fast so the page retries
+          // instead of silently freezing.
+          const response = await timedFetch(request, 6000);
           if (response.ok) {
             // Vercel's edge cache can replay stale headers for unchanged
             // hashed chunks — fix the wire copy too before storing/serving.
@@ -574,8 +577,9 @@ self.addEventListener("fetch", (event) => {
         const hit = await cache.match(url.pathname) ?? await cache.match(url.href);
         if (hit) return hit;
         // Static ort wasm lives at /qt/* in public/ — write through so a
-        // fetched runtime file is offline-ready too.
-        const res = await fetch(request);
+        // fetched runtime file is offline-ready too. timedFetch so lie-fi
+        // doesn't stall the engine boot indefinitely.
+        const res = await timedFetch(request, 9000);
         if (res.ok) await cache.put(url.pathname, res.clone());
         return res;
       })()
@@ -628,8 +632,9 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         try {
-          // Try online first
-          const response = await fetch(request);
+          // Try online first — timed so a hung connection still falls through
+          // to the outbox queue instead of spinning forever.
+          const response = await timedFetch(request, 12000);
           // Await before responding — the client refetches right after this,
           // so the stale entry must be gone first.
           if (response.ok) {
@@ -1268,7 +1273,7 @@ self.addEventListener("fetch", (event) => {
         const cached = await caches.match(request);
         if (cached) return cached;
         try {
-          const response = await fetch(request);
+          const response = await timedFetch(request, 6000);
           if (response.ok) {
             const responseClone = response.clone();
             const cache = await caches.open(RUNTIME_CACHE);
@@ -1349,7 +1354,7 @@ self.addEventListener("fetch", (event) => {
         // Only explicit downloads (saveAudioOffline) add to the cache.
         // This prevents passive listening from filling storage.
         try {
-          return await fetch(request);
+          return await timedFetch(request, 15000);
         } catch {
           // Offline and no cache — return 503 so the player can show an error
           return new Response(null, {

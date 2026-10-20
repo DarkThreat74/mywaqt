@@ -220,13 +220,13 @@ export function QuranTesterArt() {
 }
 
 export function ReciteCoachArt() {
+  // The signature gold contour: a melodic phrase climbing an octave, guide
+  // bands faint behind it, leading dot at its peak — the app's own canvas.
   return (
     <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
-      <path d="M20 8a4 4 0 0 1 8 0v9a4 4 0 0 1-8 0z" />
-      <path d="M15 18a9 9 0 0 0 18 0" />
-      <path d="M24 27v6" />
-      <path d="M10 38c4-4 7 2 11-2s7 2 11-2 5 1 6-1" />
-      <circle cx="40" cy="36" r="2.4" opacity="0.6" />
+      <path d="M8 16h30M8 40h30" opacity="0.3" />
+      <path d="M10 36c6 0 7-8 12-8 4.5 0 5-10 9.5-10 3 0 3.5 6 6.5 6" />
+      <circle cx="38" cy="24" r="2.6" fill="currentColor" stroke="none" />
     </svg>
   );
 }
