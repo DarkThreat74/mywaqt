@@ -156,6 +156,8 @@ export default function QuranTesterClient() {
   const jumpRef = useRef<{ to: Loc; expected: Loc; at: number; silent?: boolean } | null>(null);
   const preambleGraceRef = useRef(0); // 'lost' timestamp — basmala/isti'adhah window
   const candTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // unstable-lock dwell
+  const candRef = useRef<{ s: number; a: number } | null>(null); // candidate under dwell
+  const recycledRef = useRef(false); // worker recycled mid-session — next lock is a fresh baseline
   const locLiveRef = useRef<{ s: number; a: number } | null>(null);
   const locShownRef = useRef<{ s: number; a: number } | null>(null); // displayed loc — dedupes per-word setLoc renders
   const [lockFx, setLockFx] = useState<{ s: number; a: number; n: number } | null>(null); // first-lock wave
@@ -327,6 +329,9 @@ export default function QuranTesterClient() {
   // on mobile shouldn't leave the highlight scrolled out of view.
   useEffect(() => {
     if (!loc || listen === "idle") return;
+    // An unresolved jump means the tracker may be at the wrong spot — don't
+    // scroll the page toward it; the pin already marks where we hold.
+    if (jumpRef.current) return;
     const sel = `[data-loc="${loc.surah}:${loc.ayah}:1"]`;
     document.querySelector(sel)?.scrollIntoView({ block: "center", behavior: "smooth" });
     const t = setTimeout(() => document.querySelector(sel)?.scrollIntoView({ block: "center" }), 350); // retry after a page swap renders
@@ -343,8 +348,10 @@ export default function QuranTesterClient() {
   }
 
   /** Jump classifier — the reason routine relocations used to "ting" at
-   *  random. Only a landing OUTSIDE the expected track alerts. */
-  function classifyJump(loc: Loc) {
+   *  random. Only a landing OUTSIDE the expected track alerts. Returns
+   *  "hold-jump" when the move was classified as a jump while pinned — the
+   *  caller must NOT move the display to the wrong spot. */
+  function classifyJump(loc: Loc): "hold-jump" | undefined {
     const ix = ixRef.current;
     if (!ix) return;
     // 'Audhu/Basmala between ayahs aren't text — the tracker goes `lost`
@@ -381,7 +388,7 @@ export default function QuranTesterClient() {
         if (drift != null && Math.abs(drift) <= 3) j.to = loc;
         const pin = resumeWord(j.expected);
         qtPost({ type: "reanchor", s: pin.s, a: pin.a, w: pin.w });
-        return;
+        return "hold-jump";
       }
       const drift = distOf(ix, j.to, loc);
       if (drift == null || Math.abs(drift) <= 3) {
@@ -391,7 +398,7 @@ export default function QuranTesterClient() {
       }
       // Moved AGAIN to somewhere new — a fresh jump, always re-alerts even
       // if the last one was X'd or auto-dismissed.
-      jumpRef.current = { to: loc, expected: j.expected, at: Date.now() };
+      jumpRef.current = { to: loc, expected: anchorRef.current ?? j.expected, at: Date.now() };
       setJump(jumpRef.current);
       markDiversion(loc);
       ding3();
@@ -440,6 +447,7 @@ export default function QuranTesterClient() {
     ding3(); // ding-ding-ding — you moved
     void ayahSnippet(anchor.s, anchor.a).then((t) => qtOrb("alert", t));
     qtPost({ type: "correction-act", action: "continue" }); // release a stale issue — else detection freezes
+    return anchorModeRef.current === "hold" ? "hold-jump" : undefined;
   }
   /** Engine-space resume point for reanchor/track — 0-based word index,
    *  the word just before the last one heard good. */
@@ -704,6 +712,9 @@ export default function QuranTesterClient() {
         const h = heardRef.current;
         if (h.loc && heardEnough(h.loc, h.max, h.total)) coverLoc(h.loc);
         heardRef.current = { loc: null, max: 0, total: 0 };
+        setLoc(null);
+        setWordIdx(null);
+        locShownRef.current = locLiveRef.current = null;
         dismissJump();
         setPending(null);
         lastIssueKeyRef.current = null;
@@ -713,6 +724,10 @@ export default function QuranTesterClient() {
       }
     } else if (ev.type === "ui-status") {
       setStatus(String(ev.message));
+      // Mid-session worker recycle: the engine's tracker is empty while our
+      // anchors still hold the old position — the next lock is a fresh
+      // baseline, not a jump.
+      if (String(ev.message).includes("restarting")) recycledRef.current = true;
     } else if (ev.type === "ready") {
       // warmQt() also emits ready while idle — only flip to listening when
       // a mic session actually started (module state says warming/listening).
@@ -735,13 +750,27 @@ export default function QuranTesterClient() {
     } else if (ev.type === "lost") {
       preambleGraceRef.current = Date.now();
       if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
+      candRef.current = null;
       setStatus("Lost you — keep going, or tap the page to re-anchor");
+    } else if (ev.type === "locateFailed") {
+      if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
+      candRef.current = null;
+      setStatus("Can't place you — recite a few clear words, or tap the ayah you're on");
     } else if (ev.type === "verse_match" || ev.type === "relocated" || ev.type === "verse_candidate") {
       // `relocated` carries {from,to:{surah,ayah,word}} — no candidates.
       const c = (ev.candidates as { surah: number; ayah: number }[] | undefined)?.[0]
         ?? (ev.to as { surah: number; ayah: number } | undefined) ?? ev;
       const s = c.surah as number, a = c.ayah as number;
       if (typeof s !== "number" || typeof a !== "number") return;
+      // First lock after a mid-session worker recycle — the tracker's fresh
+      // position is a baseline, not a jump away from stale anchors.
+      if (recycledRef.current) {
+        recycledRef.current = false;
+        anchorRef.current = null;
+        heardRef.current = { loc: null, max: 0, total: 0 };
+        locLiveRef.current = null;
+        if (jumpRef.current) dismissJump();
+      }
       // Hold mode with an open jump: the tracker keeps wandering while you
       // recite elsewhere — don't let the page chase it. The pin stays put
       // until the jump resolves.
@@ -771,9 +800,13 @@ export default function QuranTesterClient() {
         // the tracker to a false hit (the phantom Surah-Qaf jumps). The
         // display does NOT follow until the lock is still standing ~1.2s
         // later; a confirmed match, a newer candidate, or `lost` cancels it.
+        // candRef also gates word_progress — without it the cursor stream
+        // bypasses this dwell and follows the unstable lock instantly.
+        candRef.current = { s, a };
         if (candTimerRef.current) clearTimeout(candTimerRef.current);
         candTimerRef.current = setTimeout(() => {
           candTimerRef.current = null;
+          candRef.current = null;
           const live = locLiveRef.current;
           if (live && live.s === s && Math.abs(live.a - a) <= 2) {
             showLoc();
@@ -783,9 +816,14 @@ export default function QuranTesterClient() {
         }, 1200);
       } else {
         if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
-        showLoc();
-        expectSurah(s); // anchor ayah-order checks to wherever you actually are
-        classifyJump({ s, a }); // sounds only on first locate / off-track jumps
+        candRef.current = null;
+        // Classify BEFORE moving the display — a pinned (hold-mode) jump
+        // must not move the page at all; the pin + toast carry it instead.
+        const jv = classifyJump({ s, a });
+        if (jv !== "hold-jump") {
+          showLoc();
+          expectSurah(s); // anchor ayah-order checks to wherever you actually are
+        }
       }
     } else if (ev.type === "muta_approach") {
       // Entering a word region that differs from a known look-alike ayah —
@@ -831,14 +869,25 @@ export default function QuranTesterClient() {
       const s = ev.surah as number, a = ev.ayah as number;
       const prev = locLiveRef.current;
       // Silent DP-slide guard: the ONLY legit same-surah crossing is onto the
-      // next ayah's first word or two. Any other ayah landing without a
-      // `relocated` event means the tracker slid onto a look-alike — don't
-      // chase it; route it through the jump classifier instead.
-      if (prev && s === prev.s && a !== prev.a && !(a === prev.a + 1 && (ev.word_index as number) <= 1)) {
+      // next ayah's first word AFTER actually finishing the previous ayah —
+      // a mutashabih slide lands at w0-1 with the previous ayah half-heard.
+      const hHeard = heardRef.current;
+      const finishedPrev = hHeard.loc && hHeard.loc.s === s && hHeard.loc.a === prev?.a &&
+        hHeard.total > 0 && hHeard.max >= hHeard.total - 1;
+      if (prev && s === prev.s && a !== prev.a &&
+          !(a === prev.a + 1 && (ev.word_index as number) <= 1 && finishedPrev)) {
         locLiveRef.current = { s, a };
-        classifyJump({ s, a });
+        const jv = classifyJump({ s, a });
         noteHeard(s, a, (ev.word_index as number) + 1, ev.total_words as number);
-        return;
+        // Pinned jump — hold position; anything else falls through so a
+        // legit contiguous advance still updates the page.
+        if (jv === "hold-jump") return;
+      }
+      // An armed unstable candidate owns the display for ~1.2s — track and
+      // count what we hear, but don't move the page/highlight yet.
+      if (candRef.current) {
+        if (candRef.current.s !== s || candRef.current.a !== a) candRef.current = null;
+        else { locLiveRef.current = { s, a }; noteHeard(s, a, (ev.word_index as number) + 1, ev.total_words as number); return; }
       }
       locLiveRef.current = { s, a };
       // Hold mode with an open jump: the engine keeps decoding wherever you
@@ -852,7 +901,7 @@ export default function QuranTesterClient() {
           dismissJump();
           anchorRef.current = { s, a };
         } else {
-          noteHeard(s, a, ev.word_index as number, ev.total_words as number);
+          noteHeard(s, a, (ev.word_index as number) + 1, ev.total_words as number);
           return;
         }
       }
@@ -1124,7 +1173,7 @@ export default function QuranTesterClient() {
     if (!data) return;
     const ayahKey = `${loc.surah}:${loc.ayah}`;
     if (hintCountRef.current.ayah !== ayahKey) hintCountRef.current = { ayah: ayahKey, n: 0 };
-    const n = ++hintCountRef.current.n;
+    const n = hintCountRef.current.n + 1;
     const want = n >= 4 ? Infinity : n;
     const batch: number[] = [];
     for (const line of data.lines) {
@@ -1137,6 +1186,7 @@ export default function QuranTesterClient() {
       }
     }
     if (!batch.length) return;
+    hintCountRef.current.n = n; // only spend a level when words actually reveal
     setRevealed((prev) => {
       const next = new Set(prev);
       for (const wiN of batch) next.add(`${loc.surah}:${loc.ayah}:${wiN}`);
@@ -1645,7 +1695,7 @@ export default function QuranTesterClient() {
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
           >
             <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-              {issueLabel(pending.kind)} — {pending.s}:{pending.a}, word {pending.w}
+              {issueLabel(pending.kind)} — {pending.s}:{pending.a}{pending.w ? `, word ${pending.w}` : ""}
             </p>
             <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
               {pending.kind.startsWith("possible_") && pending.kind !== "possible_skipped_ayah"

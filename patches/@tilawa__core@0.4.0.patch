@@ -355,7 +355,7 @@ index 24b499d..6d4790b 100644
      private finish;
      private makeEngine;
 diff --git a/dist/recitation/session.js b/dist/recitation/session.js
-index 3d7030c..a5f0b1d 100644
+index 3d7030c..8997d6a 100644
 --- a/dist/recitation/session.js
 +++ b/dist/recitation/session.js
 @@ -33,7 +33,7 @@ const TAIL_SECONDS = 2.0;
@@ -494,6 +494,17 @@ index 3d7030c..a5f0b1d 100644
                  break;
              }
              case "located": {
+@@ -775,6 +812,10 @@ export class ZipformerSession {
+                 break;
+             }
+             default:
++                // locateFailed must reach the host — otherwise "finding your
++                // place" spins forever with no way to tell the user to help.
++                if (ev.type === "locateFailed")
++                    out.push({ type: "locateFailed" });
+                 break;
+         }
+         if (this.debugEnabled && ev.type !== "cursor" && ev.type !== "verdicts") {
 diff --git a/dist/recitation/structural.js b/dist/recitation/structural.js
 index df64e95..db75eea 100644
 --- a/dist/recitation/structural.js
@@ -590,16 +601,17 @@ index df64e95..db75eea 100644
      has(s, a) {
          return this.corpus.hasAyah(s, a);
 diff --git a/dist/recitation/tracker.js b/dist/recitation/tracker.js
-index 5c554eb..7232ba5 100644
+index 5c554eb..6083947 100644
 --- a/dist/recitation/tracker.js
 +++ b/dist/recitation/tracker.js
-@@ -68,9 +68,18 @@ export class Tracker {
+@@ -68,9 +68,21 @@ export class Tracker {
          this.column = new Float32Array(this.len + 1);
          this.column.fill(Number.POSITIVE_INFINITY);
          const jump = cfg.jumpCost;
 +        const perWord = cfg.jumpPerWord ?? 0;
 +        const maxJump = cfg.maxJumpWords ?? Infinity;
 +        const startW = this.localWordOfPos[Math.max(0, this.startLocal - 1)] ?? 0;
++        const seedAyah = this.ayahAtStart[startW];
          for (let i = 0; i < nWords; i++) {
              const m = this.wordStarts[i];
 -            this.column[m] = m === this.startLocal ? 0 : jump + this.jumpExtra[i];
@@ -607,31 +619,34 @@ index 5c554eb..7232ba5 100644
 +            // surah let the cursor teleport to any look-alike once the local
 +            // path accumulated ~12 cost (the seed survives via the ins edge).
 +            const dist = Math.abs(i - startW);
++            // Cross-ayah seeds are dormant teleports: a look-alike word in a
++            // different ayah must be reached via lost -> relocate, not a seed.
 +            this.column[m] = m === this.startLocal ? 0
-+                : dist <= maxJump ? jump + this.jumpExtra[i] + perWord * dist
++                : dist <= maxJump && this.ayahAtStart[i] === seedAyah ? jump + this.jumpExtra[i] + perWord * dist
 +                : Number.POSITIVE_INFINITY;
          }
          for (let m = 1; m <= this.len; m++) {
              this.column[m] = Math.min(this.column[m], this.column[m - 1] + 1);
-@@ -116,10 +125,16 @@ export class Tracker {
+@@ -116,10 +128,17 @@ export class Tracker {
      }
      resetColumn() {
          const jump = this.cfg.jumpCost;
 +        const perWord = this.cfg.jumpPerWord ?? 0;
 +        const maxJump = this.cfg.maxJumpWords ?? Infinity;
 +        const startW = Math.max(0, this.cursorLocalWord);
++        const seedAyah = this.ayahAtStart[startW];
          this.column.fill(Number.POSITIVE_INFINITY);
          for (let i = 0; i < this.wordStarts.length; i++) {
              const m = this.wordStarts[i];
 -            this.column[m] = m === this.startLocal ? 0 : jump + this.jumpExtra[i];
 +            const dist = Math.abs(i - startW);
 +            this.column[m] = m === this.startLocal ? 0
-+                : dist <= maxJump ? jump + this.jumpExtra[i] + perWord * dist
++                : dist <= maxJump && this.ayahAtStart[i] === seedAyah ? jump + this.jumpExtra[i] + perWord * dist
 +                : Number.POSITIVE_INFINITY;
          }
          for (let m = 1; m <= this.len; m++) {
              this.column[m] = Math.min(this.column[m], this.column[m - 1] + 1);
-@@ -165,9 +180,25 @@ export class Tracker {
+@@ -165,9 +184,31 @@ export class Tracker {
              if (del < next[m])
                  next[m] = del;
          }
@@ -652,6 +667,12 @@ index 5c554eb..7232ba5 100644
 +                // to go through lost -> maybeRelocate (which emits an event).
 +                const dist = Math.abs(i - cursorW);
 +                if (dist > maxJump)
++                    continue;
++                // A landing in a DIFFERENT ayah is a relocation, not a slip:
++                // it must go through lost -> maybeRelocate, where the
++                // divergentOk/ident vetoes live. Skipping the edge forces the
++                // local path to accumulate real cost until `lost` fires.
++                if (cursorAyah >= 0 && this.ayahAtStart[i] !== cursorAyah)
 +                    continue;
 +                restart = jump + this.jumpExtra[i] + perWord * dist;
 +            }
