@@ -468,10 +468,10 @@ index 3d7030c..a5f0b1d 100644
              }
              case "located": {
 diff --git a/dist/recitation/structural.js b/dist/recitation/structural.js
-index df64e95..ebf2c16 100644
+index df64e95..db75eea 100644
 --- a/dist/recitation/structural.js
 +++ b/dist/recitation/structural.js
-@@ -254,6 +254,84 @@ export class StructuralRules {
+@@ -254,6 +254,90 @@ export class StructuralRules {
              }));
          }
          this.ident = new Set(index.ident);
@@ -495,9 +495,12 @@ index df64e95..ebf2c16 100644
 +        for (const [key, rows] of this.looks) {
 +            const [ks, ka] = key.split(":");
 +            const s = Number(ks), a = Number(ka);
++            if (!this.corpus.hasAyah(s, a))
++                continue;
 +            const n = this.corpus.ayahWordCount(s, a) || 1;
 +            const fam = Math.min(1, rows.length / 4);
-+            for (const row of rows) {
++            for (const row of rows)
++                try {
 +                let fMin = 0, sum = 0, cnt = 0, nDiff = 0, firstI = n, allInsDel = true;
 +                for (const r of row.regions) {
 +                    const i1 = r[1], i2 = r[2], j1 = r[3], j2 = r[4];
@@ -525,7 +528,10 @@ index df64e95..ebf2c16 100644
 +                const fPos = 1 - (firstI === n ? n - 1 : firstI) / n;
 +                const raw = 0.40 * fMin + 0.20 * fAvg + 0.15 * fSpan + 0.15 * fPos + 0.10 * fam;
 +                row.conf = Math.max(0, Math.min(1, raw - (allInsDel ? 0.15 * (1 - fMin) : 0)));
-+            }
++                }
++                catch {
++                    row.conf = 0;
++                }
 +        }
 +        // Bidirectional view: `looks` only runs source→target — 1,183
 +        // look-alike targets have no key of their own, so standing ON one

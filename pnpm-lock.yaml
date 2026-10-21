@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@tilawa/core@0.4.0':
-    hash: uee4cde6ywexpo25t4gor5uxeq
+    hash: u54j554htede5vtkwykchhuegu
     path: patches/@tilawa__core@0.4.0.patch
 
 importers:
@@ -63,7 +63,7 @@ importers:
         version: 1.1.0
       '@tilawa/core':
         specifier: ^0.4.0
-        version: 0.4.0(patch_hash=uee4cde6ywexpo25t4gor5uxeq)
+        version: 0.4.0(patch_hash=u54j554htede5vtkwykchhuegu)
       '@types/leaflet':
         specifier: ^1.9.22
         version: 1.9.22
@@ -4804,7 +4804,7 @@ snapshots:
       postcss: 8.5.26
       tailwindcss: 4.3.3
 
-  '@tilawa/core@0.4.0(patch_hash=uee4cde6ywexpo25t4gor5uxeq)': {}
+  '@tilawa/core@0.4.0(patch_hash=u54j554htede5vtkwykchhuegu)': {}
 
   '@tybys/wasm-util@0.10.3':
     dependencies:
