@@ -15,11 +15,19 @@ export interface QtEvent {
 }
 
 const listeners = new Set<(ev: QtEvent) => void>();
+// The worker broadcasts the identical-ayah set once at engine init; the
+// worker outlives page mounts, so replay it to subscribers that arrive
+// later or they'll run the whole session with an empty ident set.
+let identAyahs: string[] | null = null;
 export function subscribeQt(fn: (ev: QtEvent) => void) {
   listeners.add(fn);
+  if (identAyahs) {
+    try { fn({ type: "muta_ident", ayahs: identAyahs }); } catch {}
+  }
   return () => { listeners.delete(fn); };
 }
 function emit(ev: QtEvent) {
+  if (ev.type === "muta_ident") identAyahs = (ev.ayahs as string[]) ?? null;
   // One throwing listener must never starve the rest (or kill fan-out into
   // worker.onmessage) — a subscriber error is isolated, not propagated.
   for (const fn of listeners) {

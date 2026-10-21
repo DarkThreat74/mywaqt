@@ -130,10 +130,22 @@ index a7301ef..c622cc4 100644
              && (th.settleGop || r.rule !== 'gop'))
              .sort((a, b) => a.issue.wordIndex - b.issue.wordIndex);
 diff --git a/dist/recitation/engine.js b/dist/recitation/engine.js
-index 0a41219..5b0e5c9 100644
+index 0a41219..b2b4c57 100644
 --- a/dist/recitation/engine.js
 +++ b/dist/recitation/engine.js
-@@ -156,6 +156,7 @@ export class RecitationEngine {
+@@ -1,9 +1,11 @@
++import { INSERT_DELETE_COST } from "./phonemeCost.js";
+ import { BUFFER_CAP, DEFAULT_CONFIG } from "./config.js";
+ import { expandTokens } from "./ctcDecoder.js";
+ import { alignSemiGlobal } from "./alignment.js";
+ import { preamblePending, stripPreambles } from "./search.js";
+ import { Tracker } from "./tracker.js";
+ import { VerdictTracer } from "./verdicts.js";
++const EMPTY = new Uint8Array(0);
+ export class RecitationEngine {
+     corpus;
+     index;
+@@ -156,6 +158,7 @@ export class RecitationEngine {
          const win = this.window;
          this.tracker = new Tracker(this.corpus, this.index.table, surah, wordIndex, this.cfg, win && win.surah === surah ? win : null);
          this.tracer = new VerdictTracer(this.tracker, this.index.table, this.cfg);
@@ -141,7 +153,15 @@ index 0a41219..5b0e5c9 100644
          this.tracer.anchorAyahEnd = this.correction ? this.cfg.anchorAyahEnd : 0;
          if (win)
              this.expectedLocked = true;
-@@ -275,6 +276,57 @@ export class RecitationEngine {
+@@ -167,6 +170,7 @@ export class RecitationEngine {
+         this.completedEmitted = false;
+         this.struggles = 0;
+         this.relocateCandidate = null;
++        this.vetoStrikes.clear();
+         this.lastCursorWord = -1;
+         this.lastStates.clear();
+         this.prevSettled = false;
+@@ -275,6 +279,114 @@ export class RecitationEngine {
          }
          return events;
      }
@@ -154,6 +174,41 @@ index 0a41219..5b0e5c9 100644
 +     * alongside `looks`. An ident→ident move is unprovable by definition,
 +     * and the resting spot renders the same text anyway, so it's vetoed. */
 +    idents = null;
++    /** Look-alike candidate key → consecutive divergentOk vetoes. A stable
++     * hit that keeps out-scoring the resting spot for ~6 relocate ticks is
++     * a real jump the evidence window simply can't see — decay, don't trap. */
++    vetoStrikes = new Map();
++    /** Sellers substring DP: min weighted edit cost of `t` against ANY
++     * substring of `q`. Verbatim includes() vetoed real jumps on a single
++     * CTC insertion/deletion inside the evidence word; this tolerates ~35%
++     * error so one corrupt char can't hide a real divergence. */
++    subFind(t, q) {
++        const n = t.length, m = q.length;
++        if (!n || !m)
++            return false;
++        const tab = this.index.table;
++        let prev = new Float32Array(m + 1); // zeros: match may start anywhere
++        let cur = new Float32Array(m + 1);
++        for (let i = 1; i <= n; i++) {
++            cur[0] = i * INSERT_DELETE_COST;
++            const ti = t[i - 1];
++            for (let j = 1; j <= m; j++) {
++                let c = prev[j - 1] + tab.cost(q[j - 1], ti);
++                const u = prev[j] + INSERT_DELETE_COST, l = cur[j - 1] + INSERT_DELETE_COST;
++                if (u < c)
++                    c = u;
++                if (l < c)
++                    c = l;
++                cur[j] = c;
++            }
++            [prev, cur] = [cur, prev];
++        }
++        let best = Infinity;
++        for (let j = 0; j <= m; j++)
++            if (prev[j] < best)
++                best = prev[j];
++        return best <= n * 0.35 * INSERT_DELETE_COST;
++    }
 +    /** False only when the relocation hit is a look-alike partner AND the
 +     * recent decode contains no word from EITHER side's divergent region —
 +     * i.e. the match is entirely inside the shared span, which cannot
@@ -173,33 +228,55 @@ index 0a41219..5b0e5c9 100644
 +        const row = rows.find((r) => r.m[0] === hit.surah && r.m[1] === hit.ayah);
 +        if (!row)
 +            return true;
-+        const enc = (ph) => this.index.table.encode(ph).replace(/\s+/g, "");
-+        const q = enc(query);
++        const q = this.index.table.encode(query);
 +        const sig = (s, a, w) => {
 +            if (!this.corpus.hasAyah(s, a) || w < 0 || w >= this.corpus.ayahWordCount(s, a))
-+                return "";
-+            return enc(this.corpus.wordPhonemes(this.corpus.wordIndex(s, a, w)));
++                return EMPTY;
++            return this.index.table.encode(this.corpus.wordPhonemes(this.corpus.wordIndex(s, a, w)));
 +        };
++        // Landing-side words are the ONLY proof the decode took the
++        // partner's branch; a current-side word merely places the decode
++        // in the region (it could still be our own text). Hard families
++        // (conf ≥ 0.7) demand two independent landing-side hits.
++        const hard = (row.conf ?? 0) >= 0.7;
++        let jHits = 0, jProvable = 0;
 +        for (const r of row.regions) {
-+            const [, i1, i2, j1, j2] = r;
-+            // A 1–2 phoneme word can't prove divergence — require >= 3.
-+            for (let w = i1; w < i2; w++) {
-+                const t = sig(this.tracker.surah, curA, w);
-+                if (t.length >= 3 && q.includes(t))
-+                    return true;
-+            }
-+            for (let w = j1; w < j2; w++) {
++            for (let w = r[3]; w < r[4]; w++) {
 +                const t = sig(hit.surah, hit.ayah, w);
-+                if (t.length >= 3 && q.includes(t))
-+                    return true;
++                if (t.length >= 3) {
++                    jProvable++;
++                    if (this.subFind(t, q))
++                        jHits++;
++                }
 +            }
 +        }
-+        return false;
++        if (jProvable && jHits >= (hard ? 2 : 1)) {
++            this.vetoStrikes.clear();
++            return true;
++        }
++        if (!jProvable) {
++            // Pure delete regions leave no landing-side word to find — a
++            // current-side hit just means the decode reached the span, so
++            // let the hit's distance margin arbitrate.
++            for (const r of row.regions) {
++                for (let w = r[1]; w < r[2]; w++) {
++                    const t = sig(this.tracker.surah, curA, w);
++                    if (t.length >= 3 && this.subFind(t, q)) {
++                        this.vetoStrikes.clear();
++                        return true;
++                    }
++                }
++            }
++        }
++        const k = `${hit.surah}:${hit.ayah}`;
++        const n = (this.vetoStrikes.get(k) ?? 0) + 1;
++        this.vetoStrikes.set(k, n);
++        return n >= 6;
 +    }
      maybeRelocate() {
          if (!this.tracker || this.buffer.length < this.cfg.searchMinChars)
              return null;
-@@ -293,10 +345,13 @@ export class RecitationEngine {
+@@ -293,10 +405,18 @@ export class RecitationEngine {
          if (hit &&
              rate !== null &&
              rate >= this.cfg.lostRate &&
@@ -211,11 +288,16 @@ index 0a41219..5b0e5c9 100644
              hit.distance + this.cfg.relocateRateMargin <= rate &&
 -            agrees) {
 +            agrees &&
-+            this.divergentOk(hit, query)) {
++            // Evidence window is ~3x the search window — the divergent
++            // words may sit well behind the decode tail that matched.
++            this.divergentOk(hit, this.buffer
++                .slice(Math.max(0, this.buffer.length - this.cfg.relocateQueryChars * 3))
++                .map((c) => c.ch)
++                .join(""))) {
              const from = {
                  surah: this.tracker.surah,
                  ayah: this.corpus.wordAyah[this.tracker.cursorWordIndex],
-@@ -424,6 +479,7 @@ export class RecitationEngine {
+@@ -424,6 +544,7 @@ export class RecitationEngine {
          const tracker = new Tracker(this.corpus, this.index.table, surah, wordIndex, this.cfg, win && win.surah === surah ? win : null);
          tracker.feed(chars);
          const tracer = new VerdictTracer(tracker, this.index.table, this.cfg);
@@ -223,6 +305,15 @@ index 0a41219..5b0e5c9 100644
          tracer.posteriors = this.posteriors;
          tracer.anchorAyahEnd = this.cfg.anchorAyahEnd;
          return tracer;
+@@ -440,8 +561,6 @@ export class RecitationEngine {
+     trackingEvents(gotChars) {
+         if (!this.tracker || !this.tracer)
+             return [];
+-        if (this.isHeld())
+-            return [];
+         const events = [];
+         const cursorIdx = this.tracker.cursorWordIndex;
+         if (cursorIdx !== this.lastCursorWord) {
 diff --git a/dist/recitation/session.d.ts b/dist/recitation/session.d.ts
 index 24b499d..6d4790b 100644
 --- a/dist/recitation/session.d.ts
@@ -377,13 +468,65 @@ index 3d7030c..a5f0b1d 100644
              }
              case "located": {
 diff --git a/dist/recitation/structural.js b/dist/recitation/structural.js
-index df64e95..7a33f39 100644
+index df64e95..ebf2c16 100644
 --- a/dist/recitation/structural.js
 +++ b/dist/recitation/structural.js
-@@ -254,6 +254,31 @@ export class StructuralRules {
+@@ -254,6 +254,84 @@ export class StructuralRules {
              }));
          }
          this.ident = new Set(index.ident);
++        // Per-pair confusability in [0,1] — how easy it is to slip between
++        // this ayah and a look-alike. Near-identical divergent words (a
++        // waw/fa swap, one clitic, vowel-only), few differing words, late
++        // divergence after a long shared prefix, and large families all
++        // make a pair harder to prove from the decode. Stored on each row;
++        // the relocation veto demands more evidence for hard pairs and the
++        // live watcher softens flags there.
++        const encWord = (s, a, w) => {
++            try {
++                if (!this.corpus.hasAyah(s, a) || w < 0 || w >= this.corpus.ayahWordCount(s, a))
++                    return null;
++                return encode(this.corpus.wordPhonemes(this.corpus.wordIndex(s, a, w)).trim());
++            }
++            catch {
++                return null;
++            }
++        };
++        for (const [key, rows] of this.looks) {
++            const [ks, ka] = key.split(":");
++            const s = Number(ks), a = Number(ka);
++            const n = this.corpus.ayahWordCount(s, a) || 1;
++            const fam = Math.min(1, rows.length / 4);
++            for (const row of rows) {
++                let fMin = 0, sum = 0, cnt = 0, nDiff = 0, firstI = n, allInsDel = true;
++                for (const r of row.regions) {
++                    const i1 = r[1], i2 = r[2], j1 = r[3], j2 = r[4];
++                    nDiff += (i2 - i1) + (j2 - j1);
++                    if (r[0] === REPLACE)
++                        allInsDel = false;
++                    if (i2 > i1)
++                        firstI = Math.min(firstI, i1);
++                    for (let w = i1; w < i2; w++)
++                        for (let x = j1; x < j2; x++) {
++                            const ea = encWord(s, a, w), eb = encWord(row.m[0], row.m[1], x);
++                            if (!ea || !eb || !ea.length || !eb.length)
++                                continue;
++                            // MINPAIR: the closest differing pair governs
++                            // how confusable the family is.
++                            const sim = 1 - globalCost(ea, eb) / Math.max(ea.length, eb.length);
++                            if (sim > fMin)
++                                fMin = sim;
++                            sum += sim;
++                            cnt++;
++                        }
++                }
++                const fAvg = cnt ? sum / cnt : 0;
++                const fSpan = 1 / (1 + nDiff);
++                const fPos = 1 - (firstI === n ? n - 1 : firstI) / n;
++                const raw = 0.40 * fMin + 0.20 * fAvg + 0.15 * fSpan + 0.15 * fPos + 0.10 * fam;
++                row.conf = Math.max(0, Math.min(1, raw - (allInsDel ? 0.15 * (1 - fMin) : 0)));
++            }
++        }
 +        // Bidirectional view: `looks` only runs source→target — 1,183
 +        // look-alike targets have no key of their own, so standing ON one
 +        // gave the divergence features nothing to see. `both` adds reversed
@@ -400,6 +543,7 @@ index df64e95..7a33f39 100644
 +                const rev = {
 +                    m: [Number(ks), Number(ka)],
 +                    regions: row.regions.map((r) => [r[0], r[3], r[4], r[1], r[2]]),
++                    conf: row.conf,
 +                };
 +                const arr = this.both.get(mk) ?? [];
 +                const sig = (x) => `${x.m.join(":")}|${x.regions.map((r) => r.join(",")).join(";")}`;
@@ -482,10 +626,20 @@ index 5c554eb..7232ba5 100644
                  next[m] = restart;
                  for (let j = m + 1; j <= this.len && next[j - 1] + 1 < next[j]; j++) {
 diff --git a/dist/recitation/verdicts.js b/dist/recitation/verdicts.js
-index 96da26c..f84147d 100644
+index 96da26c..d7f09d2 100644
 --- a/dist/recitation/verdicts.js
 +++ b/dist/recitation/verdicts.js
-@@ -58,6 +58,19 @@ export class VerdictTracer {
+@@ -3,6 +3,9 @@ import { alignGlobal, normalizedDistance } from "./alignment.js";
+ import { encodePhonemeSpan, encodePhonemes, pairScores, wordGop } from "./posteriors.js";
+ import { poolEncoderSpan, slipProbability, wordSpansFromTrail } from "./slipHead.js";
+ import { BLANK_ID } from "./tokens.js";
++// divMap per (looks, surah) — scanning all ~3k look-alike keys on every
++// tracer construction (each lock/reanchor) was pointless churn.
++const divMapCache = new WeakMap();
+ const SEGMENT_CUT = 300;
+ const CONTEXT_CHARS = 6;
+ const TANWEEN = ["ً", "ٌ", "ٍ"];
+@@ -58,6 +61,19 @@ export class VerdictTracer {
      cfg;
      cache = new Map();
      cacheRevision = -1;
@@ -505,7 +659,7 @@ index 96da26c..f84147d 100644
      gopCache = new Map();
      idsCache = new Map();
      pairCache = new Map();
-@@ -81,6 +94,9 @@ export class VerdictTracer {
+@@ -81,6 +97,9 @@ export class VerdictTracer {
      }
      verdicts(settled = false) {
          const t = this.tracker;
@@ -515,7 +669,7 @@ index 96da26c..f84147d 100644
          if (this.cacheRevision !== t.revision) {
              this.cache.clear();
              this.gopCache.clear();
-@@ -117,6 +133,8 @@ export class VerdictTracer {
+@@ -117,6 +136,8 @@ export class VerdictTracer {
              this.score(out, spans);
          if (this.encoder && this.slipHead)
              this.attachSlip(out);
@@ -524,7 +678,7 @@ index 96da26c..f84147d 100644
          return out;
      }
      /** Ref cell just past the ayah holding `cell`, when `cell` lies within the
-@@ -374,6 +392,23 @@ export class VerdictTracer {
+@@ -374,6 +395,31 @@ export class VerdictTracer {
                      }
                  }
              }
@@ -535,20 +689,28 @@ index 96da26c..f84147d 100644
 +            // branch — that's a confident divergence, not mushy audio.
 +            let lookalike = null;
 +            if (this.looks && !pending) {
-+                const alt = this.divAlt(globalWord);
-+                if (alt) {
-+                    const altExp = t.corpus.wordPhonemes(alt.wordIndex);
-+                    if (altExp.length) {
-+                        const dAlt = normalizedDistance(this.table.encode(heardSlice), this.table.encode(altExp), this.table);
-+                        if (dAlt < distance)
-+                            lookalike = { surah: alt.m[0], ayah: alt.m[1], distance: dAlt };
++                const alts = this.divAlts(globalWord);
++                if (alts) {
++                    const heardEnc = this.table.encode(heardSlice);
++                    for (const alt of alts) {
++                        const altExp = t.corpus.wordPhonemes(alt.wordIndex);
++                        if (!altExp.length)
++                            continue;
++                        const dAlt = normalizedDistance(heardEnc, this.table.encode(altExp), this.table);
++                        if (!lookalike || dAlt < lookalike.distance)
++                            lookalike = { surah: alt.m[0], ayah: alt.m[1], distance: dAlt, conf: alt.conf };
 +                    }
++                    // Must beat the expected word by a margin — a bare win
++                    // on a near-twin (vowel-only diff) is noise, not proof
++                    // the reciter took the other branch.
++                    if (lookalike && !(lookalike.distance + 0.05 < distance))
++                        lookalike = null;
 +                }
 +            }
              const vowels = pending
                  ? { errors: 0, margin: 0 }
                  : vowelMismatches(t.heard, from, heardSlice, expUsed, this.table);
-@@ -390,14 +425,59 @@ export class VerdictTracer {
+@@ -390,14 +436,84 @@ export class VerdictTracer {
                  state = "pending";
              else if (distance <= this.cfg.okDistance)
                  state = "ok";
@@ -565,47 +727,72 @@ index 96da26c..f84147d 100644
          }
          return out;
      }
-+    /** Alternative word index at the same offset inside an equal-length
-+     * differing region of a look-alike ayah, or null. */
-+    divAlt(globalWord) {
++    /** All alternative-word candidates at a differing position — every
++     * look-alike branch ({m, conf, wordIndex}), or null. Equal-length
++     * regions map position-for-position; unequal regions offer every
++     * alternative word in the partner's span (the heard slice is compared
++     * against each, and the best fit wins). */
++    divAlts(globalWord) {
 +        if (!this.looks)
 +            return null;
 +        if (!this.divMap)
 +            this.buildDivMap();
 +        const c = this.tracker.corpus;
-+        const e = this.divMap.get(`${c.wordAyah[globalWord]}:${c.wordInAyah[globalWord]}`);
-+        if (!e)
-+            return null;
-+        const w = e.j1 + (c.wordInAyah[globalWord] - e.i1);
-+        try {
-+            return { wordIndex: c.wordIndex(e.m[0], e.m[1], w), m: e.m };
-+        }
-+        catch {
-+            return null;
-+        }
++        return this.divMap.get(`${c.wordAyah[globalWord]}:${c.wordInAyah[globalWord]}`) ?? null;
 +    }
-+    /** wordInAyah → alternative-region entry, for equal-length differing
-+     * spans only (insert/delete regions can't map a word offset). */
++    /** "ayah:wordInAyah" → candidate list, for any region with words on
++     * both sides (pure inserts/deletes have nothing to compare against). */
 +    buildDivMap() {
-+        this.divMap = new Map();
 +        const surah = this.tracker.surah;
-+        for (const [key, rows] of this.looks) {
-+            const [ks, ka] = key.split(":");
-+            if (Number(ks) !== surah)
-+                continue;
-+            const a = Number(ka);
-+            for (const row of rows)
-+                for (const r of row.regions) {
-+                    const i1 = r[1], i2 = r[2], j1 = r[3], j2 = r[4];
-+                    if (i2 - i1 !== j2 - j1 || i2 - i1 < 1)
-+                        continue;
-+                    for (let d = 0; d < i2 - i1; d++) {
-+                        const k = `${a}:${i1 + d}`;
-+                        if (!this.divMap.has(k))
-+                            this.divMap.set(k, { m: row.m, i1, j1 });
-+                    }
-+                }
++        let perSurah = divMapCache.get(this.looks);
++        if (!perSurah) {
++            perSurah = new Map();
++            divMapCache.set(this.looks, perSurah);
 +        }
++        let dm = perSurah.get(surah);
++        if (!dm) {
++            dm = new Map();
++            const c = this.tracker.corpus;
++            for (const [key, rows] of this.looks) {
++                const [ks, ka] = key.split(":");
++                if (Number(ks) !== surah)
++                    continue;
++                const a = Number(ka);
++                for (const row of rows)
++                    for (const r of row.regions) {
++                        const i1 = r[1], i2 = r[2], j1 = r[3], j2 = r[4];
++                        if (i2 <= i1 || j2 <= j1)
++                            continue;
++                        for (let d = 0; d < i2 - i1; d++) {
++                            const k = `${a}:${i1 + d}`;
++                            let arr = dm.get(k);
++                            if (!arr) {
++                                arr = [];
++                                dm.set(k, arr);
++                            }
++                            if (i2 - i1 === j2 - j1) {
++                                // Same offset — the position-aligned twin.
++                                try {
++                                    arr.push({ m: row.m, conf: row.conf ?? 0, wordIndex: c.wordIndex(row.m[0], row.m[1], j1 + d) });
++                                }
++                                catch { }
++                            }
++                            else {
++                                // Unequal span (insert/delete on the
++                                // partner side): any of its words may be
++                                // what the reciter actually said.
++                                for (let w = j1; w < j2; w++)
++                                    try {
++                                        arr.push({ m: row.m, conf: row.conf ?? 0, wordIndex: c.wordIndex(row.m[0], row.m[1], w) });
++                                    }
++                                    catch { }
++                            }
++                        }
++                    }
++            }
++            perSurah.set(surah, dm);
++        }
++        this.divMap = dm;
 +    }
      lastRun(trail) {
          let run = 0;

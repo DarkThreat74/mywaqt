@@ -801,10 +801,15 @@ export default function QuranTesterClient() {
         setSuspects(next);
         sessionFlagsRef.current.add(k);
       }
-      ding3();
+      // soft = near-undecidable family (vowel-only/single-clitic diff): an
+      // unsure verdict there can't be told from mushy audio, so flag the
+      // word quietly instead of crying wolf.
+      if (!ev.soft) ding3();
       setStatus(ev.certain
         ? `You recited ${surahName(altS)} ${altS}:${altA}'s wording here`
-        : `Look-alike slip? — ${surahName(altS)} ${altS}:${altA} reads differently here`);
+        : ev.soft
+          ? `This spot mirrors ${surahName(altS)} ${altS}:${altA} — recheck after the take`
+          : `Look-alike slip? — ${surahName(altS)} ${altS}:${altA} reads differently here`);
     } else if (ev.type === "muta_ident") {
       identRef.current = new Set((ev.ayahs as string[]) ?? []);
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {

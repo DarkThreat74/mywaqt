@@ -47,8 +47,14 @@ let divLooks: Map<string, { m: [number, number]; regions: number[][] }[]> | null
 let divCorpus: { wordSurah: Int32Array; wordAyah: Int32Array; wordInAyah: Int32Array } | null = null;
 const mutaSeen = new Set<string>();
 
-function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: number; wordIndex?: number; changes?: { state?: string; wordIndex?: number; lookalike?: { surah: number; ayah: number } }[] }) {
+function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: number; wordIndex?: number; changes?: { state?: string; wordIndex?: number; lookalike?: { surah: number; ayah: number; conf?: number } }[] }) {
   if (!divLooks || !divCorpus) return;
+  // A successful relocate/locate starts a new epoch — the same region
+  // legitimately re-flags if the reciter slips again on the re-read.
+  if (ev.type === "relocated" || ev.type === "located" || ev.type === "verse_match") {
+    mutaSeen.clear();
+    return;
+  }
   if (ev.type === "cursor" && ev.wordIndex != null) {
     flagDiv(ev.surah!, ev.ayah!, ev.word!, "approach");
   } else if (ev.type === "verdicts" && Array.isArray(ev.changes)) {
@@ -56,7 +62,7 @@ function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: nu
       if (v.state !== "wrong" && v.state !== "unsure" || v.wordIndex == null) continue;
       // Judge-level dual-score already named the alternative — ding it
       // directly (covers insert/delete regions the position scan can't).
-      const look = (v as { lookalike?: { surah: number; ayah: number } }).lookalike;
+      const look = v.lookalike;
       const s = divCorpus.wordSurah[v.wordIndex];
       const a = divCorpus.wordAyah[v.wordIndex];
       const w = divCorpus.wordInAyah[v.wordIndex];
@@ -67,8 +73,10 @@ function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: nu
           postMessage({
             type: "muta_diverge", surah: s, ayah: a, word: w + 1,
             altSurah: look.surah, altAyah: look.ayah, certain: true,
+            conf: look.conf ?? 0,
           });
         }
+        continue; // don't double-ding via the position scan below
       }
       flagDiv(s, a, w, "diverge");
     }
@@ -79,6 +87,7 @@ function flagDiv(s: number, a: number, w: number, mode: "approach" | "diverge") 
   const rows = divLooks!.get(`${s}:${a}`);
   if (!rows) return;
   for (const row of rows) {
+    const conf = (row as { conf?: number }).conf ?? 0;
     for (const r of row.regions) {
       const i1 = r[1], i2 = r[2]; // [tag, i1, i2, j1, j2]
       // Approach fires a word EARLY — the heads-up has to land before the
@@ -91,6 +100,10 @@ function flagDiv(s: number, a: number, w: number, mode: "approach" | "diverge") 
         type: mode === "approach" ? "muta_approach" : "muta_diverge",
         surah: s, ayah: a, word: w + 1, // 1-based in-ayah for the page
         altSurah: row.m[0], altAyah: row.m[1],
+        conf,
+        // Hard families (near-identical diffs): an unsure verdict there is
+        // indistinguishable from mushy audio — flag silently, never ding.
+        soft: mode === "diverge" && conf >= 0.7,
       });
     }
   }
