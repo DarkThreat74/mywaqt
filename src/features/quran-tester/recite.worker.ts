@@ -205,7 +205,7 @@ async function init(sampleRate: number) {
   const model = await modelRes.arrayBuffer();
   const corpus = await corpusRes.json();
 
-  session = await createRecognitionSession({
+  const sess = await createRecognitionSession({
     ort,
     model,
     corpus,
@@ -263,7 +263,7 @@ async function init(sampleRate: number) {
   // Correction mode: word-level suspects (omission / substitution / vowel /
   // repetition / skipped ayah) stream out as `correction` events. The page
   // turns them into yellow suspects; only user-confirmed mistakes persist.
-  session.zipformer?.correction.setMode("correction");
+  sess.zipformer?.correction.setMode("correction");
   // Mutashabihat watch — the engine already ships a per-word look-alike
   // index (structural-index.json → structuralRules.looks: "s:a" → rows of
   // {m:[s,a], regions:[[tag,i1,i2,j1,j2]]}, engine word space). The
@@ -271,7 +271,7 @@ async function init(sampleRate: number) {
   // entering a region that DIFFERS from a look-alike raises muta_approach,
   // and a wrong/unsure verdict inside one raises muta_diverge instantly —
   // the exact "wait for the word that differs, then ding" rule.
-  const zp = session.zipformer as unknown as {
+  const zp = sess.zipformer as unknown as {
     engine?: { corpus?: { wordSurah: Int32Array; wordAyah: Int32Array; wordInAyah: Int32Array } };
     structuralRules?: { looks?: Map<string, { m: [number, number]; regions: number[][] }[]>; both?: Map<string, { m: [number, number]; regions: number[][] }[]>; ident?: Set<string> };
   } | null;
@@ -288,7 +288,7 @@ async function init(sampleRate: number) {
   // Balanced flagging: omissions flag when under half the word was heard,
   // substitutions need a clearly different word, vowel slips need a confident
   // decoder read. Tighter than this (0.15/0.9) made real slips never surface.
-  if (session.zipformer) Object.assign(session.zipformer.correction.thresholds, {
+  if (sess.zipformer) Object.assign(sess.zipformer.correction.thresholds, {
     // 0.5 meant a word heard half-way (only the onset clipped) could never flag
     // as an omission — 0.75 restores partial-word omission detection.
     omissionMaxHeard: 0.75,
@@ -313,6 +313,9 @@ async function init(sampleRate: number) {
     // decode, and only between anchored neighbours.
     gopFlag: -5,
   });
+  // Only publish AFTER full setup — a throw above must not leave a half-
+  // configured session that early-returns `ready` on the next init.
+  session = sess;
   postMessage({ type: "ready" });
 }
 

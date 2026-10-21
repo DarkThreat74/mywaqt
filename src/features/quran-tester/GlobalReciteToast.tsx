@@ -42,6 +42,13 @@ export default function GlobalReciteToast() {
     return unsub;
   }, []);
 
+  // Auto-clear after 12s — an engine error shouldn't sit on-screen forever.
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 12000);
+    return () => clearTimeout(t);
+  }, [error]);
+
   if (!error) return null;
   return (
     <div

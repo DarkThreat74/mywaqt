@@ -325,8 +325,13 @@ async function warmCache() {
           await Promise.allSettled(
             [...chunks].slice(0, 80).map(async (u) => {
               if (await runtime.match(u)) return;
-              const r = await fetch(u);
-              if (r.ok) await runtime.put(u, r);
+              const r = await fetch(u, { cache: "no-store" });
+              // A soft-200 HTML error page (custom 404, maintenance, auth
+              // interstitial) cached under a chunk URL poisons hydration and
+              // new Worker() — only cache real JS/CSS/WASM bodies.
+              const ct = r.headers.get("content-type") ?? "";
+              if (r.ok && /javascript|css|wasm|octet-stream/.test(ct))
+                await runtime.put(u, r);
             })
           );
         }
@@ -589,7 +594,9 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         const cache = await caches.open("quran-tester-engine-v1");
         const hit = await cache.match(url.pathname) ?? await cache.match(url.href);
-        if (hit) return hit;
+        // Re-stamp CSP like the _next/static branch — an engine file cached
+        // before the wasm-unsafe-eval change keeps its birth CSP forever.
+        if (hit) return withFixedCSP(hit);
         // Static ort wasm lives at /qt/* in public/ — write through so a
         // fetched runtime file is offline-ready too. timedFetch so lie-fi
         // doesn't stall the engine boot indefinitely.

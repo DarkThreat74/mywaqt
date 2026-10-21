@@ -326,7 +326,7 @@ export function warmQt() {
         // that slipped in keeps its lock.
         dropLock(warmOwner);
       }
-    });
+    }).catch(() => {}); // warm-up is best-effort — never unhandled
   } catch {
     // AudioContext can throw pre-gesture on old WebKit or when the context
     // budget is exhausted — warm-up is best-effort, record still inits.
@@ -428,10 +428,34 @@ function ensureWorker(): Worker | null {
       worker?.terminate();
       worker = null;
       engineReady = false;
-      emit({
-        type: "ui-error",
-        message: `Engine failed to start.${e.message ? ` ${e.message}` : ""}`,
-      });
+      borrowedAt = 0; // a dead worker can't hold a borrow
+      // Empty e.message = script-LOAD failure (stale hashed chunk 404 after
+      // a deploy, SW serving a dead URL, CSP block) — not an engine fault.
+      // A background warmQt is best-effort: only toast when the user asked
+      // for the engine (mic session warming/listening), never on app open.
+      const loadFailure = !(e instanceof ErrorEvent) || !e.message;
+      if (listen !== "idle") {
+        emit({
+          type: "ui-error",
+          message: loadFailure
+            ? "Engine bundle failed to load — reload the app."
+            : `Engine failed to start.${e.message ? ` ${e.message}` : ""}`,
+        });
+      }
+      // Stale-bundle recovery: unregister the SW + reload once so a cached
+      // dead chunk URL stops being served. Online only — offline this would
+      // brick the page; the idle warm just fails quietly instead.
+      if (loadFailure && navigator.onLine &&
+          !sessionStorage.getItem("qt-bundle-reload")) {
+        sessionStorage.setItem("qt-bundle-reload", "1");
+        if ("serviceWorker" in navigator) {
+          void navigator.serviceWorker.getRegistrations()
+            .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+            .then(() => location.reload());
+        } else {
+          location.reload();
+        }
+      }
       void stopQt(); // releases the mic tracks too
       e.preventDefault();
     };

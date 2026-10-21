@@ -128,6 +128,12 @@ export async function downloadEngine(
       );
     }
     const blob = new Blob(chunks as BlobPart[]);
+    // A cleanly-terminated truncated stream is still a corrupt model — and
+    // the resume-skip above would keep it forever. Reject anything short.
+    if (blob.size < a.bytes * 0.9) {
+      await cache.delete(engineUrl(a));
+      throw new Error(`download truncated: ${a.file} (${blob.size}B)`);
+    }
     await cache.put(
       engineUrl(a),
       new Response(blob, {
@@ -142,12 +148,12 @@ export async function downloadEngine(
   // offline-ready. The worklet lives under /qt/ too because Capacitor's
   // WebView has no reliable service worker: the session falls back to a
   // blob: module URL built from this cached copy when the plain /worklets/
-  // load fails. Doubles as a repair for installs predating these files —
-  // cached entries are skipped, only missing ones download.
+  // load fails. Always re-put — an onnxruntime-web upgrade would otherwise
+  // leave a stale ort-wasm pair in the bucket forever (engineInstalled
+  // checks existence, not version).
   for (const [key, url] of RUNTIME_FILES) {
     const k = `${self.location.origin}/qt/${key}`;
-    if (await cache.match(k)) continue;
-    const res = await fetch(url);
+    const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error(`download failed: ${key}`);
     await cache.put(k, res);
   }

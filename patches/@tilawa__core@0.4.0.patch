@@ -354,10 +354,22 @@ index 24b499d..6d4790b 100644
      private finish;
      private makeEngine;
 diff --git a/dist/recitation/session.js b/dist/recitation/session.js
-index 3d7030c..4e721d6 100644
+index 3d7030c..7a953cd 100644
 --- a/dist/recitation/session.js
 +++ b/dist/recitation/session.js
-@@ -33,7 +33,7 @@ const TAIL_SECONDS = 2.0;
+@@ -25,6 +25,11 @@ import { costTable } from "./phonemeCost.js";
+ import { normalizedDistance } from "./alignment.js";
+ import { ZipformerRunner, } from "./zipformerRunner.js";
+ import DEFAULT_IO from "./zipformer-io.json" with { type: "json" };
++// Static import (like DEFAULT_IO) — the previous dynamic import() fetched a
++// separate hashed chunk inside the worker via importScripts at every init.
++// Offline or stale-deploy 404 on that chunk killed createRecognitionSession
++// even with all engine assets cached.
++import STRUCTURAL_INDEX from "./structural-index.json" with { type: "json" };
+ import { CorrectionController } from "./correction.js";
+ import { FramePosteriors } from "./posteriors.js";
+ import { A0W_SLIP_HEAD, EncoderFrames, slipThreshold } from "./slipHead.js";
+@@ -33,7 +38,7 @@ const TAIL_SECONDS = 2.0;
  /** Mean heard ratio over an unmatched ayah's words at or above which the gap
   * counts as heard-but-unfollowed (`unclear_ayah`) rather than skipped. */
  export const AYAH_HEARD_FRACTION = 0.5;
@@ -366,7 +378,17 @@ index 3d7030c..4e721d6 100644
  /** I/O manifest of the default `zipformer_a0w_ep1_a05.int8.onnx` (its encoder-frame
   * output is optional, so the same manifest drives `zipformer_interp_gentle_a05.int8.onnx`). */
  export const DEFAULT_ZIPFORMER_IO = DEFAULT_IO;
-@@ -112,6 +112,8 @@ export class ZipformerSession {
+@@ -80,8 +85,7 @@ const STRUCTURAL_BLOCK_SECONDS = 120;
+ const STRUCTURAL_ERROR_KINDS = new Set(["possible_omission", "possible_substitution", "possible_vowel",
+     "possible_skipped_ayah", "unclear_ayah"]);
+ async function loadStructuralIndex() {
+-    const mod = await import("./structural-index.json", { with: { type: "json" } });
+-    return mod.default;
++    return STRUCTURAL_INDEX;
+ }
+ export class ZipformerSession {
+     corpus;
+@@ -112,6 +116,8 @@ export class ZipformerSession {
      accumulated = new Map();
      emitted = new Set();
      transcriptParts = [];
@@ -375,7 +397,7 @@ index 3d7030c..4e721d6 100644
      lastCursor = null;
      /** Last `verse_match` emitted by the current tracker lock. Cleared on
       * locate / relocate / lost so an ayah gap across a jump never flags. */
-@@ -198,6 +200,8 @@ export class ZipformerSession {
+@@ -198,6 +204,8 @@ export class ZipformerSession {
              this.aoRule = null;
              this.svOn = false;
              this.st = ZipformerSession.freshStructural();
@@ -384,7 +406,7 @@ index 3d7030c..4e721d6 100644
              return;
          }
          if (!this.structuralRules || opts.index) {
-@@ -207,6 +211,15 @@ export class ZipformerSession {
+@@ -207,6 +215,15 @@ export class ZipformerSession {
          this.svOn = sv;
          this.svNearSkip = opts.suppressNearSkip ?? true;
          this.structuralLive = opts.timing === "pause";
@@ -400,7 +422,7 @@ index 3d7030c..4e721d6 100644
      }
      static freshStructural() {
          return {
-@@ -267,6 +280,8 @@ export class ZipformerSession {
+@@ -267,6 +284,8 @@ export class ZipformerSession {
          this.accumulated = new Map();
          this.emitted = new Set();
          this.transcriptParts = [];
@@ -409,7 +431,7 @@ index 3d7030c..4e721d6 100644
          this.lastCursor = null;
          this.lastMatch = null;
          this.ayahIssuesRaised = new Set();
-@@ -340,6 +355,14 @@ export class ZipformerSession {
+@@ -340,6 +359,14 @@ export class ZipformerSession {
              out.push(...this.raiseStructural());
          return this.dispatch(out);
      }
@@ -424,7 +446,7 @@ index 3d7030c..4e721d6 100644
      correctionMessage() {
          const issue = this.correction.state.issue;
          return { type: 'correction', state: { ...this.correction.state },
-@@ -436,6 +459,8 @@ export class ZipformerSession {
+@@ -436,6 +463,8 @@ export class ZipformerSession {
          engine.startSearch();
          engine.onBeforeRelocate = () => this.dumpTallies();
          this.attachPosteriors(engine);
@@ -433,7 +455,7 @@ index 3d7030c..4e721d6 100644
          engine.setExpected(this.expected);
          return engine;
      }
-@@ -540,12 +565,14 @@ export class ZipformerSession {
+@@ -540,12 +569,14 @@ export class ZipformerSession {
                  if (raised)
                      out.push(this.correctionMessage());
              }
@@ -450,7 +472,7 @@ index 3d7030c..4e721d6 100644
          for (const ev of this.engine.feed(tokens, this.decoder.framesDecoded)) {
              out.push(...this.handle(ev));
          }
-@@ -565,16 +592,24 @@ export class ZipformerSession {
+@@ -565,16 +596,24 @@ export class ZipformerSession {
              else
                  out.push(...this.checkSkippedAyah(false));
          }
@@ -478,7 +500,7 @@ index 3d7030c..4e721d6 100644
                  confidence: 1,
              });
          }
-@@ -734,12 +769,17 @@ export class ZipformerSession {
+@@ -734,12 +773,17 @@ export class ZipformerSession {
              case "lost": {
                  // Transient: the tracker keeps its place. Losing and recovering inside
                  // one surah is exactly the unclear-ayah case, so the match chain stays.
@@ -497,7 +519,7 @@ index 3d7030c..4e721d6 100644
                  break;
              }
              case "located": {
-@@ -775,6 +815,10 @@ export class ZipformerSession {
+@@ -775,6 +819,10 @@ export class ZipformerSession {
                  break;
              }
              default:
