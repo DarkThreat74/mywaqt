@@ -240,8 +240,17 @@ function Avatar({ f, size }: { f: Friend; size: number }) {
 }
 
 export default function FriendsClient() {
-  const [friends, setFriends] = useState<Friend[]>([]);
+  // Seed from the last good list — bad wifi must not blank the orbit while
+  // the refresh is in flight (or dead).
+  const [friends, setFriends] = useState<Friend[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("friends:list") ?? "[]") as Friend[];
+    } catch {
+      return [];
+    }
+  });
   const [loaded, setLoaded] = useState(false);
+  const [netErr, setNetErr] = useState(false); // fetch failed — not "no friends"
   const [sheet, setSheet] = useState<null | Friend | "new" | "self">(null);
   const [editing, setEditing] = useState(false); // view card → edit form
   const [me, setMe] = useState<{ name: string; avatarUrl: string | null } | null>(null);
@@ -267,14 +276,19 @@ export default function FriendsClient() {
     fetch("/api/friends", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d?.friends)
+        if (d?.friends) {
           // Keep just-uploaded local pixels — the fresh server row's photo URL
           // would refetch and flash while loading.
           setFriends((prev) =>
             d.friends.map((nf: Friend) => ({ ...nf, localPhoto: prev.find((o) => o.id === nf.id)?.localPhoto ?? null })),
           );
+          setNetErr(false);
+          try { localStorage.setItem("friends:list", JSON.stringify(d.friends)); } catch {}
+        } else {
+          setNetErr(true);
+        }
       })
-      .catch(() => {})
+      .catch(() => setNetErr(true))
       .finally(() => setLoaded(true));
 
   useEffect(() => {
@@ -755,7 +769,27 @@ export default function FriendsClient() {
           );
         })}
 
-        {loaded && friends.length === 0 && (
+        {loaded && netErr && friends.length === 0 && (
+          <div className="flex flex-col items-center pt-6 pb-14 text-center">
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Couldn&rsquo;t reach the server</p>
+            <p className="mt-1 max-w-52 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Check your connection and try again — your friends are still there.
+            </p>
+            <button
+              onClick={() => { setLoaded(false); void refresh(); }}
+              className="mt-4 rounded-full px-5 py-2 text-xs font-bold"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {loaded && netErr && friends.length > 0 && (
+          <p className="mt-3 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            Offline — showing your saved friends.
+          </p>
+        )}
+        {loaded && !netErr && friends.length === 0 && (
           <div className="flex flex-col items-center pt-6 pb-14 text-center">
             <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>It&rsquo;s just you out here</p>
             <p className="mt-1 max-w-52 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
