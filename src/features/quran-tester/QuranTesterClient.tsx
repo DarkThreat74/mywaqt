@@ -107,6 +107,9 @@ export default function QuranTesterClient() {
   const sessionStartRef = useRef(0);
   const sessionFlagsRef = useRef<Set<string>>(new Set());
   const sessionConfirmRef = useRef<Set<string>>(new Set()); // mistakes confirmed/marked this session
+  const lastWordAtRef = useRef(0); // last word_progress — stall detection
+  const holdingRef = useRef(false);
+  const pendingRef = useRef<typeof pending>(null);
   const sessionTouchedRef = useRef<Set<string>>(new Set()); // ayahs ≥30% heard this session
   const [statsSheet, setStatsSheet] = useState<{ ayahs: number; seconds: number; flags: number } | null>(null);
   const [verifyOpen, setVerifyOpen] = useState(false);
@@ -662,7 +665,9 @@ export default function QuranTesterClient() {
     // Ayahs read = covered (≥60%) ∪ touched (≥30%) — a session where the
     // tracker struggled still reports what it heard instead of nothing.
     const ayahs = new Set([...sessionCovRef.current, ...sessionTouchedRef.current]).size;
-    const flags = suspectsRef.current.size + sessionConfirmRef.current.size;
+    // Flags caught = every word ever flagged this session (incl. ones that
+    // auto-cleared on re-read) plus anything confirmed manually.
+    const flags = new Set([...sessionFlagsRef.current, ...sessionConfirmRef.current]).size;
     const seconds = Math.max(1, Math.round((Date.now() - sessionStartRef.current) / 1000));
     // Only skip when the session genuinely never ran (instant stop).
     if (!sessionStartRef.current || (!ayahs && !flags && seconds < 5)) return;
@@ -806,7 +811,7 @@ export default function QuranTesterClient() {
       // word quietly instead of crying wolf.
       if (!ev.soft) ding3();
       setStatus(ev.certain
-        ? `You recited ${surahName(altS)} ${altS}:${altA}'s wording here`
+        ? `Sounds like ${surahName(altS)} ${altS}:${altA}'s wording here — verify`
         : ev.soft
           ? `This spot mirrors ${surahName(altS)} ${altS}:${altA} — recheck after the take`
           : `Look-alike slip? — ${surahName(altS)} ${altS}:${altA} reads differently here`);
@@ -815,13 +820,14 @@ export default function QuranTesterClient() {
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {
       // While validating: surface what the engine decoded so a silent
       // session is visible instead of just spinning.
-      if (ev.event === "lost") preambleGraceRef.current = Date.now();
       // Events already surfaced by their real branches must not stomp the
       // status line with raw event names ("lost", "relocated"…).
       const DBG_HANDLED = new Set(["lost", "relocated", "located", "idle", "completed", "locateFailed"]);
       const t = String(ev.text ?? (ev.event ? "" : (ev.message ?? "")) ?? "");
       if (t && !DBG_HANDLED.has(String(ev.event))) setStatus(t.slice(0, 80));
     } else if (ev.type === "word_progress") {
+      lastWordAtRef.current = Date.now();
+      holdingRef.current = false;
       const s = ev.surah as number, a = ev.ayah as number;
       const prev = locLiveRef.current;
       // Silent DP-slide guard: the ONLY legit same-surah crossing is onto the
@@ -941,6 +947,24 @@ export default function QuranTesterClient() {
   // Point the subscription's stable callback at the latest handler — kept
   // textually after onEngineEvent so the binding is already declared.
   useEffect(() => { handlerRef.current = onEngineEvent; });
+
+  useEffect(() => { pendingRef.current = pending; }, [pending]);
+
+  // Stall detector — word_progress stops while you're mid-word or paused.
+  // Say so instead of looking frozen; a real engine wedge is caught by the
+  // worker heartbeat watchdog in session.ts.
+  useEffect(() => {
+    if (listen !== "listening") return;
+    lastWordAtRef.current = Date.now();
+    const iv = setInterval(() => {
+      if (pendingRef.current) return;
+      if (!holdingRef.current && Date.now() - lastWordAtRef.current > 4500) {
+        holdingRef.current = true;
+        setStatus("Still listening — take your time");
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [listen]);
 
   /** Adjacent words in one ayah are ONE mistake — group "s:a:w" entries
    *  into contiguous runs so two neighbouring marks show as a single row,
@@ -1624,7 +1648,9 @@ export default function QuranTesterClient() {
               {issueLabel(pending.kind)} — {pending.s}:{pending.a}, word {pending.w}
             </p>
             <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              Re-read the ayah cleanly and this clears itself. Only confirmed mistakes are saved.
+              {pending.kind.startsWith("possible_") && pending.kind !== "possible_skipped_ayah"
+                ? "Re-read the ayah cleanly and this clears itself. Only confirmed mistakes are saved."
+                : "Confirm to save this, or dismiss it."}
             </p>
             <div className="mt-3 flex gap-2">
               <button
