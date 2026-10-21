@@ -152,7 +152,7 @@ export default function QuranTesterClient() {
   const identRef = useRef<Set<string>>(new Set());
   const heardRef = useRef<{ loc: Loc | null; max: number; total: number }>({ loc: null, max: 0, total: 0 });
   const sessionCovRef = useRef<Set<string>>(new Set());
-  const jumpChimeRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pleasedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jumpRef = useRef<{ to: Loc; expected: Loc; at: number; silent?: boolean } | null>(null);
   const preambleGraceRef = useRef(0); // 'lost' timestamp — basmala/isti'adhah window
   const candTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // unstable-lock dwell
@@ -174,6 +174,7 @@ export default function QuranTesterClient() {
   const [turn, setTurn] = useState<0 | 1 | -1>(0);
   const turnTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const dragRef = useRef<{ x0: number; active: boolean }>({ x0: 0, active: false });
+  const dragXRef = useRef(0);
 
   const pageRef = useRef(page);
   const handlerRef = useRef<(ev: Record<string, unknown>) => void>(() => {});
@@ -290,9 +291,10 @@ export default function QuranTesterClient() {
       unsub();
       window.removeEventListener("online", onUp);
       window.removeEventListener("offline", onDown);
-      for (const t of [jumpChimeRef.current, retryTimerRef.current, candTimerRef.current, lockFxTimer.current, turnTimer.current])
+      for (const t of [retryTimerRef.current, candTimerRef.current, lockFxTimer.current, turnTimer.current, pleasedTimerRef.current])
         if (t) clearTimeout(t as ReturnType<typeof setTimeout>);
-      jumpChimeRef.current = retryTimerRef.current = candTimerRef.current = lockFxTimer.current = turnTimer.current = null;
+      retryTimerRef.current = candTimerRef.current = lockFxTimer.current = turnTimer.current = pleasedTimerRef.current = null;
+      flushCoverage(covRef.current);
     };
   }, []);
 
@@ -332,7 +334,9 @@ export default function QuranTesterClient() {
     // An unresolved jump means the tracker may be at the wrong spot — don't
     // scroll the page toward it; the pin already marks where we hold.
     if (jumpRef.current) return;
-    const sel = `[data-loc="${loc.surah}:${loc.ayah}:1"]`;
+    // Scope to the CURRENT page — the strip also renders the adjacent page
+    // off-screen with identical data-loc spans.
+    const sel = `[data-qt-cur] [data-loc="${loc.surah}:${loc.ayah}:1"]`;
     document.querySelector(sel)?.scrollIntoView({ block: "center", behavior: "smooth" });
     const t = setTimeout(() => document.querySelector(sel)?.scrollIntoView({ block: "center" }), 350); // retry after a page swap renders
     return () => clearTimeout(t);
@@ -499,14 +503,12 @@ export default function QuranTesterClient() {
     setJump(null);
     setPin(null);
     qtOrb("ok", locLiveRef.current ? `${surahName(locLiveRef.current.s)} ${locLiveRef.current.s}:${locLiveRef.current.a}` : undefined);
-    if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
   }
   /** Close the toast but KEEP the pin — the bookmark and auto-resolve still
    *  work; a fresh jump re-alerts. */
   function silenceJump() {
     if (jumpRef.current) jumpRef.current.silent = true;
     setJump(null);
-    if (jumpChimeRef.current) { clearInterval(jumpChimeRef.current); jumpChimeRef.current = null; }
   }
 
   /** Heard enough: ≥60% of the ayah's words (word_index is the furthest
@@ -719,6 +721,7 @@ export default function QuranTesterClient() {
         setPending(null);
         lastIssueKeyRef.current = null;
         if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+        flushCoverage(covRef.current);
         // Session ended outside stopRecite — surface the same stats sheet.
         maybeShowStats();
       }
@@ -944,7 +947,8 @@ export default function QuranTesterClient() {
         setPending(null);
         setStatus("Corrected — nice");
         setPleased(true);
-        setTimeout(() => setPleased(false), 3200);
+        if (pleasedTimerRef.current) clearTimeout(pleasedTimerRef.current);
+        pleasedTimerRef.current = setTimeout(() => setPleased(false), 3200);
         return;
       }
       const i = e.state?.issue ?? e.issue;
@@ -998,6 +1002,13 @@ export default function QuranTesterClient() {
   useEffect(() => { handlerRef.current = onEngineEvent; });
 
   useEffect(() => { pendingRef.current = pending; }, [pending]);
+
+  // A pending banner whose suspect was resolved elsewhere (verify sheet,
+  // auto-clear) is orphaned — Confirm would act on nothing. Diversion
+  // banners come from the diversions map, not suspects.
+  const pendingVisible = pending && (pending.kind === "diversion" || (pending.w === 0
+    ? [...suspects.keys()].some((k) => k.startsWith(`${pending.s}:${pending.a}:`))
+    : suspects.has(`${pending.s}:${pending.a}:${pending.w}`)));
 
   // Stall detector — word_progress stops while you're mid-word or paused.
   // Say so instead of looking frozen; a real engine wedge is caught by the
@@ -1127,12 +1138,15 @@ export default function QuranTesterClient() {
     setSnapping(false);
   }
   function onPointerMove(e: React.PointerEvent) {
-    if (dragRef.current.active) setDragX(e.clientX - dragRef.current.x0);
+    if (dragRef.current.active) {
+      dragXRef.current = e.clientX - dragRef.current.x0;
+      setDragX(dragXRef.current);
+    }
   }
   function onPointerUp() {
     if (!dragRef.current.active) return;
     dragRef.current.active = false;
-    const dx = dragX;
+    const dx = dragXRef.current; // state can lag the final pointermove batch
     setDragX(0);
     if (dx < -60 && page < PAGE_COUNT) commitTurn(-1);
     else if (dx > 60 && page > 1) commitTurn(1);
@@ -1649,7 +1663,7 @@ export default function QuranTesterClient() {
                 {renderPage(page - 1, false)}
               </div>
             )}
-            <div className="absolute inset-0">{renderPage(page, true)}</div>
+            <div className="absolute inset-0" data-qt-cur>{renderPage(page, true)}</div>
             {/* next page waits off the right edge — a left swipe drags it in,
                 so the page sliding in is always the page commitTurn lands on */}
             {page < PAGE_COUNT && (
@@ -1686,7 +1700,7 @@ export default function QuranTesterClient() {
         />
       )}
 
-      {pending && (
+      {pendingVisible && pending && (
         <div
           className="qt-confirm-bar fixed inset-x-0 z-40 flex justify-center px-4"
         >

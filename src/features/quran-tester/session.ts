@@ -283,6 +283,12 @@ export function qtState(): QtListen {
 }
 
 export function qtPost(msg: Record<string, unknown>) {
+  // The page acted on the issue — the 14s off-screen safety net isn't
+  // needed and would double-fire review_later on a resolved correction.
+  if (msg.type === "correction-act" && deferTimer) {
+    clearTimeout(deferTimer);
+    deferTimer = null;
+  }
   worker?.postMessage(msg);
 }
 
