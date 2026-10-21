@@ -354,7 +354,7 @@ index 24b499d..6d4790b 100644
      private finish;
      private makeEngine;
 diff --git a/dist/recitation/session.js b/dist/recitation/session.js
-index 3d7030c..728770a 100644
+index 3d7030c..4e721d6 100644
 --- a/dist/recitation/session.js
 +++ b/dist/recitation/session.js
 @@ -33,7 +33,7 @@ const TAIL_SECONDS = 2.0;
@@ -433,7 +433,7 @@ index 3d7030c..728770a 100644
          engine.setExpected(this.expected);
          return engine;
      }
-@@ -540,12 +565,13 @@ export class ZipformerSession {
+@@ -540,12 +565,14 @@ export class ZipformerSession {
                  if (raised)
                      out.push(this.correctionMessage());
              }
@@ -442,13 +442,15 @@ index 3d7030c..728770a 100644
                  this.correction.clearEvidence();
              return out;
          }
-         for (const t of tokens)
+-        for (const t of tokens)
++        for (const t of tokens) {
              this.transcriptParts.push(t.sym);
 +            this.transcriptLen += t.sym.length;
++        }
          for (const ev of this.engine.feed(tokens, this.decoder.framesDecoded)) {
              out.push(...this.handle(ev));
          }
-@@ -565,16 +591,24 @@ export class ZipformerSession {
+@@ -565,16 +592,24 @@ export class ZipformerSession {
              else
                  out.push(...this.checkSkippedAyah(false));
          }
@@ -476,7 +478,7 @@ index 3d7030c..728770a 100644
                  confidence: 1,
              });
          }
-@@ -734,12 +768,17 @@ export class ZipformerSession {
+@@ -734,12 +769,17 @@ export class ZipformerSession {
              case "lost": {
                  // Transient: the tracker keeps its place. Losing and recovering inside
                  // one surah is exactly the unclear-ayah case, so the match chain stays.
@@ -495,7 +497,7 @@ index 3d7030c..728770a 100644
                  break;
              }
              case "located": {
-@@ -775,6 +814,10 @@ export class ZipformerSession {
+@@ -775,6 +815,10 @@ export class ZipformerSession {
                  break;
              }
              default:
@@ -602,7 +604,7 @@ index df64e95..db75eea 100644
      has(s, a) {
          return this.corpus.hasAyah(s, a);
 diff --git a/dist/recitation/tracker.js b/dist/recitation/tracker.js
-index 5c554eb..4e2db6f 100644
+index 5c554eb..b2f2ef8 100644
 --- a/dist/recitation/tracker.js
 +++ b/dist/recitation/tracker.js
 @@ -66,11 +66,26 @@ export class Tracker {
@@ -633,7 +635,17 @@ index 5c554eb..4e2db6f 100644
          }
          for (let m = 1; m <= this.len; m++) {
              this.column[m] = Math.min(this.column[m], this.column[m - 1] + 1);
-@@ -116,10 +131,19 @@ export class Tracker {
+@@ -95,7 +110,8 @@ export class Tracker {
+             return null;
+         const w = Math.min(window, n);
+         const before = n - w > 0 ? this.costs[n - w - 1] : 0;
+-        return (this.costs[n - 1] - before) / w;
++        const rate = (this.costs[n - 1] - before) / w;
++        return Number.isFinite(rate) ? rate : null; // Infinity-Infinity = NaN → treat as "not enough data", never "lost forever"
+     }
+     retract(n) {
+         if (n <= 0)
+@@ -116,10 +132,19 @@ export class Tracker {
      }
      resetColumn() {
          const jump = this.cfg.jumpCost;
@@ -654,7 +666,7 @@ index 5c554eb..4e2db6f 100644
          }
          for (let m = 1; m <= this.len; m++) {
              this.column[m] = Math.min(this.column[m], this.column[m - 1] + 1);
-@@ -140,7 +164,7 @@ export class Tracker {
+@@ -140,7 +165,7 @@ export class Tracker {
      }
      feedOne(h) {
          const prev = this.column;
@@ -663,7 +675,28 @@ index 5c554eb..4e2db6f 100644
          let colMin = prev[0];
          for (let m = 1; m <= this.len; m++)
              if (prev[m] < colMin)
-@@ -165,9 +189,35 @@ export class Tracker {
+@@ -149,10 +174,19 @@ export class Tracker {
+         const repeat = colMin + this.cfg.repeatCost;
+         const cursorAyah = this.cursorLocalWord < 0 ? -1 : this.corpus.wordAyah[this.firstWord + this.cursorLocalWord];
+         const cursorPos = this.cursorCell;
++        // Anchor = cursor's ayah; before the cursor forms (first char / post-
++        // resetColumn) fall back to the start word's ayah — matching the
++        // constructor seeds — so a cross-ayah teleport can't reopen there.
++        const anchorAyah = cursorAyah >= 0 ? cursorAyah
++            : this.ayahAtStart[this.localWordOfPos[Math.max(0, cursorPos - 1)] ?? 0];
++        const windowed = (i) => this.cfg.outsideJumpCost > 0 && this.jumpExtra[i] === 0;
+         const hid = this.table.id(h.ch);
+         next[0] = prev[0] + 1;
+         if (this.wordStarts[0] === 0) {
+-            const r = this.ayahAtStart[0] === cursorAyah ? repeat : jump + this.jumpExtra[0];
++            const r = this.ayahAtStart[0] === anchorAyah ? repeat
++                : (anchorAyah >= 0 && this.ayahAtStart[0] !== anchorAyah && !windowed(0))
++                ? Number.POSITIVE_INFINITY
++                : jump + this.jumpExtra[0];
+             if (r < next[0])
+                 next[0] = r;
+         }
+@@ -165,9 +199,34 @@ export class Tracker {
              if (del < next[m])
                  next[m] = del;
          }
@@ -674,7 +707,7 @@ index 5c554eb..4e2db6f 100644
              const m = this.wordStarts[i];
 -            const restart = m <= cursorPos && this.ayahAtStart[i] === cursorAyah ? repeat : jump + this.jumpExtra[i];
 +            let restart;
-+            if (m <= cursorPos && this.ayahAtStart[i] === cursorAyah) {
++            if (m <= cursorPos && this.ayahAtStart[i] === anchorAyah) {
 +                restart = repeat;
 +            }
 +            else {
@@ -692,15 +725,14 @@ index 5c554eb..4e2db6f 100644
 +                // Exception: correction/practice windows — in-window words
 +                // (jumpExtra === 0) may legitimately span ayah boundaries,
 +                // and maybeRelocate is unreachable in those modes.
-+                if (cursorAyah >= 0 && this.ayahAtStart[i] !== cursorAyah &&
-+                    !(this.cfg.outsideJumpCost > 0 && this.jumpExtra[i] === 0))
++                if (anchorAyah >= 0 && this.ayahAtStart[i] !== anchorAyah && !windowed(i))
 +                    continue;
 +                restart = jump + this.jumpExtra[i] + perWord * dist;
 +            }
              if (restart < next[m]) {
                  next[m] = restart;
                  for (let j = m + 1; j <= this.len && next[j - 1] + 1 < next[j]; j++) {
-@@ -188,6 +238,7 @@ export class Tracker {
+@@ -188,6 +247,7 @@ export class Tracker {
              }
          }
          this.column = next;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
 import { streamObject } from "@/lib/r2/client";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 /**
  * Engine asset proxy. The model/corpus are vendored in our own R2 bucket
@@ -16,9 +17,15 @@ const R2_ENGINE = new Set(["model.onnx", "corpus.json"]);
 const MUSHAF_BASE = "https://raw.githubusercontent.com/zonetecde/mushaf-layout/v2";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ file: string }> },
 ) {
+  // model.onnx is 66MB through this function — unauthenticated is correct
+  // (public assets), but unbounded is not. Generous cap: mushaf warm pulls
+  // hundreds of small files in a burst.
+  if (!checkRateLimit("qt-dl", getClientIp(req.headers), 700, 60_000)) {
+    return new NextResponse("rate limited", { status: 429 });
+  }
   const { file } = await params;
 
   if (R2_ENGINE.has(file)) {
@@ -51,7 +58,9 @@ export async function GET(
   return new NextResponse(res.body, {
     headers: {
       "content-type": res.headers.get("content-type") ?? "application/octet-stream",
-      "content-length": res.headers.get("content-length") ?? "",
+      ...(res.headers.get("content-length")
+        ? { "content-length": res.headers.get("content-length")! }
+        : {}),
       // no-store: this proxies the one-time engine download. An immutable
       // year-long cache made "reinstall" pull the 66MB from the HTTP cache
       // instantly — looking like the delete never happened. Cache Storage

@@ -40,7 +40,9 @@ let audio: { ctx: AudioContext; stream: MediaStream; src: MediaStreamAudioSource
 let listen: QtListen = "idle";
 let engineReady = false;   // init handshake completed — model in memory
 let workerRate = 0;        // sample rate the loaded engine was inited for
-let borrowed = false;      // recite-coach deep grade owns the engine right now
+let borrowedAt = 0;         // recite-coach deep grade owns the engine right now
+const BORROW_TTL = 10 * 60 * 1000; // a missed release must not wedge the engine
+function isBorrowed() { return borrowedAt !== 0 && Date.now() - borrowedAt < BORROW_TTL; }
 let warmWatchdog: ReturnType<typeof setTimeout> | null = null;
 // Batched-but-unsent mic audio as chunk refs (flushed on stop). Concat only
 // at send time — a full-copy merge per 128-sample worklet message was ~375x
@@ -100,15 +102,15 @@ function recycleWorker(reason: "stall" | "post-session") {
  * fall back to a dedicated worker in that case.
  */
 export function borrowQtEngine(rate: number): Worker | null {
-  if (!worker || !engineReady || listen !== "idle" || borrowed || (rate && workerRate && rate !== workerRate)) return null;
-  borrowed = true;
+  if (!worker || !engineReady || listen !== "idle" || isBorrowed() || (rate && workerRate && rate !== workerRate)) return null;
+  borrowedAt = Date.now();
   return worker;
 }
 
 /** Return the shared engine after a batch decode. Without this, a second
  *  grade could interleave on the same worker and corrupt both decodes. */
 export function releaseQtEngine() {
-  borrowed = false;
+  borrowedAt = 0;
 }
 
 // ── Screen-wake + background "orb" notification ────────────────────────
@@ -307,7 +309,7 @@ export function qtPost(msg: Record<string, unknown>) {
  */
 export function warmQt() {
   try {
-    if (listen !== "idle") return;
+    if (listen !== "idle" || isBorrowed()) return; // don't re-init a coach's decode
     const warmOwner = {};
     void acquireLock(warmOwner).then((ok) => {
       try {
@@ -411,10 +413,10 @@ function ensureWorker(): Worker | null {
         if (deferTimer) { clearTimeout(deferTimer); deferTimer = null; }
         // Drain finished — safe to retire the worker now (a fixed 3s timer
         // could fire before this message and drop the final heard payload).
-        if (listen === "idle" && !borrowed && worker && !recycleTimer) {
+        if (listen === "idle" && !isBorrowed() && worker && !recycleTimer) {
           recycleTimer = setTimeout(() => {
             recycleTimer = null;
-            if (worker && !borrowed && listen === "idle") recycleWorker("post-session");
+            if (worker && !isBorrowed() && listen === "idle") recycleWorker("post-session");
           }, 2000);
         }
       }
@@ -438,7 +440,7 @@ function ensureWorker(): Worker | null {
     // and at most one recycle per minute so a pathological model can't
     // thrash restart loops.
     stallTimer ??= setInterval(() => {
-      if (!worker || listen !== "listening" || borrowed) return;
+      if (!worker || listen !== "listening" || isBorrowed()) return;
       if (!lastMsgAt || Date.now() - lastMsgAt < 25000) return;
       if (Date.now() - lastRecycleAt < 60000) return;
       recycleWorker("stall");
@@ -447,7 +449,9 @@ function ensureWorker(): Worker | null {
 }
 
 export async function startQt(): Promise<void> {
-  if (listen !== "idle") return;
+  // A borrowed worker is mid-grade for recite-coach — starting would
+  // interleave reset/init between its audio chunks and corrupt both takes.
+  if (listen !== "idle" || isBorrowed()) return;
   // Claim the state before any await — a second tap during getUserMedia
   // would otherwise open a parallel mic stream + session.
   listen = "warming";
@@ -636,7 +640,7 @@ if (typeof document !== "undefined") {
 export async function stopQt(): Promise<void> {
   const wasActive = listen !== "idle";
   disarmKeepAlive();
-  if (!borrowed) {
+  if (!isBorrowed()) {
     // Flush the batched-but-unsent tail (up to ~100ms — the end of the last
     // word) BEFORE stop, else the last syllable is never judged. Borrowed
     // workers belong to recite-coach — never inject audio/stop into its
@@ -660,11 +664,11 @@ export async function stopQt(): Promise<void> {
   emit({ type: "ui-listen", state: "idle" });
   // Fallback recycle if the worker never confirms 'stopped' (crashed mid-
   // drain). The normal path arms on the 'stopped'/'heard' event instead.
-  if (wasActive && worker && !borrowed) {
+  if (wasActive && worker && !isBorrowed()) {
     if (recycleTimer) clearTimeout(recycleTimer);
     recycleTimer = setTimeout(() => {
       recycleTimer = null;
-      if (worker && !borrowed && listen === "idle") recycleWorker("post-session");
+      if (worker && !isBorrowed() && listen === "idle") recycleWorker("post-session");
     }, 15000);
   }
 }

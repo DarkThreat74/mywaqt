@@ -56,10 +56,13 @@ async function pushRow(m: Omit<Mistake, "id"> & { id?: number }): Promise<void> 
     });
     if (res.ok) {
       if (m.id != null && m.pushFailed) await db.mistakes.update(m.id, { pushFailed: undefined });
-    } else if (res.status >= 400 && res.status < 500 && m.id != null) {
+    } else if (res.status >= 400 && res.status < 500 && res.status !== 429 &&
+               res.status !== 401 && res.status !== 403 && m.id != null) {
+      // Real validation rejections only — 429/401/403 are transient. Persist
+      // every strike, or a rejected row retries forever across sessions.
       const n = (m.pushFailed ?? 0) + 1;
       m.pushFailed = n;
-      if (n >= 3) await db.mistakes.update(m.id, { pushFailed: n });
+      await db.mistakes.update(m.id, { pushFailed: n });
     }
   } catch {
     // Offline/network — stays queued for the next sync
@@ -84,6 +87,18 @@ export async function syncMistakes(): Promise<Mistake[]> {
     }[];
     const local = await listMistakes();
     const remoteKeys = new Set(remote.map((r) => `${r.surah}:${r.ayah}:${r.word}`));
+    // Tombstones: rows deleted locally while the server copy still exists.
+    // Without them the insert-only merge resurrects a pending delete, then
+    // the push loop re-POSTs it — the delete is undone forever.
+    const tombs = tombstones();
+    for (const t of [...tombs]) {
+      if (!remoteKeys.has(t)) tombs.delete(t); // delete landed — prune
+      else {
+        const [surah, ayah, word] = t.split(":").map(Number);
+        void removeRemote({ surah, ayah, word });
+      }
+    }
+    saveTombstones(tombs);
     // Push rows the server doesn't have yet (saved offline); rows that
     // already struck out (pushFailed >= 3) stay local-only.
     for (const m of local) {
@@ -95,6 +110,7 @@ export async function syncMistakes(): Promise<Mistake[]> {
     // server-delete race on a stale device would resurrect, which is fine)
     await db.transaction("rw", db.mistakes, async () => {
       for (const r of remote) {
+        if (tombs.has(`${r.surah}:${r.ayah}:${r.word}`)) continue; // delete in flight
         const key = [r.surah, r.ayah, r.word];
         const ts = new Date(r.confirmedAt).getTime() || Date.now();
         const existing = await db.mistakes.where("[surah+ayah+word]").equals(key).first();
@@ -109,10 +125,27 @@ export async function syncMistakes(): Promise<Mistake[]> {
   return listMistakes();
 }
 
+const TOMB_KEY = "qt:mistake-tombs";
+function tombstones(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(TOMB_KEY) ?? "[]")); }
+  catch { return new Set(); }
+}
+function saveTombstones(s: Set<string>) {
+  try { localStorage.setItem(TOMB_KEY, JSON.stringify([...s])); } catch {}
+}
+function addTombstone(surah: number, ayah: number, word: number) {
+  const t = tombstones();
+  t.add(`${surah}:${ayah}:${word}`);
+  saveTombstones(t);
+}
+
 export async function removeMistake(id: number): Promise<void> {
   const row = await db.mistakes.get(id);
   await db.mistakes.delete(id);
-  if (row) await removeRemote(row);
+  if (row) {
+    addTombstone(row.surah, row.ayah, row.word);
+    await removeRemote(row);
+  }
 }
 
 /** Delete by position — rows stored without an id (in-memory confirms,
@@ -121,6 +154,7 @@ export async function removeMistake(id: number): Promise<void> {
 export async function removeMistakeAt(surah: number, ayah: number, word: number): Promise<void> {
   const row = await db.mistakes.where("[surah+ayah+word]").equals([surah, ayah, word]).first();
   if (row) await db.mistakes.delete(row.id!);
+  addTombstone(surah, ayah, word);
   await removeRemote({ surah, ayah, word });
 }
 

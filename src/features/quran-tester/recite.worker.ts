@@ -58,8 +58,8 @@ function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: nu
     mutaSeen.clear();
     return;
   }
-  if (ev.type === "cursor" && ev.wordIndex != null) {
-    flagDiv(ev.surah!, ev.ayah!, ev.word!, "approach");
+  if (ev.type === "cursor" && ev.wordIndex != null && ev.surah != null && ev.ayah != null && ev.word != null) {
+    flagDiv(ev.surah, ev.ayah, ev.word, "approach");
   } else if (ev.type === "verdicts" && Array.isArray(ev.changes)) {
     for (const v of ev.changes) {
       if (v.state !== "wrong" && v.state !== "unsure" || v.wordIndex == null) continue;
@@ -275,7 +275,10 @@ async function init(sampleRate: number) {
     engine?: { corpus?: { wordSurah: Int32Array; wordAyah: Int32Array; wordInAyah: Int32Array } };
     structuralRules?: { looks?: Map<string, { m: [number, number]; regions: number[][] }[]>; both?: Map<string, { m: [number, number]; regions: number[][] }[]>; ident?: Set<string> };
   } | null;
-  divLooks = zp?.structuralRules?.both ?? zp?.structuralRules?.looks ?? null;
+  // `both` is the bidirectional view — but ?? can't fall back on an EMPTY
+  // Map, so prefer whichever side actually has entries.
+  const sm = zp?.structuralRules;
+  divLooks = (sm?.both?.size ? sm.both : sm?.looks?.size ? sm.looks : null) ?? null;
   divCorpus = zp?.engine?.corpus ?? null;
   // Identical-text ayahs (refrains like Ar-Rahman's) — relocations and
   // flags between them are undecidable, so the page suppresses the
@@ -345,10 +348,12 @@ self.onmessage = (e: MessageEvent) => {
         // syllable than to trail the reciter by a growing delay. The drop is
         // surfaced (never silent): the heard stream has a hole and every
         // later word's timing shifts early by the dropped duration.
-        let backlog = audioPending.reduce((s, c) => s + c.samples.length, 0);
+        // Seconds per chunk, not samples vs current sourceRate — queued
+        // chunks keep their own rate tag after a mid-warm rate swap.
+        let backlog = audioPending.reduce((s, c) => s + c.samples.length / c.rate, 0);
         let dropped = 0;
-        while (backlog > MAX_BACKLOG_SEC * sourceRate && audioPending.length > 1) {
-          backlog -= audioPending[0].samples.length;
+        while (backlog > MAX_BACKLOG_SEC && audioPending.length > 1) {
+          backlog -= audioPending[0].samples.length / audioPending[0].rate;
           dropped += audioPending[0].samples.length;
           audioPending.shift();
         }
@@ -431,7 +436,9 @@ self.onmessage = (e: MessageEvent) => {
         session.zipformer?.correction.act(m.action);
       } else if (m.type === "reanchor" && session) {
         // Hold mode: a rejected relocation snaps the tracker back to the
-        // pinned ayah — the move is flagged, the cursor stays put.
+        // pinned ayah — the move is flagged, the cursor stays put. It's a
+        // new epoch for the watcher too: a slip on the re-read must ding.
+        mutaSeen.clear();
         session.zipformer?.track(m.s as number, m.a as number, (m.w as number) ?? 0);
       } else if (m.type === "mode" && session) {
         session.zipformer?.correction.setMode(m.mode);

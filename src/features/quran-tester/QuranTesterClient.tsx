@@ -103,6 +103,7 @@ export default function QuranTesterClient() {
   // detection dies silently. The defer timer releases it back to tracking
   // after a grace window; the flag + banner stay either way.
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryKeyRef = useRef<string | null>(null); // suspect key the retry timer is armed for
   // Per-session tallies for the end-of-session stats sheet.
   const sessionStartRef = useRef(0);
   const sessionFlagsRef = useRef<Set<string>>(new Set());
@@ -298,21 +299,31 @@ export default function QuranTesterClient() {
     };
   }, []);
 
-  // Fetch page + font, keep a ±1 window warm
+  // Fetch page + font, keep a ±1 window warm — and EVICT outside it (in the
+  // load callbacks, where setState is allowed), or scrolling through the
+  // mushaf grows pages/fonts unboundedly for the whole mount.
   useEffect(() => {
     const want = [page - 1, page, page + 1].filter((p) => p >= 1 && p <= PAGE_COUNT);
     for (const p of want) {
       if (!pages.has(p)) {
         loadPage(p)
           .then((d) => {
-            setPages((prev) => new Map(prev).set(p, d));
+            setPages((prev) => {
+              const n = new Map(prev).set(p, d);
+              for (const k of n.keys()) if (Math.abs(k - page) > 1) n.delete(k);
+              return n;
+            });
             setFailedPages((prev) => { const n = new Set(prev); n.delete(p); return n; });
           })
           .catch(() => setFailedPages((prev) => new Set(prev).add(p)));
       }
       if (!fonts.has(p)) {
         loadPageFont(p)
-          .then(() => setFonts((prev) => new Set(prev).add(p)))
+          .then(() => setFonts((prev) => {
+            const n = new Set(prev).add(p);
+            for (const k of n) if (Math.abs(k - page) > 1) n.delete(k);
+            return n;
+          }))
           .catch(() => {});
       }
     }
@@ -481,6 +492,9 @@ export default function QuranTesterClient() {
     let added = 0;
     for (const [k, ord] of ix.ord) {
       if (ord > o0 && ord < o1) {
+        // Already recited this session — a re-read then a skip-forward isn't
+        // a skipped ayah.
+        if (covRef.current.has(k) || sessionCovRef.current.has(k)) continue;
         const key = `${k}:0`;
         if (!next.has(key)) { next.set(key, "possible_skipped_ayah"); sessionFlagsRef.current.add(key); added++; }
       }
@@ -697,6 +711,8 @@ export default function QuranTesterClient() {
     heardRef.current = { loc: null, max: 0, total: 0 };
     flushCoverage(covRef.current);
     dismissJump();
+    if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
+    candRef.current = null;
     const n = sessionCovRef.current.size;
     if (n > 0) setStatus(`Session saved — ${n} ayah${n === 1 ? "" : "s"} covered${isDayDone(todayKey()) ? " · today ✓" : ""}`);
     await stopQt();
@@ -721,6 +737,9 @@ export default function QuranTesterClient() {
         setPending(null);
         lastIssueKeyRef.current = null;
         if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+        retryKeyRef.current = null;
+        if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
+        candRef.current = null;
         flushCoverage(covRef.current);
         // Session ended outside stopRecite — surface the same stats sheet.
         maybeShowStats();
@@ -811,10 +830,14 @@ export default function QuranTesterClient() {
           candTimerRef.current = null;
           candRef.current = null;
           const live = locLiveRef.current;
-          if (live && live.s === s && Math.abs(live.a - a) <= 2) {
-            showLoc();
-            expectSurah(s);
-            classifyJump({ s, a });
+          if (live && live.s === s && Math.abs(live.a - a) <= 2 && qtState() === "listening") {
+            // Same rule as the non-candidate path: classify first — a hold
+            // jump must never move the display.
+            const jv = classifyJump({ s, a });
+            if (jv !== "hold-jump") {
+              showLoc();
+              expectSurah(s);
+            }
           }
         }, 1200);
       } else {
@@ -985,8 +1008,10 @@ export default function QuranTesterClient() {
             // still open, defer it back to tracking so detection resumes.
             qtPost({ type: "correction-act", action: "retry" });
             const key = skey;
+            retryKeyRef.current = key;
             retryTimerRef.current = setTimeout(() => {
               retryTimerRef.current = null;
+              retryKeyRef.current = null;
               if (suspectsRef.current.has(key))
                 qtPost({ type: "correction-act", action: "review_later" });
             }, 8000);
@@ -1078,6 +1103,10 @@ export default function QuranTesterClient() {
     const key = `${s}:${a}:${w}`;
     const kind = suspects.get(key);
     if (kind) { setPending({ s, a, w, kind }); return; }
+    // Ayah-level flags (skipped/unclear/similar-verse at w:0) highlight every
+    // word as actionable — the tap must open them, not silently no-op.
+    const ayahKind = suspects.get(`${s}:${a}:0`);
+    if (ayahKind) { setPending({ s, a, w: 0, kind: ayahKind }); return; }
     // A diversion-marked ayah (jumped here this session) can be confirmed
     // into a real red mistake on tap — keep the tapped word, not w:0, or the
     // whole ayah goes red instead of the word you meant.
@@ -1098,6 +1127,14 @@ export default function QuranTesterClient() {
       qtPost({ type: "correction-act", action: "continue" });
       setPending(null);
     }
+    // If the 8s retry timer is armed for THIS suspect, the engine is frozen
+    // in `retrying` — releasing it here matters even when `pending` no
+    // longer points at this issue (a newer banner overwrote it).
+    if (retryKeyRef.current === key) {
+      retryKeyRef.current = null;
+      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+      qtPost({ type: "correction-act", action: "continue" });
+    }
     checkDay();
   }
 
@@ -1108,6 +1145,11 @@ export default function QuranTesterClient() {
     if (pending && pending.s === spot.s && pending.a === spot.a && (pending.w === spot.w || pending.w === 0 || spot.w === 0)) {
       qtPost({ type: "correction-act", action: "dismiss" });
       setPending(null);
+    }
+    if (retryKeyRef.current === key) {
+      retryKeyRef.current = null;
+      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+      qtPost({ type: "correction-act", action: "dismiss" });
     }
     checkDay();
   }
@@ -1165,7 +1207,10 @@ export default function QuranTesterClient() {
     }, 380);
   }
 
-  function onStripTransitionEnd() {
+  function onStripTransitionEnd(e: React.TransitionEvent) {
+    // transitionend bubbles — word-color transitions inside the strip would
+    // commit the page turn early. Only the strip's own transform counts.
+    if (e.target !== e.currentTarget || e.propertyName !== "transform") return;
     if (turn !== 0) {
       if (turnTimer.current) clearTimeout(turnTimer.current);
       setPage((p) => Math.min(PAGE_COUNT, Math.max(1, p - turn)));
@@ -1183,7 +1228,11 @@ export default function QuranTesterClient() {
     // two, 3rd the next three, 4th the rest of the ayah. Revealed words are
     // logged as peeks — weak spots worth reviewing later.
     if (!loc) return;
-    const data = pages.get(pageRef.current);
+    // The ayah's page, not the visible page — a hold-pinned display or a
+    // page still catching up must not make peek silently no-op (or reveal
+    // nothing while spending the hint level).
+    const locPage = ayahPagesRef.current?.[loc.surah]?.[loc.ayah] ?? pageRef.current;
+    const data = pages.get(locPage);
     if (!data) return;
     const ayahKey = `${loc.surah}:${loc.ayah}`;
     if (hintCountRef.current.ayah !== ayahKey) hintCountRef.current = { ayah: ayahKey, n: 0 };
@@ -1646,7 +1695,11 @@ export default function QuranTesterClient() {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          onPointerLeave={onPointerUp}
+          onPointerLeave={() => {
+            // Leaving the card mid-drag isn't a release — snap back, never
+            // commit a turn the user didn't finish.
+            if (dragRef.current.active) { dragRef.current.active = false; setDragX(0); dragXRef.current = 0; setSnapping(true); }
+          }}
         >
           <div
             className="relative h-full w-full"

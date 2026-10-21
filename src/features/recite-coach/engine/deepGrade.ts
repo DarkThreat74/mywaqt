@@ -7,7 +7,7 @@
 // when they aren't, the report shows the style tier only and says so.
 
 import { engineInstalled } from "@/features/quran-tester/engine";
-import { borrowQtEngine, qtPost, subscribeQt } from "@/features/quran-tester/session";
+import { borrowQtEngine, qtPost, releaseQtEngine, subscribeQt } from "@/features/quran-tester/session";
 
 export interface DeepIssue {
   surah: number;
@@ -227,8 +227,11 @@ export async function gradeAudio(
   } finally {
     unsub?.();
     if (borrowed) {
-      // Leave the shared engine clean for the next live take.
+      // Leave the shared engine clean for the next live take — and RELEASE
+      // it; without this `borrowed` stays true forever (no future borrows,
+      // stall watchdog + recycles skipped).
       post({ type: "reset" });
+      releaseQtEngine();
     } else {
       worker.terminate();
     }
