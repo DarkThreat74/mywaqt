@@ -130,7 +130,7 @@ index a7301ef..c622cc4 100644
              && (th.settleGop || r.rule !== 'gop'))
              .sort((a, b) => a.issue.wordIndex - b.issue.wordIndex);
 diff --git a/dist/recitation/engine.js b/dist/recitation/engine.js
-index 0a41219..98c29c0 100644
+index 0a41219..d5e8231 100644
 --- a/dist/recitation/engine.js
 +++ b/dist/recitation/engine.js
 @@ -1,9 +1,11 @@
@@ -161,7 +161,7 @@ index 0a41219..98c29c0 100644
          this.lastCursorWord = -1;
          this.lastStates.clear();
          this.prevSettled = false;
-@@ -275,15 +279,129 @@ export class RecitationEngine {
+@@ -275,15 +279,128 @@ export class RecitationEngine {
          }
          return events;
      }
@@ -279,10 +279,9 @@ index 0a41219..98c29c0 100644
 +        // Cheap gate first: only search the index when the tracker is
 +        // actually struggling — costRate() is O(1), index.search is not.
 +        const rate = this.tracker.costRate();
-+        if (rate === null || rate < this.cfg.lostRate) {
-+            this.relocateCandidate = null;
-+            return null;
-+        }
++        if (rate === null || rate < this.cfg.lostRate)
++            return null; // keep relocateCandidate — borderline rates flap
++        // around the threshold; clearing it starves the two-tick agreement.
          const qLen = Math.min(this.cfg.relocateQueryChars, this.buffer.length);
          const qStart = this.buffer.length - qLen;
          const query = this.buffer.slice(qStart).map((c) => c.ch).join("");
@@ -292,7 +291,7 @@ index 0a41219..98c29c0 100644
          const candidate = hit ? { surah: hit.surah, ayah: hit.ayah } : null;
          const agrees = !!candidate &&
              !!this.relocateCandidate &&
-@@ -293,10 +411,18 @@ export class RecitationEngine {
+@@ -293,10 +410,18 @@ export class RecitationEngine {
          if (hit &&
              rate !== null &&
              rate >= this.cfg.lostRate &&
@@ -313,7 +312,7 @@ index 0a41219..98c29c0 100644
              const from = {
                  surah: this.tracker.surah,
                  ayah: this.corpus.wordAyah[this.tracker.cursorWordIndex],
-@@ -424,6 +550,7 @@ export class RecitationEngine {
+@@ -424,6 +549,7 @@ export class RecitationEngine {
          const tracker = new Tracker(this.corpus, this.index.table, surah, wordIndex, this.cfg, win && win.surah === surah ? win : null);
          tracker.feed(chars);
          const tracer = new VerdictTracer(tracker, this.index.table, this.cfg);
@@ -321,7 +320,7 @@ index 0a41219..98c29c0 100644
          tracer.posteriors = this.posteriors;
          tracer.anchorAyahEnd = this.cfg.anchorAyahEnd;
          return tracer;
-@@ -440,8 +567,6 @@ export class RecitationEngine {
+@@ -440,8 +566,6 @@ export class RecitationEngine {
      trackingEvents(gotChars) {
          if (!this.tracker || !this.tracer)
              return [];
@@ -330,7 +329,7 @@ index 0a41219..98c29c0 100644
          const events = [];
          const cursorIdx = this.tracker.cursorWordIndex;
          if (cursorIdx !== this.lastCursorWord) {
-@@ -476,8 +601,9 @@ export class RecitationEngine {
+@@ -476,8 +600,9 @@ export class RecitationEngine {
          }
          if (changes.length)
              events.push({ type: "verdicts", changes });
@@ -355,7 +354,7 @@ index 24b499d..6d4790b 100644
      private finish;
      private makeEngine;
 diff --git a/dist/recitation/session.js b/dist/recitation/session.js
-index 3d7030c..8997d6a 100644
+index 3d7030c..728770a 100644
 --- a/dist/recitation/session.js
 +++ b/dist/recitation/session.js
 @@ -33,7 +33,7 @@ const TAIL_SECONDS = 2.0;
@@ -449,12 +448,14 @@ index 3d7030c..8997d6a 100644
          for (const ev of this.engine.feed(tokens, this.decoder.framesDecoded)) {
              out.push(...this.handle(ev));
          }
-@@ -565,16 +591,22 @@ export class ZipformerSession {
+@@ -565,16 +591,24 @@ export class ZipformerSession {
              else
                  out.push(...this.checkSkippedAyah(false));
          }
 -        else {
-+        else if (!tracker || !this.lastCursor || tracker.lost) {
++        // tracker.lost is transient — wiping evidence here let a rough patch
++        // eat every in-flight persistence candidate (same bug as held).
++        else if (!tracker || !this.lastCursor) {
              this.correction.clearEvidence();
              this.skipCandidate = null;
          }
@@ -475,7 +476,7 @@ index 3d7030c..8997d6a 100644
                  confidence: 1,
              });
          }
-@@ -734,12 +766,17 @@ export class ZipformerSession {
+@@ -734,12 +768,17 @@ export class ZipformerSession {
              case "lost": {
                  // Transient: the tracker keeps its place. Losing and recovering inside
                  // one surah is exactly the unclear-ayah case, so the match chain stays.
@@ -494,7 +495,7 @@ index 3d7030c..8997d6a 100644
                  break;
              }
              case "located": {
-@@ -775,6 +812,10 @@ export class ZipformerSession {
+@@ -775,6 +814,10 @@ export class ZipformerSession {
                  break;
              }
              default:
@@ -601,11 +602,14 @@ index df64e95..db75eea 100644
      has(s, a) {
          return this.corpus.hasAyah(s, a);
 diff --git a/dist/recitation/tracker.js b/dist/recitation/tracker.js
-index 5c554eb..6083947 100644
+index 5c554eb..4e2db6f 100644
 --- a/dist/recitation/tracker.js
 +++ b/dist/recitation/tracker.js
-@@ -68,9 +68,21 @@ export class Tracker {
+@@ -66,11 +66,26 @@ export class Tracker {
+         this.startLocal = Math.max(0, corpus.wordStart[startWordIndex] - this.surahStart);
+         // Float32 store: events_ea_alafasy_multi cursor.cost / alignment.json.
          this.column = new Float32Array(this.len + 1);
++        this.columnAlt = new Float32Array(this.len + 1); // feedOne scratch — swap, don't realloc per char
          this.column.fill(Number.POSITIVE_INFINITY);
          const jump = cfg.jumpCost;
 +        const perWord = cfg.jumpPerWord ?? 0;
@@ -622,12 +626,14 @@ index 5c554eb..6083947 100644
 +            // Cross-ayah seeds are dormant teleports: a look-alike word in a
 +            // different ayah must be reached via lost -> relocate, not a seed.
 +            this.column[m] = m === this.startLocal ? 0
-+                : dist <= maxJump && this.ayahAtStart[i] === seedAyah ? jump + this.jumpExtra[i] + perWord * dist
++                : dist <= maxJump && (this.ayahAtStart[i] === seedAyah ||
++                    (cfg.outsideJumpCost > 0 && this.jumpExtra[i] === 0))
++                ? jump + this.jumpExtra[i] + perWord * dist
 +                : Number.POSITIVE_INFINITY;
          }
          for (let m = 1; m <= this.len; m++) {
              this.column[m] = Math.min(this.column[m], this.column[m - 1] + 1);
-@@ -116,10 +128,17 @@ export class Tracker {
+@@ -116,10 +131,19 @@ export class Tracker {
      }
      resetColumn() {
          const jump = this.cfg.jumpCost;
@@ -641,12 +647,23 @@ index 5c554eb..6083947 100644
 -            this.column[m] = m === this.startLocal ? 0 : jump + this.jumpExtra[i];
 +            const dist = Math.abs(i - startW);
 +            this.column[m] = m === this.startLocal ? 0
-+                : dist <= maxJump && this.ayahAtStart[i] === seedAyah ? jump + this.jumpExtra[i] + perWord * dist
++                : dist <= maxJump && (this.ayahAtStart[i] === seedAyah ||
++                    (this.cfg.outsideJumpCost > 0 && this.jumpExtra[i] === 0))
++                ? jump + this.jumpExtra[i] + perWord * dist
 +                : Number.POSITIVE_INFINITY;
          }
          for (let m = 1; m <= this.len; m++) {
              this.column[m] = Math.min(this.column[m], this.column[m - 1] + 1);
-@@ -165,9 +184,31 @@ export class Tracker {
+@@ -140,7 +164,7 @@ export class Tracker {
+     }
+     feedOne(h) {
+         const prev = this.column;
+-        const next = new Float32Array(this.len + 1);
++        const next = this.columnAlt;
+         let colMin = prev[0];
+         for (let m = 1; m <= this.len; m++)
+             if (prev[m] < colMin)
+@@ -165,9 +189,35 @@ export class Tracker {
              if (del < next[m])
                  next[m] = del;
          }
@@ -672,13 +689,25 @@ index 5c554eb..6083947 100644
 +                // it must go through lost -> maybeRelocate, where the
 +                // divergentOk/ident vetoes live. Skipping the edge forces the
 +                // local path to accumulate real cost until `lost` fires.
-+                if (cursorAyah >= 0 && this.ayahAtStart[i] !== cursorAyah)
++                // Exception: correction/practice windows — in-window words
++                // (jumpExtra === 0) may legitimately span ayah boundaries,
++                // and maybeRelocate is unreachable in those modes.
++                if (cursorAyah >= 0 && this.ayahAtStart[i] !== cursorAyah &&
++                    !(this.cfg.outsideJumpCost > 0 && this.jumpExtra[i] === 0))
 +                    continue;
 +                restart = jump + this.jumpExtra[i] + perWord * dist;
 +            }
              if (restart < next[m]) {
                  next[m] = restart;
                  for (let j = m + 1; j <= this.len && next[j - 1] + 1 < next[j]; j++) {
+@@ -188,6 +238,7 @@ export class Tracker {
+             }
+         }
+         this.column = next;
++        this.columnAlt = prev;
+         this.cursorCell = bestCell;
+         this.cursorLocalWord = bestCell === 0 ? 0 : this.localWordOfPos[Math.min(bestCell, this.len) - 1];
+         this.cursorCost = bestCost;
 diff --git a/dist/recitation/verdicts.js b/dist/recitation/verdicts.js
 index 96da26c..4f6e466 100644
 --- a/dist/recitation/verdicts.js

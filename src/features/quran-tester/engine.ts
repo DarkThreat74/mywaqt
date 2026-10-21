@@ -55,6 +55,15 @@ const RUNTIME_FILES: [string, string][] = [
 // never loads them — keeping them required made a prefetch gap permanently
 // report "not installed". They're still served static-first when present.
 
+// Shared offline assets — cached by the service worker, not the engine
+// bucket, but "installed" must mean the whole listener works offline.
+const SHARED_FILES = [
+  "/data/ayah-pages.json",
+  "/data/surah-meta.json",
+  "/data/quran.json",
+  "/rc/pitch-worklet.js",
+];
+
 export async function engineInstalled(): Promise<boolean> {
   if (typeof caches === "undefined") return false;
   if (localStorage.getItem(LS_KEY) !== "1") return false;
@@ -66,6 +75,9 @@ export async function engineInstalled(): Promise<boolean> {
   // or an offline first-run would fail on a missing ort wasm/worklet.
   for (const [key] of RUNTIME_FILES) {
     if (!(await cache.match(`${self.location.origin}/qt/${key}`))) return false;
+  }
+  for (const p of SHARED_FILES) {
+    if (!(await caches.match(p))) return false;
   }
   return true;
 }

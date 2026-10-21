@@ -51,7 +51,10 @@ function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: nu
   if (!divLooks || !divCorpus) return;
   // A successful relocate/locate starts a new epoch — the same region
   // legitimately re-flags if the reciter slips again on the re-read.
-  if (ev.type === "relocated" || ev.type === "located" || ev.type === "verse_match") {
+  // located/relocated are true location epochs — re-arm on those only.
+  // verse_match fires on every ayah completion mid-passage; clearing there
+  // let the same region ding again on an ordinary crossing.
+  if (ev.type === "relocated" || ev.type === "located") {
     mutaSeen.clear();
     return;
   }

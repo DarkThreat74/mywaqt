@@ -147,9 +147,13 @@ export function todaySpan(ix: AyahIndex, ap: AyahPages, plan: Plan, cov: Set<str
     : plan.cursor;
   if (plan.kind === "khatma" && plan.deadline) {
     const days = Math.max(1, Math.ceil((new Date(plan.deadline).getTime() - Date.now()) / 86400000));
-    const remaining = ix.list.length - (ix.ord.get(keyOf(from)) ?? 0) - coveredFrom(ix, plan.start, cov);
-    const per = Math.ceil(remaining / days);
-    return ix.list.slice(ix.ord.get(keyOf(from)) ?? 0, (ix.ord.get(keyOf(from)) ?? 0) + per);
+    // Remaining = uncovered ayahs from `from` onward. Subtracting covered-
+    // since-plan-start from a cursor that already skips them double-counts
+    // and can push `per` to 0 (empty span on a live plan).
+    const rest: Loc[] = [];
+    for (let j = ix.ord.get(keyOf(from)) ?? 0; j < ix.list.length; j++)
+      if (!cov.has(keyOf(ix.list[j]))) rest.push(ix.list[j]);
+    return rest.slice(0, Math.ceil(rest.length / days));
   }
   return resolveSpan(ix, ap, plan, from);
 }
@@ -158,13 +162,6 @@ function firstUncovered(ix: AyahIndex, start: Loc, cov: Set<string>): Loc {
   for (let j = i; j < ix.list.length; j++) if (!cov.has(keyOf(ix.list[j]))) return ix.list[j];
   return ix.list[ix.list.length - 1];
 }
-function coveredFrom(ix: AyahIndex, start: Loc, cov: Set<string>): number {
-  const i = ix.ord.get(keyOf(start)) ?? 0;
-  let n = 0;
-  for (let j = i; j < ix.list.length; j++) if (cov.has(keyOf(ix.list[j]))) n++;
-  return n;
-}
-
 /* ── Day stamping, streak, grace ── */
 interface DayRec { from: Loc; to: Loc; total: number; done: boolean }
 function days(): Record<string, DayRec> {

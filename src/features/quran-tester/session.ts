@@ -257,14 +257,19 @@ function disarmKeepAlive() {
 // warm a second 66MB model and fight over the mic).
 let releaseLock: (() => void) | null = null;
 let lockHeld = false;
+let lockOwner: object | null = null;
+const QT_LOCK_OWNER = {};
 
-function acquireLock(): Promise<boolean> {
-  if (lockHeld) return Promise.resolve(true); // this tab already owns it
+function acquireLock(owner: object = QT_LOCK_OWNER): Promise<boolean> {
+  // Already-held resolves true ONLY for the same owner — warmQt's borrow must
+  // not let a later startQt think it owns a lock warm is about to release.
+  if (lockHeld) return Promise.resolve(lockOwner === owner);
   if (typeof navigator === "undefined" || !("locks" in navigator)) return Promise.resolve(true);
   return new Promise<boolean>((resolve) => {
     navigator.locks.request("qt-recite", { ifAvailable: true }, (held) => {
       if (!held) return resolve(false);
       lockHeld = true;
+      lockOwner = owner;
       resolve(true);
       // Hold the lock until teardown — resolving this promise frees it.
       return new Promise<void>((release) => { releaseLock = release; });
@@ -272,8 +277,10 @@ function acquireLock(): Promise<boolean> {
   });
 }
 
-function dropLock() {
+function dropLock(owner: object = QT_LOCK_OWNER) {
+  if (lockHeld && lockOwner !== owner) return; // someone else owns it now
   lockHeld = false;
+  lockOwner = null;
   releaseLock?.();
   releaseLock = null;
 }
@@ -301,7 +308,8 @@ export function qtPost(msg: Record<string, unknown>) {
 export function warmQt() {
   try {
     if (listen !== "idle") return;
-    void acquireLock().then((ok) => {
+    const warmOwner = {};
+    void acquireLock(warmOwner).then((ok) => {
       try {
         if (!ok || listen !== "idle") return; // another tab owns the engine
         ensureWorker();
@@ -312,8 +320,9 @@ export function warmQt() {
         void ctx.close();
       } finally {
         // Warm only borrows the lock — an idle warmed tab must never block
-        // another tab from actually reciting.
-        dropLock();
+        // another tab from actually reciting. Ownership-checked: a startQt
+        // that slipped in keeps its lock.
+        dropLock(warmOwner);
       }
     });
   } catch {
@@ -362,7 +371,10 @@ function ensureWorker(): Worker | null {
         // stale (a PWA keeps its headers from page-load time). Check the
         // fresh headers — if the server already allows wasm, one reload
         // fixes it; guard the loop with a session flag.
-        if (/wasm|webassembly|backend/i.test(msg) && !sessionStorage.getItem("qt-csp-reload")) {
+        // Offline: unregistering the SW + reloading would brick the page —
+        // the engine already runs fully offline, so skip recovery entirely.
+        if (/wasm|webassembly|backend/i.test(msg) && navigator.onLine &&
+            !sessionStorage.getItem("qt-csp-reload")) {
           sessionStorage.setItem("qt-csp-reload", "1");
           fetch(location.href, { method: "HEAD", cache: "no-store" })
             .then(async (r) => {
@@ -397,6 +409,14 @@ function ensureWorker(): Worker | null {
         }
       } else if (ev.type === "stopped" || ev.type === "heard") {
         if (deferTimer) { clearTimeout(deferTimer); deferTimer = null; }
+        // Drain finished — safe to retire the worker now (a fixed 3s timer
+        // could fire before this message and drop the final heard payload).
+        if (listen === "idle" && !borrowed && worker && !recycleTimer) {
+          recycleTimer = setTimeout(() => {
+            recycleTimer = null;
+            if (worker && !borrowed && listen === "idle") recycleWorker("post-session");
+          }, 2000);
+        }
       }
       emit(ev);
     };
@@ -616,11 +636,15 @@ if (typeof document !== "undefined") {
 export async function stopQt(): Promise<void> {
   const wasActive = listen !== "idle";
   disarmKeepAlive();
-  // Flush the batched-but-unsent tail (up to ~100ms — the end of the last
-  // word) BEFORE stop, else the last syllable is never judged.
-  const tail = drainMicChunks();
-  if (tail) worker?.postMessage({ type: "audio", samples: tail }, [tail.buffer]);
-  worker?.postMessage({ type: "stop" });
+  if (!borrowed) {
+    // Flush the batched-but-unsent tail (up to ~100ms — the end of the last
+    // word) BEFORE stop, else the last syllable is never judged. Borrowed
+    // workers belong to recite-coach — never inject audio/stop into its
+    // session; the coach manages its own stream.
+    const tail = drainMicChunks();
+    if (tail) worker?.postMessage({ type: "audio", samples: tail }, [tail.buffer]);
+    worker?.postMessage({ type: "stop" });
+  }
   if (deferTimer) { clearTimeout(deferTimer); deferTimer = null; }
   if (warmWatchdog) { clearTimeout(warmWatchdog); warmWatchdog = null; }
   dropLock();
@@ -634,14 +658,14 @@ export async function stopQt(): Promise<void> {
   }
   listen = "idle";
   emit({ type: "ui-listen", state: "idle" });
-  // Retire the worker after a real take — the 3s delay lets the posted
-  // 'stop' drain the decode tail; skipped if the user starts again first.
+  // Fallback recycle if the worker never confirms 'stopped' (crashed mid-
+  // drain). The normal path arms on the 'stopped'/'heard' event instead.
   if (wasActive && worker && !borrowed) {
     if (recycleTimer) clearTimeout(recycleTimer);
     recycleTimer = setTimeout(() => {
       recycleTimer = null;
       if (worker && !borrowed && listen === "idle") recycleWorker("post-session");
-    }, 3000);
+    }, 15000);
   }
 }
 
@@ -687,6 +711,8 @@ export async function resumeQt(): Promise<void> {
 
 export async function teardownQt(): Promise<void> {
   await stopQt();
+  if (stallTimer) { clearInterval(stallTimer); stallTimer = null; }
+  if (recycleTimer) { clearTimeout(recycleTimer); recycleTimer = null; }
   worker?.terminate();
   worker = null;
   engineReady = false;

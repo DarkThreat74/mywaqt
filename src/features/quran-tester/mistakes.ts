@@ -16,6 +16,8 @@ export interface Mistake {
   word: number;
   kind: string;
   confirmedAt: number;
+  /** Server rejected this row — retry bounded, then leave it local-only. */
+  pushFailed?: number;
 }
 
 const db = new Dexie("quran-tester") as Dexie & {
@@ -32,15 +34,36 @@ export async function saveMistake(m: Omit<Mistake, "id">): Promise<void> {
     .where("[surah+ayah+word]")
     .equals([m.surah, m.ayah, m.word])
     .first();
-  if (existing) await db.mistakes.update(existing.id!, { confirmedAt: m.confirmedAt });
-  else await db.mistakes.add(m);
+  if (existing) {
+    await db.mistakes.update(existing.id!, { confirmedAt: m.confirmedAt, kind: m.kind });
+    (m as Mistake).id = existing.id;
+  } else {
+    (m as Mistake).id = await db.mistakes.add(m as Mistake);
+  }
   // Write-through to the durable per-user store; failure just means the
   // next sync pushes it (queued rows reconcile on load).
-  void fetch("/api/quran-tester/mistakes", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(m),
-  }).catch(() => {});
+  void pushRow(m);
+}
+
+/** POST one row. 4xx = the server will never accept it — count strikes on
+ *  the local row and stop after 3, or every sync retries it forever. */
+async function pushRow(m: Omit<Mistake, "id"> & { id?: number }): Promise<void> {
+  try {
+    const res = await fetch("/api/quran-tester/mistakes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ surah: m.surah, ayah: m.ayah, word: m.word, kind: m.kind, confirmedAt: m.confirmedAt }),
+    });
+    if (res.ok) {
+      if (m.id != null && m.pushFailed) await db.mistakes.update(m.id, { pushFailed: undefined });
+    } else if (res.status >= 400 && res.status < 500 && m.id != null) {
+      const n = (m.pushFailed ?? 0) + 1;
+      m.pushFailed = n;
+      if (n >= 3) await db.mistakes.update(m.id, { pushFailed: n });
+    }
+  } catch {
+    // Offline/network — stays queued for the next sync
+  }
 }
 
 export async function listMistakes(): Promise<Mistake[]> {
@@ -61,14 +84,11 @@ export async function syncMistakes(): Promise<Mistake[]> {
     }[];
     const local = await listMistakes();
     const remoteKeys = new Set(remote.map((r) => `${r.surah}:${r.ayah}:${r.word}`));
-    // Push rows the server doesn't have yet (saved offline)
+    // Push rows the server doesn't have yet (saved offline); rows that
+    // already struck out (pushFailed >= 3) stay local-only.
     for (const m of local) {
-      if (!remoteKeys.has(`${m.surah}:${m.ayah}:${m.word}`)) {
-        void fetch("/api/quran-tester/mistakes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(m),
-        }).catch(() => {});
+      if (!remoteKeys.has(`${m.surah}:${m.ayah}:${m.word}`) && (m.pushFailed ?? 0) < 3) {
+        void pushRow(m);
       }
     }
     // Merge remote into local (insert only — never delete local rows; a

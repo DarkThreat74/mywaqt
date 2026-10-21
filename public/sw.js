@@ -62,6 +62,7 @@ const PRECACHE_URLS = [
   "/worklets/qt-capture.js",
   "/rc/pitch-worklet.js",
   "/data/mutashabihat.json",
+  "/data/quran.json",
 ];
 
 // Core app pages — prefetched on install for offline boot.
@@ -308,7 +309,7 @@ async function warmCache() {
         // Only cache successful responses (not redirects to /login)
         if (res.ok || res.status === 304) {
           // Clone and add a custom header for cache freshness tracking
-          const body = await res.blob();
+          const body = await res.text();
           const headers = new Headers(res.headers);
           headers.set("x-waqt-cached-at", String(Date.now()));
           const cachedRes = new Response(body, {
@@ -317,6 +318,17 @@ async function warmCache() {
             headers,
           });
           await cache.put(page, cachedRes);
+          // Route HTML alone can't boot offline — the page's hashed JS/CSS
+          // chunks live under /_next/static and must be cached too.
+          const chunks = new Set(body.match(/\/_next\/static\/[^"'\\\s)]+/g) ?? []);
+          const runtime = await caches.open(RUNTIME_CACHE);
+          await Promise.allSettled(
+            [...chunks].slice(0, 80).map(async (u) => {
+              if (await runtime.match(u)) return;
+              const r = await fetch(u);
+              if (r.ok) await runtime.put(u, r);
+            })
+          );
         }
       })
     );
@@ -1264,6 +1276,8 @@ self.addEventListener("fetch", (event) => {
     url.origin === self.location.origin &&
     (url.pathname.startsWith("/_next/static/") ||
       url.pathname.startsWith("/worklets/") ||
+      // /rc/ holds the pitch worklet — precached but unrouted offline.
+      url.pathname.startsWith("/rc/") ||
       // /data/ holds immutable statics (mushaf page JSON, ayah/surah
       // indexes) — offline mushaf loads failed without this branch and
       // left the recite engine unanchored.
