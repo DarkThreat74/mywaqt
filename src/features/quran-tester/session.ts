@@ -339,10 +339,11 @@ export function warmQt() {
   }
 }
 
-// Resolved once — the worker entry's hashed chunk URL for this build. Used
-// both to spawn the worker and to probe whether the URL is still live when
-// a load failure fires (stale-bundle vs lie-fi discrimination).
-const workerUrl = new URL("./recite.worker.ts", import.meta.url);
+// The worker is bundled to a stable /qt/ URL by scripts/build-worker.mjs —
+// a hashed /_next/static chunk URL can 404 after a deploy and 503 offline.
+// The engine install pins this file into the same bucket as the model, so
+// the script is exactly as offline-safe as the engine it boots.
+const workerUrl = "/qt/recite-worker.js";
 
 function ensureWorker(): Worker | null {
   if (worker) return worker;
@@ -467,7 +468,7 @@ function ensureWorker(): Worker | null {
       if (loadFailure && navigator.onLine &&
           !sessionStorage.getItem("qt-bundle-reload")) {
         sessionStorage.setItem("qt-bundle-reload", "1");
-        const probe = (e instanceof ErrorEvent && e.filename) || workerUrl.href;
+        const probe = (e instanceof ErrorEvent && e.filename) || workerUrl;
         fetch(`${probe}${probe.includes("?") ? "&" : "?"}qt-probe=${Date.now()}`,
               { method: "HEAD", cache: "no-store" })
           .then(async (r) => {

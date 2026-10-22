@@ -124,7 +124,7 @@ export async function gradeAudio(
   // Borrow the warm singleton when it's free — a fresh worker pays the
   // ~66MB model load every take (the ~5s stall before verdicts arrive).
   const borrowed = borrowQtEngine(sampleRate);
-  const worker = borrowed ?? new Worker(new URL("../../quran-tester/recite.worker.ts", import.meta.url));
+  const worker = borrowed ?? new Worker("/qt/recite-worker.js");
   const issues: DeepIssue[] = [];
   const wordVerdicts: WordVerdict[] = [];
   const verses: string[] = [];

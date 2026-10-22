@@ -120,9 +120,17 @@ function CustomSelect({
 }
 
 export default function BirthdaysClient() {
-  const [birthdays, setBirthdays] = useState<Birthday[]>([]);
-  const [categories, setCategories] = useState<BirthdayCategory[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  // Seed synchronously — offline the fetch 503s and the page used to render
+  // an empty list (indistinguishable from "no birthdays").
+  const [seed] = useState(() => {
+    try {
+      const raw = localStorage.getItem("birthdays:list");
+      return raw ? (JSON.parse(raw) as { birthdays?: Birthday[]; categories?: BirthdayCategory[] }) : null;
+    } catch { return null; }
+  });
+  const [birthdays, setBirthdays] = useState<Birthday[]>(seed?.birthdays ?? []);
+  const [categories, setCategories] = useState<BirthdayCategory[]>(seed?.categories ?? []);
+  const [loaded, setLoaded] = useState(!!seed);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -164,10 +172,13 @@ export default function BirthdaysClient() {
 
   useEffect(() => {
     fetch("/api/birthdays")
-      .then((r) => (r.ok ? r.json() : { birthdays: [], categories: [] }))
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => {
-        setBirthdays(d.birthdays ?? []);
-        setCategories(d.categories ?? []);
+        const b = d.birthdays ?? [];
+        const c = d.categories ?? [];
+        setBirthdays(b);
+        setCategories(c);
+        try { localStorage.setItem("birthdays:list", JSON.stringify({ birthdays: b, categories: c })); } catch {}
       })
       .catch(() => null)
       .finally(() => setLoaded(true));

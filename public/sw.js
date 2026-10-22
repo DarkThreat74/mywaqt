@@ -674,7 +674,20 @@ self.addEventListener("fetch", (event) => {
           const hit = await cache.match(url.pathname) ?? await cache.match(url.href);
           // Re-stamp CSP like the _next/static branch — an engine file cached
           // before the wasm-unsafe-eval change keeps its birth CSP forever.
-          if (hit) return withFixedCSP(hit);
+          if (hit) {
+            // JS glue (worker bundle, ort .mjs) changes between deploys —
+            // serve the cached copy but refresh it in the background so a
+            // new bundle reaches the bucket on the next spawn. Binaries
+            // (wasm, onnx, fonts) are content-stable and stay cache-first.
+            if (/\.(m?js)$/.test(url.pathname)) {
+              event.waitUntil(
+                timedFetch(request, 15000).then(async (res) => {
+                  if (res.ok) await cache.put(url.pathname, withFixedCSP(res));
+                }).catch(() => {})
+              );
+            }
+            return withFixedCSP(hit);
+          }
         } catch { /* CacheStorage broken — fall through to network */ }
         // Static ort wasm lives at /qt/* in public/ — write through so a
         // fetched runtime file is offline-ready too. Same treatment as the

@@ -48,6 +48,9 @@ const LS_KEY = "qt:engine-installed";
 const RUNTIME_FILES: [string, string][] = [
   ["ort-wasm-simd-threaded.mjs", "/qt/ort-wasm-simd-threaded.mjs"],
   ["ort-wasm-simd-threaded.wasm", "/qt/ort-wasm-simd-threaded.wasm"],
+  // The worker bundle itself — a hashed /_next/static URL dies on every
+  // deploy; pinning it here makes the engine fully self-contained.
+  ["recite-worker.js", "/qt/recite-worker.js"],
   ["qt-capture.js", "/worklets/qt-capture.js"],
   ["QPC2BSML.ttf", "/fonts/qpc2/QPC2BSML.ttf"],
 ];

@@ -14,15 +14,29 @@ type Convo = {
   unread: number;
 };
 
+const SEED_KEY = "messages:convos";
+
 export default function MessagesClient() {
-  const [convos, setConvos] = useState<Convo[] | null>(null);
+  // Seed synchronously from the last good list — offline the fetch 503s and
+  // convos===null used to pin "Loading…" forever.
+  const [convos, setConvos] = useState<Convo[] | null>(() => {
+    try {
+      const raw = localStorage.getItem(SEED_KEY);
+      return raw ? (JSON.parse(raw) as Convo[]) : null;
+    } catch { return null; }
+  });
+  const [netErr, setNetErr] = useState(false);
 
   useEffect(() => {
     const load = () =>
       fetch("/api/messages", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : { conversations: [] }))
-        .then((d: { conversations: Convo[] }) => setConvos(d.conversations))
-        .catch(() => {});
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d: { conversations: Convo[] }) => {
+          setConvos(d.conversations);
+          setNetErr(false);
+          try { localStorage.setItem(SEED_KEY, JSON.stringify(d.conversations)); } catch {}
+        })
+        .catch(() => setNetErr(true));
     void load();
     const t = setInterval(() => { if (!document.hidden) void load(); }, 8000);
     const onFocus = () => void load();
@@ -46,8 +60,23 @@ export default function MessagesClient() {
         </p>
       </header>
 
+      {netErr && convos !== null && convos.length > 0 && (
+        <p className="mb-4 text-center text-xs italic" style={{ color: "var(--color-ink-muted)" }}>
+          You&rsquo;re offline — showing your last conversations.
+        </p>
+      )}
       {convos === null ? (
-        <p className="py-16 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>
+        netErr ? (
+          <div className="py-16 text-center">
+            <Feather className="mx-auto h-6 w-6" style={{ color: "var(--color-warmth)" }} />
+            <p className="mt-3 text-xl italic" style={{ color: "var(--color-ink)" }}>You&rsquo;re offline.</p>
+            <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+              Messages need a connection the first time.
+            </p>
+          </div>
+        ) : (
+          <p className="py-16 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>
+        )
       ) : convos.length === 0 ? (
         <div className="py-16 text-center">
           <Feather className="mx-auto h-6 w-6" style={{ color: "var(--color-warmth)" }} />

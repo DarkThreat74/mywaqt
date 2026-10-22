@@ -374,10 +374,12 @@ self.onmessage = (e: MessageEvent) => {
         await drainAudio(); // the tail of the take is judged too — never dropped
         await session.stop(); // events flow through onEvent
         // Deep-grade tap: dump the heard phoneme stream (chars + CTC frame
-        // index each) so callers can measure madd/ghunnah durations. The
-        // engine keeps every heard char in `buffer` (cap 1000) — reachable at
-        // runtime though TS-private. framesDecoded lets callers convert
-        // frames→ms against the actual audio length.
+        // index each) so callers can measure madd/ghunnah durations.
+        // `buffer` caps at 1000 chars — long takes lose the head. The
+        // tracker's `heard` is uncapped and aligned, so it carries the
+        // whole take; buffer is the fallback for never-locked sessions.
+        // framesDecoded lets callers convert frames→ms against the actual
+        // audio length.
         const z = session.zipformer as unknown as {
           engine?: {
             buffer?: { ch: string; frame: number; margin: number }[];
@@ -426,7 +428,7 @@ self.onmessage = (e: MessageEvent) => {
         }
         postMessage({
           type: "heard",
-          chars: z?.engine?.buffer ?? [],
+          chars: (tr?.heard?.length ? tr.heard : z?.engine?.buffer) ?? [],
           words,
           framesDecoded: z?.decoder?.framesDecoded ?? 0,
         });

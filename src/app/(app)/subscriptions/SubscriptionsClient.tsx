@@ -104,8 +104,20 @@ function tagMeta(id: string) {
 const toDayStr = (d: Date) => d.toLocaleDateString("en-CA");
 
 export default function SubscriptionsClient() {
-  const [subs, setSubs] = useState<Subscription[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  // Seed synchronously — offline the fetches 503 and the page used to
+  // render an empty list (indistinguishable from "no subscriptions").
+  const [seed] = useState(() => {
+    try {
+      const s = localStorage.getItem("subs:list");
+      const e = localStorage.getItem("expenses:list");
+      return {
+        subs: s ? (JSON.parse(s) as Subscription[]) : null,
+        expenses: e ? (JSON.parse(e) as ExpenseLite[]) : null,
+      };
+    } catch { return { subs: null, expenses: null }; }
+  });
+  const [subs, setSubs] = useState<Subscription[]>(seed.subs ?? []);
+  const [loaded, setLoaded] = useState(!!seed.subs);
   const [view, setView] = useState<View>("list");
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -121,15 +133,19 @@ export default function SubscriptionsClient() {
   const [logKind, setLogKind] = useState<"sub" | string>("sub");
   const [newTagName, setNewTagName] = useState("");
   const [expForm, setExpForm] = useState<ExpFormState>(EMPTY_EXP_FORM);
-  const [expenses, setExpenses] = useState<ExpenseLite[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseLite[]>(seed.expenses ?? []);
   const [expBusy, setExpBusy] = useState(false);
   const [expError, setExpError] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
 
   useEffect(() => {
     fetch("/api/subscriptions")
-      .then((r) => (r.ok ? r.json() : { subscriptions: [] }))
-      .then((d) => setSubs(d.subscriptions ?? []))
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        const s = d.subscriptions ?? [];
+        setSubs(s);
+        try { localStorage.setItem("subs:list", JSON.stringify(s)); } catch {}
+      })
       .catch(() => null)
       .finally(() => setLoaded(true));
   }, []);
@@ -137,8 +153,12 @@ export default function SubscriptionsClient() {
   useEffect(() => {
     const load = () =>
       fetch("/api/expenses")
-        .then((r) => (r.ok ? r.json() : { expenses: [] }))
-        .then((d) => setExpenses(d.expenses ?? []))
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => {
+          const ex = d.expenses ?? [];
+          setExpenses(ex);
+          try { localStorage.setItem("expenses:list", JSON.stringify(ex)); } catch {}
+        })
         .catch(() => null);
     void load();
     window.addEventListener("waqt:expense-logged", load);

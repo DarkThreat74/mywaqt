@@ -67,7 +67,14 @@ const EMPTY: FormState = { tag: "gas", amount: "", quantity: "", place: "", barb
 type Row = ExpenseRow & { localPhoto?: string };
 
 export default function SpendingLog({ tag }: { tag: string | null }) {
-  const [entries, setEntries] = useState<Row[]>([]);
+  // Seed synchronously — the parent's expenses:list mirror — so the log
+  // isn't an empty list offline.
+  const [entries, setEntries] = useState<Row[]>(() => {
+    try {
+      const raw = localStorage.getItem("expenses:list");
+      return raw ? (JSON.parse(raw) as Row[]) : [];
+    } catch { return []; }
+  });
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const activeTag = tag;
@@ -82,8 +89,12 @@ export default function SpendingLog({ tag }: { tag: string | null }) {
   useEffect(() => {
     const load = () =>
       fetch("/api/expenses")
-        .then((r) => (r.ok ? r.json() : { expenses: [] }))
-        .then((d) => setEntries(d.expenses ?? []))
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => {
+          const ex = d.expenses ?? [];
+          setEntries(ex);
+          try { localStorage.setItem("expenses:list", JSON.stringify(ex)); } catch {}
+        })
         .catch(() => null)
         .finally(() => setLoaded(true));
     void load();
