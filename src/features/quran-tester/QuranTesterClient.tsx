@@ -2612,8 +2612,21 @@ function ListenerView({
       }}
     >
       {/* The listener — a face that breathes while it hears you and burns
-          red on a flag. Aura stays tight so it never covers the ayah. */}
+          red on a flag. Two-layer aura: a tight inner glow that follows the
+          voice level, plus a slow ripple ring that makes the attention
+          visible even when the voice pauses. */}
       <div className="relative mx-auto mt-6 flex h-20 w-20 shrink-0 items-center justify-center">
+        {listening && (
+          <span
+            aria-hidden
+            className="absolute rounded-full"
+            style={{
+              inset: -6,
+              border: `1px solid color-mix(in oklab, ${aura} 30%, transparent)`,
+              animation: alert ? "qt-listener-pulse 0.7s ease-in-out infinite alternate" : "qt-listener-ripple 3.6s ease-out infinite",
+            }}
+          />
+        )}
         <span
           aria-hidden
           className="absolute inset-0 rounded-full"
@@ -2629,8 +2642,9 @@ function ListenerView({
           style={{
             borderColor: `color-mix(in oklab, ${aura} 45%, transparent)`,
             backgroundColor: "var(--color-paper)",
-            animation: listening ? "qt-listener-sway 3.2s ease-in-out infinite" : "none",
-            transition: "border-color 0.3s",
+            boxShadow: alert ? "none" : `0 2px 10px color-mix(in oklab, var(--color-ink) 7%, transparent)`,
+            animation: listening ? (alert ? "qt-listener-sway 3.2s ease-in-out infinite" : "qt-listener-sway 3.2s ease-in-out infinite, qt-listener-breathe 4.2s ease-in-out infinite") : "none",
+            transition: "border-color 0.3s, box-shadow 0.3s",
           }}
         >
           {/* brows — angled inward on a flag (angry), arched soft when pleased */}
@@ -2654,12 +2668,13 @@ function ListenerView({
               }}
             />
           </span>
-          {/* eyes — blink on a slow cycle; narrow on a flag; sleepy when off */}
+          {/* eyes — blink on a slow cycle; narrow on a flag; sleepy when off.
+              A tiny light catch keeps them alive instead of two dead dots. */}
           <span className="flex gap-3.5">
             {[0, 1].map((i) => (
               <span
                 key={i}
-                className="block h-1.5 w-1.5 rounded-full"
+                className="relative block h-2 w-2 rounded-full"
                 style={{
                   backgroundColor: alert ? "#b34a3a" : "var(--color-ink)",
                   transform: alert ? "scaleY(0.45)" : !listening ? "scaleY(0.5)" : "none",
@@ -2667,7 +2682,18 @@ function ListenerView({
                   animationDelay: `${i * 0.04}s`,
                   transition: "transform 0.2s, background-color 0.3s",
                 }}
-              />
+              >
+                {listening && !alert && (
+                  <span
+                    className="absolute rounded-full"
+                    style={{
+                      width: 2, height: 2, top: 1, left: 1,
+                      backgroundColor: "var(--color-paper)",
+                      opacity: 0.85,
+                    }}
+                  />
+                )}
+              </span>
             ))}
           </span>
           {/* mouth — opens with mic level, flat when flagged, a soft smile
@@ -2681,10 +2707,10 @@ function ListenerView({
             <span
               className="absolute bottom-4 block rounded-full"
               style={{
-                width: 12,
+                width: alert ? 12 : 10 + level * 5,
                 height: alert ? 1.5 : Math.max(1.5, level * 9),
                 backgroundColor: alert ? "#b34a3a" : "var(--color-ink-muted)",
-                transition: "height 0.15s ease-out, background-color 0.3s",
+                transition: "height 0.15s ease-out, width 0.15s ease-out, background-color 0.3s",
               }}
             />
           )}
@@ -2767,6 +2793,14 @@ function ListenerView({
         @keyframes qt-listener-blink {
           0%, 46%, 50%, 100% { transform: scaleY(1); }
           48% { transform: scaleY(0.08); }
+        }
+        @keyframes qt-listener-ripple {
+          0% { transform: scale(0.92); opacity: 0.9; }
+          100% { transform: scale(1.28); opacity: 0; }
+        }
+        @keyframes qt-listener-breathe {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.025); }
         }
       `}</style>
     </div>
