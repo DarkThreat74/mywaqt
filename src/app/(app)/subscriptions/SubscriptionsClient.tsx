@@ -469,35 +469,26 @@ export default function SubscriptionsClient() {
         )}
       </div>
 
-      {/* Tab row — Subscriptions, one per tag with entries, then the
-          chronological everything feed. + Log lives at the right end. */}
-      <div
-        className="mt-4 flex items-center gap-1 overflow-x-auto border-b pb-px"
-        style={{ borderColor: "var(--color-paper-3)" }}
-        role="tablist"
-        aria-label="Money sections"
-      >
-        {[{ id: "subs", label: "Subscriptions" }, ...tagTabs.map((t) => ({ id: t.id, label: t.label })), { id: "all", label: "All" }].map((t) => {
-          const on = moneyTab === t.id;
-          return (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={on}
-              onClick={() => setMoneyTab(t.id)}
-              className="shrink-0 border-b-2 px-3 pb-2 text-sm font-medium transition-colors"
-              style={{
-                borderColor: on ? "var(--color-accent)" : "transparent",
-                color: on ? "var(--color-ink)" : "var(--color-ink-muted)",
-              }}
-            >
-              {t.label}
-            </button>
-          );
-        })}
+      {/* Money section picker — a dropdown instead of a sideways-scrolling
+          tab strip (the per-tag row duplicated the Log modal's selector).
+          Log button stays at the right end. */}
+      <div className="mt-4 flex items-center gap-2 border-b pb-2" style={{ borderColor: "var(--color-paper-3)" }}>
+        <select
+          value={moneyTab}
+          onChange={(e) => setMoneyTab(e.target.value)}
+          aria-label="Money section"
+          className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm font-medium outline-none"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+        >
+          <option value="subs">Subscriptions</option>
+          {tagTabs.map((t) => (
+            <option key={t.id} value={t.id}>{t.label}</option>
+          ))}
+          <option value="all">All</option>
+        </select>
         <button
           onClick={openLog}
-          className="ml-auto mb-1.5 flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90"
+          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90"
           style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 32 }}
         >
           <Plus className="h-3.5 w-3.5" /> Log

@@ -578,21 +578,33 @@ self.addEventListener("fetch", (event) => {
           const cached = await caches.match(request);
           if (cached) return withFixedCSP(cached);
         } catch { /* CacheStorage broken — fall through to network */ }
-        try {
-          // timedFetch: a cache miss on lie-fi would otherwise hang the
-          // whole hydration — chunks must fail fast so the page retries
-          // instead of silently freezing.
-          const response = await timedFetch(request, 6000);
-          if (response.ok) {
-            // Vercel's edge cache can replay stale headers for unchanged
-            // hashed chunks — fix the wire copy too before storing/serving.
-            const stamped = withFixedCSP(response);
-            const cache = await caches.open(STATIC_CACHE);
-            await cache.put(request, stamped.clone());
-            return stamped;
+        // Hydration-critical files get a real budget + one retry: a single
+        // 6s timeout on lie-fi used to 503 a worker or CSS chunk — dead
+        // engine bundle ("bundle failed to load") or a wall of unstyled
+        // text. A retry rides out the transient before failing honestly.
+        const critical = ["worker", "script", "style", "font"].includes(request.destination);
+        for (let attempt = 0; attempt < (critical ? 2 : 1); attempt++) {
+          try {
+            if (attempt) await new Promise((r) => setTimeout(r, 400));
+            const response = await timedFetch(request, critical ? 15000 : 6000);
+            if (response.ok) {
+              // Vercel's edge cache can replay stale headers for unchanged
+              // hashed chunks — fix the wire copy too before storing/serving.
+              const stamped = withFixedCSP(response);
+              try {
+                const cache = await caches.open(STATIC_CACHE);
+                await cache.put(request, stamped.clone());
+              } catch { /* put failure shouldn't fail the fetch */ }
+              return stamped;
+            }
+            // A 404/5xx on a hashed URL won't heal on retry for non-critical
+            // assets; for critical ones the loop takes another shot anyway.
+            if (attempt || !critical) return response;
+          } catch {
+            if (!critical) break;
           }
-          return response;
-        } catch {
+        }
+        {
           // Offline and no cache — fail honestly with 503. Returning a fake
           // empty 200 for a missing JS chunk makes hydration silently dead
           // (page looks loaded, nothing works) instead of visibly retrying.
