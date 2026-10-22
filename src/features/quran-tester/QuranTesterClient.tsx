@@ -2615,7 +2615,7 @@ function ListenerView({
           red on a flag. Two-layer aura: a tight inner glow that follows the
           voice level, plus a slow ripple ring that makes the attention
           visible even when the voice pauses. */}
-      <div className="relative mx-auto mt-6 flex h-20 w-20 shrink-0 items-center justify-center">
+      <div className="relative mx-auto mt-6 flex h-24 w-24 shrink-0 items-center justify-center">
         {listening && (
           <span
             aria-hidden
@@ -2638,7 +2638,7 @@ function ListenerView({
           }}
         />
         <span
-          className="relative flex h-16 w-16 items-center justify-center rounded-full border"
+          className="relative flex h-[72px] w-[72px] items-center justify-center rounded-full border"
           style={{
             borderColor: `color-mix(in oklab, ${aura} 45%, transparent)`,
             backgroundColor: "var(--color-paper)",
@@ -2648,7 +2648,7 @@ function ListenerView({
           }}
         >
           {/* brows — angled inward on a flag (angry), arched soft when pleased */}
-          <span className="absolute top-[19px] flex w-[30px] justify-between">
+          <span className="absolute top-[22px] flex w-[32px] justify-between">
             <span
               className="block h-[2px] w-2.5 rounded-full"
               style={{
@@ -2669,8 +2669,15 @@ function ListenerView({
             />
           </span>
           {/* eyes — blink on a slow cycle; narrow on a flag; sleepy when off.
-              A tiny light catch keeps them alive instead of two dead dots. */}
-          <span className="flex gap-3.5">
+              A tiny light catch keeps them alive instead of two dead dots.
+              While listening with no location yet, they wander — "finding
+              your place" is legible in the face itself. */}
+          <span
+            className="flex gap-3.5"
+            style={{
+              animation: listening && !loc && !alert ? "qt-listener-scan 2.8s ease-in-out infinite" : "none",
+            }}
+          >
             {[0, 1].map((i) => (
               <span
                 key={i}
@@ -2700,12 +2707,12 @@ function ListenerView({
               for a beat after a corrected re-read, a thin line at rest */}
           {pleased ? (
             <span
-              className="absolute bottom-4 block h-2.5 w-3.5 rounded-b-full border-b-2"
+              className="absolute bottom-[18px] block h-2.5 w-3.5 rounded-b-full border-b-2"
               style={{ borderColor: "var(--color-accent)", transition: "border-color 0.3s" }}
             />
           ) : (
             <span
-              className="absolute bottom-4 block rounded-full"
+              className="absolute bottom-[18px] block rounded-full"
               style={{
                 width: alert ? 12 : 10 + level * 5,
                 height: alert ? 1.5 : Math.max(1.5, level * 9),
@@ -2801,6 +2808,11 @@ function ListenerView({
         @keyframes qt-listener-breathe {
           0%, 100% { transform: scale(1); }
           50% { transform: scale(1.025); }
+        }
+        @keyframes qt-listener-scan {
+          0%, 100% { transform: translateX(0); }
+          30% { transform: translateX(1.6px); }
+          65% { transform: translateX(-1.6px); }
         }
       `}</style>
     </div>
