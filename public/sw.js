@@ -105,6 +105,9 @@ function openDB() {
       resolve(req.result);
     };
     req.onerror = () => reject(req.error);
+    // open() hangs forever when another context holds the DB at an older
+    // version — and this promise gates navigation responses. Fail fast.
+    req.onblocked = () => reject(new Error("waqt-offline db blocked"));
   });
 }
 
@@ -306,10 +309,12 @@ async function warmCache() {
           credentials: "include",
           redirect: "manual", // Don't follow redirects to /login
         });
-        // Only cache successful responses (not redirects to /login)
-        if (res.ok || res.status === 304) {
+        // Only cache successful responses (not redirects to /login).
+        // A transparent-304 body is EMPTY — caching it writes a blank page.
+        if (res.ok) {
           // Clone and add a custom header for cache freshness tracking
           const body = await res.text();
+          if (!body) return;
           const headers = new Headers(res.headers);
           headers.set("x-waqt-cached-at", String(Date.now()));
           const cachedRes = new Response(body, {
@@ -395,8 +400,12 @@ self.addEventListener("activate", (event) => {
         );
       })
       .then(() => self.clients.claim())
-      .then(() => syncOutbox())          // Replay pending offline writes
-      .then(() => warmCache().catch(() => {}))  // Warm all app pages for offline
+      .then(() => {
+        // Replay + warm run alongside, NOT in the activation chain — a lie-fi
+        // waitUntil full of network work starves the launch navigation.
+        void syncOutbox().catch(() => {});
+        void warmCache().catch(() => {});
+      })
       .then(() => {
         // Notify all clients that a new SW is active
         return self.clients.matchAll({ type: "window" }).then((clients) => {
@@ -530,9 +539,20 @@ function timedFetch(request, ms, bypassHttpCache = false) {
 // born from a stale chunk inherits its CSP from THESE headers, not the
 // page's. Only re-stamp when the served policy lacks wasm-unsafe-eval, so a
 // future CSP change in next.config never gets overwritten by this copy.
+// Honest offline document — the last-resort body when every cache and the
+// network are dead. Kept as a helper so navigation fallbacks never diverge.
+function offlineResponse() {
+  return new Response(
+    "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#1a1815;color:#f5f0e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}button{margin-top:20px;padding:10px 24px;background:#f5f0e8;color:#1a1815;border:none;border-radius:8px;font-size:14px;cursor:pointer}</style></head><body><div><h1>You're offline</h1><p>Your cached data will appear when you reopen the app. Try again in a moment.</p><button onclick='location.reload()'>Retry</button></div></body></html>",
+    { status: 200, headers: { "Content-Type": "text/html" } }
+  );
+}
+
 function withFixedCSP(response) {
   const csp = response.headers.get("content-security-policy") ?? "";
-  if (csp.includes("wasm-unsafe-eval")) return response;
+  // Can't re-wrap a null-body status (204/304) or a disturbed body — and
+  // there's nothing to fix anyway if the policy already allows wasm.
+  if (csp.includes("wasm-unsafe-eval") || response.body == null) return response;
   const headers = new Headers(response.headers);
   headers.set("content-security-policy", CURRENT_CSP);
   return new Response(response.body, {
@@ -554,8 +574,10 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/_next/static/")) {
     event.respondWith(
       (async () => {
-        const cached = await caches.match(request);
-        if (cached) return withFixedCSP(cached);
+        try {
+          const cached = await caches.match(request);
+          if (cached) return withFixedCSP(cached);
+        } catch { /* CacheStorage broken — fall through to network */ }
         try {
           // timedFetch: a cache miss on lie-fi would otherwise hang the
           // whole hydration — chunks must fail fast so the page retries
@@ -592,17 +614,30 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/qt/")) {
     event.respondWith(
       (async () => {
-        const cache = await caches.open("quran-tester-engine-v1");
-        const hit = await cache.match(url.pathname) ?? await cache.match(url.href);
-        // Re-stamp CSP like the _next/static branch — an engine file cached
-        // before the wasm-unsafe-eval change keeps its birth CSP forever.
-        if (hit) return withFixedCSP(hit);
+        try {
+          const cache = await caches.open("quran-tester-engine-v1");
+          const hit = await cache.match(url.pathname) ?? await cache.match(url.href);
+          // Re-stamp CSP like the _next/static branch — an engine file cached
+          // before the wasm-unsafe-eval change keeps its birth CSP forever.
+          if (hit) return withFixedCSP(hit);
+        } catch { /* CacheStorage broken — fall through to network */ }
         // Static ort wasm lives at /qt/* in public/ — write through so a
         // fetched runtime file is offline-ready too. timedFetch so lie-fi
         // doesn't stall the engine boot indefinitely.
-        const res = await timedFetch(request, 9000);
-        if (res.ok) await cache.put(url.pathname, res.clone());
-        return res;
+        try {
+          const res = await timedFetch(request, 9000);
+          if (res.ok) {
+            const stamped = withFixedCSP(res);
+            try {
+              const cache = await caches.open("quran-tester-engine-v1");
+              await cache.put(url.pathname, stamped.clone());
+            } catch { /* put failure shouldn't fail the fetch */ }
+            return stamped;
+          }
+          return res;
+        } catch {
+          return new Response("", { status: 503, statusText: "Service Unavailable" });
+        }
       })()
     );
     return;
@@ -919,14 +954,16 @@ self.addEventListener("fetch", (event) => {
               if (response.ok) cache.put(request, response.clone());
               return response;
             })
-            .catch(() => {});
+            .catch(() => null);
           // Serve cached instantly if available, otherwise wait for network
           if (cached) {
             return cached;
           }
-          try {
-            return await fetchPromise;
-          } catch {
+          // .catch(() => null) above converts failure to null — check the
+          // value, the fallback below only runs when fetch truly failed.
+          const res = await fetchPromise;
+          if (res) return res;
+          {
             // Offline with no cache — serve cached calendar (app shell)
             const pageCache = await caches.open(PAGE_CACHE);
             const calendarCached = await pageCache.match("/calendar/day");
@@ -947,10 +984,13 @@ self.addEventListener("fetch", (event) => {
     // a Waqt page.
     if (pathname === "/login" || pathname === "/signup") {
       event.respondWith(
-        timedFetch(request, 8000).catch(async () => {
-          const offlinePage = await caches.match("/offline.html");
-          return offlinePage || new Response("Offline", { status: 503 });
-        })
+        timedFetch(request, 8000)
+          .catch(async () => {
+            const offlinePage = await caches.match("/offline.html");
+            return offlinePage || new Response("Offline", { status: 503 });
+          })
+          // A respondWith REJECTION is a browser error page — last resort.
+          .catch(() => offlineResponse())
       );
       return;
     }
@@ -1076,7 +1116,9 @@ self.addEventListener("fetch", (event) => {
         const budgetPromise = new Promise((resolve) =>
           // No uid yet → first launch / logged out: keep waiting on the real
           // network rather than flashing the offline page on slow wifi.
-          setTimeout(() => resolve(uid ? fallbackPage() : null), 2500)
+          // .catch: Promise.race ADOPTS this promise's rejection — an IDB/
+          // CacheStorage failure must not reject respondWith.
+          setTimeout(() => resolve(uid ? fallbackPage().catch(() => null) : null), 2500)
         );
 
         const first = await Promise.race([networkPromise, budgetPromise]);
@@ -1088,11 +1130,12 @@ self.addEventListener("fetch", (event) => {
         if (netResult) return netResult;
 
         const fallback = await fallbackPage();
-        return fallback || new Response(
-          "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#1a1815;color:#f5f0e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}button{margin-top:20px;padding:10px 24px;background:#f5f0e8;color:#1a1815;border:none;border-radius:8px;font-size:14px;cursor:pointer}</style></head><body><div><h1>You're offline</h1><p>Your cached data will appear when you reopen the app. Try again in a moment.</p><button onclick='location.reload()'>Retry</button></div></body></html>",
-          { status: 200, headers: { "Content-Type": "text/html" } }
-        );
+        return fallback || offlineResponse();
       })()
+        // A respondWith REJECTION is the browser's "can't reach" error page
+        // — the app appears not to open. Any failure above (IDB hang,
+        // CacheStorage, a stray throw) must still yield a document.
+        .catch(() => offlineResponse())
     );
     return;
   }

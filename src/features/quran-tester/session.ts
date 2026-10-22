@@ -287,6 +287,10 @@ function dropLock(owner: object = QT_LOCK_OWNER) {
   releaseLock = null;
 }
 
+export function qtBorrowed(): boolean {
+  return isBorrowed();
+}
+
 export function qtState(): QtListen {
   return listen;
 }
@@ -313,7 +317,9 @@ export function warmQt() {
     const warmOwner = {};
     void acquireLock(warmOwner).then((ok) => {
       try {
-        if (!ok || listen !== "idle") return; // another tab owns the engine
+        // isBorrowed() re-check: the lock can resolve AFTER a grade borrowed
+        // the worker — posting init then mutates sourceRate mid-decode.
+        if (!ok || listen !== "idle" || isBorrowed()) return;
         ensureWorker();
         if (!worker) return;
         const ctx = new AudioContext();
@@ -400,7 +406,10 @@ function ensureWorker(): Worker | null {
       // engine frozen in `retrying` until someone acts. The mounted page
       // defers it after ~8s; if nobody does (navigated away), release it
       // here at ~14s so detection can't die silently off-screen.
-      if (ev.type === "correction") {
+      // isBorrowed(): during a deep grade the borrower acts on corrections
+      // itself — a page-side timer posting correction-act would interleave
+      // with the grade's own control flow.
+      if (ev.type === "correction" && !isBorrowed()) {
         if (deferTimer) clearTimeout(deferTimer);
         const outcome = (ev.state as { outcome?: string | null } | undefined)?.outcome;
         if (!outcome) {
@@ -434,6 +443,9 @@ function ensureWorker(): Worker | null {
       // A background warmQt is best-effort: only toast when the user asked
       // for the engine (mic session warming/listening), never on app open.
       const loadFailure = !(e instanceof ErrorEvent) || !e.message;
+      // Borrowers (deepGrade) wait on worker messages that will never arrive
+      // — broadcast a death notice so they reject instead of timing out.
+      emit({ type: "engine-dead" } as QtEvent);
       if (listen !== "idle") {
         emit({
           type: "ui-error",
@@ -741,6 +753,10 @@ export async function teardownQt(): Promise<void> {
   await stopQt();
   if (stallTimer) { clearInterval(stallTimer); stallTimer = null; }
   if (recycleTimer) { clearTimeout(recycleTimer); recycleTimer = null; }
+  // A borrowed worker dies here too — tell waiting borrowers (deepGrade) so
+  // they reject instead of spinning until their decode timeout.
+  if (isBorrowed()) emit({ type: "engine-dead" } as QtEvent);
+  borrowedAt = 0;
   worker?.terminate();
   worker = null;
   engineReady = false;

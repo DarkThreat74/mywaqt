@@ -11,7 +11,7 @@ import {
   savePlan, stampDay, isDayDone, maybeKhatma, todayKey, todaySpan,
   type AyahIndex, type Loc, type Plan,
 } from "./plan";
-import { pauseQt, qtOrb, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
+import { pauseQt, qtBorrowed, qtOrb, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on a real
@@ -721,6 +721,10 @@ export default function QuranTesterClient() {
   }
 
   function onEngineEvent(ev: Record<string, unknown>) {
+    // Engine is borrowed by recite-coach's deep grade — its replay events
+    // (word_progress, correction, verdicts) must never mutate live listener
+    // state, post correction-acts, or bank coverage from graded audio.
+    if (qtBorrowed() && !String(ev.type).startsWith("ui-")) return;
     if (ev.type === "ui-listen") {
       setListen(ev.state as ListenState);
       if (ev.state === "idle") {

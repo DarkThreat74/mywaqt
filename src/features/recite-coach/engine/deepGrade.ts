@@ -155,6 +155,10 @@ export async function gradeAudio(
     unsub = subscribeQt((ev) => { for (const h of handlers) h(ev as EngineMsg); });
   } else {
     worker.onmessage = (ev: MessageEvent) => { for (const h of handlers) h(ev.data); };
+    // A dedicated worker has no session.ts babysitter — a script-load or
+    // runtime failure never posts "error"; surface it as engine-dead so the
+    // pending phase (init or decode) rejects instead of timing out.
+    worker.onerror = () => { for (const h of handlers) h({ type: "engine-dead" }); };
   }
   const post = (msg: Record<string, unknown>) =>
     borrowed ? qtPost(msg) : worker.postMessage(msg);
@@ -162,10 +166,10 @@ export async function gradeAudio(
   try {
     if (!borrowed) {
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("engine init timed out")), 120_000);
+        const timer = setTimeout(() => { handlers.delete(h); reject(new Error("engine init timed out")); }, 120_000);
         const h = (m: EngineMsg) => {
           if (m.type === "ready") { clearTimeout(timer); handlers.delete(h); resolve(); }
-          else if (m.type === "error") { clearTimeout(timer); handlers.delete(h); reject(new Error(m.message ?? "engine error")); }
+          else if (m.type === "error" || m.type === "engine-dead") { clearTimeout(timer); handlers.delete(h); reject(new Error(m.message ?? "engine worker failed")); }
         };
         handlers.add(h);
         worker.postMessage({ type: "init", sampleRate });
@@ -175,9 +179,21 @@ export async function gradeAudio(
     // Correction notes + positions arrive on the shared onEvent channel —
     // swap handlers to collect, then feed the whole clip and stop.
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("engine decode timed out")), 300_000);
+      const timer = setTimeout(() => { handlers.delete(h); reject(new Error("engine decode timed out")); }, 300_000);
       const h = (m: EngineMsg) => {
-        if (m.type === "correction_note" && m.issue) {
+        // The correction controller PARKS the tracker in `retrying` until an
+        // act arrives — with no page mounted to resolve it, every flag would
+        // freeze detection for the rest of the clip. Act immediately: keep
+        // grading (correction_note still records the issue).
+        if (m.type === "correction") {
+          post({ type: "correction-act", action: "continue" });
+        } else if (m.type === "engine-dead") {
+          // Shared worker died mid-grade (session broadcast) — fail fast
+          // instead of spinning until the decode timer.
+          clearTimeout(timer);
+          handlers.delete(h);
+          reject(new Error("engine worker died"));
+        } else if (m.type === "correction_note" && m.issue) {
           // issue.word is 0-BASED in-ayah; wordIndex is GLOBAL — using the
           // global index here rendered as "word 4523". Display space is
           // 1-based; ayah-level kinds carry no word at all (0).
