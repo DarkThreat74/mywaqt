@@ -61,6 +61,8 @@ const SHARED_FILES = [
   "/data/ayah-pages.json",
   "/data/surah-meta.json",
   "/data/quran.json",
+  // Look-alike index — offline muta detection silently disables without it.
+  "/data/mutashabihat.json",
   "/rc/pitch-worklet.js",
 ];
 

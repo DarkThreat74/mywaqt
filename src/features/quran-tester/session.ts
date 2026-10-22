@@ -339,11 +339,16 @@ export function warmQt() {
   }
 }
 
+// Resolved once — the worker entry's hashed chunk URL for this build. Used
+// both to spawn the worker and to probe whether the URL is still live when
+// a load failure fires (stale-bundle vs lie-fi discrimination).
+const workerUrl = new URL("./recite.worker.ts", import.meta.url);
+
 function ensureWorker(): Worker | null {
   if (worker) return worker;
     // A dedicated worker's CSP comes from its script response's headers —
     // stale cached/edge entries are re-stamped by the SW (_next/static branch).
-    worker = new Worker(new URL("./recite.worker.ts", import.meta.url));
+    worker = new Worker(workerUrl);
     worker.onmessage = (e) => {
       lastMsgAt = Date.now();
       const ev = e.data as QtEvent;
@@ -454,19 +459,47 @@ function ensureWorker(): Worker | null {
             : `Engine failed to start.${e.message ? ` ${e.message}` : ""}`,
         });
       }
-      // Stale-bundle recovery: unregister the SW + reload once so a cached
-      // dead chunk URL stops being served. Online only — offline this would
-      // brick the page; the idle warm just fails quietly instead.
+      // Stale-bundle recovery — but only for a CONFIRMED dead URL. A
+      // background warm on lie-fi used to unregister the SW + surprise-
+      // reload mid-task, and the reload re-served the same stale caches.
+      // Probe the worker URL: 404/HTML = stale bundle → clear caches +
+      // unregister + reload once. Probe failure = lie-fi → just re-warm.
       if (loadFailure && navigator.onLine &&
           !sessionStorage.getItem("qt-bundle-reload")) {
         sessionStorage.setItem("qt-bundle-reload", "1");
-        if ("serviceWorker" in navigator) {
-          void navigator.serviceWorker.getRegistrations()
-            .then((regs) => Promise.all(regs.map((r) => r.unregister())))
-            .then(() => location.reload());
-        } else {
-          location.reload();
-        }
+        const probe = (e instanceof ErrorEvent && e.filename) || workerUrl.href;
+        fetch(`${probe}${probe.includes("?") ? "&" : "?"}qt-probe=${Date.now()}`,
+              { method: "HEAD", cache: "no-store" })
+          .then(async (r) => {
+            const ct = r.headers.get("content-type") ?? "";
+            const stale = r.status === 404 || r.status === 410 || ct.includes("text/html");
+            if (!stale) {
+              // URL is live — the worker died transiently. Release the
+              // one-shot flag and re-warm shortly instead of reloading.
+              sessionStorage.removeItem("qt-bundle-reload");
+              setTimeout(() => { if (listen === "idle" && !worker) warmQt(); }, 15000);
+              return;
+            }
+            // Confirmed stale bundle. Drop the page/static caches so the
+            // reload can't be re-served the same dead HTML/chunks by the
+            // next SW registration — then unregister + reload once.
+            try {
+              const keys = await caches.keys();
+              await Promise.all(
+                keys.filter((k) => k.startsWith("waqt-v")).map((k) => caches.delete(k))
+              );
+            } catch {}
+            if ("serviceWorker" in navigator) {
+              const regs = await navigator.serviceWorker.getRegistrations();
+              await Promise.all(regs.map((reg) => reg.unregister()));
+            }
+            location.reload();
+          })
+          .catch(() => {
+            // Probe failed = lie-fi, not a stale bundle. Re-warm, don't reload.
+            sessionStorage.removeItem("qt-bundle-reload");
+            setTimeout(() => { if (listen === "idle" && !worker) warmQt(); }, 15000);
+          });
       }
       void stopQt(); // releases the mic tracks too
       e.preventDefault();
@@ -505,7 +538,19 @@ export async function startQt(): Promise<void> {
     emit({ type: "ui-error", message: "Quran Listener is already running in another tab." });
     return;
   }
-  ensureWorker();
+  // new Worker() throws synchronously on a CSP worker-src block (and some
+  // WebKit builds) — an uncaught throw here would leave listen="warming",
+  // the lock held, and every future tap early-returning: feature bricked.
+  try {
+    ensureWorker();
+  } catch {
+    disarmKeepAlive();
+    listen = "idle";
+    emit({ type: "ui-listen", state: "idle" });
+    dropLock();
+    emit({ type: "ui-error", message: "Engine could not start (blocked by browser policy)." });
+    return;
+  }
 
   let stream: MediaStream;
   try {
@@ -670,6 +715,19 @@ if (typeof document !== "undefined") {
     if (!document.hidden && listen === "listening" && audio && audio.ctx.state === "suspended") {
       void audio.ctx.resume().catch(() => {});
     }
+  });
+}
+
+// Connectivity returns → re-warm a dead engine instead of waiting for the
+// user to tap record into a 15s stall.
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => {
+    if (listen === "idle" && !worker && !isBorrowed()) warmQt();
+  });
+  // The wasm-reload guard is one-shot per tab — clear it once the page
+  // loads cleanly so a later genuine failure can still recover.
+  window.addEventListener("load", () => {
+    sessionStorage.removeItem("qt-csp-reload");
   });
 }
 

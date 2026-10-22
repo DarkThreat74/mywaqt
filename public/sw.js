@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v91";
+const CACHE_VERSION = "waqt-v92";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -54,8 +54,12 @@ const PRECACHE_URLS = [
   "/manifest.webmanifest",
   "/icon-192.png",
   "/icon-512.png",
+  "/icon-maskable-192.png",
+  "/icon-maskable-512.png",
   "/icon.svg",
   "/icon-badge.png",
+  "/favicon-32.png",
+  "/apple-touch-icon.png",
   "/offline.html",
   "/data/ayah-pages.json",
   "/data/surah-meta.json",
@@ -197,6 +201,14 @@ async function syncOutbox() {
     const syncedPrefixes = new Set();
 
     for (const item of outbox) {
+      // Outbox rows carry the uid they were queued under — a write from
+      // account A must never replay under account B's session on a shared
+      // device. Drop it rather than skip: the owner can never come back on
+      // this session anyway, and keeping it blocks the FIFO queue.
+      if (item.uid && cachedUid && item.uid !== cachedUid) {
+        await removeFromOutbox(item.id);
+        continue;
+      }
       // A synced prayer-log write also changes derived state cached under
       // /api/qadaa — bust it so counters don't serve pre-sync numbers.
       if (item.pathname && item.pathname.startsWith("/api/prayer-log")) {
@@ -284,6 +296,37 @@ async function syncOutbox() {
 // without it, pages the user hasn't visited won't load offline.
 // Concurrency guard: prevent overlapping warmCache calls from multiple triggers
 // (install + activate + WARM_CACHE messages can fire in quick succession).
+// Route HTML alone can't boot offline — the page's hashed JS/CSS chunks
+// live under /_next/static and must be cached too. Extract every chunk URL
+// from the HTML (script/link tags AND inline RSC push strings) and fetch
+// each into RUNTIME_CACHE. A soft-200 HTML error page (custom 404,
+// maintenance interstitial) cached under a chunk URL poisons hydration —
+// only cache real JS/CSS/WASM bodies.
+async function prefetchChunks(body) {
+  const chunks = new Set(body.match(/\/_next\/static\/[^"'\\\s)]+/g) ?? []);
+  const runtime = await caches.open(RUNTIME_CACHE);
+  await Promise.allSettled(
+    [...chunks].slice(0, 160).map(async (u) => {
+      if (await runtime.match(u)) return;
+      const r = await fetch(u, { cache: "no-store" });
+      const ct = r.headers.get("content-type") ?? "";
+      if (r.ok && /javascript|css|wasm|octet-stream/.test(ct))
+        await runtime.put(u, r);
+    })
+  );
+}
+
+// App Router has no buildId inside asset URLs (that was Pages Router) — the
+// old regex captured the literal "css"/"chunks" and could never detect a
+// deploy. Fingerprint the build by the first chunk URL in the body — hashed
+// filenames change on every deploy. A real deploy stamp also arrives as the
+// x-waqt-build response header (set by the proxy) — prefer it when present.
+function buildFingerprint(res, body) {
+  const header = res.headers.get("x-waqt-build");
+  if (header) return header;
+  return (body.match(/\/_next\/static\/[^"'\\\s)]+/) || [null])[0];
+}
+
 let isWarming = false;
 let lastWarmTime = 0;
 async function warmCache() {
@@ -317,33 +360,26 @@ async function warmCache() {
           if (!body) return;
           const headers = new Headers(res.headers);
           headers.set("x-waqt-cached-at", String(Date.now()));
+          const build = buildFingerprint(res, body);
+          if (build) headers.set("x-waqt-build", build);
+          // Proxy stamps the wire response, but a missing waqt-uid cookie
+          // leaves it absent — an unstamped page is never served by
+          // matchStampedPage, so backfill from the session uid we know.
+          const uid = await requestUid();
+          if (!headers.get("x-waqt-uid") && uid) headers.set("x-waqt-uid", uid);
           const cachedRes = new Response(body, {
             status: res.status,
             statusText: res.statusText,
             headers,
           });
           await cache.put(page, cachedRes);
-          // Route HTML alone can't boot offline — the page's hashed JS/CSS
-          // chunks live under /_next/static and must be cached too.
-          const chunks = new Set(body.match(/\/_next\/static\/[^"'\\\s)]+/g) ?? []);
-          const runtime = await caches.open(RUNTIME_CACHE);
-          await Promise.allSettled(
-            [...chunks].slice(0, 80).map(async (u) => {
-              if (await runtime.match(u)) return;
-              const r = await fetch(u, { cache: "no-store" });
-              // A soft-200 HTML error page (custom 404, maintenance, auth
-              // interstitial) cached under a chunk URL poisons hydration and
-              // new Worker() — only cache real JS/CSS/WASM bodies.
-              const ct = r.headers.get("content-type") ?? "";
-              if (r.ok && /javascript|css|wasm|octet-stream/.test(ct))
-                await runtime.put(u, r);
-            })
-          );
+          await prefetchChunks(body);
         }
       })
     );
     const succeeded = results.filter((r) => r.status === "fulfilled").length;
-    lastWarmTime = Date.now();
+    // Don't arm the 10-min dedup on a dead-network warm — retry next activate.
+    if (succeeded > 0) lastWarmTime = Date.now();
     return succeeded;
   } finally {
     isWarming = false;
@@ -355,10 +391,17 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
-      .then((cache) => cache.addAll(PRECACHE_URLS))
-      .catch(() => {
-        // If precache fails (e.g. offline), still install
-      })
+      // Per-URL puts, not addAll — one bad/redirected entry would void the
+      // whole precache (including /offline.html) with no error surfaced.
+      .then((cache) =>
+        Promise.allSettled(
+          PRECACHE_URLS.map((u) =>
+            fetch(u, { cache: "no-store" }).then((r) => {
+              if (r.ok) return cache.put(u, r);
+            })
+          )
+        )
+      )
       .then(() => self.skipWaiting())
   );
   // NOTE: warmCache is NOT awaited here — blocking install on 7 page fetches
@@ -634,20 +677,26 @@ self.addEventListener("fetch", (event) => {
           if (hit) return withFixedCSP(hit);
         } catch { /* CacheStorage broken — fall through to network */ }
         // Static ort wasm lives at /qt/* in public/ — write through so a
-        // fetched runtime file is offline-ready too. timedFetch so lie-fi
-        // doesn't stall the engine boot indefinitely.
-        try {
-          const res = await timedFetch(request, 9000);
-          if (res.ok) {
-            const stamped = withFixedCSP(res);
-            try {
-              const cache = await caches.open("quran-tester-engine-v1");
-              await cache.put(url.pathname, stamped.clone());
-            } catch { /* put failure shouldn't fail the fetch */ }
-            return stamped;
-          }
-          return res;
-        } catch {
+        // fetched runtime file is offline-ready too. Same treatment as the
+        // hydration-critical _next/static branch: misses here are the ~20MB
+        // ort runtime the worker needs to boot, so give lie-fi a real budget
+        // plus one retry before failing.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            if (attempt) await new Promise((r) => setTimeout(r, 400));
+            const res = await timedFetch(request, 15000);
+            if (res.ok) {
+              const stamped = withFixedCSP(res);
+              try {
+                const cache = await caches.open("quran-tester-engine-v1");
+                await cache.put(url.pathname, stamped.clone());
+              } catch { /* put failure shouldn't fail the fetch */ }
+              return stamped;
+            }
+            if (attempt) return res;
+          } catch { /* retry once, then fail honestly below */ }
+        }
+        {
           return new Response("", { status: 503, statusText: "Service Unavailable" });
         }
       })()
@@ -657,8 +706,10 @@ self.addEventListener("fetch", (event) => {
 
   // ── Handle ALL API writes (POST/PATCH/PUT/DELETE) ──
   // When online: pass through to server. When offline: queue in IndexedDB.
+  // A method whitelist, not !== GET — an OPTIONS/HEAD to /api/* would
+  // otherwise be queued into the outbox and fake-202'd.
   if (
-    request.method !== "GET" &&
+    ["POST", "PATCH", "PUT", "DELETE"].includes(request.method) &&
     url.pathname.startsWith("/api/") &&
     !url.pathname.startsWith("/api/auth/") &&
     !url.pathname.startsWith("/api/admin/") &&
@@ -692,7 +743,19 @@ self.addEventListener("fetch", (event) => {
     // would be meaningless (or corrupt the round). Let them fail offline.
     // Solo rating writes (/api/quran/rating) DO stay queueable — offline Elite
     // answers should count once you're back online.
-    !url.pathname.startsWith("/api/quran/match")
+    !url.pathname.startsWith("/api/quran/match") &&
+    // Share-token generate/revoke is a live action — a queued replay would
+    // silently create a public share link hours later.
+    !url.pathname.startsWith("/api/share/") &&
+    // Replays a live AI call long after the requesting client is gone.
+    !url.pathname.startsWith("/api/study-plan") &&
+    // Settings writes carry user intent that may already be superseded by a
+    // newer value on another device — let them fail visibly offline instead
+    // of clobbering state on replay.
+    !url.pathname.startsWith("/api/settings/") &&
+    // Social friend-request writes (add/respond/activate/nickname) are
+    // time-sensitive like remind/cheer — replay can accept stale requests.
+    !url.pathname.startsWith("/api/prayer-friends/")
   ) {
     // Clone the request body before consuming it
     const bodyPromise = request.clone().json().catch(() => null);
@@ -748,6 +811,9 @@ self.addEventListener("fetch", (event) => {
             body: body,
             headers: { "Content-Type": "application/json" },
             tempId: tempId,
+            // Stamped so syncOutbox can drop this write if a different
+            // account is signed in when it replays — shared-device leak fix.
+            uid: await requestUid(),
           });
           // Bust the collection's cached GETs now — the client already applied
           // this change optimistically, so a stale cached list (e.g. still
@@ -959,11 +1025,18 @@ self.addEventListener("fetch", (event) => {
       event.respondWith(
         (async () => {
           const cache = await caches.open(RUNTIME_CACHE);
-          const cached = await cache.match(request);
+          // The proxy redirects logged-in "/" → /calendar/day. Serving a
+          // cached marketing page here bypasses that redirect and shows the
+          // landing page to a signed-in user — only serve it logged-out.
+          const uid = await requestUid();
+          const cached = uid ? null : await cache.match(request);
           // Fetch fresh in background (don't await — return cached immediately)
           const fetchPromise = fetch(request, { cache: "no-store" })
             .then((response) => {
-              if (response.ok) cache.put(request, response.clone());
+              // A redirect-followed response (logged-in "/" → /calendar/day)
+              // must not be stored under "/" — it would serve one account's
+              // app shell as the public landing page.
+              if (response.ok && !response.redirected) cache.put(request, response.clone());
               return response;
             })
             .catch(() => null);
@@ -1044,13 +1117,18 @@ self.addEventListener("fetch", (event) => {
           const body = await response.clone().text();
           const headers = new Headers(response.headers);
           headers.set("x-waqt-cached-at", String(Date.now()));
-          const buildMatch = body.match(/\/_next\/static\/([A-Za-z0-9_-]+)\//);
-          if (buildMatch) headers.set("x-waqt-build", buildMatch[1]);
+          const build = buildFingerprint(response, body);
+          if (build) headers.set("x-waqt-build", build);
           await pageCache.put(cacheKey, new Response(body, {
             status: response.status,
             statusText: response.statusText,
             headers,
           }));
+          // The wall-of-text fix: caching fresh HTML without its hashed
+          // chunks leaves an offline serve that 503s every <script>/<link>
+          // — styled-less text or a dead worker bundle. Prefetch them now,
+          // while the network is provably up.
+          await prefetchChunks(body).catch(() => {});
         };
 
         // Best page we can serve for this account, best-match first.
@@ -1077,7 +1155,7 @@ self.addEventListener("fetch", (event) => {
                 const res = await timedFetch(request, 10000, true);
                 if (res && res.ok) {
                   const freshBody = await res.clone().text();
-                  const freshBuild = (freshBody.match(/\/_next\/static\/([A-Za-z0-9_-]+)\//) || [])[1];
+                  const freshBuild = buildFingerprint(res, freshBody);
                   const staleBuild = cachedHit.headers.get("x-waqt-build");
                   await store(res);
                   // Deploy shipped new chunks — the page we just served is
@@ -1085,14 +1163,20 @@ self.addEventListener("fetch", (event) => {
                   // fresh copy we just cached (client guards against loops).
                   if (freshBuild && freshBuild !== staleBuild) {
                     // Navigations set resultingClientId (the page being
-                    // created), not clientId — clientId is empty here.
+                    // created), not clientId — and it's often "" on app
+                    // launch / with navigation preload. If get() can't find
+                    // the client, broadcast — the client's guard is keyed by
+                    // build so a message reaching other tabs can't loop.
                     const cid = event.resultingClientId || event.clientId;
-                    // The client is created as the response lands — retry a
-                    // beat later if get() runs before registration completes.
+                    let delivered = false;
                     for (let i = 0; i < 3 && cid; i++) {
                       const client = await self.clients.get(cid);
-                      if (client) { client.postMessage({ type: "SW_RELOAD", build: freshBuild }); break; }
+                      if (client) { client.postMessage({ type: "SW_RELOAD", build: freshBuild }); delivered = true; break; }
                       await new Promise((r) => setTimeout(r, 400));
+                    }
+                    if (!delivered) {
+                      const all = await self.clients.matchAll({ type: "window" });
+                      all.forEach((c) => c.postMessage({ type: "SW_RELOAD", build: freshBuild }));
                     }
                   }
                 }
@@ -1178,14 +1262,28 @@ self.addEventListener("fetch", (event) => {
           const body = await res.clone().text();
           const headers = new Headers(res.headers);
           headers.set("x-waqt-cached-at", String(Date.now()));
+          // Flight payloads embed chunk URLs — fingerprint the build so a
+          // stale entry can't be served to a page running a different build.
+          const build = buildFingerprint(res, body);
+          if (build) headers.set("x-waqt-build", build);
           await cache.put(key, new Response(body, { status: res.status, headers }));
         };
 
-        const cached = await matchStampedPage(cache, key, uid);
+        let cached = await matchStampedPage(cache, key, uid);
+        if (cached) {
+          // Serving a build-A Flight payload to a page running build-B JS
+          // crashes hydration — compare against the cached page's build.
+          const rscBuild = cached.headers.get("x-waqt-build");
+          const page = await matchStampedPage(await caches.open(PAGE_CACHE), url.pathname, uid);
+          const pageBuild = page?.headers.get("x-waqt-build");
+          if (rscBuild && pageBuild && rscBuild !== pageBuild) cached = null;
+        }
         if (cached) {
           const age = Date.now() - Number(cached.headers.get("x-waqt-cached-at") || 0);
-          // Under 2 min old — this is what the server would send anyway.
-          if (age < 2 * 60 * 1000) {
+          // Chrome + initial props are stable within a session — a 2-min
+          // window made every tab switch pay the network race. 15 minutes
+          // keeps taps instant while staying inside one deploy's lifetime.
+          if (age < 15 * 60 * 1000) {
             event.waitUntil(
               (async () => {
                 try { const r = await timedFetch(request, 6000); if (r.ok) await store(r); } catch { /* keep cached */ }
@@ -1344,14 +1442,20 @@ self.addEventListener("fetch", (event) => {
       // indexes) — offline mushaf loads failed without this branch and
       // left the recite engine unanchored.
       url.pathname.startsWith("/data/") ||
-      url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|woff2?)$/))
+      url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|webmanifest|woff2?|ttf|otf)$/))
   ) {
     event.respondWith(
       (async () => {
         const cached = await caches.match(request);
         if (cached) return cached;
         try {
-          const response = await timedFetch(request, 6000);
+          // Worklets + /data JSON are feature-critical (a 503 kills the
+          // AudioWorklet or unanchors the mushaf) — worth a longer budget
+          // than a cosmetic image on lie-fi.
+          const heavy = url.pathname.startsWith("/worklets/") ||
+                        url.pathname.startsWith("/rc/") ||
+                        url.pathname.startsWith("/data/");
+          const response = await timedFetch(request, heavy ? 12000 : 6000);
           if (response.ok) {
             const responseClone = response.clone();
             const cache = await caches.open(RUNTIME_CACHE);
@@ -1375,6 +1479,9 @@ self.addEventListener("fetch", (event) => {
   if (
     request.destination === "audio" ||
     (url.pathname === "/api/recite-clips" && url.searchParams.has("stream")) ||
+    // Direct fetch()es here have destination "" — without this gate they fall
+    // through to network-only and lose range/offline-download handling.
+    (url.pathname === "/api/talks" && url.searchParams.has("stream")) ||
     url.hostname.endsWith(".r2.cloudflarestorage.com") ||
     url.pathname.endsWith(".mp3") ||
     url.pathname.endsWith(".m4a") ||
@@ -1474,10 +1581,11 @@ self.addEventListener("message", (event) => {
           const body = await res.text();
           const headers = new Headers(res.headers);
           headers.set("x-waqt-cached-at", String(Date.now()));
-          const b = body.match(/\/_next\/static\/([A-Za-z0-9_-]+)\//);
-          if (b) headers.set("x-waqt-build", b[1]);
+          const b = buildFingerprint(res, body);
+          if (b) headers.set("x-waqt-build", b);
           if (!headers.get("x-waqt-uid") && uid) headers.set("x-waqt-uid", uid);
           await pageCache.put(u.pathname + u.search, new Response(body, { status: res.status, statusText: res.statusText, headers }));
+          await prefetchChunks(body).catch(() => {});
         } catch { /* offline — install stays, page caches on next visit */ }
       }
     })());
@@ -1566,6 +1674,17 @@ self.addEventListener("message", (event) => {
         caches.delete(RUNTIME_CACHE).catch(() => {}),
         setMeta("uid", null).catch(() => {}),
         setMeta("hasSession", false).catch(() => {}),
+        // Queued offline writes belong to the departing account — they must
+        // not replay under the next login on this device.
+        (async () => {
+          const db = await openDB();
+          const tx = db.transaction(OUTBOX_STORE, "readwrite");
+          tx.objectStore(OUTBOX_STORE).clear();
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onerror = reject;
+          });
+        })().catch(() => {}),
       ])
     );
   }

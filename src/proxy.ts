@@ -86,6 +86,13 @@ export async function proxy(request: NextRequest) {
   const uid = request.cookies.get('waqt-uid')?.value;
   const res = NextResponse.next();
   if (uid) res.headers.set('x-waqt-uid', uid);
+  // Deploy stamp — the service worker can't read a real buildId out of App
+  // Router chunk URLs (filenames hash content, not the build), so it can't
+  // tell a stale cached page apart from a fresh one. Give it the deploy id
+  // as a header; cached pages/RSC entries store it as x-waqt-build and a
+  // mismatch triggers a client reload into the new build.
+  const build = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VERCEL_DEPLOYMENT_ID;
+  if (build) res.headers.set('x-waqt-build', build);
   return res;
 }
 

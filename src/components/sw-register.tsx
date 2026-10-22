@@ -154,18 +154,35 @@ export default function ServiceWorkerRegister() {
     // ── Auto-recover from stale-chunk failures after a deploy ──
     // A tab open across a deployment can request JS chunks that no longer
     // exist — without a reload the app sits on an error screen forever.
-    // sessionStorage guard prevents a reload loop if the error persists.
+    // The guard is timestamped, not permanent: a burned flag used to
+    // suppress the SECOND recovery forever, forcing manual double-reloads.
+    // If the reloaded page still hits chunk errors >60s later, recover again.
     const isChunkError = (msg: unknown) =>
       typeof msg === "string" && /Loading chunk|ChunkLoadError|dynamically imported module/i.test(msg);
     const handleFatal = (event: ErrorEvent | PromiseRejectionEvent) => {
       const msg = "reason" in event ? event.reason?.message ?? String(event.reason) : event.message;
-      if (isChunkError(msg) && !sessionStorage.getItem("waqt:chunk-reload")) {
-        sessionStorage.setItem("waqt:chunk-reload", "1");
-        window.location.reload();
-      }
+      if (!isChunkError(msg)) return;
+      const last = Number(sessionStorage.getItem("waqt:chunk-reload") || 0);
+      if (Date.now() - last < 60_000) return;
+      sessionStorage.setItem("waqt:chunk-reload", String(Date.now()));
+      window.location.reload();
     };
     window.addEventListener("error", handleFatal);
     window.addEventListener("unhandledrejection", handleFatal);
+    // A failed stylesheet load is a resource error — no message string, so
+    // isChunkError can't see it. Capture-phase listener catches it and uses
+    // the same guarded reload; unstyled HTML should never stay on screen.
+    const handleResourceError = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.tagName === "LINK" && (target as HTMLLinkElement).rel === "stylesheet") {
+        handleFatal({ message: "Loading chunk" } as ErrorEvent);
+      }
+    };
+    window.addEventListener("error", handleResourceError, true);
+    // Clean load → the flag's failure is over; let a future real failure recover.
+    window.addEventListener("load", () => {
+      sessionStorage.removeItem("waqt:chunk-reload");
+    });
 
     return () => {
       clearInterval(interval);
@@ -175,6 +192,7 @@ export default function ServiceWorkerRegister() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("error", handleFatal);
       window.removeEventListener("unhandledrejection", handleFatal);
+      window.removeEventListener("error", handleResourceError, true);
     };
   }, []);
 
