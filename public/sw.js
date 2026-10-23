@@ -90,8 +90,13 @@ const DB_VERSION = 2;
 const OUTBOX_STORE = "event-outbox";
 const META_STORE = "meta";
 
+// One shared connection for the SW lifetime — previously every helper opened
+// a fresh IDB connection (never closed), so an outbox sync of N items cost
+// 2+N connections and hot paths paid repeated open() latency.
+let dbPromise = null;
 function openDB() {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -105,7 +110,10 @@ function openDB() {
     req.onsuccess = () => {
       // Close when a page or another context asks to delete/upgrade the DB —
       // otherwise deleteDatabase blocks forever and cross-account data leaks.
-      req.result.onversionchange = () => req.result.close();
+      req.result.onversionchange = () => {
+        dbPromise = null;
+        req.result.close();
+      };
       resolve(req.result);
     };
     req.onerror = () => reject(req.error);
@@ -113,6 +121,10 @@ function openDB() {
     // version — and this promise gates navigation responses. Fail fast.
     req.onblocked = () => reject(new Error("waqt-offline db blocked"));
   });
+  dbPromise.catch(() => {
+    dbPromise = null;
+  });
+  return dbPromise;
 }
 
 // Key-value meta store: persists the uid + session flag across SW restarts.
@@ -304,7 +316,7 @@ async function syncOutbox() {
 // only cache real JS/CSS/WASM bodies.
 async function prefetchChunks(body) {
   const chunks = new Set(body.match(/\/_next\/static\/[^"'\\\s)]+/g) ?? []);
-  const runtime = await caches.open(RUNTIME_CACHE);
+  const runtime = await cacheFor(RUNTIME_CACHE);
   await Promise.allSettled(
     [...chunks].slice(0, 160).map(async (u) => {
       if (await runtime.match(u)) return;
@@ -334,11 +346,11 @@ async function warmCache() {
   if (isWarming || (Date.now() - lastWarmTime < 10 * 60 * 1000)) return;
   isWarming = true;
   try {
-    const cache = await caches.open(PAGE_CACHE);
+    const cache = await cacheFor(PAGE_CACHE);
     // Prune stale page + RSC entries — every ?date= navigation writes one,
     // and without a cap the caches grow forever. 14 days is plenty.
     const PRUNE_AFTER = 14 * 24 * 60 * 60 * 1000;
-    for (const c of [cache, await caches.open(RSC_CACHE)])
+    for (const c of [cache, await cacheFor(RSC_CACHE)])
     for (const key of await c.keys()) {
       const res = await c.match(key);
       const cachedAt = Number(res?.headers.get("x-waqt-cached-at") || 0);
@@ -408,12 +420,11 @@ self.addEventListener("install", (event) => {
   // leaves the new SW stuck "installing" on slow connections. Activate warms.
 });
 
-// ─── Enable navigation preload for instant page loads ───
-// This lets the browser start fetching the navigation request while the
-// SW is still booting up, making page loads significantly faster.
-if ("navigationPreload" in self.registration) {
-  self.registration.navigationPreload.enable();
-}
+// Navigation preload is intentionally NOT enabled: preload responses follow
+// the browser's HTTP cache and can carry a stale document CSP (headers ride
+// the cached response), which we fix by always revalidating navigations
+// no-store. Enabling it without consuming preloadResponse just doubles every
+// navigation request for zero benefit.
 
 // ─── Activate: clear old caches, claim clients ───
 self.addEventListener("activate", (event) => {
@@ -427,9 +438,9 @@ self.addEventListener("activate", (event) => {
       .then(async (cacheNames) => {
         const legacyAudioCaches = cacheNames.filter((name) => /^waqt-v\d+-audio$/.test(name));
         if (legacyAudioCaches.length > 0) {
-          const audioCache = await caches.open(AUDIO_CACHE);
+          const audioCache = await cacheFor(AUDIO_CACHE);
           for (const cacheName of legacyAudioCaches) {
-            const legacyCache = await caches.open(cacheName);
+            const legacyCache = await cacheFor(cacheName);
             for (const request of await legacyCache.keys()) {
               const response = await legacyCache.match(request);
               if (response) await audioCache.put(request, response);
@@ -439,15 +450,20 @@ self.addEventListener("activate", (event) => {
         await Promise.all(
           cacheNames
             .filter((name) => !validCaches.includes(name))
-            .map((name) => caches.delete(name))
+            .map((name) => {
+              openCaches.delete(name); // a deleted cache's handle writes nowhere — drop it
+              return caches.delete(name);
+            })
         );
       })
       .then(() => self.clients.claim())
       .then(() => {
         // Replay + warm run alongside, NOT in the activation chain — a lie-fi
-        // waitUntil full of network work starves the launch navigation.
+        // waitUntil full of network work starves the launch navigation. The
+        // warm is delayed 20s: post-deploy activate fires exactly while the
+        // launch navigation + page mounts are competing for a bad link.
         void syncOutbox().catch(() => {});
-        void warmCache().catch(() => {});
+        setTimeout(() => void warmCache().catch(() => {}), 20000);
       })
       .then(() => {
         // Notify all clients that a new SW is active
@@ -500,7 +516,7 @@ async function audioRangeResponse(request, response) {
 async function bustApiCache(pathname) {
   try {
     const collection = pathname.split("/").slice(0, 3).join("/");
-    const cache = await caches.open(API_CACHE);
+    const cache = await cacheFor(API_CACHE);
     const keys = await cache.keys();
     await Promise.all(
       keys
@@ -565,17 +581,56 @@ async function matchStampedPage(cache, key, uid) {
   return cached;
 }
 
+// ─── Adaptive budgets ───
+// Rolling window of recent fetch outcomes. When most recent network attempts
+// abort/fail the link is "degraded" — dead-but-connected lie-fi is the killer
+// case: budgets must shrink so cache fallbacks win fast instead of the user
+// staring at frozen UI through doomed requests. Recovers automatically: each
+// success shifts the window back toward healthy. In-memory only — a fresh SW
+// re-establishes the window within ~4 requests.
+const NET_WINDOW = 8;
+const recentFetch = [];
+let netDegraded = false;
+function noteFetch(ok) {
+  recentFetch.push(ok);
+  if (recentFetch.length > NET_WINDOW) recentFetch.shift();
+  const fails = recentFetch.filter((r) => !r).length;
+  netDegraded = recentFetch.length >= 4 && fails * 2 > recentFetch.length;
+}
+
+// Cache objects resolved per name — caches.open is a cross-process roundtrip;
+// memoize so hot paths (every fetch) don't pay it repeatedly.
+const openCaches = new Map();
+function cacheFor(name) {
+  if (!openCaches.has(name)) openCaches.set(name, caches.open(name));
+  return openCaches.get(name);
+}
+
 // fetch() with a hard timeout — on a flaky network a bare fetch can hang for
 // 30s+, which feels like the app froze. Abort so callers can fall back to cache.
+// When the link is degraded the budget shrinks (floor 2.5s) so stale fallbacks
+// win fast.
 function timedFetch(request, ms, bypassHttpCache = false) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
+  const t = setTimeout(
+    () => ctrl.abort(),
+    netDegraded ? Math.max(2500, Math.round(ms * 0.3)) : ms
+  );
   // no-store: HTML pages must never come from the browser HTTP cache — a
   // stale cached document carries its birth CSP forever (headers are part
   // of the cached response), and no amount of reloading escapes it.
   const init = { signal: ctrl.signal };
   if (bypassHttpCache) init.cache = "no-store";
-  return fetch(request, init).finally(() => clearTimeout(t));
+  return fetch(request, init)
+    .then((r) => {
+      noteFetch(true); // any response — even 404/503 — means the network is alive
+      return r;
+    })
+    .catch((e) => {
+      noteFetch(false);
+      throw e;
+    })
+    .finally(() => clearTimeout(t));
 }
 
 // A cached Response is a frozen body+headers snapshot — a dedicated worker
@@ -635,7 +690,7 @@ self.addEventListener("fetch", (event) => {
               // hashed chunks — fix the wire copy too before storing/serving.
               const stamped = withFixedCSP(response);
               try {
-                const cache = await caches.open(STATIC_CACHE);
+                const cache = await cacheFor(STATIC_CACHE);
                 await cache.put(request, stamped.clone());
               } catch { /* put failure shouldn't fail the fetch */ }
               return stamped;
@@ -670,7 +725,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         try {
-          const cache = await caches.open("quran-tester-engine-v1");
+          const cache = await cacheFor("quran-tester-engine-v1");
           const hit = await cache.match(url.pathname) ?? await cache.match(url.href);
           // Re-stamp CSP like the _next/static branch — an engine file cached
           // before the wasm-unsafe-eval change keeps its birth CSP forever.
@@ -679,10 +734,13 @@ self.addEventListener("fetch", (event) => {
             // serve the cached copy but refresh it in the background so a
             // new bundle reaches the bucket on the next spawn. Binaries
             // (wasm, onnx, fonts) are content-stable and stay cache-first.
-            if (/\.(m?js)$/.test(url.pathname)) {
+            if (request.method === "GET" && /\.(m?js)$/.test(url.pathname)) {
               event.waitUntil(
                 timedFetch(request, 15000).then(async (res) => {
-                  if (res.ok) await cache.put(url.pathname, withFixedCSP(res));
+                  // Only store a real body — a HEAD probe (or any bodyless
+                  // 200) cached here poisons the engine bucket: an empty
+                  // worker.js loads as a valid empty script and hangs.
+                  if (res.ok && res.body) await cache.put(url.pathname, withFixedCSP(res));
                 }).catch(() => {})
               );
             }
@@ -701,8 +759,12 @@ self.addEventListener("fetch", (event) => {
             if (res.ok) {
               const stamped = withFixedCSP(res);
               try {
-                const cache = await caches.open("quran-tester-engine-v1");
-                await cache.put(url.pathname, stamped.clone());
+                // GET with a real body only — caching a HEAD/bodyless 200
+                // writes a zero-byte poison entry into the engine bucket.
+                if (request.method === "GET" && stamped.body) {
+                  const cache = await cacheFor("quran-tester-engine-v1");
+                  await cache.put(url.pathname, stamped.clone());
+                }
               } catch { /* put failure shouldn't fail the fetch */ }
               return stamped;
             }
@@ -1037,14 +1099,16 @@ self.addEventListener("fetch", (event) => {
     if (pathname === "/") {
       event.respondWith(
         (async () => {
-          const cache = await caches.open(RUNTIME_CACHE);
+          const cache = await cacheFor(RUNTIME_CACHE);
           // The proxy redirects logged-in "/" → /calendar/day. Serving a
           // cached marketing page here bypasses that redirect and shows the
           // landing page to a signed-in user — only serve it logged-out.
           const uid = await requestUid();
           const cached = uid ? null : await cache.match(request);
-          // Fetch fresh in background (don't await — return cached immediately)
-          const fetchPromise = fetch(request, { cache: "no-store" })
+          // Fetch fresh in background (don't await — return cached immediately).
+          // timedFetch: a bare fetch on a dead-but-connected socket hangs for
+          // the browser's own timeout (~5min) — blank screen the whole time.
+          const fetchPromise = timedFetch(request, 8000, true)
             .then((response) => {
               // A redirect-followed response (logged-in "/" → /calendar/day)
               // must not be stored under "/" — it would serve one account's
@@ -1063,7 +1127,7 @@ self.addEventListener("fetch", (event) => {
           if (res) return res;
           {
             // Offline with no cache — serve cached calendar (app shell)
-            const pageCache = await caches.open(PAGE_CACHE);
+            const pageCache = await cacheFor(PAGE_CACHE);
             const calendarCached = await pageCache.match("/calendar/day");
             if (calendarCached) return calendarCached;
             return new Response(
@@ -1117,7 +1181,7 @@ self.addEventListener("fetch", (event) => {
     // never collide — the stale copy served is always this exact URL's.
     event.respondWith(
       (async () => {
-        const pageCache = await caches.open(PAGE_CACHE);
+        const pageCache = await cacheFor(PAGE_CACHE);
         const cacheKey = url.pathname + url.search;
         const uid = await requestUid();
 
@@ -1262,7 +1326,7 @@ self.addEventListener("fetch", (event) => {
   if (request.headers.get("RSC") === "1" || url.searchParams.has("_rsc")) {
     event.respondWith(
       (async () => {
-        const cache = await caches.open(RSC_CACHE);
+        const cache = await cacheFor(RSC_CACHE);
         const params = new URLSearchParams(url.search);
         params.delete("_rsc");
         params.sort();
@@ -1270,6 +1334,12 @@ self.addEventListener("fetch", (event) => {
         const qs = params.toString();
         const key = qs ? `${url.pathname}?${qs}` : url.pathname;
         const uid = await requestUid();
+
+        // Router prefetch responses are PARTIAL Flight trees (shell down to
+        // the nearest loading boundary) — caching one under the real key
+        // serves skeleton-only pages to real navigations for 15min. Let them
+        // warm the client router cache but never the SW copy.
+        const isPrefetch = request.headers.get("Next-Router-Prefetch") === "1";
 
         const store = async (res) => {
           const body = await res.clone().text();
@@ -1281,13 +1351,14 @@ self.addEventListener("fetch", (event) => {
           if (build) headers.set("x-waqt-build", build);
           await cache.put(key, new Response(body, { status: res.status, headers }));
         };
+        const maybeStore = (r) => { if (!isPrefetch) return store(r); };
 
         let cached = await matchStampedPage(cache, key, uid);
         if (cached) {
           // Serving a build-A Flight payload to a page running build-B JS
           // crashes hydration — compare against the cached page's build.
           const rscBuild = cached.headers.get("x-waqt-build");
-          const page = await matchStampedPage(await caches.open(PAGE_CACHE), url.pathname, uid);
+          const page = await matchStampedPage(await cacheFor(PAGE_CACHE), url.pathname, uid);
           const pageBuild = page?.headers.get("x-waqt-build");
           if (rscBuild && pageBuild && rscBuild !== pageBuild) cached = null;
         }
@@ -1296,10 +1367,12 @@ self.addEventListener("fetch", (event) => {
           // Chrome + initial props are stable within a session — a 2-min
           // window made every tab switch pay the network race. 15 minutes
           // keeps taps instant while staying inside one deploy's lifetime.
-          if (age < 15 * 60 * 1000) {
+          // Degraded link: freshness loses to a frozen tap — serve any-age
+          // same-account copy instantly and heal in the background.
+          if (age < 15 * 60 * 1000 || netDegraded) {
             event.waitUntil(
               (async () => {
-                try { const r = await timedFetch(request, 6000); if (r.ok) await store(r); } catch { /* keep cached */ }
+                try { const r = await timedFetch(request, 6000); if (r.ok) await maybeStore(r); } catch { /* keep cached */ }
               })()
             );
             return cached;
@@ -1309,14 +1382,14 @@ self.addEventListener("fetch", (event) => {
         const net = (async () => {
           try {
             const r = await timedFetch(request, 6000);
-            if (r.ok) await store(r);
+            if (r.ok) await maybeStore(r);
             return r;
           } catch { return null; }
         })();
         event.waitUntil(net.catch(() => {}));
 
         const budget = new Promise((resolve) =>
-          setTimeout(() => resolve(uid ? cached : null), 1200)
+          setTimeout(() => resolve(uid ? cached : null), netDegraded ? 400 : 1200)
         );
         const first = await Promise.race([net, budget]);
         if (first) return first;
@@ -1370,7 +1443,7 @@ self.addEventListener("fetch", (event) => {
             })
           );
         }
-        const cache = await caches.open(API_CACHE);
+        const cache = await cacheFor(API_CACHE);
         const uid = await requestUid();
         // Entries are stamped with the uid they were fetched under — an
         // expired session leaves no CLEAR_USER_CACHE, and without the stamp
@@ -1471,7 +1544,7 @@ self.addEventListener("fetch", (event) => {
           const response = await timedFetch(request, heavy ? 12000 : 6000);
           if (response.ok) {
             const responseClone = response.clone();
-            const cache = await caches.open(RUNTIME_CACHE);
+            const cache = await cacheFor(RUNTIME_CACHE);
             await cache.put(request, responseClone);
           }
           return response;
@@ -1504,7 +1577,7 @@ self.addEventListener("fetch", (event) => {
   ) {
     event.respondWith(
       (async () => {
-        const audioCache = await caches.open(AUDIO_CACHE);
+        const audioCache = await cacheFor(AUDIO_CACHE);
 
         // Try exact match first (handles re-requests of the same presigned URL)
         const exactMatch = await audioCache.match(request, { ignoreVary: true });
@@ -1583,7 +1656,7 @@ self.addEventListener("message", (event) => {
   // offline. Keys match the navigate handler: pathname+search, uid-stamped.
   if (event.data?.type === "PRECACHE_ROUTES" && Array.isArray(event.data.urls)) {
     event.waitUntil((async () => {
-      const pageCache = await caches.open(PAGE_CACHE);
+      const pageCache = await cacheFor(PAGE_CACHE);
       const uid = await requestUid();
       for (const p of event.data.urls.slice(0, 30)) {
         try {
@@ -1607,8 +1680,8 @@ self.addEventListener("message", (event) => {
   // "Uninstall app" — drop its cached pages so it stops holding space.
   if (event.data?.type === "EVICT_ROUTES" && Array.isArray(event.data.urls)) {
     event.waitUntil((async () => {
-      const pageCache = await caches.open(PAGE_CACHE);
-      const rscCache = await caches.open(RSC_CACHE);
+      const pageCache = await cacheFor(PAGE_CACHE);
+      const rscCache = await cacheFor(RSC_CACHE);
       for (const p of event.data.urls.slice(0, 30)) {
         try {
           const u = new URL(p, self.location.origin);
@@ -1642,7 +1715,7 @@ self.addEventListener("message", (event) => {
     const prefix = event.data.prefix || "";
     event.waitUntil(
       (async () => {
-        const cache = await caches.open(API_CACHE);
+        const cache = await cacheFor(API_CACHE);
         const keys = await cache.keys();
         const toDelete = keys.filter((key) => {
           try {

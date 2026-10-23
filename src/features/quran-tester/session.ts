@@ -76,6 +76,12 @@ let lastMsgAt = 0;
 let stallTimer: ReturnType<typeof setInterval> | null = null;
 let lastRecycleAt = 0;
 let recycleTimer: ReturnType<typeof setTimeout> | null = null;
+// Take epoch — bumped on every startQt; the worker echoes it on every event
+// so the page can drop messages drained from a previous take.
+let takeId = 0;
+export function qtTake(): number {
+  return takeId;
+}
 
 function recycleWorker(reason: "stall" | "post-session") {
   const w = worker;
@@ -313,6 +319,9 @@ export function qtPost(msg: Record<string, unknown>) {
  */
 export function warmQt() {
   try {
+    // Cheap localStorage flag — without an install there's nothing to warm,
+    // and this runs app-wide on every `online` event via session listeners.
+    if (localStorage.getItem("qt:engine-installed") !== "1") return;
     if (listen !== "idle" || isBorrowed()) return; // don't re-init a coach's decode
     const warmOwner = {};
     void acquireLock(warmOwner).then((ok) => {
@@ -326,6 +335,19 @@ export function warmQt() {
         workerRate = ctx.sampleRate;
         worker.postMessage({ type: "init", sampleRate: ctx.sampleRate });
         void ctx.close();
+        // Warm has no watchdog elsewhere — a worker that loads but never
+        // posts ready (empty/poisoned bundle) would sit as a ghost forever.
+        // Kill it so the next warm/spawn gets a fresh worker; the ready
+        // handler clears this timer.
+        if (warmWatchdog) clearTimeout(warmWatchdog);
+        warmWatchdog = setTimeout(() => {
+          warmWatchdog = null;
+          if (!engineReady && worker && listen === "idle" && !isBorrowed()) {
+            worker.terminate();
+            worker = null;
+            emit({ type: "engine-dead" } as QtEvent);
+          }
+        }, 45000);
       } finally {
         // Warm only borrows the lock — an idle warmed tab must never block
         // another tab from actually reciting. Ownership-checked: a startQt
@@ -379,7 +401,14 @@ function ensureWorker(): Worker | null {
           docBlocked = "yes";
         }
         if (warmWatchdog) { clearTimeout(warmWatchdog); warmWatchdog = null; }
-        emit({ type: "ui-error", message: `${msg} [doc-eval-blocked: ${docBlocked}]` });
+        // A missing-bucket error on an idle warm is just "engine not
+        // installed" — never toast for something the user didn't ask for.
+        if (listen !== "idle") {
+          const friendly = /engine asset missing/i.test(msg)
+            ? "Engine isn't fully installed — open settings and finish the download."
+            : `${msg} [doc-eval-blocked: ${docBlocked}]`;
+          emit({ type: "ui-error", message: friendly });
+        }
         void stopQt();
         // If this is a wasm/CSP failure, the running document may just be
         // stale (a PWA keeps its headers from page-load time). Check the
@@ -456,51 +485,18 @@ function ensureWorker(): Worker | null {
         emit({
           type: "ui-error",
           message: loadFailure
-            ? "Engine bundle failed to load — reload the app."
+            ? "Couldn't reach the engine — check your connection. Retrying shortly."
             : `Engine failed to start.${e.message ? ` ${e.message}` : ""}`,
         });
       }
-      // Stale-bundle recovery — but only for a CONFIRMED dead URL. A
-      // background warm on lie-fi used to unregister the SW + surprise-
-      // reload mid-task, and the reload re-served the same stale caches.
-      // Probe the worker URL: 404/HTML = stale bundle → clear caches +
-      // unregister + reload once. Probe failure = lie-fi → just re-warm.
-      if (loadFailure && navigator.onLine &&
-          !sessionStorage.getItem("qt-bundle-reload")) {
-        sessionStorage.setItem("qt-bundle-reload", "1");
-        const probe = (e instanceof ErrorEvent && e.filename) || workerUrl;
-        fetch(`${probe}${probe.includes("?") ? "&" : "?"}qt-probe=${Date.now()}`,
-              { method: "HEAD", cache: "no-store" })
-          .then(async (r) => {
-            const ct = r.headers.get("content-type") ?? "";
-            const stale = r.status === 404 || r.status === 410 || ct.includes("text/html");
-            if (!stale) {
-              // URL is live — the worker died transiently. Release the
-              // one-shot flag and re-warm shortly instead of reloading.
-              sessionStorage.removeItem("qt-bundle-reload");
-              setTimeout(() => { if (listen === "idle" && !worker) warmQt(); }, 15000);
-              return;
-            }
-            // Confirmed stale bundle. Drop the page/static caches so the
-            // reload can't be re-served the same dead HTML/chunks by the
-            // next SW registration — then unregister + reload once.
-            try {
-              const keys = await caches.keys();
-              await Promise.all(
-                keys.filter((k) => k.startsWith("waqt-v")).map((k) => caches.delete(k))
-              );
-            } catch {}
-            if ("serviceWorker" in navigator) {
-              const regs = await navigator.serviceWorker.getRegistrations();
-              await Promise.all(regs.map((reg) => reg.unregister()));
-            }
-            location.reload();
-          })
-          .catch(() => {
-            // Probe failed = lie-fi, not a stale bundle. Re-warm, don't reload.
-            sessionStorage.removeItem("qt-bundle-reload");
-            setTimeout(() => { if (listen === "idle" && !worker) warmQt(); }, 15000);
-          });
+      // The worker URL is a stable /qt/ path served from public/ — it can
+      // never be a stale hashed bundle, so a load failure here is network
+      // (lie-fi) or a poisoned bucket entry. The old HEAD probe was worse
+      // than the disease: the SW forwarded HEAD to /qt/ and its empty body
+      // got cached, producing the "reload twice" ritual. Just re-warm — the
+      // next GET revalidates the bucket entry and self-heals.
+      if (loadFailure && navigator.onLine) {
+        setTimeout(() => { if (listen === "idle" && !worker) warmQt(); }, 15000);
       }
       void stopQt(); // releases the mic tracks too
       e.preventDefault();
@@ -589,8 +585,10 @@ export async function startQt(): Promise<void> {
   }
 
   // Fresh recitation — without this, the previous session's transcript and
-  // tracker state leak into the next take.
-  worker?.postMessage({ type: "reset" });
+  // tracker state leak into the next take. The take id lets the page drop
+  // events drained from the previous take (see recite.worker.ts `post`).
+  takeId++;
+  worker?.postMessage({ type: "reset", take: takeId });
 
   let ctx: AudioContext | undefined;
   try {

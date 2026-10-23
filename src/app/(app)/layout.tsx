@@ -275,6 +275,7 @@ function NavItem({ label, href, icon: Icon, alert }: { label: string; href: stri
   return (
     <Link
       href={href}
+      prefetch
       className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
       style={{ color: "var(--color-ink-soft)" }}
     >

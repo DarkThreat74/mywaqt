@@ -92,7 +92,9 @@ function subscribe(fn: () => void) {
 export function useInbox(): Inbox {
   const inbox = useSyncExternalStore(subscribe, () => snapshot, () => EMPTY);
 
-  const tick = () => { if (!document.hidden) void fetchInbox(); };
+  const tick = () => {
+    if (!document.hidden && navigator.onLine) void fetchInbox();
+  };
   useEffect(() => {
     pollers += 1;
     let boot: ReturnType<typeof setTimeout> | null = null;

@@ -242,6 +242,17 @@ class WaqtOfflineDB extends Dexie {
       // cacheKey is primary key, talkId for lookup, cachedAt/lastPlayedAt for LRU eviction
       talkDownloads: "cacheKey, talkId, cachedAt, lastPlayedAt",
     });
+    // Another tab upgraded the schema — release our connection so its
+    // open() doesn't hang in `blocked` forever (which would stall the whole
+    // data path, including the API fetch that follows the IDB read).
+    this.on("versionchange", () => {
+      this.close({ disableAutoOpen: true });
+    });
+    this.on("blocked", () => {
+      // This tab is the blocker: an old connection we hold is stalling a
+      // newer tab's upgrade. Same release.
+      this.close({ disableAutoOpen: true });
+    });
   }
 }
 

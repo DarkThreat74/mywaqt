@@ -69,17 +69,34 @@ const SHARED_FILES = [
   "/rc/pitch-worklet.js",
 ];
 
+// A cached entry whose body is empty is poison, not an install — a HEAD
+// response (or a truncated download) put() under the key still *matches*,
+// and an empty worker.js loads as a valid empty script that hangs forever.
+// Delete it so the next fetch/install repairs the bucket.
+async function missingOrEmpty(cache: Cache, key: string): Promise<boolean> {
+  const res = await cache.match(key);
+  if (!res) return true;
+  try {
+    const size = (await res.clone().blob()).size;
+    if (size === 0) {
+      await cache.delete(key);
+      return true;
+    }
+  } catch { /* unreadable body counts as present — don't thrash the bucket */ }
+  return false;
+}
+
 export async function engineInstalled(): Promise<boolean> {
   if (typeof caches === "undefined") return false;
   if (localStorage.getItem(LS_KEY) !== "1") return false;
   const cache = await caches.open(ENGINE_CACHE);
   for (const a of ENGINE_ASSETS) {
-    if (!(await cache.match(engineUrl(a)))) return false;
+    if (await missingOrEmpty(cache, engineUrl(a))) return false;
   }
   // Legacy installs predate the runtime prefetch — check those files too,
   // or an offline first-run would fail on a missing ort wasm/worklet.
   for (const [key] of RUNTIME_FILES) {
-    if (!(await cache.match(`${self.location.origin}/qt/${key}`))) return false;
+    if (await missingOrEmpty(cache, `${self.location.origin}/qt/${key}`)) return false;
   }
   for (const p of SHARED_FILES) {
     if (!(await caches.match(p))) return false;

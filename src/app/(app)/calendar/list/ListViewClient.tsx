@@ -142,6 +142,9 @@ export default function ListViewClient({ today }: { today: string }) {
           color: e.color,
           seriesId: e.seriesId,
         })));
+        // Cached data is on screen — drop the spinner now; on lie-fi the API
+        // call below can hang for the full budget and must not re-hide it.
+        setLoading(false);
       }
     } catch { /* IndexedDB not available yet */ }
 

@@ -20,12 +20,20 @@ let session: RecognitionSession | null = null;
 let sourceRate = 48000;
 let queue: Promise<void> = Promise.resolve();
 
+// Take epoch — the page bumps this on every `reset` (new take). Every event
+// carries it so the page can drop messages drained from a previous take;
+// page-side stamping can't distinguish pre/post-reset messages.
+let takeId = 0;
+function post(m: Record<string, unknown>) {
+  postMessage({ ...m, take: takeId });
+}
+
 // Liveness heartbeat — a wedged WASM decode produces no events AND no
 // onerror (the thread is stuck, not crashed), so the page can't distinguish
 // "quiet recitation" from "dead engine" without a beat. 5s cadence lets the
 // page detect a stall in ~25s instead of never.
 setInterval(() => {
-  try { postMessage({ type: "beat" }); } catch {}
+  try { post({ type: "beat" }); } catch {}
 }, 5000);
 
 // Audio goes through a dedicated pump, but pump calls are themselves queued —
@@ -62,7 +70,9 @@ function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: nu
     flagDiv(ev.surah, ev.ayah, ev.word, "approach");
   } else if (ev.type === "verdicts" && Array.isArray(ev.changes)) {
     for (const v of ev.changes) {
-      if (v.state !== "wrong" && v.state !== "unsure" || v.wordIndex == null) continue;
+      // Bare `unsure` is routine CTC mush on correct recitation — only a
+      // `wrong` verdict or a named look-alike alternate earns a ding.
+      if ((v.state !== "wrong" && !v.lookalike) || v.wordIndex == null) continue;
       // Judge-level dual-score already named the alternative — ding it
       // directly (covers insert/delete regions the position scan can't).
       const look = v.lookalike;
@@ -73,7 +83,7 @@ function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: nu
         const key = `x:${s}:${a}:${w}:${look.surah}:${look.ayah}`;
         if (!mutaSeen.has(key)) {
           mutaSeen.add(key);
-          postMessage({
+          post({
             type: "muta_diverge", surah: s, ayah: a, word: w + 1,
             altSurah: look.surah, altAyah: look.ayah, certain: true,
             conf: look.conf ?? 0,
@@ -84,6 +94,32 @@ function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: nu
       flagDiv(s, a, w, "diverge");
     }
   }
+}
+
+// Heard chars belonging to one word — same trail/localWordOfPos mapping the
+// stop-dump uses, so "what you said" is the real aligned decode, not a guess.
+function heardForWord(wordIndex: number): string {
+  const z = session?.zipformer as unknown as {
+    engine?: {
+      tracker?: {
+        heard?: { ch: string }[];
+        trail?: number[];
+        localWordOfPos?: Int32Array;
+        firstWord?: number;
+      };
+    };
+  } | null;
+  const tr = z?.engine?.tracker;
+  if (!tr?.heard || !tr.trail || !tr.localWordOfPos || tr.trail.length !== tr.heard.length) return "";
+  const first = tr.firstWord ?? 0;
+  let out = "";
+  tr.heard.forEach((c, i) => {
+    const cell = tr.trail![i];
+    if (cell <= 0) return;
+    const w = tr.localWordOfPos![Math.min(cell, tr.localWordOfPos!.length) - 1];
+    if (first + w === wordIndex) out += c.ch;
+  });
+  return out;
 }
 
 function flagDiv(s: number, a: number, w: number, mode: "approach" | "diverge") {
@@ -99,7 +135,7 @@ function flagDiv(s: number, a: number, w: number, mode: "approach" | "diverge") 
       const key = `${s}:${a}:${i1}:${row.m[0]}:${row.m[1]}:${mode}`;
       if (mutaSeen.has(key)) continue;
       mutaSeen.add(key);
-      postMessage({
+      post({
         type: mode === "approach" ? "muta_approach" : "muta_diverge",
         surah: s, ayah: a, word: w + 1, // 1-based in-ayah for the page
         altSurah: row.m[0], altAyah: row.m[1],
@@ -160,7 +196,7 @@ async function reportErr(err: unknown) {
   } catch {
     wCsp = "unreachable";
   }
-  postMessage({
+  post({
     type: "error",
     message: `${err instanceof Error ? err.message : String(err)} [worker-csp: ${wCsp}]`,
   });
@@ -181,11 +217,11 @@ async function init(sampleRate: number) {
     // rate — a warm ctx at 48k followed by a recite ctx at 44.1k would
     // otherwise resample wrong and silently wreck detection.
     sourceRate = sampleRate;
-    postMessage({ type: "ready" });
+    post({ type: "ready" });
     return;
   }
   sourceRate = sampleRate;
-  postMessage({ type: "loading_status", message: "Warming up the engine…" });
+  post({ type: "loading_status", message: "Warming up the engine…" });
 
   const [modelRes, corpusRes] = await Promise.all([
     cached("/qt/model.onnx"),
@@ -213,7 +249,15 @@ async function init(sampleRate: number) {
     // messages, but callback delivery can't be lost to a stalled promise.
     onEvent: (m: unknown) => {
       try { watchMuta(m as Parameters<typeof watchMuta>[0]); } catch {}
-      postMessage(m);
+      // Enrich correction events with the heard phonemes for the flagged
+      // word — the popup shows "you said X" alongside the expected word.
+      try {
+        const ev = m as { type?: string; state?: { issue?: { wordIndex?: number } } };
+        if (ev.type === "correction" && typeof ev.state?.issue?.wordIndex === "number") {
+          (ev as Record<string, unknown>).heard = heardForWord(ev.state.issue.wordIndex);
+        }
+      } catch {}
+      post(m as Record<string, unknown>);
     },
     // Slip head: a logistic probe over the model's encoder frames that
     // scores each tracker's word span acoustically — catches wrong-sounding
@@ -221,14 +265,22 @@ async function init(sampleRate: number) {
     // alignment to settle. Needs the model's optional encoder output;
     // the manifest declares it, and the head silently stays off if a model
     // without it is ever loaded.
-    slipHead: "high",
+    // "high" was the false-positive factory: the slip probe fires with NO
+    // neighbour anchors and even on ayah-boundary words, where pausal forms
+    // make the acoustics look most unlike the canonical decode.
+    slipHead: "strict",
     // Aggressive search cadence (shorter queries, more frequent full-Quran
     // searches) starves single-threaded WASM decode — the audio backlog
     // overflows, transcript corrupts, locate never lands. Only the verdict
-    // observation window is tightened: 25→15 frames (1.0s→0.6s), which
-    // with the patched 4-frame persistence puts flags ~0.7s behind voice.
+    // observation window is tightened vs default.
     config: {
-      settleFrames: 15,
+      // 15 (0.6s) judged the cursor word mid-madd — a held vowel produces no
+      // new chars, so `settled` fired while still being pronounced and the
+      // stretched slice judged wrong. 20 still flags ~0.8s behind voice.
+      settleFrames: 20,
+      // Tail-dwell before a non-settled verdict commits: 6 heard chars let a
+      // single fluttered token paint `wrong` on correct words.
+      commitDwell: 10,
       // A real mistake spikes alignment cost — if relocation triggers too
       // eagerly, a wrong WORD reads as "you moved", the tracker abandons
       // the passage on ~1 word of evidence, and the correction observer
@@ -284,7 +336,7 @@ async function init(sampleRate: number) {
   // flags between them are undecidable, so the page suppresses the
   // similar_verse accusation on landings inside this set.
   if (zp?.structuralRules?.ident?.size)
-    postMessage({ type: "muta_ident", ayahs: [...zp.structuralRules.ident] });
+    post({ type: "muta_ident", ayahs: [...zp.structuralRules.ident] });
   // Balanced flagging: omissions flag when under half the word was heard,
   // substitutions need a clearly different word, vowel slips need a confident
   // decoder read. Tighter than this (0.15/0.9) made real slips never surface.
@@ -292,31 +344,35 @@ async function init(sampleRate: number) {
     // 0.5 meant a word heard half-way (only the onset clipped) could never flag
     // as an omission — 0.75 restores partial-word omission detection.
     omissionMaxHeard: 0.75,
-    // 0.7 only fired on a completely different word — real learner slips
-    // (1–2 phonemes off in a 3–6 token word) sit at 0.2–0.5 and could never
-    // flag. 0.45 still requires a clearly different word.
-    substitutionDistance: 0.45,
-    // Neighbour anchors demanded margin >= 0.55 — almost never met on learner
-    // audio, so the aligner rules were dead before they ran. 0.4 = the word
-    // decoded clearly enough to trust as an anchor.
-    clearMargin: 0.4,
-    // Same story for the word's own margin: decoder confidence >= 0.35 that it
-    // heard a real word (not mush), down from the unreachable default 0.5.
-    subMargin: 0.35,
-    vowelMargin: 0.08,
-    // 0.85 token margin is unreachable on learner audio — vowel slips were
-    // a dead channel. 0.6 keeps the confidence requirement meaningful.
-    vowelWordMargin: 0.6,
-    // Acoustic channel: GOP scores were computed but could never raise a flag
-    // (gopFlag -Infinity). -5 per the engine's own tuning note — flags only
-    // `wrong` substitutions whose forced alignment badly mismatches the free
-    // decode, and only between anchored neighbours.
-    gopFlag: -5,
+    // 0.45 flagged 1-2 phoneme noise on short words (ال، في، من — a single
+    // bad CTC token in a 3-4 phoneme word is distance ~0.5). 0.55 requires a
+    // clearly different word again.
+    substitutionDistance: 0.55,
+    // Neighbour anchors: 0.4 let mushy decodes qualify as "clear" anchors,
+    // which fires every gated rule around them. 0.5 is the middle ground.
+    clearMargin: 0.5,
+    // Decoder confidence the flagged word itself was heard clearly — 0.35
+    // passed on mush. 0.45 is near the default 0.5 but still reachable.
+    subMargin: 0.45,
+    // Vowel evidence must be stronger than a single harakat token flip —
+    // the decoder confidently rewrites internal harakat on normal audio.
+    vowelMargin: 0.12,
+    // 0.6 fired on mushy decodes; 0.75 approaches the default 0.8 while
+    // remaining reachable on real recitation.
+    vowelWordMargin: 0.75,
+    // GOP stays OFF. The engine's own tuning note: "on real clean takes it
+    // still raises false flags that the other rules do not" — enabling it at
+    // -5 was a primary false-positive source. The acoustic check remains in
+    // the word-level distance rules; deep-grade uses GOP offline instead.
+    gopFlag: -Infinity,
+    // One extra frame of jitter tolerance before a candidate's persistence
+    // clock resets — 4-frame persistence is short, so allow more misses.
+    persistGrace: 2,
   });
   // Only publish AFTER full setup — a throw above must not leave a half-
   // configured session that early-returns `ready` on the next init.
   session = sess;
-  postMessage({ type: "ready" });
+  post({ type: "ready" });
 }
 
 /** Cheap linear resampler — fine for 16kHz speech ASR. */
@@ -360,7 +416,7 @@ self.onmessage = (e: MessageEvent) => {
           dropped += audioPending[0].samples.length;
           audioPending.shift();
         }
-        if (dropped) postMessage({ type: "audio-gap", seconds: dropped / sourceRate });
+        if (dropped) post({ type: "audio-gap", seconds: dropped / sourceRate });
         queue = queue.then(pumpAudio);
       } else if (m.type === "audio-sync" && session) {
         // Offline replay (recite-coach deep grade): every chunk MUST decode —
@@ -426,15 +482,16 @@ self.onmessage = (e: MessageEvent) => {
             });
           }
         }
-        postMessage({
+        post({
           type: "heard",
           chars: (tr?.heard?.length ? tr.heard : z?.engine?.buffer) ?? [],
           words,
           framesDecoded: z?.decoder?.framesDecoded ?? 0,
         });
-        postMessage({ type: "stopped" });
+        post({ type: "stopped" });
       } else if (m.type === "reset" && session) {
         audioPending = [];
+        if (typeof m.take === "number") takeId = m.take;
         mutaSeen.clear(); // fresh take — divergent regions may ding again
         session.reset();
       } else if (m.type === "correction-act" && session) {

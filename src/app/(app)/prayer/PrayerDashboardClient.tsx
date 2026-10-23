@@ -422,7 +422,10 @@ export default function PrayerDashboard() {
   // popup app-wide). Remote friends' updates arrive via a 15s poll while a
   // status-bearing tab is open, plus an immediate refresh on tab return.
   useEffect(() => {
-    const onUpdated = () => { void fetchTodayData(); void refreshFriends(); };
+    const onUpdated = () => {
+      if (!navigator.onLine) return;
+      void fetchTodayData(); void refreshFriends();
+    };
     const onVisible = () => {
       if (document.visibilityState === "visible") onUpdated();
     };
@@ -438,7 +441,10 @@ export default function PrayerDashboard() {
 
   useEffect(() => {
     if (activeTab === "stats") return;
-    const t = setInterval(() => void refreshFriends(), 15_000);
+    const t = setInterval(() => {
+      if (document.hidden || !navigator.onLine) return;
+      void refreshFriends();
+    }, 15_000);
     return () => clearInterval(t);
   }, [activeTab, refreshFriends]);
 

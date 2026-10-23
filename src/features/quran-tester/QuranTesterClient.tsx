@@ -9,9 +9,10 @@ import { removeMistakeAt, saveMistake, syncMistakes, type Mistake } from "./mist
 import {
   buildIndex, coveredInSpan, distOf, flushCoverage, JUZ_START, keyOf, loadCoverage, loadPlan, markCovered,
   savePlan, stampDay, isDayDone, maybeKhatma, todayKey, todaySpan,
-  type AyahIndex, type Loc, type Plan,
+  loadLastPos, saveLastPos,
+  type AyahIndex, type LastPos, type Loc, type Plan,
 } from "./plan";
-import { pauseQt, qtBorrowed, qtOrb, qtPost, qtState, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
+import { pauseQt, qtBorrowed, qtOrb, qtPost, qtState, qtTake, resumeQt, startQt, stopQt, subscribeQt, teardownQt, warmQt } from "./session";
 
 /**
  * Quran Tester — recite anywhere in the Quran; the app follows you on a real
@@ -96,7 +97,7 @@ export default function QuranTesterClient() {
     try { return new Set(JSON.parse(sessionStorage.getItem("qt:diversions") ?? "[]")); }
     catch { return new Set(); }
   });
-  const [pending, setPending] = useState<{ s: number; a: number; w: number; kind: string } | null>(null);
+  const [pending, setPending] = useState<{ s: number; a: number; w: number; kind: string; heard?: string; expected?: string } | null>(null);
   const lastIssueKeyRef = useRef<string | null>(null); // suspect raised by the live correction
   // While an issue sits in the engine's `retrying` phase the main tracker
   // is frozen — if you keep reciting forward instead of re-reading, ALL
@@ -104,6 +105,10 @@ export default function QuranTesterClient() {
   // after a grace window; the flag + banner stay either way.
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryKeyRef = useRef<string | null>(null); // suspect key the retry timer is armed for
+  const takeRef = useRef(0); // current take epoch — worker events from older takes are dropped
+  const [lastPos, setLastPos] = useState<LastPos | null>(() => loadLastPos());
+  const lastWordRef = useRef<{ s: number; a: number; w: number } | null>(null); // last heard word, for resume persistence
+  const lastPosWriteRef = useRef(0); // throttle word_progress → localStorage writes
   // Per-session tallies for the end-of-session stats sheet.
   const sessionStartRef = useRef(0);
   const sessionFlagsRef = useRef<Set<string>>(new Set());
@@ -450,6 +455,16 @@ export default function QuranTesterClient() {
         sessionFlagsRef.current.add(k);
       }
     }
+    // A landing in a DIFFERENT surah that isn't a look-alike lure is a
+    // deliberate restart — nobody slips into another surah by accident.
+    // Follow cleanly: no ding, no diversion, no hold snap-back. (The muta
+    // suspect flag above still stands — a real mutashabih slip stays
+    // reviewable even though the UI moves with the reciter.)
+    if (loc.s !== anchor.s) {
+      anchorRef.current = loc;
+      setStatus(`Moved with you — ${surahName(loc.s)} ${loc.s}:${loc.a}`);
+      return;
+    }
     // "follow" lets the anchor drift; "hold" pins it at `anchor` AND pulls
     // the tracker back — in hold there is no relocation, only a flagged
     // move. The cursor stays on the pin until "Continue here".
@@ -617,6 +632,21 @@ export default function QuranTesterClient() {
     return m ? `${m.name} · ${m.en ?? s}` : `سورة ${s}`;
   }
 
+  /** Arabic text of one word — the correction popup's "Expected" line.
+   *  Same cache-first loadPage path as ayahSnippet, so it works offline. */
+  async function expectedWord(s: number, a: number, w: number): Promise<string | undefined> {
+    const p = ayahPagesRef.current?.[s]?.[a];
+    if (!p) return undefined;
+    try {
+      const data = await loadPage(p);
+      return (data?.lines ?? [])
+        .flatMap((l) => l.words ?? [])
+        .find((x) => x.location === `${s}:${a}:${w}`)?.word;
+    } catch {
+      return undefined;
+    }
+  }
+
 
   async function install() {
     setDlError(null);
@@ -678,9 +708,26 @@ export default function QuranTesterClient() {
     refreshSpan();
     try {
       await startQt();
+      // New take epoch — events drained from the previous take's queue
+      // carry the old take id and must not re-mutate this session.
+      takeRef.current = qtTake();
     } catch (err) {
       setMicError(err instanceof Error ? err.message : "Failed to start the engine.");
     }
+  }
+
+  /** "Continue from here" — resume at the last heard word: jump the mushaf,
+   *  start listening, then re-anchor the tracker at that spot. */
+  async function resumeFromHere() {
+    const lp = lastPos;
+    if (!lp) return;
+    goToAyah(lp.s, lp.a);
+    await startRecite();
+    // startRecite reset the anchor — set it after, then point the tracker.
+    anchorRef.current = { s: lp.s, a: lp.a };
+    // w is the 0-based engine word index; lastPos.w is 1-based display.
+    qtPost({ type: "reanchor", s: lp.s, a: lp.a, w: Math.max(0, lp.w - 1) });
+    setStatus(`Resumed at ${surahName(lp.s)} ${lp.s}:${lp.a} — recite on`);
   }
 
   /** End-of-session stats — ayahs read, time spent, flags caught. Pops the
@@ -725,6 +772,9 @@ export default function QuranTesterClient() {
     // (word_progress, correction, verdicts) must never mutate live listener
     // state, post correction-acts, or bank coverage from graded audio.
     if (qtBorrowed() && !String(ev.type).startsWith("ui-")) return;
+    // Events drained from a previous take's queue carry the old take id —
+    // a stale `correction`/`word_progress` must not re-mutate the new take.
+    if (typeof ev.take === "number" && ev.take !== takeRef.current) return;
     if (ev.type === "ui-listen") {
       setListen(ev.state as ListenState);
       if (ev.state === "idle") {
@@ -734,6 +784,11 @@ export default function QuranTesterClient() {
         const h = heardRef.current;
         if (h.loc && heardEnough(h.loc, h.max, h.total)) coverLoc(h.loc);
         heardRef.current = { loc: null, max: 0, total: 0 };
+        // Persist the resume point — "Continue from here" reads this.
+        if (lastWordRef.current) {
+          saveLastPos(lastWordRef.current);
+          setLastPos({ ...lastWordRef.current });
+        }
         setLoc(null);
         setWordIdx(null);
         locShownRef.current = locLiveRef.current = null;
@@ -948,6 +1003,13 @@ export default function QuranTesterClient() {
       const wDisp = (ev.word_index as number) + 1;
       setWordIdx(wDisp);
       noteHeard(s, a, wDisp, ev.total_words as number);
+      // "Continue from here" — remember the live cursor (throttled writes;
+      // a crash between stops still offers a resume point).
+      lastWordRef.current = { s, a, w: wDisp };
+      if (Date.now() - lastPosWriteRef.current > 2000) {
+        lastPosWriteRef.current = Date.now();
+        saveLastPos(lastWordRef.current);
+      }
       // Resumed from the blue-underlined word — the resume marker's job is
       // done, clear it.
       if (pinRef.current && pinRef.current.s === s && pinRef.current.a === a) setPin(null);
@@ -1006,11 +1068,12 @@ export default function QuranTesterClient() {
             // controller but still open the banner for confirm/dismiss.
             qtPost({ type: "correction-act", action: "continue" });
           } else {
-            // Pause-for-retry: a clean re-read auto-clears; an un-acted
-            // issue freezes all further detection — while `retrying`, the
-            // whole tracker is paused. Give the re-read ~8s; if the flag is
-            // still open, defer it back to tracking so detection resumes.
-            qtPost({ type: "correction-act", action: "retry" });
+            // Keep listening the whole time — `retry` parks ALL detection
+            // until acted, so a popup would freeze tracking for up to 14s.
+            // `continue` releases the controller immediately; the banner
+            // stays up 10s for Mistake/Not-a-mistake, then auto-defers so
+            // the flag doesn't re-raise on the same stretch.
+            qtPost({ type: "correction-act", action: "continue" });
             const key = skey;
             retryKeyRef.current = key;
             retryTimerRef.current = setTimeout(() => {
@@ -1018,9 +1081,22 @@ export default function QuranTesterClient() {
               retryKeyRef.current = null;
               if (suspectsRef.current.has(key))
                 qtPost({ type: "correction-act", action: "review_later" });
-            }, 8000);
+              setPending((p) => (p && `${p.s}:${p.a}:${p.w}` === key ? null : p));
+            }, 10000);
           }
-          setPending({ s: i.surah, a: i.ayah, w: ayahLevel ? 0 : (i.word ?? -1) + 1, kind: i.kind });
+          setPending({
+            s: i.surah, a: i.ayah, w: ayahLevel ? 0 : (i.word ?? -1) + 1, kind: i.kind,
+            heard: (ev as { heard?: string }).heard ?? "",
+          });
+          // Resolve the expected Arabic word for the popup — fills in
+          // async; a newer pending must not be overwritten by this lookup.
+          if (!ayahLevel) {
+            const wN = (i.word ?? -1) + 1;
+            void expectedWord(i.surah, i.ayah, wN).then((t) => {
+              if (!t) return;
+              setPending((p) => (p && p.s === i.surah && p.a === i.ayah && p.w === wN ? { ...p, expected: t } : p));
+            });
+          }
         }
       }
     }
@@ -1261,6 +1337,14 @@ export default function QuranTesterClient() {
     });
     for (const wiN of batch)
       void saveMistake({ surah: loc.surah, ayah: loc.ayah, word: wiN, kind: "peek", confirmedAt: nowMs() }).catch(() => {});
+    // Reflect in Review immediately — `confirmed` only refreshes on a sync,
+    // so peeks used to be invisible until a reload or connectivity flap.
+    setConfirmed((prev) => {
+      const next = new Map(prev);
+      for (const wiN of batch)
+        next.set(`${loc.surah}:${loc.ayah}:${wiN}`, { surah: loc.surah, ayah: loc.ayah, word: wiN, kind: "peek", confirmedAt: nowMs() });
+      return next;
+    });
   }
 
   async function deleteMistake(m: Mistake) {
@@ -1665,6 +1749,30 @@ export default function QuranTesterClient() {
             )}
           </div>
         )}
+        {/* Resume chip — "continue from here" at the last heard word. */}
+        {!listening && lastPos && installed && (
+          <div
+            className="mt-2 flex items-center gap-2.5 rounded-full border px-3.5 py-1.5"
+            style={{ borderColor: "var(--color-accent-faint)", backgroundColor: "var(--color-paper-2)" }}
+          >
+            <button
+              onClick={() => void resumeFromHere()}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left transition-opacity hover:opacity-80"
+            >
+              <Play className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />
+              <p className="truncate text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
+                Continue from {surahName(lastPos.s)} {lastPos.s}:{lastPos.a}
+              </p>
+            </button>
+            <button
+              onClick={() => { saveLastPos(null); setLastPos(null); }}
+              className="shrink-0 rounded-full p-1 transition-opacity hover:opacity-70"
+              aria-label="Forget last position"
+            >
+              <X className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
+            </button>
+          </div>
+        )}
         {/* Engine errors surface via the global toast — inline text here
             pushed the mushaf layout. */}
 
@@ -1766,11 +1874,25 @@ export default function QuranTesterClient() {
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
           >
             <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-              {issueLabel(pending.kind)} — {pending.s}:{pending.a}{pending.w ? `, word ${pending.w}` : ""}
+              {issueLabel(pending.kind)} — {surahName(pending.s)} {pending.s}:{pending.a}{pending.w ? `, word ${pending.w}` : ""}
             </p>
+            {(pending.expected || pending.heard) && (
+              <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[13px]">
+                {pending.expected && (
+                  <span style={{ color: "var(--color-ink)" }}>
+                    Expected <span dir="rtl" className="font-medium">{pending.expected}</span>
+                  </span>
+                )}
+                {pending.heard && (
+                  <span style={{ color: "var(--color-ink-muted)" }}>
+                    Heard <span className="tabular-nums">{pending.heard}</span>
+                  </span>
+                )}
+              </div>
+            )}
             <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
               {pending.kind.startsWith("possible_") && pending.kind !== "possible_skipped_ayah"
-                ? "Re-read the ayah cleanly and this clears itself. Only confirmed mistakes are saved."
+                ? "Still listening. Closes in 10s — only confirmed mistakes are saved."
                 : "Confirm to save this, or dismiss it."}
             </p>
             <div className="mt-3 flex gap-2">
@@ -1779,7 +1901,7 @@ export default function QuranTesterClient() {
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold transition-opacity hover:opacity-80"
                 style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
               >
-                <Check className="h-4 w-4" /> Confirm
+                <Check className="h-4 w-4" /> Mistake
               </button>
               <button
                 onClick={() => void dismissMistake()}
