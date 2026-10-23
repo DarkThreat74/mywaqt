@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Compass, MapPin, Navigation, AlertTriangle } from "lucide-react";
+import { calculateQiblaBearing, calculateDistance, bearingToCardinal } from "@/lib/prayer/qibla";
+import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import Link from "next/link";
 
 interface QiblaData {
@@ -56,10 +58,30 @@ export default function QiblaCompassClient() {
   const alignedRef = useRef(false);
   const cleanupRef = useRef<(() => void) | null>(null);
   const lastReadoutRef = useRef(-1);
+  const hasDataRef = useRef(false);
 
   // ── Fetch Qibla data ──
+  // The bearing is pure math — seed it instantly from the cached location so
+  // the compass works fully offline, then refresh from the API in the
+  // background (which also covers a location changed on another device).
   useEffect(() => {
     let cancelled = false;
+    Promise.resolve().then(() => {
+      const s = getCachedPrayerSettings();
+      const seedLat = Number(s?.latitude);
+      const seedLng = Number(s?.longitude);
+      if (cancelled || !Number.isFinite(seedLat) || !Number.isFinite(seedLng) || (seedLat === 0 && seedLng === 0)) return;
+      const bearing = Math.round(calculateQiblaBearing(seedLat, seedLng));
+      setData({
+        bearing,
+        distance: calculateDistance(seedLat, seedLng),
+        cardinal: bearingToCardinal(bearing),
+        userLocation: { latitude: seedLat, longitude: seedLng },
+      });
+      bearingRef.current = bearing;
+      hasDataRef.current = true;
+      setLoading(false);
+    });
     const fetchData = async () => {
       try {
         const res = await fetch("/api/qibla").catch(() => null);
@@ -69,16 +91,17 @@ export default function QiblaCompassClient() {
           if (json) {
             setData(json);
             bearingRef.current = json.bearing;
-          } else {
+            hasDataRef.current = true;
+          } else if (!hasDataRef.current) {
             setError("Failed to load Qibla data.");
           }
         } else if (res?.status === 400) {
           setError("Location not set. Please set your location in Settings first.");
-        } else {
+        } else if (!hasDataRef.current) {
           setError("Failed to load Qibla direction.");
         }
       } catch {
-        if (!cancelled) setError("Network error.");
+        if (!cancelled && !hasDataRef.current) setError("Network error.");
       } finally {
         if (!cancelled) setLoading(false);
       }

@@ -134,6 +134,7 @@ export default function TalksClient() {
         const loadedTalks: Talk[] = Array.isArray(data.talks) ? data.talks : [];
         setFolders(Array.isArray(data.folders) ? data.folders : []);
         setTalks(loadedTalks);
+        try { localStorage.setItem("talks:list", JSON.stringify({ talks: loadedTalks, folders: data.folders ?? [] })); } catch {}
         try {
           const cachedKeys = await getCachedAudioKeys();
           if (!cancelled) {
@@ -145,8 +146,23 @@ export default function TalksClient() {
           await backfillAudioCacheSizes(loadedTalks);
         } catch { /* Cache Storage is unavailable */ }
       } catch {
-        // Offline — fall back to the download manifest so saved talks still
-        // show and play from the Cache API.
+        // Offline — first the full-library mirror, then the download
+        // manifest so saved talks still show and play from the Cache API.
+        try {
+          const raw = localStorage.getItem("talks:list");
+          const cached = raw ? JSON.parse(raw) : null;
+          if (cached && Array.isArray(cached.talks) && cached.talks.length && !cancelled) {
+            setTalks(cached.talks);
+            setFolders(Array.isArray(cached.folders) ? cached.folders : []);
+            const cachedKeys = await getCachedAudioKeys().catch(() => new Set<string>());
+            if (!cancelled) {
+              setDownloadedIds(new Set((cached.talks as Talk[])
+                .filter((talk) => talk.streamUrl && cachedKeys.has(audioCacheKey(talk.streamUrl)))
+                .map((talk) => talk.id)));
+            }
+            return;
+          }
+        } catch { /* no mirror — try the download manifest */ }
         try {
           const downloads = await getOfflineDB().talkDownloads.toArray();
           if (!cancelled && downloads.length) {

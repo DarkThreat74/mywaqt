@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, CalendarClock, Download, Lightbulb, RefreshCw, UserRound } from "lucide-react";
-import { setCachedPrayerSettings } from "@/lib/offline/settings-cache";
+import { setCachedPrayerSettings, getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
 import { FunFactToggle, FunFactCountdown, PrayerPersonalization, type PrayerSettings } from "../SettingsClient";
 
@@ -31,6 +31,29 @@ export default function MiscClient() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    // Seed from the local mirror first — the toggles/sliders work offline
+    // instead of staying disabled until the fetch resolves. Deferred so the
+    // mount effect doesn't setState synchronously.
+    Promise.resolve().then(() => {
+      const cached = getCachedPrayerSettings();
+      if (!cached) return;
+      setSettings({
+        studyStartMin: cached.studyStartMin ?? 420,
+        studyEndMin: cached.studyEndMin ?? 1320,
+        studyShowGapChips: cached.studyShowGapChips === true,
+      });
+      if (cached.latitude != null && cached.longitude != null && cached.timezone) {
+        setFull({
+          latitude: String(cached.latitude),
+          longitude: String(cached.longitude),
+          timezone: cached.timezone,
+          calculationMethod: Number(cached.calculationMethod) || 0,
+          madhab: cached.madhab ?? null,
+          studyStartMin: cached.studyStartMin,
+          studyEndMin: cached.studyEndMin,
+        });
+      }
+    });
     fetch("/api/settings/prayer-settings")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {

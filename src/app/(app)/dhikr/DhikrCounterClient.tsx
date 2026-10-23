@@ -54,8 +54,10 @@ const DEFAULT_SEQUENCES: DhikrSequence[] = [
 export default function DhikrCounterClient() {
   // ── Restore dhikr session from localStorage so navigating away and back
   //    doesn't lose the current count/position ──
-  const [sequences, setSequences] = useState<DhikrSequence[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Render instantly on the authenticated defaults — the effect below swaps
+  // in the mirrored/server list instead of gating the UI behind a spinner.
+  const [sequences, setSequences] = useState<DhikrSequence[]>(DEFAULT_SEQUENCES);
+  const [loading, setLoading] = useState(false);
   const [savedIndex, setSavedIndex] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("waqt:dhikr-session");
@@ -108,9 +110,17 @@ export default function DhikrCounterClient() {
     } catch { /* non-critical */ }
   }, [savedIndex, count, completedSequences]);
 
-  // Load dhikr sequences — fall back to defaults if table is empty
+  // Load dhikr sequences — mirrored list first (instant + offline), then the
+  // server list; defaults already render if both are empty.
   useEffect(() => {
     let cancelled = false;
+    Promise.resolve().then(() => {
+      try {
+        const raw = localStorage.getItem("dhikr:sequences");
+        const cached = raw ? JSON.parse(raw) : null;
+        if (Array.isArray(cached) && cached.length && !cancelled) setSequences(cached);
+      } catch { /* no mirror */ }
+    });
     (async () => {
       try {
         const res = await fetch("/api/dhikr").catch(() => null);
@@ -119,6 +129,7 @@ export default function DhikrCounterClient() {
           const data = await res.json().catch(() => null);
           if (data?.sequences?.length > 0) {
             setSequences(data.sequences);
+            try { localStorage.setItem("dhikr:sequences", JSON.stringify(data.sequences)); } catch {}
           } else {
             setSequences(DEFAULT_SEQUENCES);
           }

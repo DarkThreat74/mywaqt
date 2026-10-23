@@ -90,6 +90,7 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
   const [confirmUnfriend, setConfirmUnfriend] = useState(false);
   const [unfriendBusy, setUnfriendBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const hasPRef = useRef(false);
 
   async function toggleLeagueHide() {
     if (!userId || !salah) return;
@@ -150,16 +151,36 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
         .then((rows: FriendSalah[]) => setSalah(rows.find((f) => f.id === userId) ?? null))
         .catch(() => {});
     }
+    // Own profile seeds from the local mirror so it renders fully offline;
+    // friend profiles stay network-only (no caching someone else's data).
+    hasPRef.current = false;
+    if (!userId) {
+      Promise.resolve().then(() => {
+        try {
+          const raw = localStorage.getItem("profile:self");
+          const cached = raw ? JSON.parse(raw) : null;
+          if (cached && typeof cached === "object") {
+            setP(cached);
+            hasPRef.current = true;
+            setTimeout(() => setBarIn(true), 250);
+          }
+        } catch {}
+      });
+    }
     fetch(userId ? `/api/profile?user=${encodeURIComponent(userId)}` : "/api/profile")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d) {
           setP(d);
+          hasPRef.current = true;
+          if (!userId) {
+            try { localStorage.setItem("profile:self", JSON.stringify(d)); } catch {}
+          }
           // Let the badge settle, then grow the progress bar.
           setTimeout(() => setBarIn(true), 250);
-        } else setErr(true);
+        } else if (!hasPRef.current) setErr(true);
       })
-      .catch(() => setErr(true));
+      .catch(() => { if (!hasPRef.current) setErr(true); });
   }, [userId]);
 
   if (err) {

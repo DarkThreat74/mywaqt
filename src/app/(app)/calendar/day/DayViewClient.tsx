@@ -288,8 +288,17 @@ export default function DayViewClient({ date }: { date: string }) {
   const [studyStartMin, setStudyStartMin] = useState(DAY_START);
   const [studyEndMin, setStudyEndMin] = useState(DAY_END);
   const [showGapChips, setShowGapChips] = useState(false);
-  // Birthdays for the viewed date — fetched once, matched on month/day.
-  const [birthdaysToday, setBirthdaysToday] = useState<Array<{ id: string; name: string; birthMonth: number; birthDay: number; birthYear: number | null; color: string | null }>>([]);
+  // Birthdays recur annually — the full list + category colours are fetched
+  // once (seeded from the birthdays page's localStorage mirror) and the
+  // viewed date's matches derive locally, so date switches cost zero network.
+  const [allBirthdays, setAllBirthdays] = useState<Array<{ id: string; name: string; birthMonth: number; birthDay: number; birthYear: number | null; categoryId: string | null }>>([]);
+  const [bdayColors, setBdayColors] = useState<Map<string, string>>(new Map());
+  const birthdaysToday = useMemo(() => {
+    const [y, m, d] = date.split("-").map(Number);
+    return allBirthdays
+      .filter((b) => isBirthdayOn(b, y, m, d))
+      .map((b) => ({ id: b.id, name: b.name, birthMonth: b.birthMonth, birthDay: b.birthDay, birthYear: b.birthYear, color: b.categoryId ? bdayColors.get(b.categoryId) ?? null : null }));
+  }, [date, allBirthdays, bdayColors]);
 
   // ── Load cached prayer settings from localStorage instantly ──
   // This avoids a network round-trip for timezone/madhab on every page load
@@ -305,6 +314,84 @@ export default function DayViewClient({ date }: { date: string }) {
         if (typeof cached.studyShowGapChips === "boolean") setShowGapChips(cached.studyShowGapChips);
       });
     }
+  }, []);
+
+  // Date-independent data — settings, hayd periods, and the birthday list
+  // change rarely, so they fetch once on mount instead of burning three
+  // requests on every date switch.
+  useEffect(() => {
+    let cancelled = false;
+    // Instant seed: the birthdays page keeps a localStorage mirror — use it
+    // so chips render offline before the fetch resolves.
+    Promise.resolve().then(() => {
+      try {
+        const raw = localStorage.getItem("birthdays:list");
+        const data = raw ? JSON.parse(raw) : null;
+        if (data && Array.isArray(data.birthdays) && !cancelled) {
+          setAllBirthdays(data.birthdays);
+          setBdayColors(new Map<string, string>(
+            (Array.isArray(data.categories) ? data.categories : []).map(
+              (c: { id: string; color: string }) => [c.id, c.color],
+            ),
+          ));
+        }
+      } catch { /* no mirror */ }
+    });
+    (async () => {
+      const [settingsRes, haydRes, bdayRes] = await Promise.all([
+        fetch("/api/settings/prayer-settings").catch(() => null),
+        fetch("/api/hayd").catch(() => null),
+        fetch("/api/birthdays").catch(() => null),
+      ]);
+      if (cancelled) return;
+
+      if (settingsRes?.ok) {
+        try {
+          const s = await settingsRes.json();
+          if (s.timezone && !cancelled) {
+            setUserTimezone(s.timezone);
+            if (typeof s.studyStartMin === "number") setStudyStartMin(s.studyStartMin);
+            if (typeof s.studyEndMin === "number") setStudyEndMin(s.studyEndMin);
+            if (typeof s.studyShowGapChips === "boolean") setShowGapChips(s.studyShowGapChips);
+            setCachedPrayerSettings({
+              timezone: s.timezone,
+              calculationMethod: s.calculationMethod,
+              madhab: s.madhab,
+              latitude: s.latitude,
+              longitude: s.longitude,
+              studyStartMin: s.studyStartMin,
+              studyEndMin: s.studyEndMin,
+              studyShowGapChips: s.studyShowGapChips,
+            });
+            if (s.madhab) setUserMadhab(s.madhab);
+          }
+        } catch {
+          // non-critical — cached settings already seeded the UI
+        }
+      }
+
+      if (haydRes?.ok) {
+        const data = await haydRes.json().catch(() => null);
+        if (data?.periods && !cancelled) {
+          setHaydPeriods(data.periods);
+          setCachedHaydPeriods(data.periods);
+        }
+      }
+
+      if (bdayRes?.ok) {
+        const data = await bdayRes.json().catch(() => null);
+        if (data && Array.isArray(data.birthdays) && !cancelled) {
+          setAllBirthdays(data.birthdays);
+          setBdayColors(new Map<string, string>(
+            (Array.isArray(data.categories) ? data.categories : []).map(
+              (c: { id: string; color: string }) => [c.id, c.color],
+            ),
+          ));
+          try { localStorage.setItem("birthdays:list", JSON.stringify({ birthdays: data.birthdays, categories: data.categories })); } catch {}
+        }
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // Lock body scroll while any fixed modal is open (iOS Safari especially —
@@ -375,80 +462,19 @@ export default function DayViewClient({ date }: { date: string }) {
       // the events filter below uses the authoritative timezone instead of
       // re-running this whole effect when userTimezone state updates.
       try {
-        const [eventsRes, prayerRes, logRes, hwRes, haydRes, blocksRes, settingsRes, bdayRes] = await Promise.all([
+        const [eventsRes, prayerRes, logRes, hwRes, blocksRes] = await Promise.all([
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
           fetch(`/api/homework?date=${date}`).catch(() => null),
-          fetch(`/api/hayd`).catch(() => null),
           fetch(`/api/blocks?date=${date}`).catch(() => null),
-          fetch("/api/settings/prayer-settings").catch(() => null),
-          fetch("/api/birthdays").catch(() => null),
         ]);
-
-        // Birthdays recur annually — match the viewed date on month/day
-        // (Feb 29 birthdays observe on Feb 28 in non-leap years).
-        if (bdayRes?.ok && !cancelled) {
-          const data = await bdayRes.json().catch(() => null);
-          if (data && Array.isArray(data.birthdays)) {
-            const catColors = new Map<string, string>(
-              (Array.isArray(data.categories) ? data.categories : []).map(
-                (c: { id: string; color: string }) => [c.id, c.color],
-              ),
-            );
-            const [bYear, bMonth, bDay] = date.split("-").map(Number);
-            setBirthdaysToday(
-              data.birthdays
-                .filter((b: { birthMonth: number; birthDay: number; birthYear: number | null }) => isBirthdayOn(b, bYear, bMonth, bDay))
-                .map((b: { id: string; name: string; birthMonth: number; birthDay: number; birthYear: number | null; categoryId: string | null }) => ({
-                  id: b.id,
-                  name: b.name,
-                  birthMonth: b.birthMonth,
-                  birthDay: b.birthDay,
-                  birthYear: b.birthYear,
-                  color: b.categoryId ? catColors.get(b.categoryId) ?? null : null,
-                })),
-            );
-          }
-        }
 
         if (cancelled) return;
 
-        // Settings first — timezone/madhab/study window feed everything else.
-        let tz = userTzRef.current;
-        if (settingsRes?.ok) {
-          try {
-            const settingsData = await settingsRes.json();
-            if (settingsData.timezone) {
-              tz = settingsData.timezone;
-              setUserTimezone(settingsData.timezone);
-              if (typeof settingsData.studyStartMin === "number") setStudyStartMin(settingsData.studyStartMin);
-              if (typeof settingsData.studyEndMin === "number") setStudyEndMin(settingsData.studyEndMin);
-              if (typeof settingsData.studyShowGapChips === "boolean") setShowGapChips(settingsData.studyShowGapChips);
-              // Cache in localStorage for instant offline access
-              setCachedPrayerSettings({
-                timezone: settingsData.timezone,
-                calculationMethod: settingsData.calculationMethod,
-                madhab: settingsData.madhab,
-                latitude: settingsData.latitude,
-                longitude: settingsData.longitude,
-                studyStartMin: settingsData.studyStartMin,
-                studyEndMin: settingsData.studyEndMin,
-                studyShowGapChips: settingsData.studyShowGapChips,
-              });
-            }
-          } catch {
-            // non-critical — fall back to current timezone
-          }
-        }
-
-        if (haydRes?.ok) {
-          const data = await haydRes.json().catch(() => null);
-          if (data?.periods) {
-            setHaydPeriods(data.periods);
-            setCachedHaydPeriods(data.periods);
-          }
-        }
+        // Timezone comes from the mount-time settings fetch / localStorage
+        // seed — the server already date-filters, this is a tz straggler net.
+        const tz = userTzRef.current;
 
         if (eventsRes?.ok) {
           const eventsData = await eventsRes.json();
