@@ -122,6 +122,7 @@ export default function QuranTesterClient() {
   const sessionFlagsRef = useRef<Set<string>>(new Set());
   const sessionConfirmRef = useRef<Set<string>>(new Set()); // mistakes confirmed/marked this session
   const lastWordAtRef = useRef(0); // last word_progress — stall detection
+  const lastProgKeyRef = useRef(""); // last cursor position — verdict batches re-emit word_progress without advancing
   const holdingRef = useRef(false);
   const pendingRef = useRef<typeof pending>(null);
   const sessionTouchedRef = useRef<Set<string>>(new Set()); // ayahs ≥30% heard this session
@@ -178,6 +179,9 @@ export default function QuranTesterClient() {
   const lockFxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planRef = useRef(plan);
   const suspectsRef = useRef(suspects);
+  // "s:a:w" → the named look-alike twin a mark belongs to — tap-reopen and
+  // the verify sheet show WHICH ayah the slip resembles.
+  const suspectAltRef = useRef(new Map<string, { altS: number; altA: number; altText?: string }>());
   const pinRef = useRef(pin);
 
   // Swipe — dragX tracks the finger; turn animates a committed page turn
@@ -940,6 +944,12 @@ export default function QuranTesterClient() {
       const s = Number(ev.surah), a = Number(ev.ayah), w = Number(ev.word);
       const altS = Number(ev.altSurah), altA = Number(ev.altAyah);
       const k = `${s}:${a}:${w}`;
+      // The divergence fired after the fact — still mark the region so the
+      // slip point stays visible while you review it.
+      if (ev.from != null && ev.to != null) {
+        divZonesRef.current.set(`${s}:${a}`, { w1: Number(ev.from), w2: Number(ev.to), altS, altA });
+        setDivZones(new Map(divZonesRef.current));
+      }
       if (!suspectsRef.current.has(k)) {
         const next = new Map(suspectsRef.current);
         next.set(k, "similar_verse");
@@ -947,6 +957,9 @@ export default function QuranTesterClient() {
         setSuspects(next);
         sessionFlagsRef.current.add(k);
       }
+      // Keep the named twin on the mark — tap-reopen and the verify sheet
+      // need to know WHICH look-alike this was.
+      suspectAltRef.current.set(k, { altS, altA });
       // A confident named twin opens the same Mistake/Not-a-mistake popup —
       // this is the moment the index earns its keep: it doesn't just say
       // "wrong word", it says WHICH look-alike you drifted into and shows
@@ -971,6 +984,13 @@ export default function QuranTesterClient() {
           : `Look-alike slip? — ${surahName(altS)} ${altS}:${altA} reads differently here`);
     } else if (ev.type === "muta_ident") {
       identRef.current = new Set((ev.ayahs as string[]) ?? []);
+    } else if (ev.type === "muta_ready") {
+      // Proof of life: the look-alike watcher is actually armed — a silent
+      // dead watcher used to be indistinguishable from a working one.
+      const n = Number(ev.pairs ?? 0);
+      setStatus(n > 0
+        ? `Look-alike index live — ${n.toLocaleString()} ayahs mapped`
+        : "Look-alike index missing — slips won't be named");
     } else if (ev.type === "debug" || ev.type === "raw_transcript") {
       // While validating: surface what the engine decoded so a silent
       // session is visible instead of just spinning.
@@ -980,9 +1000,16 @@ export default function QuranTesterClient() {
       const t = String(ev.text ?? (ev.event ? "" : (ev.message ?? "")) ?? "");
       if (t && !DBG_HANDLED.has(String(ev.event))) setStatus(t.slice(0, 80));
     } else if (ev.type === "word_progress") {
-      lastWordAtRef.current = Date.now();
       holdingRef.current = false;
       const s = ev.surah as number, a = ev.ayah as number;
+      // Only actual cursor movement counts as progress — verdict batches
+      // re-emit word_progress at the SAME word, and treating those as
+      // progress kept a wedged tracker looking alive to the watchdog.
+      const pk = `${s}:${a}:${ev.word_index as number}`;
+      if (pk !== lastProgKeyRef.current) {
+        lastProgKeyRef.current = pk;
+        lastWordAtRef.current = Date.now();
+      }
       const prev = locLiveRef.current;
       // Silent DP-slide guard: the ONLY legit same-surah crossing is onto the
       // next ayah's first word AFTER actually finishing the previous ayah —
@@ -1122,10 +1149,25 @@ export default function QuranTesterClient() {
               setPending((p) => (p && `${p.s}:${p.a}:${p.w}` === key ? null : p));
             }, 10000);
           }
+          // If the flagged word sits inside a divergent region, the worker
+          // attached the look-alike twin — relabel the issue so the popup
+          // says WHICH mutashabih the slip resembles, not just "wrong word".
+          const muta = (ev as { muta?: { altS: number; altA: number; altFrom?: number } }).muta;
           setPending({
-            s: i.surah, a: i.ayah, w: ayahLevel ? 0 : (i.word ?? -1) + 1, kind: i.kind,
+            s: i.surah, a: i.ayah, w: ayahLevel ? 0 : (i.word ?? -1) + 1,
+            kind: muta ? "similar_verse" : i.kind,
             heard: (ev as { heard?: string }).heard ?? "",
+            altS: muta?.altS, altA: muta?.altA,
           });
+          if (muta) {
+            suspectsRef.current.set(skey, "similar_verse");
+            setSuspects((prev) => new Map(prev).set(skey, "similar_verse"));
+            suspectAltRef.current.set(skey, { altS: muta.altS, altA: muta.altA });
+            void ayahSnippet(muta.altS, muta.altA).then((t) => {
+              suspectAltRef.current.set(skey, { altS: muta.altS, altA: muta.altA, altText: t });
+              setPending((p) => (p && p.s === i.surah && p.a === i.ayah && p.altS === muta.altS && p.altA === muta.altA ? { ...p, altText: t } : p));
+            });
+          }
           // Resolve the expected Arabic word for the popup — fills in
           // async; a newer pending must not be overwritten by this lookup.
           if (!ayahLevel) {
@@ -1160,7 +1202,8 @@ export default function QuranTesterClient() {
     if (listen !== "listening") return;
     lastWordAtRef.current = Date.now();
     const iv = setInterval(() => {
-      if (pendingRef.current) return;
+      // An open banner must NOT disable the watchdog — a popup used to park
+      // stall detection until it was answered, freezing recovery forever.
       const quiet = Date.now() - lastWordAtRef.current;
       if (!holdingRef.current && quiet > 4500) {
         holdingRef.current = true;
@@ -1180,7 +1223,10 @@ export default function QuranTesterClient() {
             qtPost({ type: "reanchor", s: p.s, a: p.a, w: Math.max(0, (("w" in p ? p.w : 1) as number) - 1) });
           }
         } else if (Date.now() - stallFixRef.current > 20000) {
-          stallFixRef.current = null;
+          // Keep stallFix set — the reset needs its own ~20s to re-locate
+          // before escalating again, otherwise the next tick re-anchors
+          // over the fresh search and defeats it.
+          stallFixRef.current = Date.now();
           qtPost({ type: "reset" }); // tracker-only reset — live audio re-locates
           divZonesRef.current.clear();
           setDivZones(new Map());
@@ -1244,7 +1290,13 @@ export default function QuranTesterClient() {
   function onWordTap(s: number, a: number, w: number) {
     const key = `${s}:${a}:${w}`;
     const kind = suspects.get(key);
-    if (kind) { setPending({ s, a, w, kind }); return; }
+    if (kind) {
+      // Re-opening a look-alike mark must keep the named twin — otherwise
+      // the tap shows a bare "look-alike verse" with no idea which one.
+      const alt = suspectAltRef.current.get(key);
+      setPending({ s, a, w, kind, altS: alt?.altS, altA: alt?.altA, altText: alt?.altText });
+      return;
+    }
     // Ayah-level flags (skipped/unclear/similar-verse at w:0) highlight every
     // word as actionable — the tap must open them, not silently no-op.
     const ayahKind = suspects.get(`${s}:${a}:0`);

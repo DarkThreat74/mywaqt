@@ -92,7 +92,7 @@ function mergeMutaIndex(sm: MutaMaps | undefined) {
     for (const flat of rows) {
       const m: [number, number] = [flat[0], flat[1]];
       const regions: number[][] = [];
-      for (let p = 2; p + 4 <= flat.length; p += 5)
+      for (let p = 2; p + 5 <= flat.length; p += 5)
         regions.push([flat[p], flat[p + 1], flat[p + 2], flat[p + 3], flat[p + 4]]);
       if (!regions.length) continue;
       const fwd: MutaRow = { m, regions };
@@ -110,52 +110,69 @@ function mergeMutaIndex(sm: MutaMaps | undefined) {
   if (sm.ident) for (const k of idx.ident ?? []) sm.ident.add(k);
 }
 
-function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: number; wordIndex?: number; changes?: { state?: string; wordIndex?: number; lookalike?: { surah: number; ayah: number; conf?: number } }[] }) {
+// NOTE: `cursor` and `verdicts` engine events are SWALLOWED by
+// ZipformerSession.handle() — they're folded into `word_progress` before
+// onEvent ever sees them. The watcher therefore runs on the events that
+// actually arrive: `word_progress` (carries surah/ayah/word_index,
+// 0-based in-ayah — fires on both cursor moves and verdict batches),
+// `relocated`, and `verse_candidate` (the `located` translation). Verdict
+// detail is pulled via session.zipformer.verdicts() — a memoized live
+// array, cheap to re-scan each progress tick.
+type WordVerdict = {
+  state?: string;
+  wordIndex?: number;
+  lookalike?: { surah: number; ayah: number; conf?: number };
+};
+
+function pollVerdicts() {
+  const zp = session?.zipformer as unknown as { verdicts?: () => WordVerdict[] } | null;
+  const vs = zp?.verdicts?.();
+  if (!vs?.length || !divCorpus || !divLooks) return;
+  for (const v of vs) {
+    // Bare `unsure` is routine CTC mush on correct recitation — only a
+    // `wrong` verdict or a named look-alike alternate earns a ding.
+    if ((v.state !== "wrong" && !v.lookalike) || v.wordIndex == null) continue;
+    const look = v.lookalike;
+    const s = divCorpus.wordSurah[v.wordIndex];
+    const a = divCorpus.wordAyah[v.wordIndex];
+    const w = divCorpus.wordInAyah[v.wordIndex];
+    if (look) {
+      const key = `x:${s}:${a}:${w}:${look.surah}:${look.ayah}`;
+      if (!mutaSeen.has(key)) {
+        mutaSeen.add(key);
+        // Attach the divergent-region bounds for this twin (if we can
+        // find the row) so the page can underline the exact words.
+        let from: number | undefined, to: number | undefined;
+        for (const row of divLooks.get(`${s}:${a}`) ?? []) {
+          if (row.m[0] !== look.surah || row.m[1] !== look.ayah) continue;
+          const r = row.regions.find((x) => w >= x[1] && w < x[2]);
+          if (r) { from = r[1] + 1; to = r[2]; break; }
+        }
+        post({
+          type: "muta_diverge", surah: s, ayah: a, word: w + 1,
+          altSurah: look.surah, altAyah: look.ayah, certain: true,
+          conf: look.conf ?? 0, from, to,
+        });
+      }
+      continue; // don't double-ding via the position scan below
+    }
+    flagDiv(s, a, w, "diverge");
+  }
+}
+
+function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word_index?: number }) {
   if (!divLooks || !divCorpus) return;
-  // A successful relocate/locate starts a new epoch — the same region
+  // A successful locate/relocate starts a new epoch — the same region
   // legitimately re-flags if the reciter slips again on the re-read.
-  // located/relocated are true location epochs — re-arm on those only.
-  // verse_match fires on every ayah completion mid-passage; clearing there
-  // let the same region ding again on an ordinary crossing.
-  if (ev.type === "relocated" || ev.type === "located") {
+  // `located` is swallowed by the session layer and surfaces as
+  // `verse_candidate`; `relocated` passes through unchanged.
+  if (ev.type === "relocated" || ev.type === "verse_candidate") {
     mutaSeen.clear();
     return;
   }
-  if (ev.type === "cursor" && ev.wordIndex != null && ev.surah != null && ev.ayah != null && ev.word != null) {
-    flagDiv(ev.surah, ev.ayah, ev.word, "approach");
-  } else if (ev.type === "verdicts" && Array.isArray(ev.changes)) {
-    for (const v of ev.changes) {
-      // Bare `unsure` is routine CTC mush on correct recitation — only a
-      // `wrong` verdict or a named look-alike alternate earns a ding.
-      if ((v.state !== "wrong" && !v.lookalike) || v.wordIndex == null) continue;
-      // Judge-level dual-score already named the alternative — ding it
-      // directly (covers insert/delete regions the position scan can't).
-      const look = v.lookalike;
-      const s = divCorpus.wordSurah[v.wordIndex];
-      const a = divCorpus.wordAyah[v.wordIndex];
-      const w = divCorpus.wordInAyah[v.wordIndex];
-      if (look) {
-        const key = `x:${s}:${a}:${w}:${look.surah}:${look.ayah}`;
-        if (!mutaSeen.has(key)) {
-          mutaSeen.add(key);
-          // Attach the divergent-region bounds for this twin (if we can
-          // find the row) so the page can underline the exact words.
-          let from: number | undefined, to: number | undefined;
-          for (const row of divLooks.get(`${s}:${a}`) ?? []) {
-            if (row.m[0] !== look.surah || row.m[1] !== look.ayah) continue;
-            const r = row.regions.find((x) => w >= x[1] && w < x[2]);
-            if (r) { from = r[1] + 1; to = r[2]; break; }
-          }
-          post({
-            type: "muta_diverge", surah: s, ayah: a, word: w + 1,
-            altSurah: look.surah, altAyah: look.ayah, certain: true,
-            conf: look.conf ?? 0, from, to,
-          });
-        }
-        continue; // don't double-ding via the position scan below
-      }
-      flagDiv(s, a, w, "diverge");
-    }
+  if (ev.type === "word_progress" && ev.word_index != null && ev.surah != null && ev.ayah != null) {
+    flagDiv(ev.surah, ev.ayah, ev.word_index, "approach");
+    pollVerdicts();
   }
 }
 
@@ -317,10 +334,30 @@ async function init(sampleRate: number) {
       try { watchMuta(m as Parameters<typeof watchMuta>[0]); } catch {}
       // Enrich correction events with the heard phonemes for the flagged
       // word — the popup shows "you said X" alongside the expected word.
+      // If the flagged word sits inside a divergent region, also name the
+      // look-alike twin: the slip is probably the twin's wording, and the
+      // page can display "that's the wording of X:Y" in the same popup.
       try {
-        const ev = m as { type?: string; state?: { issue?: { wordIndex?: number } } };
-        if (ev.type === "correction" && typeof ev.state?.issue?.wordIndex === "number") {
-          (ev as Record<string, unknown>).heard = heardForWord(ev.state.issue.wordIndex);
+        const ev = m as {
+          type?: string;
+          state?: { issue?: { surah?: number; ayah?: number; word?: number; wordIndex?: number } };
+        };
+        const iss = ev.state?.issue;
+        if (ev.type === "correction" && iss && typeof iss.wordIndex === "number") {
+          (ev as Record<string, unknown>).heard = heardForWord(iss.wordIndex);
+          if (divLooks && typeof iss.surah === "number" && typeof iss.word === "number") {
+            for (const row of divLooks.get(`${iss.surah}:${iss.ayah}`) ?? []) {
+              const r = row.regions.find((x) => iss.word! >= x[1] && iss.word! < x[2]);
+              if (r) {
+                (ev as Record<string, unknown>).muta = {
+                  altS: row.m[0], altA: row.m[1],
+                  from: r[1] + 1, to: r[2], altFrom: r[3] + 1, altTo: r[4],
+                  conf: (row as { conf?: number }).conf ?? 0,
+                };
+                break;
+              }
+            }
+          }
         }
       } catch {}
       post(m as Record<string, unknown>);
@@ -358,8 +395,12 @@ async function init(sampleRate: number) {
       holdWindow: 22,
       holdRate: 0.7,
       lostRate: 0.55,
-      relocateEveryFrames: 40,
+      relocateEveryFrames: 30,
       relocateQueryChars: 120,
+      // Drop to the free-search hard reset after 2 bad ticks instead of 3 —
+      // a wedged tracker recovers ~1.6s sooner and nothing else uses the
+      // struggles counter.
+      maxStruggles: 2,
       // A wrong word must be decisively worse than staying: demand the remote
       // hit beat local cost by 0.25 (was 0.12 — a moderate stumble could pass).
       relocateRateMargin: 0.25,
@@ -409,6 +450,10 @@ async function init(sampleRate: number) {
   // similar_verse accusation on landings inside this set.
   if (zp?.structuralRules?.ident?.size)
     post({ type: "muta_ident", ayahs: [...zp.structuralRules.ident] });
+  // Tell the page the look-alike machinery is armed (and how much of the
+  // index is live) — a silent dead watcher used to look exactly like a
+  // working one from the page side.
+  post({ type: "muta_ready", pairs: divLooks?.size ?? 0 });
   // Balanced flagging: omissions flag when under half the word was heard,
   // substitutions need a clearly different word, vowel slips need a confident
   // decoder read. Tighter than this (0.15/0.9) made real slips never surface.
@@ -561,11 +606,14 @@ self.onmessage = (e: MessageEvent) => {
           framesDecoded: z?.decoder?.framesDecoded ?? 0,
         });
         post({ type: "stopped" });
-      } else if (m.type === "reset" && session) {
+      } else if (m.type === "reset") {
+        // Bookkeeping must run even before init: a reset queued ahead of
+        // init on a cold/replacement worker would otherwise leave takeId
+        // stale and the page would drop every event of the new session.
         audioPending = [];
         if (typeof m.take === "number") takeId = m.take;
         mutaSeen.clear(); // fresh take — divergent regions may ding again
-        session.reset();
+        session?.reset();
       } else if (m.type === "correction-act" && session) {
         session.zipformer?.correction.act(m.action);
       } else if (m.type === "reanchor" && session) {

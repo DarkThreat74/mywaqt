@@ -93,7 +93,11 @@ function recycleWorker(reason: "stall" | "post-session") {
   if (listen === "idle") {
     warmQt(); // pre-load the replacement during idle
   } else {
-    ensureWorker()?.postMessage({ type: "init", sampleRate: workerRate || 16000 });
+    const nw = ensureWorker();
+    nw?.postMessage({ type: "init", sampleRate: workerRate || 16000 });
+    // A fresh worker boots with takeId=0 — without this its events carry the
+    // wrong epoch and the page drops every one of them: recycled = deaf.
+    nw?.postMessage({ type: "reset", take: takeId });
     if (reason === "stall") {
       emit({ type: "ui-status", message: "Engine stalled — restarting…" });
     }
@@ -602,6 +606,9 @@ export async function startQt(): Promise<void> {
     if (ctx.state === "suspended") {
       try { await ctx.resume(); } catch {}
     }
+    // A context that won't run = a dead audio graph: worklet never fires,
+    // engine starves silently. Fail into the normal error path instead.
+    if (ctx.state !== "running") throw new Error("Audio context is blocked — tap Listen again.");
     // Same-origin file preferred. Fallback: the engine bucket keeps a copy
     // under /qt/qt-capture.js — build a blob: module URL from it so the
     // worklet loads even where service workers don't exist (native WebView)
