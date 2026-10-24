@@ -138,10 +138,18 @@ function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word?: nu
         const key = `x:${s}:${a}:${w}:${look.surah}:${look.ayah}`;
         if (!mutaSeen.has(key)) {
           mutaSeen.add(key);
+          // Attach the divergent-region bounds for this twin (if we can
+          // find the row) so the page can underline the exact words.
+          let from: number | undefined, to: number | undefined;
+          for (const row of divLooks.get(`${s}:${a}`) ?? []) {
+            if (row.m[0] !== look.surah || row.m[1] !== look.ayah) continue;
+            const r = row.regions.find((x) => w >= x[1] && w < x[2]);
+            if (r) { from = r[1] + 1; to = r[2]; break; }
+          }
           post({
             type: "muta_diverge", surah: s, ayah: a, word: w + 1,
             altSurah: look.surah, altAyah: look.ayah, certain: true,
-            conf: look.conf ?? 0,
+            conf: look.conf ?? 0, from, to,
           });
         }
         continue; // don't double-ding via the position scan below
@@ -195,6 +203,9 @@ function flagDiv(s: number, a: number, w: number, mode: "approach" | "diverge") 
         surah: s, ayah: a, word: w + 1, // 1-based in-ayah for the page
         altSurah: row.m[0], altAyah: row.m[1],
         conf,
+        // Region bounds (1-based) — the page underlines exactly the words
+        // where this ayah parts ways with the look-alike.
+        from: i1 + 1, to: i2,
         // Hard families (near-identical diffs): an unsure verdict there is
         // indistinguishable from mushy audio — flag silently, never ding.
         soft: mode === "diverge" && conf >= 0.7,

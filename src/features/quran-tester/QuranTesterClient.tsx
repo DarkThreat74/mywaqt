@@ -97,7 +97,15 @@ export default function QuranTesterClient() {
     try { return new Set(JSON.parse(sessionStorage.getItem("qt:diversions") ?? "[]")); }
     catch { return new Set(); }
   });
-  const [pending, setPending] = useState<{ s: number; a: number; w: number; kind: string; heard?: string; expected?: string } | null>(null);
+  const [pending, setPending] = useState<{ s: number; a: number; w: number; kind: string; heard?: string; expected?: string; altS?: number; altA?: number; altText?: string } | null>(null);
+  // Divergent zones — word ranges where the current ayah parts ways with a
+  // known look-alike. Rendered as a quiet underline so the "people slip
+  // HERE" spot is visible before you reach it. "s:a" → bounds.
+  const [divZones, setDivZones] = useState<Map<string, { w1: number; w2: number; altS: number; altA: number }>>(new Map());
+  const divZonesRef = useRef(divZones);
+  const levelRef = useRef(0); // live mic level for the stall watchdog
+  const stallFixRef = useRef<number | null>(null); // first re-anchor attempt ts
+  const mutaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastIssueKeyRef = useRef<string | null>(null); // suspect raised by the live correction
   // While an issue sits in the engine's `retrying` phase the main tracker
   // is frozen — if you keep reciting forward instead of re-reading, ALL
@@ -821,7 +829,9 @@ export default function QuranTesterClient() {
       setMicDenied(true);
       setMicError(String(ev.message));
     } else if (ev.type === "ui-level") {
-      setLevel(ev.value as number);
+      const v = ev.value as number;
+      levelRef.current = v;
+      setLevel(v);
     } else if (ev.type === "ui-error") {
       setMicError(String(ev.message));
     } else if (ev.type === "audio-gap") {
@@ -829,6 +839,8 @@ export default function QuranTesterClient() {
       // resumed from the live edge; just say so instead of silently drifting.
       setStatus(`Audio gap — skipped ${Math.round((ev.seconds as number) * 1000)} ms to keep up`);
     } else if (ev.type === "lost") {
+      divZonesRef.current.clear();
+      setDivZones(new Map());
       preambleGraceRef.current = Date.now();
       if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
       candRef.current = null;
@@ -912,8 +924,14 @@ export default function QuranTesterClient() {
       }
     } else if (ev.type === "muta_approach") {
       // Entering a word region that differs from a known look-alike ayah —
-      // heads-up only, no accusation (Qiraa's asymmetric rule).
+      // heads-up only, no accusation (Qiraa's asymmetric rule). Mark the
+      // exact divergent words in the mushaf so the slip point is visible
+      // before you reach it.
+      const s = Number(ev.surah), a = Number(ev.ayah);
       const altS = Number(ev.altSurah), altA = Number(ev.altAyah);
+      const w1 = Number(ev.from ?? ev.word), w2 = Number(ev.to ?? ev.word);
+      divZonesRef.current.set(`${s}:${a}`, { w1, w2, altS, altA });
+      setDivZones(new Map(divZonesRef.current));
       setStatus(`Look-alike ahead — differs from ${surahName(altS)} ${altS}:${altA}`);
     } else if (ev.type === "muta_diverge") {
       // A wrong/unsure verdict landed inside a divergent region — the slip
@@ -928,6 +946,19 @@ export default function QuranTesterClient() {
         suspectsRef.current = next;
         setSuspects(next);
         sessionFlagsRef.current.add(k);
+      }
+      // A confident named twin opens the same Mistake/Not-a-mistake popup —
+      // this is the moment the index earns its keep: it doesn't just say
+      // "wrong word", it says WHICH look-alike you drifted into and shows
+      // that ayah's actual text. Auto-clears in 10s like the other banner;
+      // the yellow mark stays for tap-review either way.
+      if (!ev.soft && !pendingRef.current) {
+        setPending({ s, a, w, kind: "similar_verse", altS, altA });
+        void ayahSnippet(altS, altA).then((t) =>
+          setPending((p) => (p && p.s === s && p.a === a && p.w === w ? { ...p, altText: t } : p)));
+        if (mutaTimerRef.current) clearTimeout(mutaTimerRef.current);
+        mutaTimerRef.current = setTimeout(
+          () => setPending((p) => (p?.kind === "similar_verse" ? null : p)), 10000);
       }
       // soft = near-undecidable family (vowel-only/single-clitic diff): an
       // unsure verdict there can't be told from mushy audio, so flag the
@@ -1003,6 +1034,13 @@ export default function QuranTesterClient() {
       const wDisp = (ev.word_index as number) + 1;
       setWordIdx(wDisp);
       noteHeard(s, a, wDisp, ev.total_words as number);
+      // Divergent zone cleared once the cursor is past it — the heads-up
+      // was about THAT decision point, not the whole ayah.
+      const dz = divZonesRef.current.get(`${s}:${a}`);
+      if (dz && wDisp > dz.w2) {
+        divZonesRef.current.delete(`${s}:${a}`);
+        setDivZones(new Map(divZonesRef.current));
+      }
       // "Continue from here" — remember the live cursor (throttled writes;
       // a crash between stops still offers a resume point).
       lastWordRef.current = { s, a, w: wDisp };
@@ -1123,9 +1161,33 @@ export default function QuranTesterClient() {
     lastWordAtRef.current = Date.now();
     const iv = setInterval(() => {
       if (pendingRef.current) return;
-      if (!holdingRef.current && Date.now() - lastWordAtRef.current > 4500) {
+      const quiet = Date.now() - lastWordAtRef.current;
+      if (!holdingRef.current && quiet > 4500) {
         holdingRef.current = true;
         setStatus("Still listening — take your time");
+      }
+      // Stall watchdog — voice is present but the tracker hasn't advanced
+      // in a while (fast recitation, an abrupt stop, a wedged decode). The
+      // engine used to sit there until a manual reset; now it re-anchors
+      // once, and if the tracker is truly wedged it resets it — the worker
+      // re-locates from the live stream either way. No user action needed.
+      if (quiet > 15000 && levelRef.current > 0.03) {
+        if (stallFixRef.current === null) {
+          stallFixRef.current = Date.now();
+          const p = lastWordRef.current ?? locLiveRef.current;
+          if (p) {
+            setStatus("Re-locking — keep reciting");
+            qtPost({ type: "reanchor", s: p.s, a: p.a, w: Math.max(0, (("w" in p ? p.w : 1) as number) - 1) });
+          }
+        } else if (Date.now() - stallFixRef.current > 20000) {
+          stallFixRef.current = null;
+          qtPost({ type: "reset" }); // tracker-only reset — live audio re-locates
+          divZonesRef.current.clear();
+          setDivZones(new Map());
+          setStatus("Re-listening — keep going");
+        }
+      } else if (quiet < 5000 && stallFixRef.current !== null) {
+        stallFixRef.current = null; // progress resumed — re-arm
       }
     }, 1000);
     return () => clearInterval(iv);
@@ -1378,6 +1440,11 @@ export default function QuranTesterClient() {
       return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // the pinned bookmark
     if (pin && pin.s === s && pin.a === a && w === pin.w)
       return { ...bridge, boxShadow: "inset 0 -3px 0 #3b82f6" } as const; // last word read right — blue underline
+    // Divergent zone: "this ayah parts ways with a look-alike HERE" —
+    // quiet accent underline, overruled by cursor/heard/suspect styling.
+    const dz = divZones.get(`${s}:${a}`);
+    if (dz && w >= dz.w1 && w <= dz.w2)
+      return { ...bridge, boxShadow: "inset 0 -2px 0 color-mix(in oklab, var(--color-accent) 65%, transparent)" } as const;
     if (loc && loc.surah === s && loc.ayah === a) {
       if (wordIdx === w)
         return { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } as const;
@@ -1876,6 +1943,16 @@ export default function QuranTesterClient() {
             <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
               {issueLabel(pending.kind)} — {surahName(pending.s)} {pending.s}:{pending.a}{pending.w ? `, word ${pending.w}` : ""}
             </p>
+            {pending.kind === "similar_verse" && pending.altS != null && (
+              <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-accent)" }}>
+                Sounds like {surahName(pending.altS)} {pending.altS}:{pending.altA}
+                {pending.altText ? (
+                  <span dir="rtl" className="mt-0.5 block font-medium" style={{ color: "var(--color-ink)" }}>
+                    {pending.altText}
+                  </span>
+                ) : null}
+              </p>
+            )}
             {(pending.expected || pending.heard) && (
               <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[13px]">
                 {pending.expected && (
