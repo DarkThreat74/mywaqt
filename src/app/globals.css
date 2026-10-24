@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Keep Tailwind's source scanner off generated bulk assets — the bundled
+ * worker and the mutashabihat index are multi-MB and stall the tokenizer. */
+@source not "../../public/qt/";
+@source not "../features/quran-tester/muta-index.json";
+
 /* ─────────────────────────────────────────────────────────────
  * Waqt design tokens — warm contemplative palette
  * Pre-dawn ink, warm paper, deep teal accent.

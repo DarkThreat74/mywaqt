@@ -22,6 +22,43 @@ const corpus = new QuranCorpus(CORPUS_JSON);
 const index = new QuranIndex(corpus, DEFAULT_CONFIG);
 const rules = new StructuralRules(corpus, STRUCT_INDEX);
 
+// Extended pairwise index (scripts/build-muta-index.mjs) — same schema,
+// merged into rules.looks/both/ident exactly like recite.worker.ts does at
+// session init, so replay cases exercise the union coverage.
+const EXT_INDEX = JSON.parse(readFileSync(
+  join(HERE, "..", "src", "features", "quran-tester", "muta-index.json"), "utf8"));
+{
+  const sig = (key, r) => `${key}>${r.m[0]}:${r.m[1]}|${r.regions.flat().join(",")}`;
+  const seen = new Map();
+  const add = (map, key, row) => {
+    if (!map) return;
+    const s = sig(key, row);
+    let st = seen.get(key);
+    if (!st) { st = new Set((map.get(key) ?? []).map((r) => sig(key, r))); seen.set(key, st); }
+    if (st.has(s)) return;
+    st.add(s);
+    let arr = map.get(key);
+    if (!arr) map.set(key, (arr = []));
+    arr.push(row);
+  };
+  for (const [key, rows] of Object.entries(EXT_INDEX.pairs)) {
+    const [s, a] = key.split(":").map(Number);
+    for (const flat of rows) {
+      const m = [flat[0], flat[1]];
+      const regions = [];
+      for (let p = 2; p + 4 <= flat.length; p += 5)
+        regions.push([flat[p], flat[p + 1], flat[p + 2], flat[p + 3], flat[p + 4]]);
+      add(rules.looks, key, { m, regions });
+      add(rules.both, key, { m, regions });
+      add(rules.both, `${m[0]}:${m[1]}`, {
+        m: [s, a],
+        regions: regions.map(([t, i1, i2, j1, j2]) => [t === 1 ? 2 : t === 2 ? 1 : t, j1, j2, i1, i2]),
+      });
+    }
+  }
+  if (rules.ident) for (const k of EXT_INDEX.ident ?? []) rules.ident.add(k);
+}
+
 // ── recitation-script builder ─────────────────────────────────────
 const ref = (s) => { const [surah, ayah, word] = s.split(":").map(Number); return { surah, ayah, word }; };
 const wordPh = (r) => corpus.wordPhonemes(corpus.wordIndex(r.surah, r.ayah, r.word));
@@ -48,6 +85,15 @@ function makeRecite(ayahs, opts = {}) {
       if (c?.kind === "drop") continue;
       words.push({ key, phonemes: c?.kind === "sub" ? wordPh(ref(c.with)) : ph[w] });
       if (c?.kind === "insert") words.push({ key: key + "+ins", phonemes: wordPh(ref(c.with)) });
+      if (c?.kind === "repeat") words.push({ key: key + "+rep", phonemes: ph[w] });
+      // Pausal form: drop the trailing harakat token(s) of the word —
+      // reciters stop voicing final vowels at ayah ends.
+      if (c?.kind === "pausal") {
+        words.pop();
+        const trimmed = [...ph[w]];
+        while (trimmed.length > 1 && /[ً-ْٰـ]/.test(trimmed[trimmed.length - 1])) trimmed.pop();
+        words.push({ key: key + "+pausal", phonemes: trimmed.join("") });
+      }
       if (pauses.has(key)) words.push({ pauseFrames: pauses.get(key) });
     }
     words.push({ pauseFrames: 8 }); // small ayah gap
@@ -233,6 +279,69 @@ console.log("case 3: vowel-only corruption in 1:5 word 1");
   check("vowel/word diff noticed (state|vowelErrors|distance)",
     v && (v.state !== "ok" || (v.vowelErrors ?? 0) > 0 || (v.distance ?? 0) > 0.15),
     JSON.stringify(v && { state: v.state, distance: v.distance, vowelErrors: v.vowelErrors }));
+}
+
+console.log("case 10: ending-variant slip (tail swap into a mutashabih twin)");
+{
+  // Find a tail-variant row from the extended index: single replace region
+  // at the ayah's last word (d=1) — the غفور رحيم/حليم class.
+  let tail = null;
+  outer: for (const [key, rows] of rules.both) {
+    const [s, a] = key.split(":").map(Number);
+    const wc = corpus.ayahWordCount(s, a);
+    for (const row of rows) {
+      if (row.regions.length !== 1) continue;
+      const r = row.regions[0];
+      if (r[0] !== 0 || r[2] !== wc || r[4] !== r[3] + 1 || r[2] - r[1] !== 1) continue;
+      const bw = corpus.ayahWordCount(row.m[0], row.m[1]);
+      if (r[4] !== bw) continue;
+      tail = { s, a, m: row.m, i1: r[1], j1: r[3], wc };
+      break outer;
+    }
+  }
+  if (!tail) console.log("  SKIP — no tail-variant pair found");
+  else {
+    console.log(`  ${tail.s}:${tail.a} ends like ${tail.m.join(":")} (diverge at word ${tail.i1})`);
+    const { log } = run(
+      makeRecite([`${tail.s}:${tail.a}`, `${tail.s}:${tail.a + 1}`], {
+        branchSlip: { from: `${tail.s}:${tail.a}`, to: `${tail.m[0]}:${tail.m[1]}`, atWord: tail.i1 },
+      }),
+      { relocateEveryFrames: 20 },
+      { structural: true });
+    dump(log);
+    const fv = [...finalVerdicts(log).values()];
+    const namedAlt = fv.some(v => v.lookalike && v.lookalike.surah === tail.m[0] && v.lookalike.ayah === tail.m[1]);
+    const wrongAt = verdictFull(log, tail.s, tail.a, tail.i1);
+    check("ending slip noticed (lookalike|wrong|unsure)",
+      namedAlt || ["wrong", "unsure"].includes(wrongAt?.state),
+      JSON.stringify({ namedAlt, state: wrongAt?.state, lookalike: wrongAt?.lookalike }));
+    // A tail slip must NOT silently relocate the tracker — the body differed.
+    check("no far relocation", !evs(log, "relocated").some(e => e.to && (e.to.ayah - tail.a > 2 || e.to.surah !== tail.s)),
+      JSON.stringify(evs(log, "relocated").map(e => e.to)));
+  }
+}
+
+console.log("case 11: word repetition self-corrects (1:6 word 1 doubled)");
+{
+  const { log } = run(makeRecite(["1:6", "1:7"], {
+    corrupt: [{ at: "1:6:1", kind: "repeat" }] }));
+  dump(log);
+  check("no lost", !evs(log, "lost").length);
+  check("following word still judged", ["ok", "unsure"].includes(verdictAt(log, 1, 6, 2)),
+    `got ${verdictAt(log, 1, 6, 2)}`);
+  check("no relocation", !evs(log, "relocated").length);
+}
+
+console.log("case 12: pausal ending in 1:3 (final harakat dropped)");
+{
+  const last = corpus.ayahWordCount(1, 3) - 1;
+  const { log } = run(makeRecite(["1:3"], {
+    corrupt: [{ at: `1:3:${last}`, kind: "pausal" }] }));
+  dump(log);
+  const v = verdictFull(log, 1, 3, last);
+  check("pausal form not flagged wrong",
+    !v || v.state !== "wrong",
+    JSON.stringify(v && { state: v.state, distance: v.distance }));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
