@@ -1120,11 +1120,13 @@ self.addEventListener("fetch", (event) => {
     if (pathname === "/") {
       event.respondWith(
         (async () => {
-          const cache = await soft(cacheFor(RUNTIME_CACHE), 1200, null);
+          const [cache, uid] = await Promise.all([
+            soft(cacheFor(RUNTIME_CACHE), 1200, null),
+            soft(requestUid(), 800, null),
+          ]);
           // The proxy redirects logged-in "/" → /calendar/day. Serving a
           // cached marketing page here bypasses that redirect and shows the
           // landing page to a signed-in user — only serve it logged-out.
-          const uid = await soft(requestUid(), 800, null);
           const cached = !cache || uid ? null : await soft(cache.match(request), 800, null);
           // Fetch fresh in background (don't await — return cached immediately).
           // timedFetch: a bare fetch on a dead-but-connected socket hangs for
@@ -1204,7 +1206,13 @@ self.addEventListener("fetch", (event) => {
     // never collide — the stale copy served is always this exact URL's.
     event.respondWith(
       (async () => {
-        const pageCache = await soft(cacheFor(PAGE_CACHE), 1500, null);
+        const cacheKey = url.pathname + url.search;
+        // Cache open and uid read are independent — run them together so the
+        // storage round-trips don't stack onto every navigation.
+        const [pageCache, uid] = await Promise.all([
+          soft(cacheFor(PAGE_CACHE), 1500, null),
+          soft(requestUid(), 800, null),
+        ]);
         if (!pageCache) {
           // CacheStorage itself is wedged — network or honest offline page.
           try {
@@ -1213,8 +1221,6 @@ self.addEventListener("fetch", (event) => {
             return offlineResponse();
           }
         }
-        const cacheKey = url.pathname + url.search;
-        const uid = await soft(requestUid(), 800, null);
 
         // Cached pages are stamped with the deploy's buildId (pulled from
         // the /_next/static/<build>/ chunk URLs inside the HTML). A stale
@@ -1357,14 +1363,18 @@ self.addEventListener("fetch", (event) => {
   if (request.headers.get("RSC") === "1" || url.searchParams.has("_rsc")) {
     event.respondWith(
       (async () => {
-        const cache = await soft(cacheFor(RSC_CACHE), 1200, null);
         const params = new URLSearchParams(url.search);
         params.delete("_rsc");
         params.sort();
         // URLSearchParams.size needs iOS 17+ — toString() works everywhere.
         const qs = params.toString();
         const key = qs ? `${url.pathname}?${qs}` : url.pathname;
-        const uid = await soft(requestUid(), 800, null);
+        // Cache open and uid read are independent — every <Link> tap pays
+        // this path, so don't stack the two storage round-trips serially.
+        const [cache, uid] = await Promise.all([
+          soft(cacheFor(RSC_CACHE), 1200, null),
+          soft(requestUid(), 800, null),
+        ]);
         if (!cache) {
           // CacheStorage wedged — network or an honest empty payload, never
           // a respondWith that hangs the tap forever.
@@ -1484,8 +1494,12 @@ self.addEventListener("fetch", (event) => {
             })
           );
         }
-        const cache = await soft(cacheFor(API_CACHE), 1200, null);
-        const uid = await soft(requestUid(), 800, null);
+        // Independent reads in parallel — serially they stack a full
+        // storage round-trip onto every API call before the cache can answer.
+        const [cache, uid] = await Promise.all([
+          soft(cacheFor(API_CACHE), 1200, null),
+          soft(requestUid(), 800, null),
+        ]);
         // Entries are stamped with the uid they were fetched under — an
         // expired session leaves no CLEAR_USER_CACHE, and without the stamp
         // the next account on this device would inherit private API data.

@@ -147,7 +147,10 @@ const idle = (fn: () => void) =>
 export function warmMushaf(): void {
   if (warming || typeof caches === "undefined") return;
   const conn = (navigator as { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
-  if (conn?.saveData || conn?.effectiveType === "slow-2g") return;
+  // ~90MB in the background would starve every live request on a capped or
+  // weak link — only 4g-class connections (or unknown, e.g. wifi) can afford it.
+  if (conn?.saveData || (conn?.effectiveType && conn.effectiveType !== "4g")) return;
+  if (navigator.onLine === false) return;
   let p = Math.max(1, Math.min(PAGE_COUNT + 1, Number(localStorage.getItem(WARM_KEY)) || 1));
   warming = true;
   // The small shared assets warm with the run — without these an offline
