@@ -633,6 +633,18 @@ function timedFetch(request, ms, bypassHttpCache = false) {
     .finally(() => clearTimeout(t));
 }
 
+// Promise with a soft fallback — IndexedDB and CacheStorage reads can hang
+// forever on some platforms (iOS private browsing, storage pressure, a
+// wedged quota lock), and a hung getMeta()/cache.match() stalls the
+// respondWith promise: the page paints its loading shell and never swaps.
+// Every cache/IDB read in the request path goes through this.
+function soft(promise, ms, fallback) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]).catch(() => fallback);
+}
+
 // A cached Response is a frozen body+headers snapshot — a dedicated worker
 // born from a stale chunk inherits its CSP from THESE headers, not the
 // page's. Only re-stamp when the served policy lacks wasm-unsafe-eval, so a
@@ -673,7 +685,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         try {
-          const cached = await caches.match(request);
+          const cached = await soft(caches.match(request), 800, null);
           if (cached) return withFixedCSP(cached);
         } catch { /* CacheStorage broken — fall through to network */ }
         // Hydration-critical files get a real budget + one retry: a single
@@ -726,7 +738,8 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         try {
           const cache = await cacheFor("quran-tester-engine-v1");
-          const hit = await cache.match(url.pathname) ?? await cache.match(url.href);
+          const hit = await soft(cache.match(url.pathname), 1200, null)
+            ?? await soft(cache.match(url.href), 1200, null);
           // Re-stamp CSP like the _next/static branch — an engine file cached
           // before the wasm-unsafe-eval change keeps its birth CSP forever.
           if (hit) {
@@ -1099,12 +1112,12 @@ self.addEventListener("fetch", (event) => {
     if (pathname === "/") {
       event.respondWith(
         (async () => {
-          const cache = await cacheFor(RUNTIME_CACHE);
+          const cache = await soft(cacheFor(RUNTIME_CACHE), 1200, null);
           // The proxy redirects logged-in "/" → /calendar/day. Serving a
           // cached marketing page here bypasses that redirect and shows the
           // landing page to a signed-in user — only serve it logged-out.
-          const uid = await requestUid();
-          const cached = uid ? null : await cache.match(request);
+          const uid = await soft(requestUid(), 800, null);
+          const cached = !cache || uid ? null : await soft(cache.match(request), 800, null);
           // Fetch fresh in background (don't await — return cached immediately).
           // timedFetch: a bare fetch on a dead-but-connected socket hangs for
           // the browser's own timeout (~5min) — blank screen the whole time.
@@ -1127,8 +1140,10 @@ self.addEventListener("fetch", (event) => {
           if (res) return res;
           {
             // Offline with no cache — serve cached calendar (app shell)
-            const pageCache = await cacheFor(PAGE_CACHE);
-            const calendarCached = await pageCache.match("/calendar/day");
+            const pageCache = await soft(cacheFor(PAGE_CACHE), 1200, null);
+            const calendarCached = pageCache
+              ? await soft(pageCache.match("/calendar/day"), 800, null)
+              : null;
             if (calendarCached) return calendarCached;
             return new Response(
               "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#f5f0e8;color:#1a1815;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}</style></head><body><div><h1>You're offline</h1><p>Open the app again once you're back online to reload cached pages.</p></div></body></html>",
@@ -1148,7 +1163,7 @@ self.addEventListener("fetch", (event) => {
       event.respondWith(
         timedFetch(request, 8000)
           .catch(async () => {
-            const offlinePage = await caches.match("/offline.html");
+            const offlinePage = await soft(caches.match("/offline.html"), 800, null);
             return offlinePage || new Response("Offline", { status: 503 });
           })
           // A respondWith REJECTION is a browser error page — last resort.
@@ -1181,9 +1196,17 @@ self.addEventListener("fetch", (event) => {
     // never collide — the stale copy served is always this exact URL's.
     event.respondWith(
       (async () => {
-        const pageCache = await cacheFor(PAGE_CACHE);
+        const pageCache = await soft(cacheFor(PAGE_CACHE), 1500, null);
+        if (!pageCache) {
+          // CacheStorage itself is wedged — network or honest offline page.
+          try {
+            return await timedFetch(request, 10000, true);
+          } catch {
+            return offlineResponse();
+          }
+        }
         const cacheKey = url.pathname + url.search;
-        const uid = await requestUid();
+        const uid = await soft(requestUid(), 800, null);
 
         // Cached pages are stamped with the deploy's buildId (pulled from
         // the /_next/static/<build>/ chunk URLs inside the HTML). A stale
@@ -1210,18 +1233,18 @@ self.addEventListener("fetch", (event) => {
 
         // Best page we can serve for this account, best-match first.
         const fallbackPage = async () => {
-          const pathnameCached = await matchStampedPage(pageCache, pathname, uid);
+          const pathnameCached = await soft(matchStampedPage(pageCache, pathname, uid), 800, null);
           if (pathnameCached) return pathnameCached;
           for (const page of APP_PAGES) {
-            const fallback = await matchStampedPage(pageCache, page, uid);
+            const fallback = await soft(matchStampedPage(pageCache, page, uid), 800, null);
             if (fallback) return fallback;
           }
-          return caches.match("/offline.html");
+          return soft(caches.match("/offline.html"), 800, null);
         };
 
         // Instant path — same-account copy of THIS url: paint now,
         // revalidate in the background.
-        const cachedHit = await matchStampedPage(pageCache, cacheKey, uid);
+        const cachedHit = await soft(matchStampedPage(pageCache, cacheKey, uid), 1000, null);
         if (cachedHit) {
           event.waitUntil(
             (async () => {
@@ -1326,14 +1349,23 @@ self.addEventListener("fetch", (event) => {
   if (request.headers.get("RSC") === "1" || url.searchParams.has("_rsc")) {
     event.respondWith(
       (async () => {
-        const cache = await cacheFor(RSC_CACHE);
+        const cache = await soft(cacheFor(RSC_CACHE), 1200, null);
         const params = new URLSearchParams(url.search);
         params.delete("_rsc");
         params.sort();
         // URLSearchParams.size needs iOS 17+ — toString() works everywhere.
         const qs = params.toString();
         const key = qs ? `${url.pathname}?${qs}` : url.pathname;
-        const uid = await requestUid();
+        const uid = await soft(requestUid(), 800, null);
+        if (!cache) {
+          // CacheStorage wedged — network or an honest empty payload, never
+          // a respondWith that hangs the tap forever.
+          try {
+            return await timedFetch(request, 6000);
+          } catch {
+            return new Response("", { status: 503, headers: { "Content-Type": "text/x-component" } });
+          }
+        }
 
         // Router prefetch responses are PARTIAL Flight trees (shell down to
         // the nearest loading boundary) — caching one under the real key
@@ -1353,12 +1385,13 @@ self.addEventListener("fetch", (event) => {
         };
         const maybeStore = (r) => { if (!isPrefetch) return store(r); };
 
-        let cached = await matchStampedPage(cache, key, uid);
+        let cached = await soft(matchStampedPage(cache, key, uid), 800, null);
         if (cached) {
           // Serving a build-A Flight payload to a page running build-B JS
           // crashes hydration — compare against the cached page's build.
           const rscBuild = cached.headers.get("x-waqt-build");
-          const page = await matchStampedPage(await cacheFor(PAGE_CACHE), url.pathname, uid);
+          const pc = await soft(cacheFor(PAGE_CACHE), 800, null);
+          const page = pc ? await soft(matchStampedPage(pc, url.pathname, uid), 800, null) : null;
           const pageBuild = page?.headers.get("x-waqt-build");
           if (rscBuild && pageBuild && rscBuild !== pageBuild) cached = null;
         }
@@ -1427,7 +1460,7 @@ self.addEventListener("fetch", (event) => {
         // posted by the client at login (SET_SESSION) and cleared at logout.
         // (respondWith must be called synchronously, so the check lives here —
         // a missing flag passes the request straight to the network.)
-        if (!(await hasSession())) {
+        if (!(await soft(hasSession(), 800, false))) {
           return timedFetch(request, 8000).catch(
             () => new Response(JSON.stringify({ error: "offline" }), {
               status: 503, headers: { "Content-Type": "application/json" },
@@ -1443,12 +1476,12 @@ self.addEventListener("fetch", (event) => {
             })
           );
         }
-        const cache = await cacheFor(API_CACHE);
-        const uid = await requestUid();
+        const cache = await soft(cacheFor(API_CACHE), 1200, null);
+        const uid = await soft(requestUid(), 800, null);
         // Entries are stamped with the uid they were fetched under — an
         // expired session leaves no CLEAR_USER_CACHE, and without the stamp
         // the next account on this device would inherit private API data.
-        let cached = await cache.match(request);
+        let cached = cache ? await soft(cache.match(request), 800, null) : null;
         if (cached && cached.headers.get("x-waqt-uid") !== uid) cached = null;
         if (cached) {
           const cachedAt = Number(cached.headers.get("x-waqt-cached-at") || 0);
@@ -1469,7 +1502,7 @@ self.addEventListener("fetch", (event) => {
                     statusText: response.statusText,
                     headers,
                   });
-                  await cache.put(request, cachedRes);
+                  if (cache) await cache.put(request, cachedRes);
                 }
               })
               .catch(() => {})
@@ -1491,7 +1524,7 @@ self.addEventListener("fetch", (event) => {
               statusText: response.statusText,
               headers,
             });
-            await cache.put(request, cachedRes.clone());
+            if (cache) await cache.put(request, cachedRes.clone());
             return cachedRes;
           }
           return response;
@@ -1577,10 +1610,18 @@ self.addEventListener("fetch", (event) => {
   ) {
     event.respondWith(
       (async () => {
-        const audioCache = await cacheFor(AUDIO_CACHE);
+        const audioCache = await soft(cacheFor(AUDIO_CACHE), 1200, null);
+        if (!audioCache) {
+          // CacheStorage wedged — stream straight from network.
+          try {
+            return await timedFetch(request, 15000);
+          } catch {
+            return new Response(null, { status: 503, headers: { "Content-Type": "audio/ogg" } });
+          }
+        }
 
         // Try exact match first (handles re-requests of the same presigned URL)
-        const exactMatch = await audioCache.match(request, { ignoreVary: true });
+        const exactMatch = await soft(audioCache.match(request, { ignoreVary: true }), 800, null);
         if (exactMatch) {
           // Revalidate in background (presigned URLs expire — refresh the cache).
           // Request carries the player's Range header — a 206 partial response
@@ -1600,14 +1641,14 @@ self.addEventListener("fetch", (event) => {
         // alone would serve whichever talk happens to be cached.
         const streamParam = (url.pathname === "/api/talks" || url.pathname === "/api/recite-clips")
           ? url.searchParams.get("stream") : null;
-        const matchingKey = (await audioCache.keys()).find((key) => {
+        const matchingKey = (await soft(audioCache.keys(), 800, [])).find((key) => {
           const keyUrl = new URL(key.url);
           if (keyUrl.origin !== url.origin || keyUrl.pathname !== url.pathname) return false;
           if (streamParam !== null) return keyUrl.searchParams.get("stream") === streamParam;
           return true;
         });
         if (matchingKey) {
-          const cached = await audioCache.match(matchingKey, { ignoreVary: true });
+          const cached = await soft(audioCache.match(matchingKey, { ignoreVary: true }), 800, null);
           if (cached) {
             event.waitUntil(
               fetch(request).then(async (response) => {
