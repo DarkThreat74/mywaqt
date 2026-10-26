@@ -445,7 +445,16 @@ export async function GET(request: NextRequest) {
     ).length;
 
     // ── Average prayers per day (within range) ──
-    const avgPrayersPerDay = activeDays > 0 ? Math.round((totalPrayed / activeDays) * 10) / 10 : 0;
+    // Denominator is prayers actually due, not elapsed days × 5 — otherwise
+    // an early-in-the-week view divides a full Sunday's 5 prayers by 2 days
+    // and reports an absurd ~2.5/day. Excused prayers and today's
+    // not-yet-started windows shrink the denominator (never punitive).
+    const excusedInRange = rangeLogs.filter((l) => l.status === "excused").length;
+    const unstartedForAvg = todayTimes
+      ? prayers.filter((p) => todayTimes[p] > nowMinForDow).length
+      : 0;
+    const expectedSlots = Math.max(activeDays * 5 - excusedInRange - unstartedForAvg, 0);
+    const avgPrayersPerDay = expectedSlots > 0 ? Math.round((totalPrayed / expectedSlots) * 5 * 10) / 10 : 0;
 
     // ── Most consistent / most missed prayer ──
     const sortedByConsistency = [...perPrayer].sort((a, b) => b.consistencyPct - a.consistencyPct);

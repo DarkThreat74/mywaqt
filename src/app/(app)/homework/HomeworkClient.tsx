@@ -859,13 +859,13 @@ export default function HomeworkClient({
     });
   }, [homework, filterClassId, filterPriority, sortBy, sortTypeKind]);
 
-  const pending = filtered.filter((h) => h.status === "pending");
-  // Completed items stay visible (struck through, in a Done section) until
-  // their deadline actually passes — finishing early shouldn't hide proof.
-  const completed = filtered.filter((h) => h.status === "completed" && !deadlinePassed(h.dueDate, h.dueTime));
+  // Completed items stay in their normal date section — struck through —
+  // until the deadline actually passes. Finishing early shouldn't hide proof
+  // or move the item somewhere else.
+  const visible = filtered.filter((h) => h.status === "pending" || !deadlinePassed(h.dueDate, h.dueTime));
 
-  // Sort pending based on selected sort mode
-  const sortedPending = [...pending].sort((a, b) => {
+  // Sort based on selected sort mode
+  const sortedPending = [...visible].sort((a, b) => {
     switch (sortBy) {
       case "soonest": {
         // Soonest due first, then by due time
@@ -1420,7 +1420,7 @@ export default function HomeworkClient({
       )}
 
       {/* ── Filter & sort bar ── */}
-      {(pending.length > 0 || completed.length > 0) && (
+      {visible.length > 0 && (
         <div className="mb-4 flex flex-col gap-2.5">
           {/* Priority filter row */}
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1717,7 +1717,7 @@ export default function HomeworkClient({
       )}
 
       {/* Homework list */}
-      {pending.length === 0 && completed.length === 0 ? (
+      {visible.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <BookOpen className="mb-3 h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />
           <p className="text-sm font-medium" style={{ color: "var(--color-ink-muted)" }}>
@@ -1783,9 +1783,6 @@ export default function HomeworkClient({
               {renderSection("Later", later)}
             </>
           )}
-          {/* Done — completed-but-not-yet-due items, struck through. Once the
-              deadline passes they're filtered out of `completed` entirely. */}
-          {renderSection("Done", completed)}
         </>
       )}
 

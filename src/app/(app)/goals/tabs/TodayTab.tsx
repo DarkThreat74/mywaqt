@@ -9,7 +9,7 @@ import { compareGoals } from "@/lib/goals/tree";
 import { relativeTarget } from "@/lib/goals/relative";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { toggleHabitLogInCache } from "@/lib/offline/cache-writers";
-import { formatDueBadge, urgencyColors, urgencyCardTint } from "@/lib/homework/due-format";
+import { formatDueBadge, urgencyColors, urgencyCardTint, deadlinePassed } from "@/lib/homework/due-format";
 import { fmtMin } from "@/lib/blocks/gaps";
 
 function todayStr(): string {
@@ -65,10 +65,13 @@ export default function TodayTab({
     [homework, todayDateStr],
   );
 
-  // ── Upcoming: 5 closest pending homework (today + future), sorted by due date ──
+  // ── Upcoming: 5 closest homework (today + future), sorted by due date.
+  // Completed items stay listed — struck through — until their deadline
+  // passes, matching the homework page.
   const upcomingHomework = useMemo(
     () => homework
-      .filter((h) => h.status === "pending" && h.dueDate && h.dueDate >= todayDateStr)
+      .filter((h) => h.dueDate && h.dueDate >= todayDateStr &&
+        (h.status === "pending" || !deadlinePassed(h.dueDate, h.dueTime)))
       .sort((a, b) => {
         const aDate = a.dueDate + (a.dueTime || "23:59");
         const bDate = b.dueDate + (b.dueTime || "23:59");
@@ -315,7 +318,7 @@ export default function TodayTab({
     [homework, todayDateStr],
   );
 
-  const totalDueToday = upcomingHomework.length + carriedOver.length;
+  const totalDueToday = upcomingHomework.filter((h) => h.status === "pending").length + carriedOver.length;
 
   // Urgency breakdown for the header
   const urgencyBreakdown = useMemo(() => {
@@ -439,7 +442,7 @@ export default function TodayTab({
                     e.currentTarget.style.backgroundColor = tint.backgroundColor || "transparent";
                   }}
                 >
-                  <span className="text-sm truncate flex-1" style={{ color: "var(--color-ink)" }}>
+                  <span className="text-sm truncate flex-1" style={{ color: h.status === "completed" ? "var(--color-ink-muted)" : "var(--color-ink)", textDecoration: h.status === "completed" ? "line-through" : "none" }}>
                     {h.title}
                     {cls && (
                       <span className="ml-1.5 text-[11px] font-normal" style={{ color: cls.color }}>

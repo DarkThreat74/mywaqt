@@ -1996,18 +1996,18 @@ export default function DayViewClient({ date }: { date: string }) {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const tap = Math.round(HOURS[0] * 60 + ((e.clientY - rect.top) / HOUR_HEIGHT) * 60);
                 // Inside a gap → start there; otherwise snap to the next gap.
-                let g = gaps.find((x) => tap >= x.start && tap < x.end);
+                // Past the study window (or on a busy slot) the tap still
+                // works — gaps only say what's free, they don't gate creation.
+                const g = gaps.find((x) => tap >= x.start && tap < x.end);
                 let start = tap, end = tap + 60;
                 if (g) {
                   end = Math.min(tap + 60, g.end);
                   if (end - start < 15) start = g.end - 15;
                 } else {
-                  g = gaps.find((x) => x.start >= tap);
-                  if (!g) return;
-                  start = g.start;
-                  end = Math.min(g.start + 60, g.end);
+                  end = Math.min(end, 1440);
+                  if (end - start < 15) start = end - 60;
                 }
-                if (end - start < 15) return;
+                if (start < 0 || end - start < 15) return;
                 setPickMode(false);
                 setPlanGap({ start, end });
                 setPlanOpen(true);
