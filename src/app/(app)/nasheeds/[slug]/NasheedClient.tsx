@@ -5,6 +5,38 @@ import { ArrowLeft, Play, Music4 } from "lucide-react";
 import { NASHEED_BY_SLUG } from "@/lib/nasheeds";
 import { useAudioPlayer } from "@/components/audio-player-context";
 
+const AR = /[؀-ۿ]/;
+const ARABIC_NUMERAL = ["١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩", "١٠"];
+
+function LyricLine({ line, chorus }: { line: string; chorus: boolean }) {
+  const isArabic = AR.test(line);
+  return (
+    <p
+      lang={isArabic ? "ar" : "en"}
+      dir={isArabic ? "rtl" : "ltr"}
+      className={
+        isArabic
+          ? chorus
+            ? "text-center text-[1.6rem] leading-[2] sm:text-[1.8rem] sm:leading-[2.05]"
+            : "text-center text-[1.5rem] leading-[2] sm:text-[1.7rem] sm:leading-[2.05]"
+          : "text-center text-[0.95rem] leading-[1.9] sm:text-base"
+      }
+      style={{
+        color: chorus
+          ? "var(--color-accent)"
+          : isArabic
+            ? "var(--color-ink)"
+            : "var(--color-ink-muted)",
+        fontFamily: isArabic
+          ? "var(--font-arabic, var(--font-amiri, serif))"
+          : "inherit",
+      }}
+    >
+      {line}
+    </p>
+  );
+}
+
 export default function NasheedClient({ slug }: { slug: string }) {
   const player = useAudioPlayer();
   const n = NASHEED_BY_SLUG.get(slug);
@@ -36,8 +68,13 @@ export default function NasheedClient({ slug }: { slug: string }) {
     );
   }
 
-  const isPlaying =
-    player.currentTrack?.id === `nasheed:${n.slug}`;
+  const isPlaying = player.currentTrack?.id === `nasheed:${n.slug}`;
+  // Verse numbers only count non-chorus stanzas — computed once so render
+  // stays pure (a mutable counter mid-map trips react-hooks/immutability).
+  const verseNums = n.verses.reduce<number[]>((acc, s) => {
+    acc.push(s.chorus ? 0 : (acc[acc.length - 1] ?? 0) + 1);
+    return acc;
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 py-8 sm:px-6 sm:py-12">
@@ -50,10 +87,10 @@ export default function NasheedClient({ slug }: { slug: string }) {
       </Link>
 
       {/* ── Title block ── */}
-      <div className="mb-8 flex items-start justify-between gap-4">
+      <div className="mb-2 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1
-            className="text-3xl leading-[1.4] tracking-wide sm:text-4xl"
+            className="text-4xl leading-[1.4] tracking-wide sm:text-[2.6rem]"
             lang="ar"
             dir="rtl"
             style={{
@@ -107,38 +144,69 @@ export default function NasheedClient({ slug }: { slug: string }) {
         )}
       </div>
 
-      {/* ── The text — stanzas like a lyric sheet, set large and slow.
-          Hairlines divide verses; nothing else competes with the words. ── */}
+      {/* ── The text — chorus panels sit off the paper so the refrain is
+          unmistakable; verses get a numbered ornament and ruled spacing. ── */}
       <div
-        className="border-t"
-        style={{
-          borderColor: "var(--color-paper-3)",
-          paddingBottom: "calc(env(safe-area-inset-bottom) + 2rem)",
-        }}
+        className="mt-6"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 2rem)" }}
       >
-        {n.verses.map((verse, vi) => (
-          <section
-            key={vi}
-            className="border-b py-6 sm:py-7"
-            style={{ borderColor: "var(--color-paper-3)" }}
-            aria-label={`Verse ${vi + 1}`}
-          >
-            {verse.map((line, li) => (
-              <p
-                key={li}
-                lang="ar"
-                dir="rtl"
-                className="text-center text-[1.55rem] leading-[2.1] sm:text-[1.75rem] sm:leading-[2.15]"
+        {n.verses.map((stanza, vi) => {
+          if (stanza.chorus) {
+            return (
+              <section
+                key={vi}
+                aria-label="Chorus"
+                className="my-5 rounded-2xl px-5 py-6 sm:px-8 sm:py-7"
                 style={{
-                  color: "var(--color-ink)",
-                  fontFamily: "var(--font-arabic, var(--font-amiri, serif))",
+                  backgroundColor:
+                    "color-mix(in oklab, var(--color-accent) 7%, var(--color-paper))",
+                  boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--color-accent) 18%, transparent)",
                 }}
               >
-                {line}
-              </p>
-            ))}
-          </section>
-        ))}
+                <p
+                  className="mb-3 text-center text-[0.65rem] font-semibold uppercase tracking-[0.22em]"
+                  style={{ color: "var(--color-accent)" }}
+                >
+                  اللازمة
+                </p>
+                {stanza.lines.map((line, li) => (
+                  <LyricLine key={li} line={line} chorus />
+                ))}
+              </section>
+            );
+          }
+          const verseNo = verseNums[vi];
+          return (
+            <section
+              key={vi}
+              aria-label={`Verse ${verseNo}`}
+              className="py-6 sm:py-7"
+            >
+              <div className="mb-3 flex items-center justify-center gap-3" aria-hidden="true">
+                <span
+                  className="h-px w-10"
+                  style={{ backgroundColor: "var(--color-paper-3)" }}
+                />
+                <span
+                  className="text-xs tabular-nums"
+                  style={{
+                    color: "var(--color-ink-muted)",
+                    fontFamily: "var(--font-arabic, var(--font-amiri, serif))",
+                  }}
+                >
+                  {ARABIC_NUMERAL[verseNo - 1] ?? verseNo}
+                </span>
+                <span
+                  className="h-px w-10"
+                  style={{ backgroundColor: "var(--color-paper-3)" }}
+                />
+              </div>
+              {stanza.lines.map((line, li) => (
+                <LyricLine key={li} line={line} chorus={false} />
+              ))}
+            </section>
+          );
+        })}
       </div>
 
       {!n.audio && (

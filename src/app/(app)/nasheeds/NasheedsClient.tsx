@@ -105,7 +105,7 @@ export default function NasheedsClient() {
                   className="mt-0.5 text-xs leading-snug"
                   style={{ color: "var(--color-ink-muted)" }}
                 >
-                  {n.artist ?? "Traditional"} · {n.verses.flat().length} lines
+                  {n.artist ?? "Traditional"} · {n.verses.flatMap((v) => v.lines).length} lines
                 </p>
               </div>
 
