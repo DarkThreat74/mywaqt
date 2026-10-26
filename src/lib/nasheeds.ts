@@ -216,6 +216,49 @@ export const NASHEEDS: Nasheed[] = [
       },
     ],
   },
+  {
+    slug: "ya-ahl-bayt-an-nabi",
+    title: "Ya Ahl Bayt an-Nabi",
+    arabic: "يا آل بيت النبي",
+    artist: null, // traditional hadrah madih
+    audio: null,
+    verses: [
+      {
+        chorus: true,
+        lines: ["يا آل بيت النبي الطيب العربي", "بكم دعوت ربي بتفريج كربي"],
+      },
+      {
+        lines: [
+          "السعد لمن خدم مادمت خادمكم",
+          "والبسط حالي والأفراح طوع يدي",
+        ],
+      },
+      {
+        chorus: true,
+        lines: ["يا آل بيت النبي الطيب العربي", "بكم دعوت ربي بتفريج كربي"],
+      },
+      {
+        lines: [
+          "لا غيب الله عنا وجهكم أبدا",
+          "حتى يطيب بكم عيشي إلى الأبد",
+        ],
+      },
+      {
+        chorus: true,
+        lines: ["يا آل بيت النبي الطيب العربي", "بكم دعوت ربي بتفريج كربي"],
+      },
+      {
+        lines: [
+          "أنا الفقير إليكم والغني بكم",
+          "وليس لي بعدكم حرص على أحد",
+        ],
+      },
+      {
+        chorus: true,
+        lines: ["يا آل بيت النبي الطيب العربي", "بكم دعوت ربي بتفريج كربي"],
+      },
+    ],
+  },
 ];
 
 export const NASHEED_BY_SLUG = new Map(NASHEEDS.map((n) => [n.slug, n]));
