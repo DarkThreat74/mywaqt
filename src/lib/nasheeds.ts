@@ -166,6 +166,56 @@ export const NASHEEDS: Nasheed[] = [
       },
     ],
   },
+  {
+    slug: "insha-allah",
+    title: "Insha Allah",
+    arabic: "إن شاء الله",
+    artist: "Maher Zain",
+    audio: null,
+    verses: [
+      {
+        lines: [
+          "Every time you feel like you cannot go on",
+          "You feel so lost and that you're so alone",
+          "All you see is night, and darkness all around",
+          "You feel so helpless, you can't see which way to go",
+          "Don't despair and never lose hope",
+          "'Cause Allah is always by your side",
+        ],
+      },
+      {
+        chorus: true,
+        lines: ["Insha Allah, Insha Allah", "Insha Allah, you'll find your way"],
+      },
+      {
+        lines: [
+          "Every time you commit one more mistake",
+          "You feel you can't repent and that it's way too late",
+          "You're so confused, wrong decisions you have made",
+          "Haunt your mind and your heart is full of shame",
+          "But don't despair and never lose hope",
+          "'Cause Allah is always by your side",
+        ],
+      },
+      {
+        chorus: true,
+        lines: ["Insha Allah, Insha Allah", "Insha Allah, you'll find your way"],
+      },
+      {
+        lines: [
+          "Turn to Allah, He's never far away",
+          "Put your trust in Him, raise your hands and pray",
+          "Ooh Ya Allah, guide my steps, don't let me go astray",
+          "You're the only one who can show me the way",
+          "Show me the way, show me the way, show me the way",
+        ],
+      },
+      {
+        chorus: true,
+        lines: ["Insha Allah, Insha Allah", "Insha Allah, we'll find our way"],
+      },
+    ],
+  },
 ];
 
 export const NASHEED_BY_SLUG = new Map(NASHEEDS.map((n) => [n.slug, n]));
