@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Play, Pause, Music4 } from "lucide-react";
 import { NASHEED_BY_SLUG } from "@/lib/nasheeds";
-import { saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
+import { isAudioCached, saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
 
 const AR = /[؀-ۿ]/;
 const ARABIC_NUMERAL = ["١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩", "١٠", "١١", "١٢", "١٣", "١٤", "١٥"];
@@ -171,13 +171,15 @@ export default function NasheedClient({ slug }: { slug: string }) {
     [n],
   );
 
-  // Which stanza is sounding right now (index into n.verses), or -1.
+  // Which stanza the playhead sits in (index into n.verses), or -1.
+  // Position-based, not play-state-based — a paused reader still shows
+  // where it stopped instead of losing the highlight.
   const activeIdx = useMemo(() => {
-    if (!n || !playing) return -1;
+    if (!n || now === 0) return -1;
     let idx = -1;
     for (const s of sections) if (now >= s.t) idx = s.i;
     return idx;
-  }, [n, playing, now, sections]);
+  }, [n, now, sections]);
 
   const stanzaEnd = (si: number) => {
     const next = sections.find((s) => s.i > si);
@@ -191,11 +193,23 @@ export default function NasheedClient({ slug }: { slug: string }) {
       : null;
 
   // Keep the sung line in view — refires only when stanza/line changes.
+  // A manual scroll suppresses follow-scroll for a few seconds so reading
+  // ahead while listening doesn't get yanked back.
+  const lastUserScroll = useRef(0);
+  useEffect(() => {
+    const mark = () => { lastUserScroll.current = Date.now(); };
+    window.addEventListener("wheel", mark, { passive: true });
+    window.addEventListener("touchmove", mark, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", mark);
+      window.removeEventListener("touchmove", mark);
+    };
+  }, []);
   const scrollKey = activeCursor ? `${activeIdx}:${activeCursor.line}` : "";
   useEffect(() => {
-    if (scrollKey)
+    if (scrollKey && playing && Date.now() - lastUserScroll.current > 4000)
       activeLineRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [scrollKey]);
+  }, [scrollKey, playing]);
 
   useEffect(() => {
     return () => {
@@ -251,14 +265,16 @@ export default function NasheedClient({ slug }: { slug: string }) {
     if (!a) return;
     player.close(); // silence the dock player — the reader drives itself
     if (t !== undefined && a.readyState < 1) {
-      // Seek requested before metadata loaded — some engines drop an early
-      // currentTime and play from 0. Wait, then seek, then play.
+      // Seek requested before metadata loaded. play() MUST stay inside the
+      // tap's gesture stack — deferring it into loadedmetadata loses the
+      // iOS autoplay grant and the tap silently does nothing. Play now
+      // (from 0 for a split second), then jump to the section on metadata.
+      void a.play().catch(() => setLoadError(true));
       a.addEventListener(
         "loadedmetadata",
         () => {
           a.currentTime = t;
           setNow(t);
-          void a.play().catch(() => setLoadError(true));
         },
         { once: true },
       );
@@ -273,10 +289,18 @@ export default function NasheedClient({ slug }: { slug: string }) {
       setSaved(true);
       // First play = intent to use this nasheed — pin it into the offline
       // audio cache in the background (the SW only serves from cache).
-      void saveAudioOffline(n.audio, {
-        talkId: `nasheed:${n.slug}`,
-        title: `${n.title} · ${n.arabic}`,
-      }).catch(() => {});
+      // Skip if already pinned — saveAudioOffline deletes and re-downloads
+      // the entry, so calling it unconditionally burns 2.6MB every visit.
+      void isAudioCached(n.audio)
+        .then((have) =>
+          have
+            ? undefined
+            : saveAudioOffline(n.audio!, {
+                talkId: `nasheed:${n.slug}`,
+                title: `${n.title} · ${n.arabic}`,
+              }),
+        )
+        .catch(() => {});
     }
   };
 
@@ -425,7 +449,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
       >
         {n.verses.map((stanza, vi) => {
           const cursor = activeIdx === vi ? activeCursor : null;
-          const follow = playing && activeIdx === vi && !stanza.music;
+          const follow = activeIdx === vi && !stanza.music;
           const mark = n.audio && stanza.time !== undefined && (
             <TimeMark
               time={stanza.time}

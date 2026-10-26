@@ -86,7 +86,8 @@ export default function NasheedsClient() {
                   className="mt-0.5 flex items-center gap-1.5 text-xs leading-snug"
                   style={{ color: "var(--color-ink-muted)" }}
                 >
-                  {n.artist ?? "Traditional"} · {n.verses.flatMap((v) => v.lines).length} lines
+                  {n.artist ?? "Traditional"} ·{" "}
+                  {n.verses.filter((v) => !v.music).flatMap((v) => v.lines).length} lines
                   {n.audio && (
                     <Volume2
                       className="h-3 w-3"
