@@ -40,8 +40,9 @@ export const NASHEEDS: Nasheed[] = [
     arabic: "تیرے صدقے میں آقا",
     artist: "Danish F Dar & Dawar Farooq",
     audio: "/audio/nasheeds/tere-sadqe-mein-aaqa.mp3",
-    // shortcut: section times from spectral self-similarity (the cycle
-    // verse+chorus repeats every ~51.3s) — nudge if a stanza drifts.
+    // shortcut: section times from chroma self-similarity + envelope dips
+    // (~64s verse+chorus cycle; V5/V6 sung once). Verified vs
+    // user anchor (simte @ ~75s). Nudge if a stanza drifts.
     verses: [
       { music: true, time: 0, lines: ["موسيقى"] },
       {
@@ -50,11 +51,11 @@ export const NASHEEDS: Nasheed[] = [
       },
       {
         chorus: true,
-        time: 45.0,
+        time: 52.5,
         lines: ["حسبي ربي جل الله", "ما في قلبي غير الله", "نور محمد صل الله", "لا إله إلا الله"],
       },
       {
-        time: 58.9,
+        time: 74.5,
         lines: [
           "سمتِ نبی ابو جہل گیا، آقا سے اس نے یہ کہا",
           "گر ہو نبی بتلاؤ ذرا، میری مٹھی میں ہے کیا",
@@ -64,11 +65,11 @@ export const NASHEEDS: Nasheed[] = [
       },
       {
         chorus: true,
-        time: 95.0,
+        time: 122.2,
         lines: ["حسبي ربي جل الله", "ما في قلبي غير الله", "نور محمد صل الله", "لا إله إلا الله"],
       },
       {
-        time: 110.3,
+        time: 138.5,
         lines: [
           "اپنی بہن سے بولے عمر، یہ تو بتا کیا کرتی تھی",
           "میرے آنے سے پہلے چپکے چپکے کیا پڑھتی تھی",
@@ -78,11 +79,11 @@ export const NASHEEDS: Nasheed[] = [
       },
       {
         chorus: true,
-        time: 146.2,
+        time: 173.4,
         lines: ["حسبي ربي جل الله", "ما في قلبي غير الله", "نور محمد صل الله", "لا إله إلا الله"],
       },
       {
-        time: 162.0,
+        time: 200.2,
         lines: [
           "وہ جو بلالِ حبشی ہیں، سرورِ دین کا پیارا ہے",
           "دنیا کے ہر عاشق کی آنکھوں کا وہ تارا ہے",
@@ -92,11 +93,11 @@ export const NASHEEDS: Nasheed[] = [
       },
       {
         chorus: true,
-        time: 199.2,
+        time: 237.5,
         lines: ["حسبي ربي جل الله", "ما في قلبي غير الله", "نور محمد صل الله", "لا إله إلا الله"],
       },
       {
-        time: 213.1,
+        time: 260.2,
         lines: [
           "میرے نبی کے غلاموں کا رتبہ بڑا ہے شان بڑی",
           "چاہے غوثِ اعظم ہو یا ہو داتا ہجویری",
@@ -106,11 +107,11 @@ export const NASHEEDS: Nasheed[] = [
       },
       {
         chorus: true,
-        time: 250.0,
+        time: 276.2,
         lines: ["حسبي ربي جل الله", "ما في قلبي غير الله", "نور محمد صل الله", "لا إله إلا الله"],
       },
       {
-        time: 264.5,
+        time: 291.0,
         lines: [
           "میرے مولا میرے خدا، تو ہی خالقِ ارض و سما",
           "تو ہی مالکِ روزِ جزا، میں ہوں سراپا جرم و خطا",
@@ -120,7 +121,7 @@ export const NASHEEDS: Nasheed[] = [
       },
       {
         chorus: true,
-        time: 301.5,
+        time: 307.5,
         lines: ["حسبي ربي جل الله", "ما في قلبي غير الله", "نور محمد صل الله", "لا إله إلا الله"],
       },
     ],
