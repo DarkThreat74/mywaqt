@@ -318,10 +318,15 @@ export function getDisplayAsrTime(apiAsrTime: string): string {
 /* ── Makruh windows ────────────────────────────────────────────────────────
  * Times when praying (and by extension scheduling focused work that would
  * run into prayer) is disliked:
- *   sunrise: sunrise−20min → sunrise
+ *   sunrise: sunrise → sunrise+20min — the forbidden stretch is AFTER the
+ *            listed sunrise time (sun climbing a spear-length clear of the
+ *            horizon). Fajr itself is valid until sunrise.
  *   zawaal:  solar noon ±5min — solar noon is approximated as the midpoint
  *            between sunrise and maghrib (true istiwa)
- *   sunset:  maghrib−20min → maghrib (sunset)
+ *   sunset:  maghrib−20min → maghrib (sun yellowing until it sets — Asr of
+ *            the day is still permitted but sinful to delay into it)
+ * No makruh exists inside Dhuhr's window (zawaal precedes it), inside
+ * Maghrib's window (maghrib→isha is fine — awwabin), or inside Isha's.
  * All values are minutes-since-midnight in the prayer timezone.
  */
 export interface MakruhWindow {
@@ -336,7 +341,7 @@ export function makruhWindows(timings: PrayerTimings): MakruhWindow[] {
   const maghrib = parseMinutes(timings.maghrib);
   const zawaal = Math.round((sunrise + maghrib) / 2);
   return [
-    { key: "sunrise", label: "Sunrise", start: sunrise - 20, end: sunrise },
+    { key: "sunrise", label: "Sunrise", start: sunrise, end: sunrise + 20 },
     { key: "zawaal", label: "Zawaal", start: zawaal - 5, end: zawaal + 5 },
     { key: "sunset", label: "Sunset", start: maghrib - 20, end: maghrib },
   ];
@@ -355,7 +360,7 @@ export function nextMakruh(currentMinutes: number, timings: PrayerTimings): Makr
 /**
  * The effective countdown end for an open prayer window: the earlier of the
  * window's true end and the start of the next makruh window inside it.
- * Fajr counts down to sunrise−20 (not sunrise); Asr to maghrib−20.
+ * Fajr counts down to sunrise; Asr to maghrib−20 (the sunset makruh).
  * Returns the raw minute value; `isMakruhBound` flags why it was shortened.
  */
 export function effectiveWindowEnd(

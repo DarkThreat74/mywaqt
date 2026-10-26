@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Flame, Handshake, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye, Ban } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
-import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer, activeMakruh, makruhWindows, sanitizeTimings } from "@/lib/prayer/checkin";
+import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer, activeMakruh, makruhWindows, nextMakruh, parseMinutes, sanitizeTimings } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
@@ -1291,40 +1291,54 @@ export default function PrayerDashboard() {
               </div>
             </div>
 
-            {/* ── Next Prayer Countdown ── */}
+            {/* ── Makruh countdown ── */}
             {prayerTimes && currentTime && (() => {
               const nowMin = nowMinutesInTz;
-              let next: { name: string; minutes: number } | null = null;
-              for (const p of PRAYER_ORDER) {
-                const [h, m] = prayerTimes[p].split(" ")[0].split(":").map(Number);
-                const t = h * 60 + m;
-                if (t > nowMin) { next = { name: p, minutes: t }; break; }
+              const timings = {
+                fajr: prayerTimes.fajr, sunrise: prayerTimes.sunrise,
+                dhuhr: prayerTimes.dhuhr, asr: prayerTimes.asr,
+                maghrib: prayerTimes.maghrib, isha: prayerTimes.isha,
+              };
+              const mk = activeMakruh(nowMin, timings);
+              const upcoming = nextMakruh(nowMin, timings);
+              let caption = "Makruh";
+              let name = upcoming?.label ?? "Sunrise";
+              let until = "in";
+              let target = upcoming?.start ?? (parseMinutes(prayerTimes.sunrise) + 1440);
+              let danger = false;
+
+              if (mk) {
+                caption = "Makruh — wait";
+                name = mk.label;
+                until = "ends in";
+                target = mk.end;
+                danger = true;
               }
-              // If all prayers passed, next is tomorrow's Fajr
-              if (!next) {
-                const [fh, fm] = prayerTimes.fajr.split(" ")[0].split(":").map(Number);
-                next = { name: "fajr", minutes: fh * 60 + fm + 1440 };
-              }
-              const diff = next.minutes - nowMin;
+              const diff = Math.max(0, target - nowMin);
               const hrs = Math.floor(diff / 60);
               const mins = Math.floor(diff % 60);
               const secs = Math.floor((diff * 60) % 60);
               return (
                 <div
                   className="flex items-center justify-between rounded-2xl border px-4 py-3 sm:px-5"
-                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))" }}
+                  style={{
+                    borderColor: "var(--color-paper-3)",
+                    backgroundColor: danger
+                      ? "color-mix(in oklab, var(--color-error) 7%, var(--color-paper))"
+                      : "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))",
+                  }}
                 >
                   <div>
                     <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                      Next prayer
+                      {caption}
                     </p>
                     <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                      {prayerLabel(next.name)}
+                      {name}
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>in</p>
-                    <p className="text-lg font-bold tabular-nums sm:text-xl" style={{ color: "var(--color-accent)" }}>
+                    <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{until}</p>
+                    <p className="text-lg font-bold tabular-nums sm:text-xl" style={{ color: danger ? "var(--color-error)" : "var(--color-accent)" }}>
                       {hrs > 0 ? `${hrs}h ` : ""}{mins}m {secs}s
                     </p>
                   </div>
@@ -1389,27 +1403,6 @@ export default function PrayerDashboard() {
                       </div>
                     </div>
                   );
-                })()}
-
-                {(() => {
-                  const mkTimings = {
-                    fajr: prayerTimes.fajr, sunrise: prayerTimes.sunrise,
-                    dhuhr: prayerTimes.dhuhr, asr: prayerTimes.asr,
-                    maghrib: prayerTimes.maghrib, isha: prayerTimes.isha,
-                  };
-                  const mkNow = activeMakruh(nowMinutesInTz, mkTimings);
-                  return mkNow ? (
-                    <div
-                      className="mb-3 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium"
-                      style={{
-                        color: "var(--color-error)",
-                        backgroundColor: "color-mix(in oklab, var(--color-error) 10%, transparent)",
-                      }}
-                    >
-                      <Ban className="h-3 w-3 shrink-0" />
-                      Makruh ({mkNow.label}) — wait until {formatMinutesToTime(mkNow.end)}
-                    </div>
-                  ) : null;
                 })()}
 
                 {PRAYER_ORDER.map((prayer, idx) => {
