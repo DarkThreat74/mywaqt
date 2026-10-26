@@ -6,6 +6,8 @@
 
 export interface NasheedStanza {
   chorus?: boolean;    // refrain stanzas render as highlighted panels
+  music?: boolean;     // instrumental passage — renders as a slim ornament row
+  time?: number;       // seconds into `audio` where this stanza starts
   lines: string[];     // each entry is one sung line (Arabic or Latin)
 }
 
@@ -171,9 +173,14 @@ export const NASHEEDS: Nasheed[] = [
     title: "Insha Allah (Arabic)",
     arabic: "إن شاء الله",
     artist: "Maher Zain",
-    audio: null,
+    audio: "/audio/nasheeds/insha-allah.mp3",
+    // shortcut: section times derived from loudness/silence analysis of the
+    // 5:16 recording, not per-line forced alignment — nudge `time` if a
+    // stanza starts early/late. Word-follow interpolates evenly within a line.
     verses: [
+      { music: true, time: 0, lines: ["موسيقى"] },
       {
+        time: 14.3,
         lines: [
           "لو في يوم كان الحمل عليك تقيل",
           "وتايه لوحدك مش لاقي دليل",
@@ -182,6 +189,7 @@ export const NASHEEDS: Nasheed[] = [
         ],
       },
       {
+        time: 40.2,
         lines: [
           "مد إيديك تلقى دايما حواليك",
           "هو الله قبلك حاسس بيك",
@@ -189,9 +197,11 @@ export const NASHEEDS: Nasheed[] = [
       },
       {
         chorus: true,
+        time: 51.6,
         lines: ["إن شاء الله إن شاء الله", "إن شاء الله هتلاقي الطريق"],
       },
       {
+        time: 68.0,
         lines: [
           "لو في يوم خدتنا معاصي أو ذنوب",
           "وخافت قلوبنا ما تقدر تتوب",
@@ -200,6 +210,7 @@ export const NASHEEDS: Nasheed[] = [
         ],
       },
       {
+        time: 96.9,
         lines: [
           "مد إيديك تلقى دايما حواليك",
           "هو الله قبلك حاسس بيك",
@@ -207,19 +218,39 @@ export const NASHEEDS: Nasheed[] = [
       },
       {
         chorus: true,
+        time: 110.2,
         lines: ["إن شاء الله إن شاء الله", "إن شاء الله هتلاقي الطريق"],
       },
+      { music: true, time: 124.5, lines: ["موسيقى"] },
       {
+        time: 152.8,
         lines: [
           "قول يا الله ده عنك مش بعيد",
           "متشلش هم ولا تشعر بضيق",
           "قول يا الله إهدي ليا قلبي عشان أتوب",
           "امحي الذنوب وأهديني الطريق",
-          "نورلي الطريق، نورلي الطريق",
         ],
       },
       {
         chorus: true,
+        time: 180.0,
+        lines: ["إن شاء الله إن شاء الله", "إن شاء الله هتلاقي الطريق"],
+      },
+      {
+        chorus: true,
+        time: 211.6,
+        lines: ["إن شاء الله إن شاء الله", "إن شاء الله هتلاقي الطريق"],
+      },
+      {
+        time: 258.9,
+        lines: [
+          "نورلي الطريق، نورلي الطريق",
+          "إن شاء الله هتلاقي الطريق",
+        ],
+      },
+      {
+        chorus: true,
+        time: 285.0,
         lines: ["إن شاء الله إن شاء الله", "إن شاء الله هتلاقي الطريق"],
       },
     ],
