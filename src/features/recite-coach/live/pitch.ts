@@ -5,6 +5,8 @@
 // tones, breaking autocorrelation. Post-processing here is contour hygiene
 // (median-of-3 kills octave jumps; octave snap; 80ms blip drop), display-side.
 
+import { engineAsset } from "@/features/quran-tester/engine";
+
 export interface PitchFrame {
   hz: number;      // 0 = unvoiced/noise
   clarity: number; // NSDF peak height 0..1
@@ -45,7 +47,20 @@ export async function startPitchStream(): Promise<PitchStream> {
     } as MediaTrackConstraints,
   });
   const ctx = new AudioContext({ latencyHint: 0 });
-  await ctx.audioWorklet.addModule("/rc/pitch-worklet.js");
+  // Same fallback as qt-capture.js in the recite session — /rc/ resolves
+  // through the SW, which a native WebView or fresh offline start lacks.
+  try {
+    await ctx.audioWorklet.addModule("/rc/pitch-worklet.js");
+  } catch (first) {
+    const cached = await engineAsset("rc-pitch-worklet.js");
+    if (!cached) throw first;
+    const url = URL.createObjectURL(await cached.blob());
+    try {
+      await ctx.audioWorklet.addModule(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
   const src = ctx.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(ctx, "rc-pitch");
   // connect to a muted sink so the graph keeps pulling

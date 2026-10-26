@@ -6,7 +6,7 @@
 // Requires the tester's engine assets to be installed (engineInstalled());
 // when they aren't, the report shows the style tier only and says so.
 
-import { engineInstalled } from "@/features/quran-tester/engine";
+import { engineInstalled, engineWorkerSource } from "@/features/quran-tester/engine";
 import { borrowQtEngine, qtPost, releaseQtEngine, subscribeQt } from "@/features/quran-tester/session";
 
 export interface DeepIssue {
@@ -124,7 +124,9 @@ export async function gradeAudio(
   // Borrow the warm singleton when it's free — a fresh worker pays the
   // ~66MB model load every take (the ~5s stall before verdicts arrive).
   const borrowed = borrowQtEngine(sampleRate);
-  const worker = borrowed ?? new Worker("/qt/recite-worker.js");
+  // engineWorkerSource: a blob: of the bucket-pinned script — the /qt/ URL
+  // alone dies offline wherever no service worker controls the page.
+  const worker = borrowed ?? new Worker(await engineWorkerSource());
   const issues: DeepIssue[] = [];
   const wordVerdicts: WordVerdict[] = [];
   const verses: string[] = [];

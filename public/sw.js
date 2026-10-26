@@ -602,7 +602,13 @@ function noteFetch(ok) {
 // memoize so hot paths (every fetch) don't pay it repeatedly.
 const openCaches = new Map();
 function cacheFor(name) {
-  if (!openCaches.has(name)) openCaches.set(name, caches.open(name));
+  if (!openCaches.has(name)) {
+    const p = caches.open(name);
+    // A rejected open must not stick — memoizing it would poison every
+    // later request for that bucket until the SW restarts.
+    p.catch(() => openCaches.delete(name));
+    openCaches.set(name, p);
+  }
   return openCaches.get(name);
 }
 
@@ -737,9 +743,11 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         try {
-          const cache = await cacheFor("quran-tester-engine-v1");
-          const hit = await soft(cache.match(url.pathname), 1200, null)
-            ?? await soft(cache.match(url.href), 1200, null);
+          const cache = await soft(cacheFor("quran-tester-engine-v1"), 1200, null);
+          const hit = cache
+            ? await soft(cache.match(url.pathname), 1200, null)
+              ?? await soft(cache.match(url.href), 1200, null)
+            : null;
           // Re-stamp CSP like the _next/static branch — an engine file cached
           // before the wasm-unsafe-eval change keeps its birth CSP forever.
           if (hit) {
@@ -775,8 +783,8 @@ self.addEventListener("fetch", (event) => {
                 // GET with a real body only — caching a HEAD/bodyless 200
                 // writes a zero-byte poison entry into the engine bucket.
                 if (request.method === "GET" && stamped.body) {
-                  const cache = await cacheFor("quran-tester-engine-v1");
-                  await cache.put(url.pathname, stamped.clone());
+                  const cache = await soft(cacheFor("quran-tester-engine-v1"), 1500, null);
+                  if (cache) await cache.put(url.pathname, stamped.clone());
                 }
               } catch { /* put failure shouldn't fail the fetch */ }
               return stamped;

@@ -53,6 +53,8 @@ const RUNTIME_FILES: [string, string][] = [
   ["recite-worker.js", "/qt/recite-worker.js"],
   ["qt-capture.js", "/worklets/qt-capture.js"],
   ["QPC2BSML.ttf", "/fonts/qpc2/QPC2BSML.ttf"],
+  // Recite-coach pitch worklet — same no-SW story as qt-capture.js.
+  ["rc-pitch-worklet.js", "/rc/pitch-worklet.js"],
 ];
 // The .jsep/.asyncify ORT variants sit in public/qt but the wasm-only build
 // never loads them — keeping them required made a prefetch gap permanently
@@ -99,7 +101,12 @@ export async function engineInstalled(): Promise<boolean> {
     if (await missingOrEmpty(cache, `${self.location.origin}/qt/${key}`)) return false;
   }
   for (const p of SHARED_FILES) {
-    if (!(await caches.match(p))) return false;
+    // These land under two keys depending on who cached them: the SW writes
+    // through under the public path (/data/…), while cachedAsset/prefetch
+    // stores the same bytes under /qt/<basename> so no-SW contexts survive.
+    if (await caches.match(p)) continue;
+    if (await caches.match(`${self.location.origin}/qt/${p.split("/").pop()}`)) continue;
+    return false;
   }
   return true;
 }
@@ -112,6 +119,20 @@ export function engineUrl(a: EngineAsset) {
 export async function engineAsset(file: string): Promise<Response | null> {
   const cache = await caches.open(ENGINE_CACHE);
   return (await cache.match(`${self.location.origin}/qt/${file}`)) ?? null;
+}
+
+let workerBlobUrl: string | null = null;
+/** Worker script source that's as offline-proof as the engine it boots: a
+ * blob: of the bucket-pinned copy needs no service worker and no network —
+ * /qt/ URLs only resolve through the SW, which Capacitor's WebView lacks.
+ * Falls back to the URL when the bucket copy is unreadable. */
+export async function engineWorkerSource(): Promise<string> {
+  if (workerBlobUrl) return workerBlobUrl;
+  try {
+    const blob = await (await engineAsset("recite-worker.js"))?.blob();
+    if (blob && blob.size > 0) return (workerBlobUrl = URL.createObjectURL(blob));
+  } catch { /* fall through to the URL */ }
+  return "/qt/recite-worker.js";
 }
 
 /**

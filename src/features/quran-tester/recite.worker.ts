@@ -17,6 +17,52 @@ declare const self: DedicatedWorkerGlobalScope;
 const ENGINE_CACHE = "quran-tester-engine-v1";
 const OUT_RATE = 16000;
 
+// The engine must boot with no service worker at all — Capacitor's WebView
+// has none, and a fresh offline start can precede SW control. Everything the
+// engine needs sits in its own bucket, so /qt/ fetches (ort's wasmPaths)
+// resolve straight from CacheStorage, and the ort .mjs is pre-blob'd so its
+// internal `new Worker(import.meta.url)` pthread spawns never touch the
+// network either. Page-side spawn still prefers the real URL (blob: spawn
+// inherits the document CSP, which is fine — but keep the SW re-stamp path
+// where a SW exists).
+{
+  const qtBlobs = new Map<string, string>();
+  const qtBlob = (path: string) => {
+    void caches.open(ENGINE_CACHE)
+      .then((c) => c.match(new URL(path, self.location.origin)))
+      .then(async (hit) => {
+        if (hit) qtBlobs.set(path, URL.createObjectURL(await hit.blob()));
+      })
+      .catch(() => {});
+  };
+  // Warmed at script eval — resolved long before ort spawns a pthread.
+  qtBlob("/qt/ort-wasm-simd-threaded.mjs");
+
+  const shim = self as unknown as {
+    fetch: typeof fetch;
+    Worker: typeof Worker;
+  };
+  const realFetch = shim.fetch.bind(self);
+  shim.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const raw = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+    const u = new URL(raw, self.location.origin);
+    if (u.pathname.startsWith("/qt/")) {
+      try {
+        const hit = await (await caches.open(ENGINE_CACHE)).match(u);
+        if (hit) return hit;
+      } catch { /* bucket unreadable — fall through to the real fetch */ }
+    }
+    return realFetch(input, init);
+  };
+
+  const RealWorker = shim.Worker;
+  shim.Worker = (function (url: string | URL, opts?: WorkerOptions): Worker {
+    const path = new URL(String(url), self.location.origin).pathname;
+    const blob = path.startsWith("/qt/") ? qtBlobs.get(path) : undefined;
+    return new RealWorker(blob ?? url, opts);
+  }) as unknown as typeof Worker;
+}
+
 let session: RecognitionSession | null = null;
 let sourceRate = 48000;
 let queue: Promise<void> = Promise.resolve();
@@ -287,7 +333,9 @@ async function reportErr(err: unknown) {
 
 async function cached(url: string): Promise<Response> {
   const cache = await caches.open(ENGINE_CACHE);
-  const hit = await cache.match(url);
+  // Match by absolute URL — inside a blob: worker a bare "/qt/…" path would
+  // resolve against the blob base and never match the stored key.
+  const hit = await cache.match(new URL(url, self.location.origin));
   if (!hit) throw new Error(`engine asset missing: ${url}`);
   return hit;
 }

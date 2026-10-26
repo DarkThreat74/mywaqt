@@ -370,13 +370,18 @@ export function warmQt() {
 // The engine install pins this file into the same bucket as the model, so
 // the script is exactly as offline-safe as the engine it boots.
 const workerUrl = "/qt/recite-worker.js";
+// The /qt/ URL only resolves through the service worker — Capacitor's
+// WebView has none, and a fresh offline start can precede SW control. The
+// install pins this exact file into the engine bucket, so a dead script
+// fetch respawns from a blob: of the cached copy instead of failing.
+let workerIsBlob = false;
 
-function ensureWorker(): Worker | null {
-  if (worker) return worker;
+function spawnWorker(src: string): Worker {
     // A dedicated worker's CSP comes from its script response's headers —
     // stale cached/edge entries are re-stamped by the SW (_next/static branch).
-    worker = new Worker(workerUrl);
-    worker.onmessage = (e) => {
+    // A blob: worker inherits the document's live CSP, which is always fresh.
+    const w = new Worker(src);
+    w.onmessage = (e) => {
       lastMsgAt = Date.now();
       const ev = e.data as QtEvent;
       if (ev.type === "ready") {
@@ -470,38 +475,43 @@ function ensureWorker(): Worker | null {
       }
       emit(ev);
     };
-    worker.onerror = (e) => {
+    w.onerror = (e) => {
       // A worker that failed to load/execute must never be reused — its
       // postMessage black-holes and init would hang "warming" forever.
+      const wasBlob = workerIsBlob;
+      workerIsBlob = false;
       worker?.terminate();
       worker = null;
       engineReady = false;
       borrowedAt = 0; // a dead worker can't hold a borrow
       // Empty e.message = script-LOAD failure (stale hashed chunk 404 after
       // a deploy, SW serving a dead URL, CSP block) — not an engine fault.
-      // A background warmQt is best-effort: only toast when the user asked
-      // for the engine (mic session warming/listening), never on app open.
       const loadFailure = !(e instanceof ErrorEvent) || !e.message;
+      const wasActive = listen !== "idle";
       // Borrowers (deepGrade) wait on worker messages that will never arrive
       // — broadcast a death notice so they reject instead of timing out.
       emit({ type: "engine-dead" } as QtEvent);
-      if (listen !== "idle") {
-        emit({
-          type: "ui-error",
-          message: loadFailure
-            ? "Couldn't reach the engine — check your connection. Retrying shortly."
-            : `Engine failed to start.${e.message ? ` ${e.message}` : ""}`,
-        });
-      }
-      // The worker URL is a stable /qt/ path served from public/ — it can
-      // never be a stale hashed bundle, so a load failure here is network
-      // (lie-fi) or a poisoned bucket entry. The old HEAD probe was worse
-      // than the disease: the SW forwarded HEAD to /qt/ and its empty body
-      // got cached, producing the "reload twice" ritual. Just re-warm — the
-      // next GET revalidates the bucket entry and self-heals.
-      if (loadFailure && navigator.onLine) {
-        setTimeout(() => { if (listen === "idle" && !worker) warmQt(); }, 15000);
-      }
+      // A load failure offline usually means no service worker ever saw the
+      // /qt/ URL — the pinned bucket copy is the same script, so respawn
+      // from a blob: first and only complain if that fails too.
+      const rescued = loadFailure && !wasBlob ? rescueWorker() : Promise.resolve(false);
+      void rescued.then((ok) => {
+        if (!ok && wasActive) {
+          emit({
+            type: "ui-error",
+            message: loadFailure
+              ? "Couldn't reach the engine — check your connection. Retrying shortly."
+              : `Engine failed to start.${e.message ? ` ${e.message}` : ""}`,
+          });
+        }
+        // Just re-warm — the next GET revalidates the bucket entry and
+        // self-heals. The old HEAD probe was worse than the disease: the SW
+        // forwarded HEAD to /qt/ and its empty body got cached, producing
+        // the "reload twice" ritual.
+        if (!ok && loadFailure && navigator.onLine) {
+          setTimeout(() => { if (listen === "idle" && !worker) warmQt(); }, 15000);
+        }
+      });
       void stopQt(); // releases the mic tracks too
       e.preventDefault();
     };
@@ -515,7 +525,34 @@ function ensureWorker(): Worker | null {
       if (Date.now() - lastRecycleAt < 60000) return;
       recycleWorker("stall");
     }, 10000);
-    return worker;
+    return w;
+}
+
+function ensureWorker(): Worker | null {
+  if (worker) return worker;
+  workerIsBlob = false;
+  worker = spawnWorker(workerUrl);
+  return worker;
+}
+
+// Respawn from the bucket-pinned copy as a blob: worker — no service worker,
+// no network in the path at all. Runs after the /qt/ URL fails to load.
+async function rescueWorker(): Promise<boolean> {
+  try {
+    if (worker) return true;
+    if (localStorage.getItem("qt:engine-installed") !== "1") return false;
+    const blob = await (await engineAsset("recite-worker.js"))?.blob();
+    if (!blob || blob.size === 0) return false;
+    workerIsBlob = true;
+    worker = spawnWorker(URL.createObjectURL(blob));
+    // The dead worker may have taken an init with it — replay so a mid-warm
+    // startQt isn't stuck waiting on a ready that never arrives.
+    if (workerRate) worker.postMessage({ type: "init", sampleRate: workerRate });
+    worker.postMessage({ type: "reset", take: takeId });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function startQt(): Promise<void> {
