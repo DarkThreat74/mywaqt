@@ -12,15 +12,33 @@ const ARABIC_NUMERAL = ["١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩", "�
 const fmt = (s: number) =>
   `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-// Active word position inside a stanza: lines split proportionally to their
-// character count, words sweep evenly across a line.
+// Active word position inside a stanza. When real alignment data exists
+// (lineTimes/wordTimes from forced alignment) it's used verbatim; otherwise
+// lines split proportionally to character count and words sweep evenly.
 function stanzaCursor(
-  stanza: { lines: string[] },
+  stanza: { lines: string[]; lineTimes?: number[]; wordTimes?: number[] },
   start: number,
   end: number,
   now: number,
 ): { line: number; word: number } | null {
   if (now < start || now >= end) return null;
+  const lt = stanza.lineTimes;
+  if (lt && lt.length === stanza.lines.length) {
+    let li = 0;
+    for (let i = 0; i < lt.length; i++) if (now >= lt[i]) li = i;
+    const nW = stanza.lines[li].split(" ").length;
+    const wt = stanza.wordTimes;
+    if (wt) {
+      let off = 0;
+      for (let i = 0; i < li; i++) off += stanza.lines[i].split(" ").length;
+      let w = 0;
+      for (let i = 0; i < nW; i++) if (now >= wt[off + i]) w = i;
+      return { line: li, word: w };
+    }
+    const lineEnd = li + 1 < lt.length ? lt[li + 1] : end;
+    const span = Math.max(lineEnd - lt[li], 0.001);
+    return { line: li, word: Math.min(nW, Math.floor(((now - lt[li]) / span) * nW)) };
+  }
   const weights = stanza.lines.map((l) => Math.max(l.length, 1));
   const total = weights.reduce((a, b) => a + b, 0);
   let target = ((now - start) / (end - start)) * total;
