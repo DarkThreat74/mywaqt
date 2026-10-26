@@ -195,6 +195,19 @@ export function ShieldArt() {
   );
 }
 
+export function NasheedArt() {
+  // A lyric sheet with a single held note — vocal, not instrumental.
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <rect x="11" y="7" width="26" height="34" rx="3" />
+      <path d="M17 14h14M17 19h9" opacity="0.45" />
+      <circle cx="22" cy="31" r="2.6" />
+      <path d="M24.6 31v-7.5c2.4.4 4.4-.4 5.4-2.2" />
+      <path d="M17 36h14" opacity="0.45" />
+    </svg>
+  );
+}
+
 export function StoreArt() {
   // Bag with a star
   return (
@@ -244,6 +257,7 @@ export const ALL_APPS: AppDef[] = [
   { key: "/study", href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & ambient sounds", rating: "4.8", installs: "14K", art: StudyArt },
   { key: "/learn", href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge, step by step", rating: "4.6", installs: "6K", art: LearnArt },
   { key: "/talks", href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs", rating: "4.8", installs: "12K", art: TalksArt },
+  { key: "/nasheeds", href: "/nasheeds", label: "Nasheeds", arabic: "أناشيد", description: "Nasheed lyrics to read and follow along", rating: "4.9", installs: "6K", art: NasheedArt },
   { key: "/subscriptions", href: "/subscriptions", label: "Money", arabic: "مصاريف", description: "Subscriptions & spending log", rating: "4.7", installs: "8K", art: SubsArt },
   { key: "/birthdays", href: "/birthdays", label: "Birthdays", arabic: "أعياد", description: "Never miss one again", rating: "4.8", installs: "10K", art: BirthdayArt },
   { key: "messages", href: "/messages", label: "Messages", arabic: "رسائل", description: "Prayer-friend chats", rating: "4.8", installs: "13K", art: MessageArt },
@@ -256,7 +270,7 @@ export const APP_BY_KEY = new Map(ALL_APPS.map((a) => [a.key, a]));
 export const CATEGORIES: { title: string; keys: string[] }[] = [
   { title: "Prayer", keys: ["/qibla", "/dhikr", "/masjids", "/shield"] },
   { title: "Quran", keys: ["/quran", "/quran-tester", "/recite", "/mutashabihat", "/names"] },
-  { title: "Study", keys: ["/study", "/learn", "/talks"] },
+  { title: "Study", keys: ["/study", "/learn", "/talks", "/nasheeds"] },
   { title: "Life", keys: ["/subscriptions", "/birthdays"] },
   { title: "Social", keys: ["messages", "/friends"] },
   { title: "Help", keys: ["/guide"] },

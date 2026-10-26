@@ -70,3 +70,9 @@ skills-lock.json
 
 # local recite-coach engine assets (downloaded by scripts/clip-analyze.mts)
 .engine/
+
+# User-provided nasheed audio (large binary content, not code)
+public/audio/nasheeds/*.mp3
+public/audio/nasheeds/*.m4a
+public/audio/nasheeds/*.ogg
+public/audio/nasheeds/*.opus
