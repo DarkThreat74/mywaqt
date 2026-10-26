@@ -311,10 +311,7 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
       setError("Pick a start and end at least 15 minutes apart.");
       return;
     }
-    if (makruhBusy.some((w) => start < w.end && end > w.start)) {
-      setError("That runs into makruh time — pick a slot that ends before it.");
-      return;
-    }
+    // Makruh overlap is a warning shown live in the composer, not a block.
     setBusyAction(true);
     setError(null);
     try {
@@ -415,6 +412,12 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
   }
 
   const composing = gapSel !== null || editingBlock !== null;
+  // Live makruh-overlap warning for the composer — shown, never enforced.
+  const draftStart = timeInputToMin(startStr);
+  const draftEnd = timeInputToMin(endStr);
+  const makruhOverlap =
+    composing && draftStart !== null && draftEnd !== null && draftEnd > draftStart &&
+    makruhBusy.some((w) => draftStart < w.end && draftEnd > w.start);
 
   return (
     <div
@@ -518,6 +521,11 @@ export default function PlanBlocksSheet({ date, isToday, isPast, busy, blocks, o
                   aria-label="Block end"
                 />
               </div>
+              {makruhOverlap && (
+                <p className="mt-2 text-xs font-medium" style={{ color: "var(--color-warmth)" }}>
+                  Heads up — this overlaps makruh time.
+                </p>
+              )}
 
               <p className="mt-4 mb-2 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
                 Work on — tap to add
