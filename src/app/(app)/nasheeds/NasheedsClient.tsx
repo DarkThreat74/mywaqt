@@ -2,30 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Search, X, Play, Music4 } from "lucide-react";
-import { NASHEEDS, type Nasheed } from "@/lib/nasheeds";
-import { useAudioPlayer } from "@/components/audio-player-context";
-import type { PlayerTrack } from "@/components/advanced-audio-player";
-
-function trackOf(n: Nasheed): PlayerTrack {
-  return {
-    id: `nasheed:${n.slug}`,
-    title: `${n.title} · ${n.arabic}`,
-    speaker: n.artist ?? "Traditional",
-    description: null,
-    streamUrl: n.audio,
-    externalUrl: null,
-    fileSize: null,
-    duration: null,
-    folderId: "nasheeds",
-    folderName: "Nasheeds",
-  };
-}
+import { Search, X, Music4, Volume2 } from "lucide-react";
+import { NASHEEDS } from "@/lib/nasheeds";
 
 export default function NasheedsClient() {
   const [query, setQuery] = useState("");
-  const player = useAudioPlayer();
-  const queue = NASHEEDS.filter((n) => n.audio).map(trackOf);
 
   const trimmed = query.trim().toLowerCase();
   const filtered = trimmed
@@ -102,10 +83,17 @@ export default function NasheedsClient() {
                   {n.title}
                 </p>
                 <p
-                  className="mt-0.5 text-xs leading-snug"
+                  className="mt-0.5 flex items-center gap-1.5 text-xs leading-snug"
                   style={{ color: "var(--color-ink-muted)" }}
                 >
                   {n.artist ?? "Traditional"} · {n.verses.flatMap((v) => v.lines).length} lines
+                  {n.audio && (
+                    <Volume2
+                      className="h-3 w-3"
+                      style={{ color: "var(--color-accent)" }}
+                      aria-label="Has audio"
+                    />
+                  )}
                 </p>
               </div>
 
@@ -121,24 +109,6 @@ export default function NasheedsClient() {
               >
                 {n.arabic}
               </p>
-
-              {n.audio && (
-                <button
-                  type="button"
-                  aria-label={`Play ${n.title}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    player.play(trackOf(n), queue);
-                  }}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-3)]"
-                  style={{
-                    backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)",
-                  }}
-                >
-                  <Play className="h-4 w-4 fill-current" style={{ color: "var(--color-accent)" }} />
-                </button>
-              )}
             </Link>
           ))}
         </div>

@@ -250,7 +250,24 @@ export default function NasheedClient({ slug }: { slug: string }) {
     const a = audio();
     if (!a) return;
     player.close(); // silence the dock player — the reader drives itself
-    if (t !== undefined) a.currentTime = t;
+    if (t !== undefined && a.readyState < 1) {
+      // Seek requested before metadata loaded — some engines drop an early
+      // currentTime and play from 0. Wait, then seek, then play.
+      a.addEventListener(
+        "loadedmetadata",
+        () => {
+          a.currentTime = t;
+          setNow(t);
+          void a.play().catch(() => setLoadError(true));
+        },
+        { once: true },
+      );
+      return;
+    }
+    if (t !== undefined) {
+      a.currentTime = t;
+      setNow(t);
+    }
     void a.play().catch(() => setLoadError(true));
     if (!saved && n.audio) {
       setSaved(true);
