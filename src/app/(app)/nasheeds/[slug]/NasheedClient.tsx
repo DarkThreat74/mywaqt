@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Play, Square, Music4 } from "lucide-react";
+import { ArrowLeft, Play, Pause, Music4 } from "lucide-react";
 import { NASHEED_BY_SLUG } from "@/lib/nasheeds";
 import { saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
 
 const AR = /[؀-ۿ]/;
-const ARABIC_NUMERAL = ["١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩", "١٠"];
+const ARABIC_NUMERAL = ["١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩", "١٠", "١١", "١٢", "١٣", "١٤", "١٥"];
+
+const fmt = (s: number) =>
+  `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 // Active word position inside a stanza: lines split proportionally to their
 // character count, words sweep evenly across a line.
@@ -29,45 +32,6 @@ function stanzaCursor(
     target -= weights[li];
   }
   return { line: stanza.lines.length - 1, word: 0 };
-}
-
-function SectionButton({
-  playing,
-  active,
-  onToggle,
-  label,
-}: {
-  playing: boolean;
-  active: boolean;
-  onToggle: () => void;
-  label: string;
-}) {
-  const live = playing && active;
-  return (
-    <button
-      type="button"
-      aria-label={live ? `Stop ${label}` : `Play ${label}`}
-      onClick={onToggle}
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-transform active:scale-90"
-      style={{
-        backgroundColor: live
-          ? "var(--color-accent)"
-          : "color-mix(in oklab, var(--color-accent) 12%, transparent)",
-      }}
-    >
-      {live ? (
-        <Square
-          className="h-2.5 w-2.5 fill-current"
-          style={{ color: "var(--color-paper)" }}
-        />
-      ) : (
-        <Play
-          className="h-3 w-3 fill-current"
-          style={{ color: "var(--color-accent)" }}
-        />
-      )}
-    </button>
-  );
 }
 
 function LyricLine({
@@ -112,10 +76,8 @@ function LyricLine({
               key={wi}
               style={{
                 color:
-                  wi < litWords || (wi === litWords && curWord)
-                    ? baseColor
-                    : `color-mix(in oklab, ${baseColor} 35%, transparent)`,
-                opacity: wi === litWords && curWord ? 1 : undefined,
+                  wi <= litWords ? baseColor : `color-mix(in oklab, ${baseColor} 35%, transparent)`,
+                fontWeight: wi === litWords && curWord ? 600 : undefined,
                 transition: "color 150ms linear",
               }}
             >
@@ -127,6 +89,68 @@ function LyricLine({
   );
 }
 
+function FollowLine({
+  line,
+  chorus,
+  cursor,
+  lineIndex,
+  follow,
+  lineRef,
+}: {
+  line: string;
+  chorus: boolean;
+  cursor: { line: number; word: number } | null;
+  lineIndex: number;
+  follow: boolean;
+  lineRef?: React.RefObject<HTMLElement | null>;
+}) {
+  const done = follow && cursor !== null && lineIndex < cursor.line;
+  const onLine = follow && cursor !== null && lineIndex === cursor.line;
+  return (
+    <span ref={lineRef as React.Ref<HTMLSpanElement>} style={{ display: "block" }}>
+      <LyricLine
+        line={line}
+        chorus={chorus}
+        litWords={done ? line.split(" ").length : onLine ? cursor!.word : follow ? 0 : null}
+        curWord={onLine}
+      />
+    </span>
+  );
+}
+
+// A quiet timestamp mark — the play/stop affordance for each stanza.
+function TimeMark({
+  time,
+  live,
+  onToggle,
+}: {
+  time: number;
+  live: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={live ? `Stop — back to ${fmt(time)}` : `Play from ${fmt(time)}`}
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.7rem] tabular-nums transition-colors"
+      style={{
+        color: live ? "var(--color-paper)" : "var(--color-ink-muted)",
+        backgroundColor: live
+          ? "var(--color-accent)"
+          : "color-mix(in oklab, var(--color-ink) 6%, transparent)",
+      }}
+    >
+      {live ? (
+        <span className="inline-block h-1.5 w-1.5 rounded-[1px] bg-current" />
+      ) : (
+        <Play className="h-2.5 w-2.5 fill-current" />
+      )}
+      {fmt(time)}
+    </button>
+  );
+}
+
 export default function NasheedClient({ slug }: { slug: string }) {
   const player = useAudioPlayer();
   const n = NASHEED_BY_SLUG.get(slug);
@@ -134,7 +158,10 @@ export default function NasheedClient({ slug }: { slug: string }) {
   const [now, setNow] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [loadError, setLoadError] = useState(false);
+  const [saved, setSaved] = useState(false);
   const activeLineRef = useRef<HTMLElement | null>(null);
+  const railRef = useRef<HTMLDivElement | null>(null);
 
   const sections = useMemo(
     () =>
@@ -144,7 +171,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
     [n],
   );
 
-  // Which stanza is playing right now (index into n.verses), or -1.
+  // Which stanza is sounding right now (index into n.verses), or -1.
   const activeIdx = useMemo(() => {
     if (!n || !playing) return -1;
     let idx = -1;
@@ -209,39 +236,66 @@ export default function NasheedClient({ slug }: { slug: string }) {
       const a = new Audio(n.audio);
       a.preload = "auto";
       a.addEventListener("timeupdate", () => setNow(a.currentTime));
-      a.addEventListener("ended", () => setPlaying(false));
       a.addEventListener("loadedmetadata", () => setDuration(a.duration));
+      a.addEventListener("ended", () => setPlaying(false));
       a.addEventListener("pause", () => setPlaying(false));
       a.addEventListener("play", () => setPlaying(true));
+      a.addEventListener("error", () => setLoadError(true));
       audioRef.current = a;
     }
     return audioRef.current;
   };
 
-  const toggleSection = (si: number) => {
+  const startPlayback = (t?: number) => {
     const a = audio();
-    const stanza = n.verses[si];
-    if (!a || stanza.time === undefined) return;
-    if (playing && activeIdx === si) {
-      a.pause();
-      a.currentTime = stanza.time;
-      return;
+    if (!a) return;
+    player.close(); // silence the dock player — the reader drives itself
+    if (t !== undefined) a.currentTime = t;
+    void a.play().catch(() => setLoadError(true));
+    if (!saved && n.audio) {
+      setSaved(true);
+      // First play = intent to use this nasheed — pin it into the offline
+      // audio cache in the background (the SW only serves from cache).
+      void saveAudioOffline(n.audio, {
+        talkId: `nasheed:${n.slug}`,
+        title: `${n.title} · ${n.arabic}`,
+      }).catch(() => {});
     }
-    player.close();
-    a.currentTime = stanza.time;
-    void a.play();
-    // First section play = intent to use this nasheed — pin it into the
-    // offline audio cache in the background (SW only serves from cache,
-    // it never auto-caches).
-    void saveAudioOffline(n.audio!, {
-      talkId: `nasheed:${n.slug}`,
-      title: `${n.title} · ${n.arabic}`,
-    }).catch(() => {});
   };
 
-  const isPlaying = player.currentTrack?.id === `nasheed:${n.slug}`;
-  // Verse numbers only count sung, non-chorus stanzas — computed once so
-  // render stays pure (a mutable counter mid-map trips react-hooks).
+  const toggleMain = () => {
+    const a = audio();
+    if (!a) return;
+    if (playing) a.pause();
+    else startPlayback(now > 0 && now < duration ? undefined : 0);
+  };
+
+  const toggleSection = (si: number) => {
+    const stanza = n.verses[si];
+    if (stanza.time === undefined) return;
+    if (playing && activeIdx === si) {
+      const a = audioRef.current;
+      if (a) {
+        a.pause();
+        a.currentTime = stanza.time;
+        setNow(stanza.time);
+      }
+      return;
+    }
+    startPlayback(stanza.time);
+  };
+
+  const seekRail = (e: React.MouseEvent) => {
+    const a = audioRef.current;
+    const rail = railRef.current;
+    if (!a || !rail || !duration) return;
+    const rect = rail.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    a.currentTime = frac * duration;
+    setNow(a.currentTime);
+  };
+
+  const progress = duration > 0 ? Math.min(1, now / duration) : 0;
   const verseNums = n.verses.reduce<number[]>((acc, s) => {
     acc.push(s.chorus || s.music ? 0 : (acc[acc.length - 1] ?? 0) + 1);
     return acc;
@@ -258,68 +312,96 @@ export default function NasheedClient({ slug }: { slug: string }) {
       </Link>
 
       {/* ── Title block ── */}
-      <div className="mb-2 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1
-            className="text-4xl leading-[1.4] tracking-wide sm:text-[2.6rem]"
-            lang="ar"
-            dir="rtl"
-            style={{
-              color: "var(--color-ink)",
-              fontFamily: "var(--font-arabic, var(--font-amiri, serif))",
-            }}
-          >
-            {n.arabic}
-          </h1>
-          <p
-            className="mt-2 text-sm font-medium"
-            style={{ color: "var(--color-ink)" }}
-          >
-            {n.title}
-          </p>
-          <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            {n.artist ?? "Traditional"}
-          </p>
-        </div>
+      <div className="mb-2">
+        <h1
+          className="text-4xl leading-[1.4] tracking-wide sm:text-[2.6rem]"
+          lang="ar"
+          dir="rtl"
+          style={{
+            color: "var(--color-ink)",
+            fontFamily: "var(--font-arabic, var(--font-amiri, serif))",
+          }}
+        >
+          {n.arabic}
+        </h1>
+        <p className="mt-2 text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+          {n.title}
+        </p>
+        <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+          {n.artist ?? "Traditional"}
+        </p>
+      </div>
 
-        {n.audio && (
+      {/* ── Embedded transport — one row: button, rail, times. ── */}
+      {n.audio && (
+        <div className="mt-5 flex items-center gap-3">
           <button
             type="button"
-            aria-label={isPlaying ? `Playing ${n.title}` : `Play ${n.title}`}
-            onClick={() => {
-              audioRef.current?.pause();
-              player.play({
-                id: `nasheed:${n.slug}`,
-                title: `${n.title} · ${n.arabic}`,
-                speaker: n.artist ?? "Traditional",
-                description: null,
-                streamUrl: n.audio,
-                externalUrl: null,
-                fileSize: null,
-                duration: null,
-                folderId: "nasheeds",
-                folderName: "Nasheeds",
-              });
-            }}
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-transform active:scale-95"
-            style={{
-              backgroundColor: isPlaying
-                ? "var(--color-accent)"
-                : "color-mix(in oklab, var(--color-accent) 12%, transparent)",
-            }}
+            onClick={toggleMain}
+            aria-label={playing ? "Pause" : `Play ${n.title}`}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-transform active:scale-95"
+            style={{ backgroundColor: "var(--color-accent)" }}
           >
-            <Play
-              className="h-5 w-5 fill-current"
-              style={{ color: isPlaying ? "var(--color-paper)" : "var(--color-accent)" }}
-            />
+            {playing ? (
+              <Pause className="h-4 w-4 fill-current" style={{ color: "var(--color-paper)" }} />
+            ) : (
+              <Play className="ml-0.5 h-4 w-4 fill-current" style={{ color: "var(--color-paper)" }} />
+            )}
           </button>
-        )}
-      </div>
+          <span
+            className="w-9 shrink-0 text-right text-[0.7rem] tabular-nums"
+            style={{ color: "var(--color-ink-muted)" }}
+          >
+            {fmt(now)}
+          </span>
+          <div
+            ref={railRef}
+            onClick={seekRail}
+            role="slider"
+            aria-label="Seek"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(duration)}
+            aria-valuenow={Math.round(now)}
+            className="group relative h-6 flex-1 cursor-pointer"
+          >
+            <div
+              className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full"
+              style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 12%, transparent)" }}
+            />
+            <div
+              className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full"
+              style={{
+                width: `${progress * 100}%`,
+                backgroundColor: "var(--color-accent)",
+                transition: playing ? "none" : "width 120ms linear",
+              }}
+            />
+            <div
+              className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+              style={{
+                left: `${progress * 100}%`,
+                backgroundColor: "var(--color-accent)",
+              }}
+            />
+          </div>
+          <span
+            className="w-9 shrink-0 text-[0.7rem] tabular-nums"
+            style={{ color: "var(--color-ink-muted)" }}
+          >
+            {duration ? fmt(duration) : "--:--"}
+          </span>
+        </div>
+      )}
+      {loadError && (
+        <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+          Couldn&rsquo;t load the audio — check your connection once and it will be saved for offline use.
+        </p>
+      )}
 
       {/* ── The text — chorus panels sit off the paper so the refrain is
           unmistakable; verses get a numbered ornament and ruled spacing.
-          Timed stanzas carry a compact play/stop chip; while the section
-          audio runs, words light up one by one. ── */}
+          Timed stanzas carry a timestamp mark; while playing, words light
+          up one by one. ── */}
       <div
         className="mt-6"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 2rem)" }}
@@ -327,14 +409,11 @@ export default function NasheedClient({ slug }: { slug: string }) {
         {n.verses.map((stanza, vi) => {
           const cursor = activeIdx === vi ? activeCursor : null;
           const follow = playing && activeIdx === vi && !stanza.music;
-          const chip = n.audio && stanza.time !== undefined && (
-            <SectionButton
-              playing={playing}
-              active={activeIdx === vi}
+          const mark = n.audio && stanza.time !== undefined && (
+            <TimeMark
+              time={stanza.time}
+              live={playing && activeIdx === vi}
               onToggle={() => toggleSection(vi)}
-              label={`from ${Math.floor(stanza.time / 60)}:${String(
-                Math.floor(stanza.time % 60),
-              ).padStart(2, "0")}`}
             />
           );
 
@@ -349,7 +428,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
                   className="h-px w-8"
                   style={{ backgroundColor: "var(--color-paper-3)" }}
                 />
-                {chip}
+                {mark}
                 <span
                   className="text-[0.7rem]"
                   style={{
@@ -380,7 +459,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
                 }}
               >
                 <div className="mb-3 flex items-center justify-center gap-2.5">
-                  {chip}
+                  {mark}
                   <p
                     className="text-[0.65rem] font-semibold uppercase tracking-[0.22em]"
                     style={{ color: "var(--color-accent)" }}
@@ -396,9 +475,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
                     cursor={cursor}
                     lineIndex={li}
                     follow={follow}
-                    lineRef={
-                      follow && cursor?.line === li ? activeLineRef : undefined
-                    }
+                    lineRef={follow && cursor?.line === li ? activeLineRef : undefined}
                   />
                 ))}
               </section>
@@ -407,17 +484,10 @@ export default function NasheedClient({ slug }: { slug: string }) {
 
           const verseNo = verseNums[vi];
           return (
-            <section
-              key={vi}
-              aria-label={`Verse ${verseNo}`}
-              className="py-6 sm:py-7"
-            >
-              <div className="mb-3 flex items-center justify-center gap-3" aria-hidden="true">
-                <span
-                  className="h-px w-10"
-                  style={{ backgroundColor: "var(--color-paper-3)" }}
-                />
-                {chip}
+            <section key={vi} aria-label={`Verse ${verseNo}`} className="py-6 sm:py-7">
+              <div className="mb-3 flex items-center justify-center gap-3">
+                <span className="h-px w-10" style={{ backgroundColor: "var(--color-paper-3)" }} />
+                {mark}
                 <span
                   className="text-xs tabular-nums"
                   style={{
@@ -427,10 +497,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
                 >
                   {ARABIC_NUMERAL[verseNo - 1] ?? verseNo}
                 </span>
-                <span
-                  className="h-px w-10"
-                  style={{ backgroundColor: "var(--color-paper-3)" }}
-                />
+                <span className="h-px w-10" style={{ backgroundColor: "var(--color-paper-3)" }} />
               </div>
               {stanza.lines.map((line, li) => (
                 <FollowLine
@@ -440,9 +507,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
                   cursor={cursor}
                   lineIndex={li}
                   follow={follow}
-                  lineRef={
-                    follow && cursor?.line === li ? activeLineRef : undefined
-                  }
+                  lineRef={follow && cursor?.line === li ? activeLineRef : undefined}
                 />
               ))}
             </section>
@@ -460,34 +525,5 @@ export default function NasheedClient({ slug }: { slug: string }) {
         </p>
       )}
     </div>
-  );
-}
-
-function FollowLine({
-  line,
-  chorus,
-  cursor,
-  lineIndex,
-  follow,
-  lineRef,
-}: {
-  line: string;
-  chorus: boolean;
-  cursor: { line: number; word: number } | null;
-  lineIndex: number;
-  follow: boolean;
-  lineRef?: React.RefObject<HTMLElement | null>;
-}) {
-  const done = follow && cursor !== null && lineIndex < cursor.line;
-  const onLine = follow && cursor !== null && lineIndex === cursor.line;
-  return (
-    <span ref={lineRef as React.Ref<HTMLSpanElement>} style={{ display: "block" }}>
-      <LyricLine
-        line={line}
-        chorus={chorus}
-        litWords={done ? line.split(" ").length : onLine ? cursor!.word : follow ? 0 : null}
-        curWord={onLine}
-      />
-    </span>
   );
 }
