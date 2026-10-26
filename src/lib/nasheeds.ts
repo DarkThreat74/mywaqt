@@ -532,6 +532,31 @@ export const NASHEEDS: Nasheed[] = [
       },
     ],
   },
+  {
+    slug: "hal-laka-sirrun",
+    title: "Hal Laka Sirrun 'Indallah",
+    arabic: "هل لك سرٌّ عند الله",
+    artist: "Mishary Rashid Alafasy",
+    audio: null,
+    verses: [
+      {
+        lines: [
+          "هل لك سرٌّ عند الله",
+          "بينك أنت وبين الله",
+          "هل لك صدقاتٌ تخفى",
+          "لا يعلمها إلا الله",
+        ],
+      },
+      {
+        lines: [
+          "قصصٌ لا تُكشف إلا",
+          "بكتابك حين ترى الله",
+          "ما أحراك بهذا أن",
+          "يكبر قدرك عند الله",
+        ],
+      },
+    ],
+  },
 ];
 
 export const NASHEED_BY_SLUG = new Map(NASHEEDS.map((n) => [n.slug, n]));
