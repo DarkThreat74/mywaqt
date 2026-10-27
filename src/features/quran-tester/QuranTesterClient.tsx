@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { BookOpen, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, Home, ListChecks, Loader2, Mic, MicOff, Pause, Play, Settings, Square, Trash2, User2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
@@ -58,6 +58,131 @@ const JUZ_PAGES = [1,22,42,62,82,102,121,142,162,182,201,222,242,262,282,302,322
 
 type SurahMeta = SurahMetaEntry;
 
+type PageCursor = { s: number; a: number; w: number | null } | null;
+type PageDivZone = { w1: number; w2: number; altS: number; altA: number };
+
+const MushafPageView = memo(function MushafPageView({
+  p, data, fontReady, bsmlReady, failed, interactive, cursor, suspects, confirmed,
+  diversions, jump, pin, divZones, lockFx, memorize, covSnap, revealed,
+  onWordTap, onMarkManual, onRetry,
+}: {
+  p: number;
+  data?: MushafPage;
+  fontReady: boolean;
+  bsmlReady: boolean;
+  failed: boolean;
+  interactive: boolean;
+  cursor: PageCursor;
+  suspects: Map<string, string>;
+  confirmed: Map<string, Mistake>;
+  diversions: Set<string>;
+  jump: { to: Loc; expected: Loc; at: number; silent?: boolean } | null;
+  pin: { s: number; a: number; w: number } | null;
+  divZones: Map<string, PageDivZone>;
+  lockFx: { s: number; a: number; n: number } | null;
+  memorize: boolean;
+  covSnap: Set<string>;
+  revealed: Set<string>;
+  onWordTap: (s: number, a: number, w: number) => void;
+  onMarkManual: (s: number, a: number, w: number) => void;
+  onRetry: (p: number) => void;
+}) {
+  const bridge = { paddingRight: 4, marginRight: -4 } as const;
+  const wordMark = (s: number, a: number, w: number) => {
+    if (lockFx && lockFx.s === s && lockFx.a === a)
+      return { animation: "qt-word-lock 1.5s cubic-bezier(.22,1,.36,1) both", animationDelay: `${Math.min(w, 14) * 55}ms` } as const;
+    const key = `${s}:${a}:${w}`;
+    const ayahFlag = `${s}:${a}:0`;
+    if (confirmed.has(key) || confirmed.has(ayahFlag))
+      return { ...bridge, backgroundColor: "color-mix(in oklab, #b34a3a 22%, transparent)", boxShadow: "inset 0 -2px 0 #b34a3a" } as const;
+    if (suspects.has(key) || suspects.has(ayahFlag))
+      return { ...bridge, backgroundColor: "color-mix(in oklab, #c9a227 25%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" } as const;
+    if (jump && jump.to.s === s && jump.to.a === a)
+      return { ...bridge, backgroundColor: "color-mix(in oklab, #d9762b 25%, transparent)", boxShadow: "inset 0 -2px 0 #d9762b" } as const;
+    if (diversions.has(`${s}:${a}`))
+      return { ...bridge, backgroundColor: "color-mix(in oklab, #c9a227 20%, transparent)" } as const;
+    if (jump && jump.expected.s === s && jump.expected.a === a)
+      return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const;
+    if (pin && pin.s === s && pin.a === a && w === pin.w)
+      return { ...bridge, boxShadow: "inset 0 -3px 0 #3b82f6" } as const;
+    const dz = divZones.get(`${s}:${a}`);
+    if (dz && w >= dz.w1 && w <= dz.w2)
+      return { ...bridge, boxShadow: "inset 0 -2px 0 color-mix(in oklab, var(--color-accent) 65%, transparent)" } as const;
+    if (cursor && cursor.s === s && cursor.a === a) {
+      if (cursor.w === w)
+        return { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } as const;
+      if (cursor.w !== null && w < cursor.w)
+        return { color: "var(--color-accent)" } as const;
+    }
+    return undefined;
+  };
+
+  if (!data) {
+    if (!interactive) return <div className="h-full" />;
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2">
+        {failed ? (
+          <>
+            <p className="text-xs" style={{ color: "#b34a3a" }}>Page failed to load.</p>
+            <button onClick={() => onRetry(p)} className="rounded-full border px-4 py-1.5 text-xs font-semibold" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Retry</button>
+          </>
+        ) : <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading page…</p>}
+      </div>
+    );
+  }
+  const sparse = data.lines.length < 15;
+  return (
+    <div className="flex h-full flex-col px-3 py-3 sm:px-5 lg:px-9 lg:py-5" dir="rtl">
+      {data.lines.map((line, li) => {
+        const nextType = data.lines[li + 1]?.type;
+        const endOfSurah = nextType === "surah-header" || nextType === "basmala";
+        if (line.type === "surah-header") return (
+          <div key={li} className="flex flex-1 items-center justify-center rounded-full border" style={{ borderColor: "var(--color-accent-faint)", backgroundColor: "var(--color-paper-2)" }}>
+            <p className="text-base font-bold" style={{ color: "var(--color-accent)", fontFamily: "var(--font-arabic, serif)" }}>{line.text}</p>
+          </div>
+        );
+        if (line.type === "basmala") {
+          const bsml = (line as { qpcV2?: string }).qpcV2;
+          return <p key={li} className="flex flex-1 items-center justify-center text-center text-xl leading-none" style={{ color: "var(--color-ink)", fontFamily: bsmlReady && bsml ? "QPC2BSML" : "var(--font-arabic, serif)" }}>{bsmlReady && bsml ? bsml : "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ"}</p>;
+        }
+        const centered = sparse || endOfSurah;
+        return (
+          <div key={li} className={`flex flex-1 flex-nowrap items-center overflow-hidden ${centered ? "justify-center" : "justify-between"} gap-x-1 lg:gap-x-3`}>
+            {(line.words ?? []).map((w, wi) => {
+              const [s, a, wiN] = w.location.split(":").map(Number);
+              const key = `${s}:${a}:${wiN}`;
+              const isSuspect = suspects.has(key) || suspects.has(`${s}:${a}:0`);
+              const isConfirmed = confirmed.has(key) || confirmed.has(`${s}:${a}:0`);
+              const heard = cursor?.s === s && cursor.a === a && cursor.w !== null && wiN <= cursor.w;
+              const coveredAyah = covSnap.has(`${s}:${a}`);
+              const hidden = memorize && !coveredAyah && !heard && !revealed.has(key);
+              return (
+                <span
+                  key={wi}
+                  data-loc={w.location}
+                  onDoubleClick={(e) => { e.preventDefault(); onMarkManual(s, a, wiN); }}
+                  onClick={isSuspect || isConfirmed || diversions.has(`${s}:${a}`) ? () => onWordTap(s, a, wiN) : undefined}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`shrink-0 select-none rounded px-px transition-colors duration-150${isSuspect || isConfirmed ? " cursor-pointer" : ""}`}
+                  style={{
+                    ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
+                    fontSize: "clamp(0.9rem, min(3.9vw, 6dvh), 2rem)",
+                    lineHeight: 1,
+                    color: hidden ? "transparent" : "var(--color-ink)",
+                    ...(hidden ? { backgroundColor: "color-mix(in oklab, var(--color-ink) 10%, transparent)" } : wordMark(s, a, wiN)),
+                  }}
+                >
+                  {fontReady && w.qpcV2 ? w.qpcV2 : w.word}
+                </span>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
 export default function QuranTesterClient() {
   const [ayahPages, setAyahPages] = useState<AyahPages | null>(null);
   const [page, setPage] = useState(1);
@@ -104,6 +229,7 @@ export default function QuranTesterClient() {
   const [divZones, setDivZones] = useState<Map<string, { w1: number; w2: number; altS: number; altA: number }>>(new Map());
   const divZonesRef = useRef(divZones);
   const levelRef = useRef(0); // live mic level for the stall watchdog
+  const lastLevelUiRef = useRef(0);
   const stallFixRef = useRef<number | null>(null); // first re-anchor attempt ts
   const mutaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastIssueKeyRef = useRef<string | null>(null); // suspect raised by the live correction
@@ -309,9 +435,9 @@ export default function QuranTesterClient() {
       unsub();
       window.removeEventListener("online", onUp);
       window.removeEventListener("offline", onDown);
-      for (const t of [retryTimerRef.current, candTimerRef.current, lockFxTimer.current, turnTimer.current, pleasedTimerRef.current])
+      for (const t of [retryTimerRef.current, candTimerRef.current, lockFxTimer.current, turnTimer.current, pleasedTimerRef.current, mutaTimerRef.current])
         if (t) clearTimeout(t as ReturnType<typeof setTimeout>);
-      retryTimerRef.current = candTimerRef.current = lockFxTimer.current = turnTimer.current = pleasedTimerRef.current = null;
+      retryTimerRef.current = candTimerRef.current = lockFxTimer.current = turnTimer.current = pleasedTimerRef.current = mutaTimerRef.current = null;
       flushCoverage(covRef.current);
     };
   }, []);
@@ -835,7 +961,11 @@ export default function QuranTesterClient() {
     } else if (ev.type === "ui-level") {
       const v = ev.value as number;
       levelRef.current = v;
-      setLevel(v);
+      const now = nowMs();
+      if (now - lastLevelUiRef.current >= 100) {
+        lastLevelUiRef.current = now;
+        setLevel(v);
+      }
     } else if (ev.type === "ui-error") {
       setMicError(String(ev.message));
     } else if (ev.type === "audio-gap") {
@@ -1153,6 +1283,10 @@ export default function QuranTesterClient() {
           // attached the look-alike twin — relabel the issue so the popup
           // says WHICH mutashabih the slip resembles, not just "wrong word".
           const muta = (ev as { muta?: { altS: number; altA: number; altFrom?: number } }).muta;
+          if (mutaTimerRef.current) {
+            clearTimeout(mutaTimerRef.current);
+            mutaTimerRef.current = null;
+          }
           setPending({
             s: i.surah, a: i.ayah, w: ayahLevel ? 0 : (i.word ?? -1) + 1,
             kind: muta ? "similar_verse" : i.kind,
@@ -1309,22 +1443,21 @@ export default function QuranTesterClient() {
 
   /** Confirm/dismiss for BOTH the live banner and the verify sheet — same
    *  action on an explicit spot instead of whatever `pending` points at. */
-  async function confirmSpot(spot: { s: number; a: number; w: number; kind: string }) {
+  function confirmSpot(spot: { s: number; a: number; w: number; kind: string }) {
     const m: Omit<Mistake, "id"> = { surah: spot.s, ayah: spot.a, word: spot.w, kind: spot.kind, confirmedAt: nowMs() };
-    await saveMistake(m).catch(() => {});
+    // Persist off the interaction path; IDB latency must not hold the engine.
+    void saveMistake(m).catch(() => {});
     const key = `${m.surah}:${m.ayah}:${m.word}`;
     sessionConfirmRef.current.add(key);
     setConfirmed((prev) => new Map(prev).set(key, { ...m }));
     suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
-    if (pending && pending.s === spot.s && pending.a === spot.a && (pending.w === spot.w || pending.w === 0 || spot.w === 0)) {
+    const currentPending = pendingRef.current;
+    if (currentPending && currentPending.s === spot.s && currentPending.a === spot.a && (currentPending.w === spot.w || currentPending.w === 0 || spot.w === 0)) {
       qtPost({ type: "correction-act", action: "continue" });
       setPending(null);
-    }
-    // If the 8s retry timer is armed for THIS suspect, the engine is frozen
-    // in `retrying` — releasing it here matters even when `pending` no
-    // longer points at this issue (a newer banner overwrote it).
-    if (retryKeyRef.current === key) {
+    } else if (retryKeyRef.current === key) {
+      // If the retry timer is armed for this suspect, release the engine once.
       retryKeyRef.current = null;
       if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
       qtPost({ type: "correction-act", action: "continue" });
@@ -1336,11 +1469,11 @@ export default function QuranTesterClient() {
     const key = `${spot.s}:${spot.a}:${spot.w}`;
     suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
-    if (pending && pending.s === spot.s && pending.a === spot.a && (pending.w === spot.w || pending.w === 0 || spot.w === 0)) {
+    const currentPending = pendingRef.current;
+    if (currentPending && currentPending.s === spot.s && currentPending.a === spot.a && (currentPending.w === spot.w || currentPending.w === 0 || spot.w === 0)) {
       qtPost({ type: "correction-act", action: "dismiss" });
       setPending(null);
-    }
-    if (retryKeyRef.current === key) {
+    } else if (retryKeyRef.current === key) {
       retryKeyRef.current = null;
       if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
       qtPost({ type: "correction-act", action: "dismiss" });
@@ -1354,14 +1487,14 @@ export default function QuranTesterClient() {
   /** Double-tap a word = mark it a confirmed mistake (red). Double-tap a
    *  confirmed word again = unmark. Consecutive marked words read as one
    *  joined highlight — a word-gap in between is a separate mistake. */
-  async function markManual(s: number, a: number, w: number) {
+  function markManual(s: number, a: number, w: number) {
     const key = `${s}:${a}:${w}`;
     const existing = confirmed.get(key);
     if (existing) { void deleteMistake(existing); return; }
     const kind = suspects.get(key);
     if (kind) { void confirmSpot({ s, a, w, kind }); return; }
     const m: Omit<Mistake, "id"> = { surah: s, ayah: a, word: w, kind: "manual", confirmedAt: nowMs() };
-    await saveMistake(m).catch(() => {});
+    void saveMistake(m).catch(() => {});
     sessionConfirmRef.current.add(key);
     setConfirmed((prev) => new Map(prev).set(key, { ...m }));
     sessionFlagsRef.current.add(key);
@@ -1416,6 +1549,22 @@ export default function QuranTesterClient() {
   const listening = listen !== "idle";
 
   const hintCountRef = useRef<{ ayah: string; n: number }>({ ayah: "", n: 0 });
+  const wordTapRef = useRef(onWordTap);
+  const markManualRef = useRef(markManual);
+  wordTapRef.current = onWordTap;
+  markManualRef.current = markManual;
+  const onWordTapMemo = useCallback((s: number, a: number, w: number) => wordTapRef.current(s, a, w), []);
+  const onMarkManualMemo = useCallback((s: number, a: number, w: number) => markManualRef.current(s, a, w), []);
+  const onRetryPage = useCallback((p: number) => {
+    setFailedPages((prev) => { const n = new Set(prev); n.delete(p); return n; });
+    setPages((prev) => { const n = new Map(prev); n.delete(p); return n; });
+  }, []);
+  const locPage = loc && ayahPages ? ayahPages[loc.surah]?.[loc.ayah] : null;
+  const cursorForPage = (p: number): PageCursor => (
+    loc && (locPage == null ? p === page : locPage === p)
+      ? { s: loc.surah, a: loc.ayah, w: wordIdx }
+      : null
+  );
 
   function peek() {
     // Escalating hint, per ayah: 1st press shows the next word, 2nd the next
@@ -1467,160 +1616,6 @@ export default function QuranTesterClient() {
     await removeMistakeAt(m.surah, m.ayah, m.word).catch(() => {});
     const key = `${m.surah}:${m.ayah}:${m.word}`;
     setConfirmed((prev) => { const n = new Map(prev); n.delete(key); return n; });
-  }
-
-  // Marked words sit in a `gap-x-1` row — every box-shadow underline stops
-  // at the word's edge and the line reads as broken. Stretch each marked
-  // box 4px into the following gap so consecutive marks join continuously.
-  const bridge = { paddingRight: 4, marginRight: -4 } as const;
-
-  function wordMark(s: number, a: number, w: number) {
-    // First-lock wave — staggered flash across the ayah that just resolved.
-    if (lockFx && lockFx.s === s && lockFx.a === a)
-      return { animation: "qt-word-lock 1.5s cubic-bezier(.22,1,.36,1) both", animationDelay: `${Math.min(w, 14) * 55}ms` } as const;
-    const key = `${s}:${a}:${w}`;
-    const ayahFlag = `${s}:${a}:0`;
-    if (confirmed.has(key) || confirmed.has(ayahFlag))
-      return { ...bridge, backgroundColor: "color-mix(in oklab, #b34a3a 22%, transparent)", boxShadow: "inset 0 -2px 0 #b34a3a" } as const;
-    if (suspects.has(key) || suspects.has(ayahFlag))
-      return { ...bridge, backgroundColor: "color-mix(in oklab, #c9a227 25%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" } as const;
-    if (jump && jump.to.s === s && jump.to.a === a)
-      return { ...bridge, backgroundColor: "color-mix(in oklab, #d9762b 25%, transparent)", boxShadow: "inset 0 -2px 0 #d9762b" } as const;
-    if (diversions.has(`${s}:${a}`))
-      return { ...bridge, backgroundColor: "color-mix(in oklab, #c9a227 20%, transparent)" } as const; // jumped here this session
-    if (jump && jump.expected.s === s && jump.expected.a === a)
-      return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const; // the pinned bookmark
-    if (pin && pin.s === s && pin.a === a && w === pin.w)
-      return { ...bridge, boxShadow: "inset 0 -3px 0 #3b82f6" } as const; // last word read right — blue underline
-    // Divergent zone: "this ayah parts ways with a look-alike HERE" —
-    // quiet accent underline, overruled by cursor/heard/suspect styling.
-    const dz = divZones.get(`${s}:${a}`);
-    if (dz && w >= dz.w1 && w <= dz.w2)
-      return { ...bridge, boxShadow: "inset 0 -2px 0 color-mix(in oklab, var(--color-accent) 65%, transparent)" } as const;
-    if (loc && loc.surah === s && loc.ayah === a) {
-      if (wordIdx === w)
-        return { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } as const;
-      if (wordIdx !== null && w < wordIdx)
-        return { color: "var(--color-accent)" } as const;
-    }
-    return undefined;
-  }
-
-  function renderPage(p: number, interactive: boolean) {
-    const data = pages.get(p);
-    const fontReady = fonts.has(p);
-    if (!data) {
-      // Adjacent strip slots render blank paper until loaded — a "Loading"
-      // label mid-swipe is exactly the flicker that broke the page-turn feel.
-      if (!interactive) return <div className="h-full" />;
-      return (
-        <div className="flex h-full flex-col items-center justify-center gap-2">
-          {failedPages.has(p) ? (
-            <>
-              <p className="text-xs" style={{ color: "#b34a3a" }}>Page failed to load.</p>
-              <button
-                onClick={() => {
-                  setFailedPages((prev) => { const n = new Set(prev); n.delete(p); return n; });
-                  setPages((prev) => { const n = new Map(prev); n.delete(p); return n; });
-                }}
-                className="rounded-full border px-4 py-1.5 text-xs font-semibold"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-              >
-                Retry
-              </button>
-            </>
-          ) : (
-            <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading page…</p>
-          )}
-        </div>
-      );
-    }
-    // Sparse pages (Fatiha is 8 lines) and lines that end a surah are
-    // centered in the real Madani mushaf — never stretched edge-to-edge.
-    const sparse = data.lines.length < 15;
-    return (
-      <div className="flex h-full flex-col px-3 py-3 sm:px-5 lg:px-9 lg:py-5" dir="rtl">
-        {data.lines.map((line, li) => {
-          const nextType = data.lines[li + 1]?.type;
-          const endOfSurah = nextType === "surah-header" || nextType === "basmala";
-          if (line.type === "surah-header") {
-            return (
-              <div
-                key={li}
-                className="flex flex-1 items-center justify-center rounded-full border"
-                style={{ borderColor: "var(--color-accent-faint)", backgroundColor: "var(--color-paper-2)" }}
-              >
-                <p className="text-base font-bold" style={{ color: "var(--color-accent)", fontFamily: "var(--font-arabic, serif)" }}>
-                  {line.text}
-                </p>
-              </div>
-            );
-          }
-          if (line.type === "basmala") {
-            const bsml = (line as { qpcV2?: string }).qpcV2;
-            return (
-              <p
-                key={li}
-                className="flex flex-1 items-center justify-center text-center text-xl leading-none"
-                style={{
-                  color: "var(--color-ink)",
-                  // The ﭑﭒﭓ glyph codepoints only exist in QPC2BSML — page
-                  // fonts don't contain them (rendered "Alif Ba Ba" before).
-                  fontFamily: bsmlReady && bsml ? "QPC2BSML" : "var(--font-arabic, serif)",
-                }}
-              >
-                {bsmlReady && bsml ? bsml : "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ"}
-              </p>
-            );
-          }
-          const centered = sparse || endOfSurah;
-          return (
-            <div key={li} className={`flex flex-1 flex-nowrap items-center overflow-hidden ${centered ? "justify-center" : "justify-between"} gap-x-1 lg:gap-x-3`}>
-              {(line.words ?? []).map((w, wi) => {
-                const [s, a, wiN] = w.location.split(":").map(Number);
-                const key = `${s}:${a}:${wiN}`;
-                const isSuspect = suspects.has(key) || suspects.has(`${s}:${a}:0`);
-                const isConfirmed = confirmed.has(key) || confirmed.has(`${s}:${a}:0`);
-                const heard = loc && loc.surah === s && loc.ayah === a && wordIdx !== null && wiN <= wordIdx;
-                // Cumulative reveal: an ayah once covered stays visible on
-                // every page you scroll back to — only unrecited words hide.
-                const coveredAyah = covSnap.has(`${s}:${a}`);
-                const hidden = memorize && !coveredAyah && !heard && !revealed.has(key);
-                return (
-                  <span
-                    key={wi}
-                    data-loc={w.location}
-                    // Double-tap marks the word a confirmed mistake (red);
-                    // preventDefault kills the browser's select-the-word
-                    // gesture — the "Google search" bar that popped up.
-                    onDoubleClick={(e) => { e.preventDefault(); void markManual(s, a, wiN); }}
-                    onClick={isSuspect || isConfirmed || diversions.has(`${s}:${a}`) ? () => onWordTap(s, a, wiN) : undefined}
-                    onContextMenu={(e) => e.preventDefault()}
-                    // shrink-0: a shrunken word box lets the glyph overflow
-                    // onto its neighbour — that's the text-on-end-marker
-                    // overlap. Lines must fit honestly instead.
-                    className={`shrink-0 select-none rounded px-px transition-colors duration-150${isSuspect || isConfirmed ? " cursor-pointer" : ""}`}
-                    style={{
-                      ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
-                      // Scale by whichever axis is tighter — vw alone left
-                      // the text tiny inside short/wide desktop viewports.
-                      fontSize: "clamp(0.9rem, min(3.9vw, 6dvh), 2rem)",
-                      lineHeight: 1,
-                      color: hidden ? "transparent" : "var(--color-ink)",
-                      ...(hidden
-                        ? { backgroundColor: "color-mix(in oklab, var(--color-ink) 10%, transparent)" }
-                        : wordMark(s, a, wiN)),
-                    }}
-                  >
-                    {fontReady && w.qpcV2 ? w.qpcV2 : w.word}
-                  </span>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-    );
   }
 
   return (
@@ -1944,15 +1939,15 @@ export default function QuranTesterClient() {
             {/* prev page waits off the left edge — swiping right pulls it in */}
             {page > 1 && (
               <div className="absolute inset-0" style={{ transform: "translateX(-100%)" }}>
-                {renderPage(page - 1, false)}
+                <MushafPageView p={page - 1} data={pages.get(page - 1)} fontReady={fonts.has(page - 1)} bsmlReady={bsmlReady} failed={failedPages.has(page - 1)} interactive={false} cursor={cursorForPage(page - 1)} suspects={suspects} confirmed={confirmed} diversions={diversions} jump={jump} pin={pin} divZones={divZones} lockFx={lockFx} memorize={memorize} covSnap={covSnap} revealed={revealed} onWordTap={onWordTapMemo} onMarkManual={onMarkManualMemo} onRetry={onRetryPage} />
               </div>
             )}
-            <div className="absolute inset-0" data-qt-cur>{renderPage(page, true)}</div>
+            <div className="absolute inset-0" data-qt-cur><MushafPageView p={page} data={pages.get(page)} fontReady={fonts.has(page)} bsmlReady={bsmlReady} failed={failedPages.has(page)} interactive cursor={cursorForPage(page)} suspects={suspects} confirmed={confirmed} diversions={diversions} jump={jump} pin={pin} divZones={divZones} lockFx={lockFx} memorize={memorize} covSnap={covSnap} revealed={revealed} onWordTap={onWordTapMemo} onMarkManual={onMarkManualMemo} onRetry={onRetryPage} /></div>
             {/* next page waits off the right edge — a left swipe drags it in,
                 so the page sliding in is always the page commitTurn lands on */}
             {page < PAGE_COUNT && (
               <div className="absolute inset-0" style={{ transform: "translateX(100%)" }}>
-                {renderPage(page + 1, false)}
+                <MushafPageView p={page + 1} data={pages.get(page + 1)} fontReady={fonts.has(page + 1)} bsmlReady={bsmlReady} failed={failedPages.has(page + 1)} interactive={false} cursor={cursorForPage(page + 1)} suspects={suspects} confirmed={confirmed} diversions={diversions} jump={jump} pin={pin} divZones={divZones} lockFx={lockFx} memorize={memorize} covSnap={covSnap} revealed={revealed} onWordTap={onWordTapMemo} onMarkManual={onMarkManualMemo} onRetry={onRetryPage} />
               </div>
             )}
           </div>

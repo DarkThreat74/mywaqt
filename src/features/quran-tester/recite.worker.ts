@@ -239,12 +239,16 @@ function heardForWord(wordIndex: number): string {
   if (!tr?.heard || !tr.trail || !tr.localWordOfPos || tr.trail.length !== tr.heard.length) return "";
   const first = tr.firstWord ?? 0;
   let out = "";
-  tr.heard.forEach((c, i) => {
+  // Corrections are for the current word; scanning an entire take here made
+  // each later correction slower as the transcript grew.
+  const firstHeard = Math.max(0, tr.heard.length - 4096);
+  for (let i = firstHeard; i < tr.heard.length; i++) {
+    const c = tr.heard[i];
     const cell = tr.trail![i];
-    if (cell <= 0) return;
+    if (cell <= 0) continue;
     const w = tr.localWordOfPos![Math.min(cell, tr.localWordOfPos!.length) - 1];
     if (first + w === wordIndex) out += c.ch;
-  });
+  }
   return out;
 }
 

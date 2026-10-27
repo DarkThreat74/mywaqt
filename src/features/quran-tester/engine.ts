@@ -78,13 +78,12 @@ const SHARED_FILES = [
 async function missingOrEmpty(cache: Cache, key: string): Promise<boolean> {
   const res = await cache.match(key);
   if (!res) return true;
-  try {
-    const size = (await res.clone().blob()).size;
-    if (size === 0) {
-      await cache.delete(key);
-      return true;
-    }
-  } catch { /* unreadable body counts as present — don't thrash the bucket */ }
+  // Do not materialize the model/corpus just to check whether the cache hit
+  // exists. Reading those bodies here added ~75 MB of I/O to every mount.
+  if (res.headers.get("content-length") === "0") {
+    await cache.delete(key);
+    return true;
+  }
   return false;
 }
 
@@ -92,22 +91,26 @@ export async function engineInstalled(): Promise<boolean> {
   if (typeof caches === "undefined") return false;
   if (localStorage.getItem(LS_KEY) !== "1") return false;
   const cache = await caches.open(ENGINE_CACHE);
-  for (const a of ENGINE_ASSETS) {
-    if (await missingOrEmpty(cache, engineUrl(a))) return false;
-  }
+  const engineOk = await Promise.all(
+    ENGINE_ASSETS.map((a) => missingOrEmpty(cache, engineUrl(a))),
+  );
+  if (engineOk.some(Boolean)) return false;
   // Legacy installs predate the runtime prefetch — check those files too,
   // or an offline first-run would fail on a missing ort wasm/worklet.
-  for (const [key] of RUNTIME_FILES) {
-    if (await missingOrEmpty(cache, `${self.location.origin}/qt/${key}`)) return false;
-  }
-  for (const p of SHARED_FILES) {
+  const runtimeOk = await Promise.all(
+    RUNTIME_FILES.map(([key]) => missingOrEmpty(cache, `${self.location.origin}/qt/${key}`)),
+  );
+  if (runtimeOk.some(Boolean)) return false;
+  const sharedOk = await Promise.all(SHARED_FILES.map(async (p) => {
     // These land under two keys depending on who cached them: the SW writes
     // through under the public path (/data/…), while cachedAsset/prefetch
     // stores the same bytes under /qt/<basename> so no-SW contexts survive.
-    if (await caches.match(p)) continue;
-    if (await caches.match(`${self.location.origin}/qt/${p.split("/").pop()}`)) continue;
-    return false;
-  }
+    return Boolean(
+      (await caches.match(p)) ||
+      (await caches.match(`${self.location.origin}/qt/${p.split("/").pop()}`)),
+    );
+  }));
+  if (sharedOk.some((ok) => !ok)) return false;
   return true;
 }
 

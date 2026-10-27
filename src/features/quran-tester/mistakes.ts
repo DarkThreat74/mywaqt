@@ -29,6 +29,9 @@ db.version(1).stores({
 });
 
 export async function saveMistake(m: Omit<Mistake, "id">): Promise<void> {
+  // A re-confirmed word must be allowed back onto the server after deletion.
+  const tombs = tombstones();
+  if (tombs.delete(`${m.surah}:${m.ayah}:${m.word}`)) saveTombstones(tombs);
   // Upsert — re-confirming the same word refreshes the row, never duplicates.
   const existing = await db.mistakes
     .where("[surah+ayah+word]")
