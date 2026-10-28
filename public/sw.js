@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v94";
+const CACHE_VERSION = "waqt-v95";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -395,6 +395,27 @@ async function warmCache() {
             if (target === page) await cache.put(alias, cachedRes.clone());
           }
           await prefetchChunks(body);
+          // Also warm the Flight payload — without it, offline client-side
+          // <Link> navigation 503s even though the full page is cached.
+          try {
+            const rsc = await fetch(`${page}?_rsc=sw`, {
+              credentials: "include",
+              redirect: "manual",
+              headers: { "RSC": "1" },
+            });
+            if (rsc.ok) {
+              const rbody = await rsc.text();
+              if (rbody) {
+                const rh = new Headers(rsc.headers);
+                rh.set("x-waqt-cached-at", String(Date.now()));
+                const rb = buildFingerprint(rsc, rbody);
+                if (rb) rh.set("x-waqt-build", rb);
+                if (uid) rh.set("x-waqt-uid", uid);
+                const rc = await cacheFor(RSC_CACHE);
+                await rc.put(page, new Response(rbody, { status: rsc.status, headers: rh }));
+              }
+            }
+          } catch { /* RSC warm is best-effort */ }
         }
       })
     );
@@ -574,6 +595,30 @@ async function hasSession() {
   }
   sessionLoaded = true;
   return cachedSession;
+}
+
+// Lite-Mode / Save-Data users: the client posts SET_DATA_SAVER (from
+// navigator.connection), and requests can carry the Save-Data hint. While
+// set, background revalidation is skipped — cached copies are served
+// as-is until the client (or a write) refreshes them.
+let cachedDataSaver = null;
+let dataSaverLoaded = false;
+async function dataSaver() {
+  if (dataSaverLoaded) return cachedDataSaver === true;
+  try {
+    cachedDataSaver = (await getMeta("dataSaver")) === true;
+  } catch {
+    cachedDataSaver = false;
+  }
+  dataSaverLoaded = true;
+  return cachedDataSaver;
+}
+function noteDataSaver(request) {
+  if (request.headers.get("Save-Data") === "on" && cachedDataSaver !== true) {
+    cachedDataSaver = true;
+    dataSaverLoaded = true;
+    setMeta("dataSaver", true).catch(() => {});
+  }
 }
 
 // Serve a cached page only if it was rendered for THIS account. Cached HTML
@@ -1218,6 +1263,7 @@ self.addEventListener("fetch", (event) => {
         const cacheKey = url.pathname + url.search;
         // Cache open and uid read are independent — run them together so the
         // storage round-trips don't stack onto every navigation.
+        noteDataSaver(request);
         const [pageCache, uid] = await Promise.all([
           soft(cacheFor(PAGE_CACHE), 1500, null),
           soft(requestUid(), 800, null),
@@ -1269,6 +1315,9 @@ self.addEventListener("fetch", (event) => {
         // revalidate in the background.
         const cachedHit = await soft(matchStampedPage(pageCache, cacheKey, uid), 1000, null);
         if (cachedHit) {
+          // Save-Data: cached page is good enough — skip the background
+          // revalidation fetch entirely rather than burning a request.
+          if (await soft(dataSaver(), 400, false)) return cachedHit;
           event.waitUntil(
             (async () => {
               try {
@@ -1424,6 +1473,9 @@ self.addEventListener("fetch", (event) => {
         }
         if (cached) {
           const age = Date.now() - Number(cached.headers.get("x-waqt-cached-at") || 0);
+          // Save-Data: any same-build cached payload wins — no background
+          // revalidation fetch at all.
+          if (await soft(dataSaver(), 400, false)) return cached;
           // Chrome + initial props are stable within a session — a 2-min
           // window made every tab switch pay the network race. 15 minutes
           // keeps taps instant while staying inside one deploy's lifetime.
@@ -1503,6 +1555,12 @@ self.addEventListener("fetch", (event) => {
             soft(cacheFor(API_CACHE), 800, null),
             soft(requestUid(), 800, null),
           ]);
+          // Save-Data: the last good copy is served without a network call —
+          // the caller asked for fresh, but saving data wins.
+          if (await soft(dataSaver(), 400, false) && cache) {
+            const hit = await soft(cache.match(request), 800, null);
+            if (hit && hit.headers.get("x-waqt-uid") === uid) return hit;
+          }
           try {
             const response = await timedFetch(request, 8000);
             // Populate the offline fallback even though the caller bypassed
@@ -1545,6 +1603,8 @@ self.addEventListener("fetch", (event) => {
           const age = Date.now() - cachedAt;
           // If cache is fresh, serve without revalidation
           if (age < API_TTL) return cached;
+          // Save-Data: stale still beats a request — serve, don't revalidate.
+          if (await soft(dataSaver(), 400, false)) return cached;
           // Stale — serve immediately but revalidate in background
           event.waitUntil(
             fetch(request)
@@ -1827,6 +1887,15 @@ self.addEventListener("message", (event) => {
       })()
     );
   }
+  if (event.data && event.data.type === "SET_DATA_SAVER") {
+    event.waitUntil((async () => {
+      cachedDataSaver = event.data.on === true;
+      dataSaverLoaded = true;
+      await setMeta("dataSaver", cachedDataSaver).catch(() => {});
+    })());
+    return;
+  }
+
   if (event.data && event.data.type === "SET_SESSION") {
     // Client posts the signed-in uid + a session flag (cookies are unreadable
     // in a SW). Persisted so stamp-matching + the API cache gate survive

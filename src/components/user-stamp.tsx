@@ -44,6 +44,14 @@ export default function UserStamp({ userId }: { userId: string }) {
       navigator.serviceWorker?.ready?.then((reg) =>
         reg.active?.postMessage({ type: "SET_SESSION", uid: userId })
       ).catch(() => {});
+      // Lite-Mode / metered connections: tell the SW to stop background
+      // revalidation and serve cached copies as-is.
+      const conn = (navigator as { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+      const saver = conn?.saveData === true || conn?.effectiveType === "slow-2g" || conn?.effectiveType === "2g";
+      navigator.serviceWorker?.controller?.postMessage({ type: "SET_DATA_SAVER", on: saver });
+      navigator.serviceWorker?.ready?.then((reg) =>
+        reg.active?.postMessage({ type: "SET_DATA_SAVER", on: saver })
+      ).catch(() => {});
     } catch { /* non-critical */ }
   }, [userId]);
   return null;
