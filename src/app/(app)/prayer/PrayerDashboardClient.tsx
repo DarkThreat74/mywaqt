@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Flame, Handshake, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye, Ban } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
-import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer, activeMakruh, makruhWindows, nextMakruh, parseMinutes, sanitizeTimings } from "@/lib/prayer/checkin";
+import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer, activeMakruh, makruhWindows, effectiveWindowEnd, parseMinutes, sanitizeTimings } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import { shareNative, hapticNotification } from "@/lib/native-bridge";
@@ -1291,7 +1291,11 @@ export default function PrayerDashboard() {
               </div>
             </div>
 
-            {/* ── Makruh countdown ── */}
+            {/* ── Time left to pray ──
+                Answers "how long do I have to pray?" — counts down to the
+                open prayer's deadline, which is the earlier of the window's
+                end and the next makruh period inside it. A bare makruh
+                countdown only appears when no prayer is actionable anyway. */}
             {prayerTimes && currentTime && (() => {
               const nowMin = nowMinutesInTz;
               const timings = {
@@ -1300,19 +1304,48 @@ export default function PrayerDashboard() {
                 maghrib: prayerTimes.maghrib, isha: prayerTimes.isha,
               };
               const mk = activeMakruh(nowMin, timings);
-              const upcoming = nextMakruh(nowMin, timings);
-              let caption = "Makruh";
-              let name = upcoming?.label ?? "Sunrise";
-              let until = "in";
-              let target = upcoming?.start ?? (parseMinutes(prayerTimes.sunrise) + 1440);
+              const open = openPrayer(nowMin, timings);
+              const openUnmarked = open && !isPrayed(open) ? open : null;
+
+              let caption: string;
+              let name: string;
+              let until: string;
+              let target: number;
               let danger = false;
 
-              if (mk) {
+              if (mk && !openUnmarked) {
+                // Makruh in effect and nothing prayable (sunrise/zawaal).
                 caption = "Makruh — wait";
                 name = mk.label;
                 until = "ends in";
                 target = mk.end;
                 danger = true;
+              } else if (openUnmarked) {
+                // Open, unmarked prayer — deadline is window end, or the
+                // makruh start that cuts it short (e.g. Asr → sunset).
+                const eff = effectiveWindowEnd(openUnmarked, nowMin, timings);
+                caption = mk ? "Pray now — makruh" : "Pray now";
+                name = prayerDisplayName(openUnmarked);
+                // Isha's window end is Fajr+1440 for evening hours, but after
+                // midnight the deadline is this morning's Fajr itself.
+                target = openUnmarked === "isha" && nowMin < parseMinutes(timings.fajr)
+                  ? parseMinutes(timings.fajr)
+                  : eff.end;
+                until = eff.isMakruhBound
+                  ? "until makruh"
+                  : openUnmarked === "fajr" ? "until sunrise" : "window ends in";
+                danger = !!mk;
+              } else {
+                // Nothing open (sunrise→Zuhr gap) or current prayer marked —
+                // count down to the next prayer's start.
+                let nextKey: PrayerKey | null = null;
+                for (const p of PRAYER_ORDER) {
+                  if (parseMinutes(timings[p]) > nowMin) { nextKey = p; break; }
+                }
+                caption = "Next prayer";
+                name = nextKey ? prayerDisplayName(nextKey) : "Fajr";
+                until = "in";
+                target = nextKey ? parseMinutes(timings[nextKey]) : parseMinutes(timings.fajr) + 1440;
               }
               const diff = Math.max(0, target - nowMin);
               const hrs = Math.floor(diff / 60);
