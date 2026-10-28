@@ -31,9 +31,18 @@ export interface PrayerTimings {
  */
 export function parseMinutes(time: string): number {
   if (typeof time !== "string") return NaN;
-  const cleaned = time.split(" ")[0].trim();
-  const [h, m] = cleaned.split(":").map(Number);
-  return h * 60 + m;
+  // Handles "HH:MM", "HH:MM:SS", "HH:MM (TZ)" and 12-hour "H:MM AM/PM" —
+  // a bare split-on-space parses "7:45 PM" as 7:45 AM and silently shifts
+  // every downstream window/makruh calculation by twelve hours.
+  const m = time.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])?/);
+  if (!m) return NaN;
+  let h = Number(m[1]);
+  const mins = Number(m[2]);
+  const ap = m[3]?.toUpperCase();
+  if (ap === "PM" && h < 12) h += 12;
+  if (ap === "AM" && h === 12) h = 0;
+  if (h > 23 || mins > 59) return NaN;
+  return h * 60 + mins;
 }
 
 /**

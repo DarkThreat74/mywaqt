@@ -1303,6 +1303,10 @@ export default function PrayerDashboard() {
                 dhuhr: prayerTimes.dhuhr, asr: prayerTimes.asr,
                 maghrib: prayerTimes.maghrib, isha: prayerTimes.isha,
               };
+              // Malformed timings (NaN) would misread every window as
+              // passed and fall back to a bogus "Fajr" — hide instead.
+              const starts = PRAYER_ORDER.map((p) => parseMinutes(timings[p]));
+              if (starts.some((s) => !Number.isFinite(s))) return null;
               const mk = activeMakruh(nowMin, timings);
               const open = openPrayer(nowMin, timings);
               const openUnmarked = open && !isPrayed(open) ? open : null;
