@@ -620,6 +620,13 @@ function noteDataSaver(request) {
     setMeta("dataSaver", true).catch(() => {});
   }
 }
+// Save-Data cap: serve cached copies with zero extra requests while they're
+// under a day old, but never so stale that a deploy or other-device write
+// never lands. Past the cap the normal revalidation path resumes.
+const SAVER_MAX_AGE = 24 * 60 * 60 * 1000;
+function saverFresh(res) {
+  return Date.now() - Number(res.headers.get("x-waqt-cached-at") || 0) < SAVER_MAX_AGE;
+}
 
 // Serve a cached page only if it was rendered for THIS account. Cached HTML
 // is server-rendered with user data — serving account A's page to account B
@@ -1315,9 +1322,9 @@ self.addEventListener("fetch", (event) => {
         // revalidate in the background.
         const cachedHit = await soft(matchStampedPage(pageCache, cacheKey, uid), 1000, null);
         if (cachedHit) {
-          // Save-Data: cached page is good enough — skip the background
-          // revalidation fetch entirely rather than burning a request.
-          if (await soft(dataSaver(), 400, false)) return cachedHit;
+          // Save-Data: fresh-enough cached page wins without a request —
+          // past SAVER_MAX_AGE fall through to the normal revalidate path.
+          if ((await soft(dataSaver(), 400, false)) && saverFresh(cachedHit)) return cachedHit;
           event.waitUntil(
             (async () => {
               try {
@@ -1473,9 +1480,9 @@ self.addEventListener("fetch", (event) => {
         }
         if (cached) {
           const age = Date.now() - Number(cached.headers.get("x-waqt-cached-at") || 0);
-          // Save-Data: any same-build cached payload wins — no background
-          // revalidation fetch at all.
-          if (await soft(dataSaver(), 400, false)) return cached;
+          // Save-Data: a same-build cached payload under a day old wins —
+          // no revalidation fetch at all. Older entries fall through.
+          if ((await soft(dataSaver(), 400, false)) && saverFresh(cached)) return cached;
           // Chrome + initial props are stable within a session — a 2-min
           // window made every tab switch pay the network race. 15 minutes
           // keeps taps instant while staying inside one deploy's lifetime.
@@ -1555,11 +1562,11 @@ self.addEventListener("fetch", (event) => {
             soft(cacheFor(API_CACHE), 800, null),
             soft(requestUid(), 800, null),
           ]);
-          // Save-Data: the last good copy is served without a network call —
-          // the caller asked for fresh, but saving data wins.
+          // Save-Data: a fresh-enough cached copy is served without a
+          // network call — stale-beyond-a-day entries still go online.
           if (await soft(dataSaver(), 400, false) && cache) {
             const hit = await soft(cache.match(request), 800, null);
-            if (hit && hit.headers.get("x-waqt-uid") === uid) return hit;
+            if (hit && hit.headers.get("x-waqt-uid") === uid && saverFresh(hit)) return hit;
           }
           try {
             const response = await timedFetch(request, 8000);
@@ -1603,8 +1610,9 @@ self.addEventListener("fetch", (event) => {
           const age = Date.now() - cachedAt;
           // If cache is fresh, serve without revalidation
           if (age < API_TTL) return cached;
-          // Save-Data: stale still beats a request — serve, don't revalidate.
-          if (await soft(dataSaver(), 400, false)) return cached;
+          // Save-Data: stale under a day still beats a request — past that,
+          // resume the normal background revalidation.
+          if ((await soft(dataSaver(), 400, false)) && saverFresh(cached)) return cached;
           // Stale — serve immediately but revalidate in background
           event.waitUntil(
             fetch(request)
