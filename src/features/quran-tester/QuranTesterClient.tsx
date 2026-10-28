@@ -160,10 +160,10 @@ const MushafPageView = memo(function MushafPageView({
                 <span
                   key={wi}
                   data-loc={w.location}
-                  onDoubleClick={(e) => { e.preventDefault(); onMarkManual(s, a, wiN); }}
-                  onClick={isSuspect || isConfirmed || diversions.has(`${s}:${a}`) ? () => onWordTap(s, a, wiN) : undefined}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className={`shrink-0 select-none rounded px-px transition-colors duration-150${isSuspect || isConfirmed ? " cursor-pointer" : ""}`}
+                  onDoubleClick={interactive ? (e) => { e.preventDefault(); onMarkManual(s, a, wiN); } : undefined}
+                  onClick={interactive && (isSuspect || isConfirmed || diversions.has(`${s}:${a}`)) ? () => onWordTap(s, a, wiN) : undefined}
+                  onContextMenu={interactive ? (e) => e.preventDefault() : undefined}
+                  className={`shrink-0 select-none rounded px-px transition-colors duration-150${isSuspect || isConfirmed || diversions.has(`${s}:${a}`) ? " cursor-pointer" : ""}`}
                   style={{
                     ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
                     fontSize: "clamp(0.9rem, min(3.9vw, 6dvh), 2rem)",
@@ -181,6 +181,31 @@ const MushafPageView = memo(function MushafPageView({
       })}
     </div>
   );
+}, (prev, next) => {
+  const sameCursor = prev.cursor === next.cursor ||
+    (prev.cursor?.s === next.cursor?.s &&
+      prev.cursor?.a === next.cursor?.a &&
+      prev.cursor?.w === next.cursor?.w);
+  return prev.p === next.p &&
+    prev.data === next.data &&
+    prev.fontReady === next.fontReady &&
+    prev.bsmlReady === next.bsmlReady &&
+    prev.failed === next.failed &&
+    prev.interactive === next.interactive &&
+    sameCursor &&
+    prev.suspects === next.suspects &&
+    prev.confirmed === next.confirmed &&
+    prev.diversions === next.diversions &&
+    prev.jump === next.jump &&
+    prev.pin === next.pin &&
+    prev.divZones === next.divZones &&
+    prev.lockFx === next.lockFx &&
+    prev.memorize === next.memorize &&
+    prev.covSnap === next.covSnap &&
+    prev.revealed === next.revealed &&
+    prev.onWordTap === next.onWordTap &&
+    prev.onMarkManual === next.onMarkManual &&
+    prev.onRetry === next.onRetry;
 });
 
 export default function QuranTesterClient() {
@@ -390,6 +415,9 @@ export default function QuranTesterClient() {
   }
 
   useEffect(() => {
+    // The worker/session survives route changes. Reattach to its current take
+    // before accepting events, otherwise a remount silently drops the stream.
+    takeRef.current = qtTake();
     covRef.current = loadCoverage();
     setCovSnap(covRef.current);
     loadAyahPages().then((ap) => { setAyahPages(ap); ixRef.current = buildIndex(ap); refreshSpan(); }).catch(() => {});
@@ -453,7 +481,7 @@ export default function QuranTesterClient() {
           .then((d) => {
             setPages((prev) => {
               const n = new Map(prev).set(p, d);
-              for (const k of n.keys()) if (Math.abs(k - page) > 1) n.delete(k);
+              for (const k of n.keys()) if (Math.abs(k - pageRef.current) > 1) n.delete(k);
               return n;
             });
             setFailedPages((prev) => { const n = new Set(prev); n.delete(p); return n; });
@@ -464,7 +492,7 @@ export default function QuranTesterClient() {
         loadPageFont(p)
           .then(() => setFonts((prev) => {
             const n = new Set(prev).add(p);
-            for (const k of n) if (Math.abs(k - page) > 1) n.delete(k);
+            for (const k of n) if (Math.abs(k - pageRef.current) > 1) n.delete(k);
             return n;
           }))
           .catch(() => {});
@@ -694,7 +722,7 @@ export default function QuranTesterClient() {
       h.total = 0;
     } else if (!h.loc) h.loc = { s, a };
     h.max = Math.max(h.max, word);
-    h.total = Math.max(h.total, total);
+    if (Number.isFinite(total) && total > 0) h.total = Math.max(h.total, total);
     // Touched = ≥30% of the ayah heard — counts toward "how much you read"
     // even when it didn't reach the 60% covered bar.
     if (h.loc && h.total > 0 && h.max >= Math.ceil(0.3 * h.total)) sessionTouchedRef.current.add(keyOf(h.loc));
@@ -1074,6 +1102,7 @@ export default function QuranTesterClient() {
       const s = Number(ev.surah), a = Number(ev.ayah), w = Number(ev.word);
       const altS = Number(ev.altSurah), altA = Number(ev.altAyah);
       const k = `${s}:${a}:${w}`;
+      const firstFlag = !suspectsRef.current.has(k);
       // The divergence fired after the fact — still mark the region so the
       // slip point stays visible while you review it.
       if (ev.from != null && ev.to != null) {
@@ -1095,7 +1124,7 @@ export default function QuranTesterClient() {
       // "wrong word", it says WHICH look-alike you drifted into and shows
       // that ayah's actual text. Auto-clears in 10s like the other banner;
       // the yellow mark stays for tap-review either way.
-      if (!ev.soft && !pendingRef.current) {
+      if (!ev.soft && firstFlag && !pendingRef.current) {
         setPending({ s, a, w, kind: "similar_verse", altS, altA });
         void ayahSnippet(altS, altA).then((t) =>
           setPending((p) => (p && p.s === s && p.a === a && p.w === w ? { ...p, altText: t } : p)));
@@ -1106,7 +1135,7 @@ export default function QuranTesterClient() {
       // soft = near-undecidable family (vowel-only/single-clitic diff): an
       // unsure verdict there can't be told from mushy audio, so flag the
       // word quietly instead of crying wolf.
-      if (!ev.soft) ding3();
+      if (!ev.soft && firstFlag) ding3();
       setStatus(ev.certain
         ? `Sounds like ${surahName(altS)} ${altS}:${altA}'s wording here — verify`
         : ev.soft
@@ -1210,7 +1239,7 @@ export default function QuranTesterClient() {
       if (pinRef.current && pinRef.current.s === s && pinRef.current.a === a) setPin(null);
       const p = ayahPage(s, a);
       if (p && p !== pageRef.current) setPage(p);
-    } else if (ev.type === "correction" || ev.type === "correction_note") {
+    } else if (ev.type === "correction") {
       const e = ev as { state?: { phase?: string; outcome?: string | null; issue?: { surah: number; ayah: number; word: number; kind: string } }; issue?: { surah: number; ayah: number; word: number; kind: string } };
       // A clean re-read resolved the flagged word — clear its yellow. Match
       // the outcome's own issue: lastIssueKeyRef can point at a DIFFERENT
@@ -1453,7 +1482,8 @@ export default function QuranTesterClient() {
     suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
     const currentPending = pendingRef.current;
-    if (currentPending && currentPending.s === spot.s && currentPending.a === spot.a && (currentPending.w === spot.w || currentPending.w === 0 || spot.w === 0)) {
+    const ownsIssue = lastIssueKeyRef.current === key || retryKeyRef.current === key;
+    if (ownsIssue && currentPending && currentPending.s === spot.s && currentPending.a === spot.a && (currentPending.w === spot.w || currentPending.w === 0 || spot.w === 0)) {
       qtPost({ type: "correction-act", action: "continue" });
       setPending(null);
     } else if (retryKeyRef.current === key) {
@@ -1470,7 +1500,8 @@ export default function QuranTesterClient() {
     suspectsRef.current.delete(key);
     setSuspects((prev) => { const n = new Map(prev); n.delete(key); return n; });
     const currentPending = pendingRef.current;
-    if (currentPending && currentPending.s === spot.s && currentPending.a === spot.a && (currentPending.w === spot.w || currentPending.w === 0 || spot.w === 0)) {
+    const ownsIssue = lastIssueKeyRef.current === key || retryKeyRef.current === key;
+    if (ownsIssue && currentPending && currentPending.s === spot.s && currentPending.a === spot.a && (currentPending.w === spot.w || currentPending.w === 0 || spot.w === 0)) {
       qtPost({ type: "correction-act", action: "dismiss" });
       setPending(null);
     } else if (retryKeyRef.current === key) {
@@ -1551,8 +1582,10 @@ export default function QuranTesterClient() {
   const hintCountRef = useRef<{ ayah: string; n: number }>({ ayah: "", n: 0 });
   const wordTapRef = useRef(onWordTap);
   const markManualRef = useRef(markManual);
-  wordTapRef.current = onWordTap;
-  markManualRef.current = markManual;
+  useEffect(() => {
+    wordTapRef.current = onWordTap;
+    markManualRef.current = markManual;
+  });
   const onWordTapMemo = useCallback((s: number, a: number, w: number) => wordTapRef.current(s, a, w), []);
   const onMarkManualMemo = useCallback((s: number, a: number, w: number) => markManualRef.current(s, a, w), []);
   const onRetryPage = useCallback((p: number) => {

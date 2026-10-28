@@ -675,6 +675,7 @@ export async function startQt(): Promise<void> {
     listen = "idle";
     emit({ type: "ui-listen", state: "idle" });
     emit({ type: "ui-error", message: err instanceof Error ? err.message : "Audio setup failed." });
+    dropLock();
     return;
   }
   const src = ctx.createMediaStreamSource(stream);

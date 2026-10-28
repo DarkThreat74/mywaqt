@@ -11,7 +11,7 @@ index a7301ef..c622cc4 100644
      repetitionMode: 'note', substitutionDistance: 0.6, slipFlag: Infinity,
  };
 -const PERSIST_FRAMES = 12;
-+const PERSIST_FRAMES = 4;
++const PERSIST_FRAMES = 8;
  const withDefaults = (th) => ({ ...DEFAULT_CORRECTION_THRESHOLDS, ...th });
  // Margins are differences of token probabilities, not calibrated word confidence.
  // Only gross mismatches surrounded by clear aligned words are actionable. These
@@ -374,7 +374,7 @@ index 3d7030c..7a953cd 100644
   * counts as heard-but-unfollowed (`unclear_ayah`) rather than skipped. */
  export const AYAH_HEARD_FRACTION = 0.5;
 -const SKIP_PERSIST_FRAMES = 12;
-+const SKIP_PERSIST_FRAMES = 4;
++const SKIP_PERSIST_FRAMES = 8;
  /** I/O manifest of the default `zipformer_a0w_ep1_a05.int8.onnx` (its encoder-frame
   * output is optional, so the same manifest drives `zipformer_interp_gentle_a05.int8.onnx`). */
  export const DEFAULT_ZIPFORMER_IO = DEFAULT_IO;

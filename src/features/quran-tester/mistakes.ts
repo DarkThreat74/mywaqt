@@ -82,13 +82,19 @@ export async function listMistakes(): Promise<Mistake[]> {
  * kept and pushed up.
  */
 export async function syncMistakes(): Promise<Mistake[]> {
+  // The listener must boot from local data even when "online" is true but the
+  // network is captive, broken, or painfully slow.
+  const local = await listMistakes();
+  if (typeof navigator !== "undefined" && !navigator.onLine) return local;
   try {
-    const res = await fetch("/api/quran-tester/mistakes", { cache: "no-store" });
-    if (!res.ok) return listMistakes();
+    const res = await fetch("/api/quran-tester/mistakes", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return local;
     const remote = (await res.json()).mistakes as {
       surah: number; ayah: number; word: number; kind: string; confirmedAt: string;
     }[];
-    const local = await listMistakes();
     const remoteKeys = new Set(remote.map((r) => `${r.surah}:${r.ayah}:${r.word}`));
     // Tombstones: rows deleted locally while the server copy still exists.
     // Without them the insert-only merge resurrects a pending delete, then

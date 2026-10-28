@@ -106,7 +106,7 @@ const mutaSeen = new Set<string>();
 // the SAME schema the engine's structural-index.json uses
 // ({pairs: {"s:a": [[ms,ma, tag,i1,i2,j1,j2, ...]]}, ident}). Bundled into
 // the worker IIFE so it needs no fetch and works fully offline.
-type MutaRow = { m: [number, number]; regions: number[][] };
+type MutaRow = { m: [number, number]; regions: number[][]; conf?: number };
 type MutaMaps = {
   looks?: Map<string, MutaRow[]>;
   both?: Map<string, MutaRow[]>;
@@ -141,7 +141,9 @@ function mergeMutaIndex(sm: MutaMaps | undefined) {
       for (let p = 2; p + 5 <= flat.length; p += 5)
         regions.push([flat[p], flat[p + 1], flat[p + 2], flat[p + 3], flat[p + 4]]);
       if (!regions.length) continue;
-      const fwd: MutaRow = { m, regions };
+      // Supplemental/generated pairs are useful context but are not vetted
+      // enough to justify a loud alert on their own.
+      const fwd: MutaRow = { m, regions, conf: 0.8 };
       addRow(sm.looks, key, fwd);
       addRow(sm.both, key, fwd);
       // `both` is bidirectional — give the partner a reversed row (tags
@@ -149,6 +151,7 @@ function mergeMutaIndex(sm: MutaMaps | undefined) {
       const rev: MutaRow = {
         m: [s, a],
         regions: regions.map(([t, i1, i2, j1, j2]) => [t === 1 ? 2 : t === 2 ? 1 : t, j1, j2, i1, i2]),
+        conf: 0.8,
       };
       addRow(sm.both, `${m[0]}:${m[1]}`, rev);
     }
@@ -175,9 +178,10 @@ function pollVerdicts() {
   const vs = zp?.verdicts?.();
   if (!vs?.length || !divCorpus || !divLooks) return;
   for (const v of vs) {
-    // Bare `unsure` is routine CTC mush on correct recitation — only a
-    // `wrong` verdict or a named look-alike alternate earns a ding.
-    if ((v.state !== "wrong" && !v.lookalike) || v.wordIndex == null) continue;
+    // An unsure decode is not evidence strong enough for a user-facing
+    // look-alike alert. The normal correction observer handles confirmed
+    // wrong words; this watcher only adds named-twin context to those.
+    if (v.state !== "wrong" || v.wordIndex == null) continue;
     const look = v.lookalike;
     const s = divCorpus.wordSurah[v.wordIndex];
     const a = divCorpus.wordAyah[v.wordIndex];
@@ -206,13 +210,20 @@ function pollVerdicts() {
   }
 }
 
+function hasConfirmedLookalike(wordIndex: number): boolean {
+  const zp = session?.zipformer as unknown as { verdicts?: () => WordVerdict[] } | null;
+  return zp?.verdicts?.().some((v) =>
+    v.state === "wrong" && v.wordIndex === wordIndex && !!v.lookalike,
+  ) ?? false;
+}
+
 function watchMuta(ev: { type?: string; surah?: number; ayah?: number; word_index?: number }) {
   if (!divLooks || !divCorpus) return;
   // A successful locate/relocate starts a new epoch — the same region
   // legitimately re-flags if the reciter slips again on the re-read.
   // `located` is swallowed by the session layer and surfaces as
   // `verse_candidate`; `relocated` passes through unchanged.
-  if (ev.type === "relocated" || ev.type === "verse_candidate") {
+  if (ev.type === "relocated") {
     mutaSeen.clear();
     return;
   }
@@ -397,7 +408,8 @@ async function init(sampleRate: number) {
         const iss = ev.state?.issue;
         if (ev.type === "correction" && iss && typeof iss.wordIndex === "number") {
           (ev as Record<string, unknown>).heard = heardForWord(iss.wordIndex);
-          if (divLooks && typeof iss.surah === "number" && typeof iss.word === "number") {
+          if (divLooks && typeof iss.surah === "number" && typeof iss.word === "number" &&
+              hasConfirmedLookalike(iss.wordIndex)) {
             for (const row of divLooks.get(`${iss.surah}:${iss.ayah}`) ?? []) {
               const r = row.regions.find((x) => iss.word! >= x[1] && iss.word! < x[2]);
               if (r) {
@@ -512,17 +524,17 @@ async function init(sampleRate: number) {
   if (sess.zipformer) Object.assign(sess.zipformer.correction.thresholds, {
     // 0.5 meant a word heard half-way (only the onset clipped) could never flag
     // as an omission — 0.75 restores partial-word omission detection.
-    omissionMaxHeard: 0.75,
+    omissionMaxHeard: 0.6,
     // 0.45 flagged 1-2 phoneme noise on short words (ال، في، من — a single
     // bad CTC token in a 3-4 phoneme word is distance ~0.5). 0.55 requires a
     // clearly different word again.
-    substitutionDistance: 0.55,
+    substitutionDistance: 0.6,
     // Neighbour anchors: 0.4 let mushy decodes qualify as "clear" anchors,
     // which fires every gated rule around them. 0.5 is the middle ground.
-    clearMargin: 0.5,
+    clearMargin: 0.55,
     // Decoder confidence the flagged word itself was heard clearly — 0.35
     // passed on mush. 0.45 is near the default 0.5 but still reachable.
-    subMargin: 0.45,
+    subMargin: 0.55,
     // Vowel evidence must be stronger than a single harakat token flip —
     // the decoder confidently rewrites internal harakat on normal audio.
     vowelMargin: 0.12,
