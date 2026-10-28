@@ -28,7 +28,8 @@ function stanzaCursor(
     for (let i = 0; i < lt.length; i++) if (now >= lt[i]) li = i;
     const nW = stanza.lines[li].split(" ").length;
     const wt = stanza.wordTimes;
-    if (wt) {
+    const totalWords = stanza.lines.reduce((n, line) => n + line.split(" ").length, 0);
+    if (wt && wt.length === totalWords) {
       let off = 0;
       for (let i = 0; i < li; i++) off += stanza.lines[i].split(" ").length;
       let w = 0;
@@ -49,7 +50,8 @@ function stanzaCursor(
     }
     target -= weights[li];
   }
-  return { line: stanza.lines.length - 1, word: 0 };
+  const lastLine = stanza.lines.length - 1;
+  return { line: lastLine, word: Math.max(0, stanza.lines[lastLine].split(" ").length - 1) };
 }
 
 function LyricLine({
@@ -205,9 +207,15 @@ export default function NasheedClient({ slug }: { slug: string }) {
   };
 
   const activeStanza = activeIdx >= 0 ? n!.verses[activeIdx] : null;
+  const activeEnd = activeIdx >= 0 ? stanzaEnd(activeIdx) : 0;
   const activeCursor =
     activeStanza?.time !== undefined
-      ? stanzaCursor(activeStanza!, activeStanza.time, stanzaEnd(activeIdx), now)
+      ? stanzaCursor(
+          activeStanza!,
+          activeStanza.time,
+          activeEnd,
+          Math.min(now, Math.max(activeStanza.time, activeEnd - 0.001)),
+        )
       : null;
 
   // Keep the sung line in view — refires only when stanza/line changes.
@@ -228,6 +236,21 @@ export default function NasheedClient({ slug }: { slug: string }) {
     if (scrollKey && playing && Date.now() - lastUserScroll.current > 4000)
       activeLineRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [scrollKey, playing]);
+
+  // `timeupdate` is intentionally coarse in mobile browsers. Sample the
+  // media clock while playing so word follow stays smooth without rendering
+  // more than 20 times per second.
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    const tick = () => {
+      const time = audioRef.current?.currentTime;
+      if (time != null) setNow(Math.round(time * 20) / 20);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
 
   useEffect(() => {
     return () => {
@@ -265,8 +288,9 @@ export default function NasheedClient({ slug }: { slug: string }) {
 
   const audio = () => {
     if (!audioRef.current && n.audio) {
-      const a = new Audio(n.audio);
+      const a = new Audio();
       a.preload = "auto";
+      a.src = n.audio;
       a.addEventListener("timeupdate", () => setNow(a.currentTime));
       a.addEventListener("loadedmetadata", () => setDuration(a.duration));
       a.addEventListener("ended", () => setPlaying(false));
@@ -282,12 +306,27 @@ export default function NasheedClient({ slug }: { slug: string }) {
     const a = audio();
     if (!a) return;
     player.close(); // silence the dock player — the reader drives itself
+    if (!saved && n.audio) {
+      setSaved(true);
+      void isAudioCached(n.audio)
+        .then((have) =>
+          have
+            ? undefined
+            : saveAudioOffline(n.audio!, {
+                talkId: `nasheed:${n.slug}`,
+                title: `${n.title} · ${n.arabic}`,
+              }),
+        )
+        .catch(() => {});
+    }
     if (t !== undefined && a.readyState < 1) {
       // Seek requested before metadata loaded. play() MUST stay inside the
       // tap's gesture stack — deferring it into loadedmetadata loses the
       // iOS autoplay grant and the tap silently does nothing. Play now
       // (from 0 for a split second), then jump to the section on metadata.
-      void a.play().catch(() => setLoadError(true));
+      void a.play().catch((err: unknown) => {
+        if (!(err instanceof DOMException) || err.name !== "AbortError") setLoadError(true);
+      });
       a.addEventListener(
         "loadedmetadata",
         () => {
@@ -302,24 +341,9 @@ export default function NasheedClient({ slug }: { slug: string }) {
       a.currentTime = t;
       setNow(t);
     }
-    void a.play().catch(() => setLoadError(true));
-    if (!saved && n.audio) {
-      setSaved(true);
-      // First play = intent to use this nasheed — pin it into the offline
-      // audio cache in the background (the SW only serves from cache).
-      // Skip if already pinned — saveAudioOffline deletes and re-downloads
-      // the entry, so calling it unconditionally burns 2.6MB every visit.
-      void isAudioCached(n.audio)
-        .then((have) =>
-          have
-            ? undefined
-            : saveAudioOffline(n.audio!, {
-                talkId: `nasheed:${n.slug}`,
-                title: `${n.title} · ${n.arabic}`,
-              }),
-        )
-        .catch(() => {});
-    }
+    void a.play().catch((err: unknown) => {
+      if (!(err instanceof DOMException) || err.name !== "AbortError") setLoadError(true);
+    });
   };
 
   const toggleMain = () => {
@@ -345,7 +369,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
   };
 
   const seekRail = (e: React.MouseEvent) => {
-    const a = audioRef.current;
+    const a = audioRef.current ?? audio();
     const rail = railRef.current;
     if (!a || !rail || !duration) return;
     const rect = rail.getBoundingClientRect();
