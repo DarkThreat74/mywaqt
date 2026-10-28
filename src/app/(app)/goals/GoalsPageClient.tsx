@@ -189,6 +189,47 @@ export default function GoalsPageClient({
     }
   }, [initialGoals, initialHomework, initialClasses, initialHabits, initialHabitLogs]);
 
+  // ── Offline-first: when the (possibly stale-cache) page shell shipped empty
+  // props, rehydrate from IndexedDB so the page isn't blank on dead networks.
+  useEffect(() => {
+    if (
+      initialGoals.length > 0 || initialHomework.length > 0 ||
+      initialClasses.length > 0 || initialHabits.length > 0 ||
+      initialHabitLogs.length > 0
+    ) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const db = getOfflineDB();
+        const [g, hw, cls, hab, logs] = await Promise.all([
+          db.goals.toArray(), db.homework.toArray(), db.classes.toArray(),
+          db.habits.toArray(), db.habitLogs.toArray(),
+        ]);
+        if (cancelled) return;
+        if (g.length > 0) setGoals(g.map((r) => ({
+          ...r,
+          createdAt: new Date(r.createdAt),
+          updatedAt: new Date(r.updatedAt),
+          completedAt: r.completedAt ? new Date(r.completedAt) : null,
+        } as unknown as Goal)));
+        if (hw.length > 0) setHomework(hw.map((r) => ({
+          ...r,
+          completedAt: r.completedAt ? new Date(r.completedAt) : null,
+        } as unknown as Homework)));
+        if (cls.length > 0) setClasses(cls.map((r) => ({
+          id: r.id, name: r.name, color: r.color, archived: r.archived,
+          sortOrder: r.sortOrder ?? 0,
+        } as Class)));
+        if (hab.length > 0) setHabits(hab as unknown as Habit[]);
+        if (logs.length > 0) setHabitLogs(logs as unknown as HabitLog[]);
+      } catch {
+        // IndexedDB unavailable — the API refresh below still runs
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const refreshAll = useCallback(async () => {
     try {
       const [goalsRes, hwRes, clsRes, habitsRes, logsRes, choresRes] = await Promise.all([

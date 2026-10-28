@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v93";
+const CACHE_VERSION = "waqt-v94";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -65,8 +65,8 @@ const PRECACHE_URLS = [
   "/data/surah-meta.json",
   "/worklets/qt-capture.js",
   "/rc/pitch-worklet.js",
-  "/data/mutashabihat.json",
-  "/data/quran.json",
+  // ~4MB quran.json/mutashabihat.json deliberately NOT precached — the /data/
+  // runtime branch caches them on first use, sparing low-data installs.
 ];
 
 // Core app pages — prefetched on install for offline boot.
@@ -75,6 +75,7 @@ const PRECACHE_URLS = [
 const APP_PAGES = [
   "/calendar/day",
   "/prayer",
+  "/goals",
   "/quran",
   "/mutashabihat",
   "/settings",
@@ -83,6 +84,11 @@ const APP_PAGES = [
   "/quran-tester",
   "/recite",
 ];
+// Server-redirect routes: store the target's HTML under the alias so an
+// offline hit on the alias boots the real page instead of a 307 to nowhere.
+const PAGE_ALIASES = {
+  "/homework": "/goals",
+};
 
 // ─── IndexedDB helpers for offline event outbox ───
 const DB_NAME = "waqt-offline";
@@ -385,6 +391,9 @@ async function warmCache() {
             headers,
           });
           await cache.put(page, cachedRes);
+          for (const [alias, target] of Object.entries(PAGE_ALIASES)) {
+            if (target === page) await cache.put(alias, cachedRes.clone());
+          }
           await prefetchChunks(body);
         }
       })
@@ -1485,14 +1494,40 @@ self.addEventListener("fetch", (event) => {
             })
           );
         }
-        // Client asked for fresh data (focus/mount revalidation) — skip the
-        // cache entirely so cross-device changes land immediately.
+        // Client asked for fresh data (focus/mount revalidation) — go to the
+        // network first so cross-device changes land immediately. But "fresh"
+        // means fresh-first, not fresh-or-nothing: on a dead/flaky link a
+        // stale cached copy beats a 503 that leaves the page blank.
         if (request.cache === "no-store") {
-          return await timedFetch(request, 8000).catch(
-            () => new Response(JSON.stringify({ error: "offline" }), {
+          const [cache, uid] = await Promise.all([
+            soft(cacheFor(API_CACHE), 800, null),
+            soft(requestUid(), 800, null),
+          ]);
+          try {
+            const response = await timedFetch(request, 8000);
+            // Populate the offline fallback even though the caller bypassed
+            // the cache — the next dead-network hit serves this copy.
+            if (response.ok && cache) {
+              const body = await response.blob();
+              const headers = new Headers(response.headers);
+              headers.set("x-waqt-cached-at", String(Date.now()));
+              if (uid) headers.set("x-waqt-uid", uid);
+              const res = new Response(body, {
+                status: response.status,
+                statusText: response.statusText,
+                headers,
+              });
+              await cache.put(request, res.clone());
+              return res;
+            }
+            return response;
+          } catch {
+            const cached = cache ? await soft(cache.match(request), 800, null) : null;
+            if (cached && cached.headers.get("x-waqt-uid") === uid) return cached;
+            return new Response(JSON.stringify({ error: "offline" }), {
               status: 503, headers: { "Content-Type": "application/json" },
-            })
-          );
+            });
+          }
         }
         // Independent reads in parallel — serially they stack a full
         // storage round-trip onto every API call before the cache can answer.
