@@ -11,6 +11,7 @@ export interface CachedEvent {
   color: string | null;
   recurrenceRule?: string | null;
   seriesId?: string | null;
+  createdVia?: string | null;
   notify?: boolean;
   sharePublic?: boolean;
   notifiedAt?: string | null;

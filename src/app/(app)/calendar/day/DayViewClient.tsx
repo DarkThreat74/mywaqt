@@ -30,6 +30,7 @@ interface CalendarEvent {
   sharePublic?: boolean;
   recurrenceRule?: string | null;
   seriesId?: string | null;
+  createdVia?: string | null;
   _pending?: boolean;
 }
 
@@ -227,10 +228,17 @@ export default function DayViewClient({ date }: { date: string }) {
   const [newStart, setNewStart] = useState("09:00");
   const [newEnd, setNewEnd] = useState("10:00");
   const [newType, setNewType] = useState<"block" | "task" | "reminder">("block");
-  // Smart event kind — "class" links occurrences to a homework class.
-  const [eventKind, setEventKind] = useState<"event" | "class">("event");
+  // Smart event kind — links occurrences to a feature (class/goal/study/quran).
+  const [eventKind, setEventKind] = useState<"event" | "class" | "goal" | "study" | "quran">("event");
   const [classId, setClassId] = useState<string | null>(null);
+  const [entityId, setEntityId] = useState<string | null>(null);
   const [classesList, setClassesList] = useState<Array<{ id: string; name: string; color: string }>>([]);
+  const [goalsList, setGoalsList] = useState<Array<{ id: string; title: string }>>([]);
+  const [pendingHw, setPendingHw] = useState<Array<{ id: string; title: string }>>([]);
+  // Quran type only exists once a recite plan does (plan lives client-side).
+  const [hasQuranPlan] = useState(
+    () => typeof localStorage !== "undefined" && !!localStorage.getItem("qt:plan"),
+  );
   const [enableRecurrence, setEnableRecurrence] = useState(false);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
@@ -466,13 +474,14 @@ export default function DayViewClient({ date }: { date: string }) {
       // the events filter below uses the authoritative timezone instead of
       // re-running this whole effect when userTimezone state updates.
       try {
-        const [eventsRes, prayerRes, logRes, hwRes, blocksRes, classRes] = await Promise.all([
+        const [eventsRes, prayerRes, logRes, hwRes, blocksRes, classRes, goalsRes] = await Promise.all([
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
           fetch(`/api/homework?date=${date}`).catch(() => null),
           fetch(`/api/blocks?date=${date}`).catch(() => null),
           fetch(`/api/classes`).catch(() => null),
+          fetch(`/api/goals`).catch(() => null),
         ]);
 
         if (cancelled) return;
@@ -504,6 +513,7 @@ export default function DayViewClient({ date }: { date: string }) {
               color: e.color || null,
               recurrenceRule: e.recurrenceRule || null,
               seriesId: e.seriesId || null,
+              createdVia: e.createdVia || null,
               notify: e.notify,
             sharePublic: e.sharePublic,
               _dateKey: date,
@@ -522,7 +532,11 @@ export default function DayViewClient({ date }: { date: string }) {
               const dueToday = hwData.filter((h: { dueDate: string; status: string }) =>
                 h.dueDate === date && h.status === "pending"
               );
-              if (!cancelled) setDayHomeworkCount(dueToday.length);
+              if (!cancelled) {
+                setDayHomeworkCount(dueToday.length);
+                setPendingHw(hwData.filter((h: { status: string }) => h.status === "pending")
+                  .map((h: { id: string; title: string }) => ({ id: h.id, title: h.title })));
+              }
             }
           } catch {
             // non-critical
@@ -542,6 +556,19 @@ export default function DayViewClient({ date }: { date: string }) {
           try {
             const data = await classRes.json();
             if (Array.isArray(data)) setClassesList(data.filter((c: { archived?: boolean }) => !c.archived));
+          } catch {
+            // non-critical
+          }
+        }
+
+        if (goalsRes?.ok && !cancelled) {
+          try {
+            const data = await goalsRes.json();
+            const arr = Array.isArray(data) ? data : data?.goals;
+            if (Array.isArray(arr)) {
+              setGoalsList(arr.filter((g: { status?: string }) => g.status === "active")
+                .map((g: { id: string; title: string }) => ({ id: g.id, title: g.title })));
+            }
           } catch {
             // non-critical
           }
@@ -928,6 +955,10 @@ export default function DayViewClient({ date }: { date: string }) {
         return;
       }
     }
+    if ((eventKind === "goal" || eventKind === "study") && !entityId) {
+      setError(eventKind === "goal" ? "Pick a goal." : "Pick something to study.");
+      return;
+    }
 
     // Convert wall-clock inputs to instants in the user's stored timezone —
     // new Date("YYYY-MM-DDTHH:mm") would parse in the *browser* tz and save
@@ -952,6 +983,18 @@ export default function DayViewClient({ date }: { date: string }) {
       body.createdVia = `class:${classId}`;
       body.recurrenceEndDate = recurrenceEndDate;
       body.recurrenceDays = recurrenceDays;
+    } else if ((eventKind === "goal" || eventKind === "study") && entityId) {
+      body.createdVia = `${eventKind}:${entityId}`;
+      if (enableRecurrence && recurrenceEndDate) {
+        body.recurrenceEndDate = recurrenceEndDate;
+        if (recurrenceDays.length > 0) body.recurrenceDays = recurrenceDays;
+      }
+    } else if (eventKind === "quran") {
+      body.createdVia = "quran";
+      if (enableRecurrence && recurrenceEndDate) {
+        body.recurrenceEndDate = recurrenceEndDate;
+        if (recurrenceDays.length > 0) body.recurrenceDays = recurrenceDays;
+      }
     } else if (enableRecurrence && recurrenceEndDate) {
       body.recurrenceEndDate = recurrenceEndDate;
       if (recurrenceDays.length > 0) {
@@ -1260,6 +1303,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setRecurrenceDays([]);
     setEventKind("event");
     setClassId(null);
+    setEntityId(null);
     setEditAllInSeries(false);
     // Prefill the "Repeat until" date from the series' recurrence rule
     const untilMatch = /_UNTIL_(\d{4}-\d{2}-\d{2})$/.exec(event.recurrenceRule ?? "");
@@ -1293,6 +1337,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setRecurrenceDays([]);
     setEventKind("event");
     setClassId(null);
+    setEntityId(null);
     setEditAllInSeries(false);
     setExtendEndDate("");
     setShowSeriesList(false);
@@ -2264,7 +2309,90 @@ export default function DayViewClient({ date }: { date: string }) {
                     Class
                   </button>
                 )}
+                {goalsList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setNewType("block"); setEventKind("goal"); }}
+                    className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
+                    style={{
+                      borderColor: eventKind === "goal" ? "var(--color-ink)" : "var(--color-paper-3)",
+                      backgroundColor: eventKind === "goal" ? "var(--color-ink)" : "var(--color-paper-2)",
+                      color: eventKind === "goal" ? "var(--color-paper)" : "var(--color-ink-soft)",
+                      minHeight: 44,
+                    }}
+                  >
+                    Goal
+                  </button>
+                )}
+                {pendingHw.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setNewType("block"); setEventKind("study"); }}
+                    className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
+                    style={{
+                      borderColor: eventKind === "study" ? "var(--color-ink)" : "var(--color-paper-3)",
+                      backgroundColor: eventKind === "study" ? "var(--color-ink)" : "var(--color-paper-2)",
+                      color: eventKind === "study" ? "var(--color-paper)" : "var(--color-ink-soft)",
+                      minHeight: 44,
+                    }}
+                  >
+                    Study
+                  </button>
+                )}
+                {hasQuranPlan && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewType("block");
+                      setEventKind("quran");
+                      if (!newTitle.trim()) setNewTitle("Quran recitation");
+                    }}
+                    className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
+                    style={{
+                      borderColor: eventKind === "quran" ? "var(--color-ink)" : "var(--color-paper-3)",
+                      backgroundColor: eventKind === "quran" ? "var(--color-ink)" : "var(--color-paper-2)",
+                      color: eventKind === "quran" ? "var(--color-paper)" : "var(--color-ink-soft)",
+                      minHeight: 44,
+                    }}
+                  >
+                    Quran
+                  </button>
+                )}
               </div>
+
+              {/* Goal / Study pickers — one-tap chips; Class picker is below */}
+              {eventKind === "goal" && (
+                <div className="flex max-h-32 flex-wrap gap-2 overflow-y-auto">
+                  {goalsList.map((g) => {
+                    const sel = entityId === g.id;
+                    return (
+                      <button key={g.id} type="button"
+                        onClick={() => { setEntityId(g.id); if (!newTitle.trim()) setNewTitle(g.title); }}
+                        className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+                        style={{ borderColor: sel ? "var(--color-ink)" : "var(--color-paper-3)", backgroundColor: sel ? "var(--color-paper-2)" : "var(--color-paper)", color: "var(--color-ink)", minHeight: 36 }}
+                      >
+                        {g.title}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {eventKind === "study" && (
+                <div className="flex max-h-32 flex-wrap gap-2 overflow-y-auto">
+                  {pendingHw.map((h) => {
+                    const sel = entityId === h.id;
+                    return (
+                      <button key={h.id} type="button"
+                        onClick={() => { setEntityId(h.id); if (!newTitle.trim()) setNewTitle(`Study: ${h.title}`); }}
+                        className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+                        style={{ borderColor: sel ? "var(--color-ink)" : "var(--color-paper-3)", backgroundColor: sel ? "var(--color-paper-2)" : "var(--color-paper)", color: "var(--color-ink)", minHeight: 36 }}
+                      >
+                        {h.title}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Class picker — pick one of your classes; fills title + color */}
               {eventKind === "class" && (
@@ -2846,6 +2974,25 @@ export default function DayViewClient({ date }: { date: string }) {
             {peekEvent.details && (
               <p className="mt-1.5 line-clamp-3 text-xs" style={{ color: "var(--color-ink-soft)" }}>{peekEvent.details}</p>
             )}
+            {/* Linked event — jump to the feature it belongs to */}
+            {(() => {
+              const kind = (peekEvent.createdVia || "").split(":")[0];
+              const cta =
+                kind === "class" ? { label: "Open classes", href: "/goals#homework" } :
+                kind === "goal" ? { label: "Open goals", href: "/goals" } :
+                kind === "study" || kind === "homework" ? { label: "Open homework", href: "/goals#homework" } :
+                kind === "quran" ? { label: "Open Quran", href: "/quran-tester" } : null;
+              return cta ? (
+                <Link
+                  href={cta.href}
+                  onClick={() => setPeekEvent(null)}
+                  className="mt-3 block rounded-lg border px-3 py-2.5 text-center text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
+                >
+                  {cta.label}
+                </Link>
+              ) : null;
+            })()}
             <div className="mt-3 flex gap-2">
               <button
                 onClick={() => { const ev = peekEvent; setPeekEvent(null); openEditForm(ev); }}
