@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v98";
+const CACHE_VERSION = "waqt-v99";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -1311,7 +1311,7 @@ self.addEventListener("fetch", (event) => {
       event.respondWith(
         timedFetch(request, 8000)
           .catch(async () => {
-            const offlinePage = await soft(caches.match("/offline.html"), 800, null);
+            const offlinePage = await offlineResponse();
             return offlinePage || new Response("Offline", { status: 503 });
           })
           // A respondWith REJECTION is a browser error page — last resort.
@@ -1392,7 +1392,7 @@ self.addEventListener("fetch", (event) => {
             const fallback = await soft(matchStampedPage(pageCache, page, uid), 800, null);
             if (fallback) return fallback;
           }
-          return soft(caches.match("/offline.html"), 800, null);
+          return offlineResponse();
         };
 
         // Instant path — same-account copy of THIS url: paint now,
