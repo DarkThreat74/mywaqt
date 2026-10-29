@@ -207,6 +207,7 @@ async function broadcastOutboxCount() {
 // ─── Sync offline outbox ───
 // Concurrency guard: prevent duplicate syncs from overlapping triggers
 let isSyncing = false;
+let lastSyncNotify = 0;
 
 async function syncOutbox() {
   if (isSyncing) return; // Already syncing — don't duplicate
@@ -1539,11 +1540,15 @@ self.addEventListener("fetch", (event) => {
         if (cached) {
           // Serving a build-A Flight payload to a page running build-B JS
           // crashes hydration — compare against the cached page's build.
+          // Only worth the extra cache round-trips when the payload even
+          // carries a build stamp.
           const rscBuild = cached.headers.get("x-waqt-build");
-          const pc = await soft(cacheFor(PAGE_CACHE), 800, null);
-          const page = pc ? await soft(matchStampedPage(pc, url.pathname, uid), 800, null) : null;
-          const pageBuild = page?.headers.get("x-waqt-build");
-          if (rscBuild && pageBuild && rscBuild !== pageBuild) cached = null;
+          if (rscBuild) {
+            const pc = await soft(cacheFor(PAGE_CACHE), 800, null);
+            const page = pc ? await soft(matchStampedPage(pc, url.pathname, uid), 800, null) : null;
+            const pageBuild = page?.headers.get("x-waqt-build");
+            if (pageBuild && rscBuild !== pageBuild) cached = null;
+          }
         }
         if (cached) {
           const age = Date.now() - Number(cached.headers.get("x-waqt-cached-at") || 0);
@@ -1699,8 +1704,13 @@ self.addEventListener("fetch", (event) => {
                   });
                   if (cache) {
                     await cache.put(request, cachedRes);
-                    const clients = await self.clients.matchAll({ type: "window" });
-                    clients.forEach((c) => c.postMessage({ type: "EVENT_SYNCED", count: 0 }));
+                    // Nudge open pages — rate-limited, or every stale
+                    // revalidation triggers a refetch storm on navigation.
+                    if (Date.now() - lastSyncNotify > 15000) {
+                      lastSyncNotify = Date.now();
+                      const clients = await self.clients.matchAll({ type: "window" });
+                      clients.forEach((c) => c.postMessage({ type: "EVENT_SYNCED", count: 0 }));
+                    }
                   }
                 }
               })
