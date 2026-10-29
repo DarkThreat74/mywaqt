@@ -2190,7 +2190,24 @@ export default function SettingsClient({
         {/* ── Reload app — useful in PWA standalone mode where pull-to-refresh is disabled ── */}
         <div className="p-4 sm:p-6">
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              // update() refetches sw.js — a plain reload would keep serving
+              // the old worker's caches, which is exactly the staleness this
+              // button exists to fix. Give a new worker a beat to activate
+              // before reloading so the reload hits the new version.
+              (async () => {
+                try {
+                  const reg = await navigator.serviceWorker?.getRegistration();
+                  if (reg) {
+                    await reg.update();
+                    if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+                    await new Promise((r) => setTimeout(r, 1200));
+                  }
+                } finally {
+                  window.location.reload();
+                }
+              })();
+            }}
             className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
           >
