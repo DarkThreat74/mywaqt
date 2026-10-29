@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v95";
+const CACHE_VERSION = "waqt-v96";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -1404,7 +1404,7 @@ self.addEventListener("fetch", (event) => {
           // network rather than flashing the offline page on slow wifi.
           // .catch: Promise.race ADOPTS this promise's rejection — an IDB/
           // CacheStorage failure must not reject respondWith.
-          setTimeout(() => resolve(uid ? fallbackPage().catch(() => null) : null), 2500)
+          setTimeout(() => resolve(uid ? fallbackPage().catch(() => null) : null), netDegraded ? 700 : 2500)
         );
 
         const first = await Promise.race([networkPromise, budgetPromise]);

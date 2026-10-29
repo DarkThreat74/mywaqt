@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Calendar,
   Target,
@@ -239,7 +239,11 @@ export default function GoalsPageClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const lastRefreshRef = useRef(0);
   const refreshAll = useCallback(async () => {
+    // Focus/mount can fire back-to-back — one fetch pass per 60s is plenty.
+    if (Date.now() - lastRefreshRef.current < 60_000) return;
+    lastRefreshRef.current = Date.now();
     try {
       const [goalsRes, hwRes, clsRes, habitsRes, logsRes, choresRes] = await Promise.all([
         fetch("/api/goals", { cache: "no-store" }), fetch("/api/homework", { cache: "no-store" }), fetch("/api/classes", { cache: "no-store" }),
