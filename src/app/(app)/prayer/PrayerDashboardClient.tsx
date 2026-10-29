@@ -514,6 +514,11 @@ export default function PrayerDashboard() {
       }
 
       // ── Step 2: Fetch from API in background ──
+      // Defer a beat so the 13-request storm doesn't contend with the first
+      // paint (IDB hydrate + spinner teardown) — every response also does an
+      // IDB write, and 13 concurrent ones fight the tab's own navigation.
+      await new Promise((r) => setTimeout(r, 600));
+      if (cancelled) return;
       try {
         const [analyticsRes, friendsRes, codeRes, qadaaRes, logsRes, sunnahRes, timesRes, pendingRes, outgoingRes, visibilityRes, profileRes, haydRes, activateRes] = await Promise.all([
           fetch(`/api/prayer-log/analytics?range=${statsRange}`).catch(() => null),
