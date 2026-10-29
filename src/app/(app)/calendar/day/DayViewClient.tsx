@@ -293,8 +293,10 @@ export default function DayViewClient({ date }: { date: string }) {
   const [showSeriesList, setShowSeriesList] = useState(false);
   const [seriesEvents, setSeriesEvents] = useState<CalendarEvent[]>([]);
   const [loadingSeries, setLoadingSeries] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
+  // mounted gate removed — offline state is the header dot only
+  // setIsOnline drives the reconnect refetch; the indicator itself is the
+  // header dot, so the value isn't read here.
+  const [, setIsOnline] = useState(true);
   const [prayerLogs, setPrayerLogs] = useState<Array<{ prayerName: string; status: string; wentToMasjid: boolean | null }>>([]);
   const [checkinPopup, setCheckinPopup] = useState<{ prayer: PrayerKey; label: string } | null>(null);
   const [studyBlocks, setStudyBlocks] = useState<BlockWithAssignments[]>([]);
@@ -736,7 +738,6 @@ export default function DayViewClient({ date }: { date: string }) {
     // After mount, sync the real online status (avoids hydration mismatch)
     // Using a Promise to defer the setState outside the effect body
     Promise.resolve().then(() => {
-      setMounted(true);
       setIsOnline(navigator.onLine);
     });
 
@@ -1471,19 +1472,7 @@ export default function DayViewClient({ date }: { date: string }) {
   return (
     <div className="mx-auto w-full max-w-5xl overflow-x-hidden px-3 py-3 sm:px-6 sm:py-6">
       {/* Offline banner — only show after mount to avoid hydration mismatch */}
-      {mounted && !isOnline && (
-        <div
-          className="mb-3 flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium sm:mb-4"
-          style={{
-            borderColor: "var(--color-warmth)",
-            backgroundColor: "color-mix(in oklab, var(--color-warmth) 10%, transparent)",
-            color: "var(--color-warmth)",
-          }}
-        >
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "var(--color-warmth)" }} />
-          You&apos;re offline — changes will sync when you reconnect.
-        </div>
-      )}
+      {/* Offline state lives in the header dot — no banner */}
 
       {/* Hayd banner — prayers excused this day, check-ins disabled */}
       {haydDay && (

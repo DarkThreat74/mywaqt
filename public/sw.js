@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v99";
+const CACHE_VERSION = "waqt-v100";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -783,8 +783,22 @@ function soft(promise, ms, fallback) {
 // Honest offline document — the last-resort body when every cache and the
 // network are dead. Kept as a helper so navigation fallbacks never diverge.
 function offlineResponse() {
+  // The page asks the SW which routes are actually cached and links those —
+  // a static "go back" breaks on fresh tabs (no history) and a hardcoded link
+  // loops when that page isn't cached either.
   return new Response(
-    "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#1a1815;color:#f5f0e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}button{display:inline-block;margin-top:20px;padding:10px 24px;background:#f5f0e8;color:#1a1815;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-decoration:none}</style></head><body><div><h1>This page isn't saved offline</h1><p>Pages you've visited stay available — this one just hasn't been cached yet.</p><button onclick='history.back()'>Go back</button> <button onclick='location.href=\"/calendar/day\"'>Open calendar</button></div></body></html>",
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#1a1815;color:#f5f0e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}a,button{display:inline-block;margin:16px 4px 0;padding:10px 24px;background:#f5f0e8;color:#1a1815;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-decoration:none}</style></head><body><div><h1>This page isn't saved offline</h1><p id="sub">Pages you've visited stay available — this one hasn't been cached yet.</p><button id="back">Go back</button><div id="links"></div></div><script>
+navigator.serviceWorker.controller && navigator.serviceWorker.controller.postMessage({type:"GET_CACHED_PAGES"});
+navigator.serviceWorker.addEventListener("message",function(e){
+if(e.data&&e.data.type==="CACHED_PAGES"&&e.data.pages&&e.data.pages.length){
+var links=document.getElementById("links");
+e.data.pages.forEach(function(p){
+var a=document.createElement("a");a.href=p;a.textContent=p.replace(/^\\//,"").replace(/\\//g," › ");
+links.appendChild(a);});
+}});
+document.getElementById("back").onclick=function(){
+if(history.length>1)history.back();else location.href="/calendar/day";};
+</script></body></html>`,
     { status: 200, headers: { "Content-Type": "text/html" } }
   );
 }
@@ -1981,6 +1995,26 @@ self.addEventListener("message", (event) => {
   }
   if (event.data && event.data.type === "WARM_CACHE") {
     event.waitUntil(warmCache().catch(() => {}));
+  }
+  if (event.data && event.data.type === "GET_CACHED_PAGES") {
+    // The "not cached" fallback page asks which routes actually have a page
+    // copy so its links always land somewhere real.
+    event.waitUntil((async () => {
+      try {
+        const cache = await cacheFor(PAGE_CACHE);
+        const uid = await requestUid();
+        const keys = await cache.keys();
+        const pages = [];
+        for (const req of keys) {
+          const u = new URL(req.url);
+          if (!u.pathname.startsWith("/api/")) {
+            const hit = await matchStampedPage(cache, u.pathname + u.search, uid);
+            if (hit && !pages.includes(u.pathname)) pages.push(u.pathname);
+          }
+        }
+        event.source?.postMessage({ type: "CACHED_PAGES", pages });
+      } catch { event.source?.postMessage({ type: "CACHED_PAGES", pages: [] }); }
+    })());
   }
   if (event.data && event.data.type === "CLEAR_API_CACHE") {
     // Clear API cache to prevent cross-user data leakage
