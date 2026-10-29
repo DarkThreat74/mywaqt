@@ -223,7 +223,8 @@ async function syncOutbox() {
       // account A must never replay under account B's session on a shared
       // device. Drop it rather than skip: the owner can never come back on
       // this session anyway, and keeping it blocks the FIFO queue.
-      if (item.uid && cachedUid && item.uid !== cachedUid) {
+      const itemUid = item.uid ? await requestUid() : cachedUid;
+      if (item.uid && itemUid && item.uid !== itemUid) {
         await removeFromOutbox(item.id);
         continue;
       }
@@ -1044,6 +1045,16 @@ self.addEventListener("fetch", (event) => {
               responseData.priority = body.priority || "medium";
               responseData.status = "pending";
               responseData.kind = body.kind || "homework";
+              // Echo the plan/subtask fields too — the client renders this
+              // verbatim until the outbox replays; omitting them makes an
+              // offline-created task look empty.
+              responseData.subtasks = Array.isArray(body.subtasks) ? body.subtasks : [];
+              responseData.plannedDate = body.plannedDate ?? null;
+              responseData.plannedStartTime = body.plannedStartTime ?? null;
+              responseData.plannedEndTime = body.plannedEndTime ?? null;
+              responseData.estimatedMinutes = body.estimatedMinutes ?? null;
+              responseData.plannedEventId = body.plannedEventId ?? null;
+              responseData.grade = body.grade ?? null;
               responseData.completedAt = null;
               responseData._pending = true;
             } else if (url.pathname.startsWith("/api/classes")) {

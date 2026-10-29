@@ -154,8 +154,10 @@ function format12h(time: string | undefined): string {
 
 // Format minutes-from-midnight to 12-hour AM/PM string
 function formatMinutesToTime(minutes: number): string {
-  const h = Math.floor(minutes / 60) % 24;
-  const m = Math.round(minutes % 60);
+  // Round whole minutes first — rounding minutes%60 alone can print "X:60".
+  const total = Math.round(minutes);
+  const h = Math.floor(total / 60) % 24;
+  const m = total % 60;
   const hour = h % 12 || 12;
   const period = h < 12 ? "AM" : "PM";
   return `${hour}:${String(m).padStart(2, "0")} ${period}`;
@@ -1331,13 +1333,16 @@ export default function PrayerDashboard() {
                 caption = mk ? "Pray now — makruh" : "Pray now";
                 name = prayerDisplayName(openUnmarked);
                 // Isha's window end is Fajr+1440 for evening hours, but after
-                // midnight the deadline is this morning's Fajr itself.
-                target = openUnmarked === "isha" && nowMin < parseMinutes(timings.fajr)
-                  ? parseMinutes(timings.fajr)
-                  : eff.end;
-                until = eff.isMakruhBound
+                // midnight the deadline is this morning's Fajr itself — and
+                // "until makruh" is wrong since the target is Fajr, not a
+                // makruh start.
+                const postMidnightIsha = openUnmarked === "isha" && nowMin < parseMinutes(timings.fajr);
+                target = postMidnightIsha ? parseMinutes(timings.fajr) : eff.end;
+                until = eff.isMakruhBound && !postMidnightIsha
                   ? "until makruh"
-                  : openUnmarked === "fajr" ? "until sunrise" : "window ends in";
+                  : openUnmarked === "fajr" ? "until sunrise"
+                  : openUnmarked === "isha" ? "until Fajr"
+                  : "window ends in";
                 danger = !!mk;
               } else {
                 // Nothing open (sunrise→Zuhr gap) or current prayer marked —
@@ -3286,9 +3291,10 @@ function PrayerDots({
     if (!prayerTimes) return -1;
     let currentMinutes: number;
     const fallback = currentTime ?? new Date(0);
-    if (!isMe && timezone) {
-      // Friend's clock — the helper normalizes the "24:xx" midnight quirk
-      // and falls back to device time on an unparseable zone.
+    if (timezone) {
+      // The helper normalizes the "24:xx" midnight quirk and falls back to
+      // device time on an unparseable zone. The viewer's row passes their
+      // configured tz too — device-local time disagrees with the card.
       currentMinutes = getCurrentMinutesInTimezonePrecise(timezone);
     } else {
       currentMinutes = fallback.getHours() * 60 + fallback.getMinutes() + fallback.getSeconds() / 60;

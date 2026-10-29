@@ -48,12 +48,24 @@ export default function LogoutButton() {
           req.onsuccess = req.onblocked = req.onerror = () => resolve();
         });
       } catch { /* ignore */ }
+      // Quran tester DB — mistakes, coverage, position are user data too;
+      // without this they leak into the next account on this device.
+      try {
+        const { closeMistakesDB } = await import("@/features/quran-tester/mistakes");
+        closeMistakesDB();
+      } catch { /* never opened — fine */ }
+      try {
+        await new Promise<void>((resolve) => {
+          const req = indexedDB.deleteDatabase("quran-tester");
+          req.onsuccess = req.onblocked = req.onerror = () => resolve();
+        });
+      } catch { /* ignore */ }
       // LocalStorage app keys (settings cache, session store, seen flags).
       try {
         Object.keys(localStorage)
           // waqt:funfact:* is exempt — content indices + an on/off toggle,
           // no private data; wiping it reset the cards preference every logout.
-          .filter((k) => (k.startsWith("waqt-") || k.startsWith("waqt:")) && !k.startsWith("waqt:funfact:") || k === "quran-best-streak")
+          .filter((k) => ((k.startsWith("waqt-") || k.startsWith("waqt:")) && !k.startsWith("waqt:funfact:")) || k === "quran-best-streak" || k.startsWith("qt:"))
           .forEach((k) => localStorage.removeItem(k));
       } catch { /* ignore */ }
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });

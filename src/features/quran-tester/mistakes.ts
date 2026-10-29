@@ -28,6 +28,12 @@ db.version(1).stores({
   mistakes: "++id, [surah+ayah+word], confirmedAt",
 });
 
+// Dexie's singleton holds the connection open — deleteDatabase() blocks
+// forever unless it's closed first. Call before wiping on logout.
+export function closeMistakesDB(): void {
+  try { db.close(); } catch { /* not open */ }
+}
+
 export async function saveMistake(m: Omit<Mistake, "id">): Promise<void> {
   // A re-confirmed word must be allowed back onto the server after deletion.
   const tombs = tombstones();

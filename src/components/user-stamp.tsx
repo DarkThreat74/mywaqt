@@ -32,6 +32,17 @@ export default function UserStamp({ userId }: { userId: string }) {
         import("@/lib/offline/db")
           .then((m) => m.clearOfflineCache())
           .catch(() => {});
+        // Quran tester's own DB + qt:* localStorage keys belong to the
+        // previous account — same leak as the SW caches.
+        try {
+          const req = indexedDB.deleteDatabase("quran-tester");
+          req.onsuccess = () => req.result?.close?.();
+        } catch { /* ignore */ }
+        try {
+          Object.keys(localStorage)
+            .filter((k) => k.startsWith("qt:"))
+            .forEach((k) => localStorage.removeItem(k));
+        } catch { /* ignore */ }
       }
       localStorage.setItem("waqt:uid", userId);
     } catch { /* non-critical */ }
