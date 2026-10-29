@@ -233,6 +233,8 @@ export default function DayViewClient({ date }: { date: string }) {
   const [classId, setClassId] = useState<string | null>(null);
   const [classStartDate, setClassStartDate] = useState("");
   const [goalTab, setGoalTab] = useState<string>("all");
+  // Add-event stepper: 1 = type picker, 2 = fields. Editing skips step 1.
+  const [formStep, setFormStep] = useState(1);
   const [entityId, setEntityId] = useState<string | null>(null);
   const [classesList, setClassesList] = useState<Array<{ id: string; name: string; color: string }>>([]);
   const [goalsList, setGoalsList] = useState<Array<{ id: string; title: string; goalType?: string; progressCurrent: number; progressTarget: number | null }>>([]);
@@ -1347,6 +1349,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setEntityId(null);
     setClassStartDate("");
     setGoalTab("all");
+    setFormStep(1);
     setEditAllInSeries(false);
     // Prefill the "Repeat until" date from the series' recurrence rule
     const untilMatch = /_UNTIL_(\d{4}-\d{2}-\d{2})$/.exec(event.recurrenceRule ?? "");
@@ -1383,6 +1386,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setEntityId(null);
     setClassStartDate("");
     setGoalTab("all");
+    setFormStep(1);
     setEditAllInSeries(false);
     setExtendEndDate("");
     setShowSeriesList(false);
@@ -2328,7 +2332,55 @@ export default function DayViewClient({ date }: { date: string }) {
                 <X className="h-5 w-5" style={{ color: "var(--color-ink-muted)" }} />
               </button>
             </div>
+            {/* Stepper — adding starts at the type picker; editing lands on fields */}
+            {!editingEvent && formStep === 1 ? (
+              <div className="flex flex-col gap-2.5">
+                <p className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                  What type of event?
+                </p>
+                {([
+                  { kind: "event", label: "Block", desc: "Time slot on your day" },
+                  { kind: "reminder", label: "Reminder", desc: "One-time nudge" },
+                  classesList.length > 0 && { kind: "class", label: "Class", desc: "Recurring schedule" },
+                  goalsList.length > 0 && { kind: "goal", label: "Goal", desc: "From your goals" },
+                  pendingHw.length > 0 && { kind: "study", label: "Study", desc: "From homework" },
+                  { kind: "quran", label: "Quran", desc: "Recitation time" },
+                ].filter(Boolean) as Array<{ kind: string; label: string; desc: string }>).map((opt) => (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => {
+                      if (opt.kind === "reminder") { setNewType("reminder"); setEventKind("event"); }
+                      else if (opt.kind === "event") { setNewType("block"); setEventKind("event"); }
+                      else {
+                        setNewType("block");
+                        setEventKind(opt.kind as typeof eventKind);
+                        if (opt.kind === "class") setEnableRecurrence(true);
+                        if (opt.kind === "quran" && !newTitle.trim()) setNewTitle("Quran recitation");
+                      }
+                      setFormStep(2);
+                    }}
+                    className="flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", minHeight: 52 }}
+                  >
+                    <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{opt.label}</span>
+                    <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
             <div className="flex flex-col gap-3">
+              {/* Back to the type picker (add flow only) */}
+              {!editingEvent && (
+                <button
+                  type="button"
+                  onClick={() => setFormStep(1)}
+                  className="self-start rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 32 }}
+                >
+                  ← Back · {eventKind === "event" ? (newType === "reminder" ? "Reminder" : "Block") : eventKind}
+                </button>
+              )}
               {/* Title */}
               <input
                 type="text"
@@ -2353,112 +2405,6 @@ export default function DayViewClient({ date }: { date: string }) {
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)", minHeight: 44 }}
               />
 
-              {/* Type toggle: Block vs Reminder (+ Class when classes exist) */}
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setNewType("block"); setEventKind("event"); setEnableRecurrence(false); }}
-                  className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
-                  style={{
-                    borderColor: eventKind === "event" && newType === "block" ? "var(--color-ink)" : "var(--color-paper-3)",
-                    backgroundColor: eventKind === "event" && newType === "block" ? "var(--color-ink)" : "var(--color-paper-2)",
-                    color: eventKind === "event" && newType === "block" ? "var(--color-paper)" : "var(--color-ink-soft)",
-                    minHeight: 44,
-                  }}
-                >
-                  Block
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setNewType("reminder"); setEventKind("event"); setEnableRecurrence(false); }}
-                  className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
-                  style={{
-                    borderColor: newType === "reminder" ? "var(--color-ink)" : "var(--color-paper-3)",
-                    backgroundColor: newType === "reminder" ? "var(--color-ink)" : "var(--color-paper-2)",
-                    color: newType === "reminder" ? "var(--color-paper)" : "var(--color-ink-soft)",
-                    minHeight: 44,
-                  }}
-                >
-                  Reminder
-                </button>
-                {classesList.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewType("block");
-                      setEventKind("class");
-                      setEnableRecurrence(true);
-                    }}
-                    className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
-                    style={{
-                      borderColor: eventKind === "class" ? "var(--color-ink)" : "var(--color-paper-3)",
-                      backgroundColor: eventKind === "class" ? "var(--color-ink)" : "var(--color-paper-2)",
-                      color: eventKind === "class" ? "var(--color-paper)" : "var(--color-ink-soft)",
-                      minHeight: 44,
-                    }}
-                  >
-                    Class
-                  </button>
-                )}
-                {goalsList.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewType("block");
-                      setEventKind("goal");
-                      // Class leaves recurrence on — stale days/end date was
-                      // hitting the server and failing the create.
-                      setEnableRecurrence(false);
-                    }}
-                    className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
-                    style={{
-                      borderColor: eventKind === "goal" ? "var(--color-ink)" : "var(--color-paper-3)",
-                      backgroundColor: eventKind === "goal" ? "var(--color-ink)" : "var(--color-paper-2)",
-                      color: eventKind === "goal" ? "var(--color-paper)" : "var(--color-ink-soft)",
-                      minHeight: 44,
-                    }}
-                  >
-                    Goal
-                  </button>
-                )}
-                {pendingHw.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewType("block");
-                      setEventKind("study");
-                      setEnableRecurrence(false);
-                    }}
-                    className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
-                    style={{
-                      borderColor: eventKind === "study" ? "var(--color-ink)" : "var(--color-paper-3)",
-                      backgroundColor: eventKind === "study" ? "var(--color-ink)" : "var(--color-paper-2)",
-                      color: eventKind === "study" ? "var(--color-paper)" : "var(--color-ink-soft)",
-                      minHeight: 44,
-                    }}
-                  >
-                    Study
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNewType("block");
-                    setEventKind("quran");
-                    setEnableRecurrence(false);
-                    if (!newTitle.trim()) setNewTitle("Quran recitation");
-                  }}
-                  className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
-                  style={{
-                    borderColor: eventKind === "quran" ? "var(--color-ink)" : "var(--color-paper-3)",
-                    backgroundColor: eventKind === "quran" ? "var(--color-ink)" : "var(--color-paper-2)",
-                    color: eventKind === "quran" ? "var(--color-paper)" : "var(--color-ink-soft)",
-                    minHeight: 44,
-                  }}
-                >
-                  Quran
-                </button>
-              </div>
 
               {/* Goal / Study pickers — one-tap chips; Class picker is below */}
               {eventKind === "goal" && (
@@ -2958,6 +2904,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 )}
               </div>
             </div>
+            )}
           </form>
         </div>
       )}
