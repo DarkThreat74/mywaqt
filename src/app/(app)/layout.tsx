@@ -19,7 +19,7 @@ import BirthdayAlerter from "@/components/birthday-alerter";
 import FloatingDock from "@/components/floating-dock";
 import GlobalReciteToast from "@/features/quran-tester/GlobalReciteToast";
 import { isFeedbackEnabled } from "@/lib/app-settings";
-import OfflineBanner from "@/components/offline-banner";
+import OfflineDot from "@/components/offline-dot";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
 import GlobalAudioPlayer from "@/components/global-audio-player";
 import LogoutButton from "@/components/logout-button";
@@ -165,6 +165,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Link href="/calendar/day" className="text-lg font-semibold tracking-tight transition-opacity hover:opacity-70" style={{ color: "var(--color-ink)" }}>
             Waqt
           </Link>
+          <OfflineDot />
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 px-3" aria-label="Main">
@@ -200,6 +201,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Link href="/calendar/day" className="text-base font-semibold tracking-tight transition-opacity hover:opacity-70" style={{ color: "var(--color-ink)" }}>
             Waqt
           </Link>
+          <OfflineDot />
           <div className="flex items-center gap-1">
             <NotificationBell feedbackEnabled={feedbackEnabled} />
             <ToolsMenu />
@@ -211,7 +213,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             nav + safe-area + player-bar height; a Tailwind pb-* here loses to
             that ID selector anyway. */}
         <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden">
-          <OfflineBanner />
           <BiometricGate>{children}</BiometricGate>
         </main>
       </div>
