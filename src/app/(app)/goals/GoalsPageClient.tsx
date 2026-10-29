@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Calendar,
   Target,
@@ -38,6 +38,10 @@ const TABS: TabDef[] = [
   { id: "habits", label: "Habits", icon: Repeat },
   { id: "done", label: "Done", icon: CheckCircle2 },
 ];
+
+// Refresh cooldown lives at module scope — a ref dies on every remount, so
+// each tab switch was refetching all six endpoints despite the 60s guard.
+let lastRefreshAt = 0;
 
 const GOAL_HORIZONS: { key: GoalHorizon; label: string }[] = [
   { key: "week", label: "Week" },
@@ -239,11 +243,11 @@ export default function GoalsPageClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const lastRefreshRef = useRef(0);
   const refreshAll = useCallback(async () => {
     // Focus/mount can fire back-to-back — one fetch pass per 60s is plenty.
-    if (Date.now() - lastRefreshRef.current < 60_000) return;
-    lastRefreshRef.current = Date.now();
+    // Module-level so the cooldown survives tab-switch remounts.
+    if (Date.now() - lastRefreshAt < 60_000) return;
+    lastRefreshAt = Date.now();
     try {
       const [goalsRes, hwRes, clsRes, habitsRes, logsRes, choresRes] = await Promise.all([
         fetch("/api/goals", { cache: "no-store" }), fetch("/api/homework", { cache: "no-store" }), fetch("/api/classes", { cache: "no-store" }),

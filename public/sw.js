@@ -1514,11 +1514,14 @@ self.addEventListener("fetch", (event) => {
           }
         }
 
-        // Router prefetch responses are PARTIAL Flight trees (shell down to
-        // the nearest loading boundary) — caching one under the real key
-        // serves skeleton-only pages to real navigations for 15min. Let them
-        // warm the client router cache but never the SW copy.
-        const isPrefetch = request.headers.get("Next-Router-Prefetch") === "1";
+        // Router prefetch responses are PARTIAL Flight trees — they're never
+        // stored, so the whole cache branch buys nothing. Pass straight to
+        // the network: the tap itself uses the warmed full entry.
+        if (request.headers.get("Next-Router-Prefetch") === "1") {
+          try { return await timedFetch(request, 6000); }
+          catch { return new Response("", { status: 503, headers: { "Content-Type": "text/x-component" } }); }
+        }
+        const isPrefetch = false;
 
         const store = async (res) => {
           const body = await res.clone().text();
@@ -1532,16 +1535,20 @@ self.addEventListener("fetch", (event) => {
         };
         const maybeStore = (r) => { if (!isPrefetch) return store(r); };
 
+        // Both lookups start now — the page build only matters when the RSC
+        // entry carries a stamp, but running it in parallel costs nothing
+        // and removes two serial storage reads from every tap.
+        const pageP = soft(
+          cacheFor(PAGE_CACHE).then((pc) => matchStampedPage(pc, url.pathname, uid)),
+          800, null,
+        );
         let cached = await soft(matchStampedPage(cache, key, uid), 800, null);
         if (cached) {
           // Serving a build-A Flight payload to a page running build-B JS
           // crashes hydration — compare against the cached page's build.
-          // Only worth the extra cache round-trips when the payload even
-          // carries a build stamp.
           const rscBuild = cached.headers.get("x-waqt-build");
           if (rscBuild) {
-            const pc = await soft(cacheFor(PAGE_CACHE), 800, null);
-            const page = pc ? await soft(matchStampedPage(pc, url.pathname, uid), 800, null) : null;
+            const page = await pageP;
             const pageBuild = page?.headers.get("x-waqt-build");
             if (pageBuild && rscBuild !== pageBuild) cached = null;
           }
