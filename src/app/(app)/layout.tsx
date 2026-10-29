@@ -20,6 +20,7 @@ import FloatingDock from "@/components/floating-dock";
 import GlobalReciteToast from "@/features/quran-tester/GlobalReciteToast";
 import { isFeedbackEnabled } from "@/lib/app-settings";
 import OfflineDot from "@/components/offline-dot";
+import NavLink from "@/components/nav-link";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
 import GlobalAudioPlayer from "@/components/global-audio-player";
 import LogoutButton from "@/components/logout-button";
@@ -274,9 +275,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
 function NavItem({ label, href, icon: Icon, alert }: { label: string; href: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; alert?: boolean }) {
   return (
-    <Link
+    <NavLink
       href={href}
-      prefetch={false}
       className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
       style={{ color: "var(--color-ink-soft)" }}
     >
@@ -291,15 +291,14 @@ function NavItem({ label, href, icon: Icon, alert }: { label: string; href: stri
         )}
       </span>
       {label}
-    </Link>
+    </NavLink>
   );
 }
 
 function MobileNavItem({ label, href, icon: Icon, alert }: { label: string; href: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; alert?: boolean }) {
   return (
-    <Link
+    <NavLink
       href={href}
-      prefetch={false}
       className="flex min-w-0 flex-1 flex-col items-center gap-1 py-3 text-[11px] font-medium"
       style={{ color: "var(--color-ink-muted)", minHeight: 44 }}
     >
@@ -314,6 +313,6 @@ function MobileNavItem({ label, href, icon: Icon, alert }: { label: string; href
         )}
       </span>
       <span className="truncate">{label}</span>
-    </Link>
+    </NavLink>
   );
 }

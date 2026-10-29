@@ -1624,7 +1624,10 @@ self.addEventListener("fetch", (event) => {
           // Save-Data: stale under a day still beats a request — past that,
           // resume the normal background revalidation.
           if ((await soft(dataSaver(), 400, false)) && saverFresh(cached)) return cached;
-          // Stale — serve immediately but revalidate in background
+          // Stale — serve immediately but revalidate in background, then
+          // nudge open pages: they listen for EVENT_SYNCED and refetch from
+          // the now-fresh cache (the refetch lands in the fresh-serve path
+          // above, so this can't loop).
           event.waitUntil(
             fetch(request)
               .then(async (response) => {
@@ -1638,7 +1641,11 @@ self.addEventListener("fetch", (event) => {
                     statusText: response.statusText,
                     headers,
                   });
-                  if (cache) await cache.put(request, cachedRes);
+                  if (cache) {
+                    await cache.put(request, cachedRes);
+                    const clients = await self.clients.matchAll({ type: "window" });
+                    clients.forEach((c) => c.postMessage({ type: "EVENT_SYNCED", count: 0 }));
+                  }
                 }
               })
               .catch(() => {})
