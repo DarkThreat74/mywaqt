@@ -679,6 +679,10 @@ function saverFresh(res) {
 // under another session. Entries missing the stamp (pre-stamp caches) are
 // treated as mismatched.
 async function matchStampedPage(cache, key, uid) {
+  // A wedged/failed cache open returns null — without the guard this throws
+  // and the whole respondWith falls through to the offline page even though
+  // the network or other caches could have answered.
+  if (!cache) return null;
   const cached = await cache.match(key);
   if (!cached) return null;
   const stamped = cached.headers.get("x-waqt-uid");

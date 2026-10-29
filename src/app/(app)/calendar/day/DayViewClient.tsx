@@ -1735,9 +1735,6 @@ export default function DayViewClient({ date }: { date: string }) {
                 {dayBlocks.filter((b) => b.status !== "released").length > 0
                   ? `${dayBlocks.filter((b) => b.status !== "released").length} planned`
                   : "Plan"}
-                <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                  · {fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))}
-                </span>
               </button>
             )}
             {goalsOpen && goalEvents.length > 0 && (
