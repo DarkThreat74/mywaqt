@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, inArray, lt, gte, lte, isNotNull, isNull } from "drizzle-orm";
+import { eq, and, or, inArray, lt, gte, lte, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { verifyCronAuth } from "@/lib/cronAuth";
 import { isWindowClosed, getPrayerWindow } from "@/lib/prayer/stateMachine";
@@ -208,7 +208,12 @@ async function processUserBatch(
     .where(
       and(
         inArray(schema.prayerLog.userId, userIds),
-        inArray(schema.prayerLog.date, Array.from(yesterdayDates)),
+        // Also resolve stragglers older than every user's "yesterday" —
+        // a missed run or pre-Fajr skip must never leave pending forever.
+        or(
+          inArray(schema.prayerLog.date, Array.from(yesterdayDates)),
+          lt(schema.prayerLog.date, Array.from(yesterdayDates).sort()[0] ?? ""),
+        ),
         eq(schema.prayerLog.status, "pending"),
       ),
     );
@@ -457,11 +462,12 @@ async function processUserBatch(
               tag: `hw-digest-${today}`,
               data: { url: "/goals" },
             });
+            let hwDelivered = false;
             await Promise.allSettled(
               subs.map(async (sub) => {
                 try {
                   const result = await sendPrayerPush(sub, payload, { topic: `hw-digest-${today}` });
-                  if (result.delivered) notificationsSent++;
+                  if (result.delivered) { notificationsSent++; hwDelivered = true; }
                   else if (result.expired) {
                     await db.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.id, sub.id)).catch(() => {});
                   }
@@ -470,6 +476,9 @@ async function processUserBatch(
                 }
               }),
             );
+            // Only stamp stages when a push actually reached a device —
+            // a total transient failure must retry next run, not dedupe away.
+            if (!hwDelivered) continue;
             // Mark stages sent — dedupes across reruns and lets the client
             // scheduler skip stages the server already pushed.
             const now = new Date();

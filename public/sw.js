@@ -1882,7 +1882,7 @@ self.addEventListener("message", (event) => {
   }
   if (event.data && event.data.type === "CLEAR_API_CACHE") {
     // Clear API cache to prevent cross-user data leakage
-    event.waitUntil(caches.delete(API_CACHE).catch(() => {}));
+    event.waitUntil(caches.delete(API_CACHE).then(() => openCaches.delete(API_CACHE)).catch(() => {}));
   }
   if (event.data && event.data.type === "INVALIDATE_API_PREFIX") {
     // Per-endpoint invalidation — delete only cache entries matching the prefix.
@@ -1944,12 +1944,13 @@ self.addEventListener("message", (event) => {
     cachedSession = false;
     event.waitUntil(
       Promise.all([
-        caches.delete(API_CACHE).catch(() => {}),
-        caches.delete(PAGE_CACHE).catch(() => {}),
-        caches.delete(RSC_CACHE).catch(() => {}),
-        caches.delete(RUNTIME_CACHE).catch(() => {}),
+        caches.delete(API_CACHE).then(() => openCaches.delete(API_CACHE)).catch(() => {}),
+        caches.delete(PAGE_CACHE).then(() => openCaches.delete(PAGE_CACHE)).catch(() => {}),
+        caches.delete(RSC_CACHE).then(() => openCaches.delete(RSC_CACHE)).catch(() => {}),
+        caches.delete(RUNTIME_CACHE).then(() => openCaches.delete(RUNTIME_CACHE)).catch(() => {}),
         setMeta("uid", null).catch(() => {}),
         setMeta("hasSession", false).catch(() => {}),
+        setMeta("dataSaver", false).catch(() => {}),
         // Queued offline writes belong to the departing account — they must
         // not replay under the next login on this device.
         (async () => {
