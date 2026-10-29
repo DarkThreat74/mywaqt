@@ -227,6 +227,10 @@ export default function DayViewClient({ date }: { date: string }) {
   const [newStart, setNewStart] = useState("09:00");
   const [newEnd, setNewEnd] = useState("10:00");
   const [newType, setNewType] = useState<"block" | "task" | "reminder">("block");
+  // Smart event kind — "class" links occurrences to a homework class.
+  const [eventKind, setEventKind] = useState<"event" | "class">("event");
+  const [classId, setClassId] = useState<string | null>(null);
+  const [classesList, setClassesList] = useState<Array<{ id: string; name: string; color: string }>>([]);
   const [enableRecurrence, setEnableRecurrence] = useState(false);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
@@ -462,12 +466,13 @@ export default function DayViewClient({ date }: { date: string }) {
       // the events filter below uses the authoritative timezone instead of
       // re-running this whole effect when userTimezone state updates.
       try {
-        const [eventsRes, prayerRes, logRes, hwRes, blocksRes] = await Promise.all([
+        const [eventsRes, prayerRes, logRes, hwRes, blocksRes, classRes] = await Promise.all([
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
           fetch(`/api/homework?date=${date}`).catch(() => null),
           fetch(`/api/blocks?date=${date}`).catch(() => null),
+          fetch(`/api/classes`).catch(() => null),
         ]);
 
         if (cancelled) return;
@@ -528,6 +533,15 @@ export default function DayViewClient({ date }: { date: string }) {
           try {
             const data = await blocksRes.json();
             if (Array.isArray(data.blocks)) setStudyBlocks(data.blocks);
+          } catch {
+            // non-critical
+          }
+        }
+
+        if (classRes?.ok && !cancelled) {
+          try {
+            const data = await classRes.json();
+            if (Array.isArray(data)) setClassesList(data.filter((c: { archived?: boolean }) => !c.archived));
           } catch {
             // non-critical
           }
@@ -907,6 +921,13 @@ export default function DayViewClient({ date }: { date: string }) {
       setError("End time must be after start time.");
       return;
     }
+    if (eventKind === "class") {
+      if (!classId) { setError("Pick a class."); return; }
+      if (recurrenceDays.length === 0 || !recurrenceEndDate) {
+        setError("Pick the class days and an end date.");
+        return;
+      }
+    }
 
     // Convert wall-clock inputs to instants in the user's stored timezone —
     // new Date("YYYY-MM-DDTHH:mm") would parse in the *browser* tz and save
@@ -925,7 +946,13 @@ export default function DayViewClient({ date }: { date: string }) {
       notify: newNotify,
       sharePublic: newSharePublic,
     };
-    if (enableRecurrence && recurrenceEndDate) {
+    if (eventKind === "class" && classId) {
+      // Class events are recurring by definition — the class picker requires
+      // days + an end date before submit.
+      body.createdVia = `class:${classId}`;
+      body.recurrenceEndDate = recurrenceEndDate;
+      body.recurrenceDays = recurrenceDays;
+    } else if (enableRecurrence && recurrenceEndDate) {
       body.recurrenceEndDate = recurrenceEndDate;
       if (recurrenceDays.length > 0) {
         body.recurrenceDays = recurrenceDays;
@@ -1231,6 +1258,8 @@ export default function DayViewClient({ date }: { date: string }) {
     setEnableRecurrence(false);
     setRecurrenceEndDate("");
     setRecurrenceDays([]);
+    setEventKind("event");
+    setClassId(null);
     setEditAllInSeries(false);
     // Prefill the "Repeat until" date from the series' recurrence rule
     const untilMatch = /_UNTIL_(\d{4}-\d{2}-\d{2})$/.exec(event.recurrenceRule ?? "");
@@ -1262,6 +1291,8 @@ export default function DayViewClient({ date }: { date: string }) {
     setEnableRecurrence(false);
     setRecurrenceEndDate("");
     setRecurrenceDays([]);
+    setEventKind("event");
+    setClassId(null);
     setEditAllInSeries(false);
     setExtendEndDate("");
     setShowSeriesList(false);
@@ -2186,16 +2217,16 @@ export default function DayViewClient({ date }: { date: string }) {
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)", minHeight: 44 }}
               />
 
-              {/* Type toggle: Block vs Reminder */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* Type toggle: Block vs Reminder (+ Class when classes exist) */}
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  onClick={() => setNewType("block")}
+                  onClick={() => { setNewType("block"); setEventKind("event"); }}
                   className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
                   style={{
-                    borderColor: newType === "block" ? "var(--color-ink)" : "var(--color-paper-3)",
-                    backgroundColor: newType === "block" ? "var(--color-ink)" : "var(--color-paper-2)",
-                    color: newType === "block" ? "var(--color-paper)" : "var(--color-ink-soft)",
+                    borderColor: eventKind === "event" && newType === "block" ? "var(--color-ink)" : "var(--color-paper-3)",
+                    backgroundColor: eventKind === "event" && newType === "block" ? "var(--color-ink)" : "var(--color-paper-2)",
+                    color: eventKind === "event" && newType === "block" ? "var(--color-paper)" : "var(--color-ink-soft)",
                     minHeight: 44,
                   }}
                 >
@@ -2203,7 +2234,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setNewType("reminder")}
+                  onClick={() => { setNewType("reminder"); setEventKind("event"); }}
                   className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
                   style={{
                     borderColor: newType === "reminder" ? "var(--color-ink)" : "var(--color-paper-3)",
@@ -2214,7 +2245,56 @@ export default function DayViewClient({ date }: { date: string }) {
                 >
                   Reminder
                 </button>
+                {classesList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewType("block");
+                      setEventKind("class");
+                      setEnableRecurrence(true);
+                    }}
+                    className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
+                    style={{
+                      borderColor: eventKind === "class" ? "var(--color-ink)" : "var(--color-paper-3)",
+                      backgroundColor: eventKind === "class" ? "var(--color-ink)" : "var(--color-paper-2)",
+                      color: eventKind === "class" ? "var(--color-paper)" : "var(--color-ink-soft)",
+                      minHeight: 44,
+                    }}
+                  >
+                    Class
+                  </button>
+                )}
               </div>
+
+              {/* Class picker — pick one of your classes; fills title + color */}
+              {eventKind === "class" && (
+                <div className="flex flex-wrap gap-2">
+                  {classesList.map((c) => {
+                    const sel = classId === c.id;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setClassId(c.id);
+                          if (!newTitle.trim()) setNewTitle(c.name);
+                          setNewColor(c.color);
+                        }}
+                        className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+                        style={{
+                          borderColor: sel ? "var(--color-ink)" : "var(--color-paper-3)",
+                          backgroundColor: sel ? "var(--color-paper-2)" : "var(--color-paper)",
+                          color: "var(--color-ink)",
+                          minHeight: 36,
+                        }}
+                      >
+                        <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c.color }} />
+                        {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Color picker — polished grid with label and check indicator */}
               <div>

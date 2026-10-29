@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId, createdVia } = body as {
     title?: string;
     details?: string;
     startAt?: string;
@@ -163,7 +163,15 @@ export async function POST(request: NextRequest) {
     recurrenceEndDate?: string;
     recurrenceDays?: number[];
     clientId?: string;
+    createdVia?: string;
   };
+
+  // Linked-event provenance — "goal:<id>", "class:<id>", etc. Allowlist the
+  // kind prefix and cap the id; anything else falls back to "manual".
+  const validCreatedVia =
+    typeof createdVia === "string" && /^(goal|class|study|quran|workout|homework)(:[0-9a-zA-Z-]{1,64})?$/.test(createdVia)
+      ? createdVia
+      : "manual";
 
   // Offline-created events carry a client-generated uuid (clientId) — using it
   // as the row's real id means a queued PATCH/DELETE on /api/events/<clientId>
@@ -336,7 +344,7 @@ export async function POST(request: NextRequest) {
           sharePublic: validSharePublic,
           recurrenceRule: `WEEKLY_${daysToRepeat.join(",")}_UNTIL_${recurrenceEndDate}`,
           seriesId,
-          createdVia: "manual",
+          createdVia: validCreatedVia,
         })),
       )
       .returning();
@@ -360,7 +368,7 @@ export async function POST(request: NextRequest) {
       sharePublic: validSharePublic,
       recurrenceRule: null,
       seriesId: null,
-      createdVia: "manual",
+      createdVia: validCreatedVia,
     })
     .onConflictDoNothing({ target: schema.events.id })
     .returning();
