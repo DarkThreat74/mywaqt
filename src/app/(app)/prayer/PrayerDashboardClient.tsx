@@ -1084,7 +1084,10 @@ export default function PrayerDashboard() {
     }
   }
 
-  if (loading) {
+  // Gate on "nothing to show", not "still fetching" — the IDB hydrate fills
+  // logs/times before the API storm resolves, so render as soon as data
+  // exists instead of holding the spinner for all 13 requests.
+  if (loading && !prayerTimes && todayLogs.length === 0) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-current border-r-transparent" style={{ color: "var(--color-accent)" }} />
