@@ -1496,9 +1496,10 @@ self.addEventListener("fetch", (event) => {
         const maybeStore = (r) => { if (!isPrefetch) return store(r); };
 
         let cached = await soft(matchStampedPage(cache, key, uid), 800, null);
-        if (forcedOffline) {
-          return cached || new Response("", { status: 503, headers: { "Content-Type": "text/x-component" } });
-        }
+        // Forced offline serves the cached payload only — a bare 503 crashes
+        // the client router mid-nav; with nothing cached, fall through so
+        // the tap never bricks the app.
+        if (forcedOffline && cached) return cached;
         if (cached) {
           // Serving a build-A Flight payload to a page running build-B JS
           // crashes hydration — compare against the cached page's build.
