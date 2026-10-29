@@ -320,7 +320,11 @@ export async function POST(request: NextRequest) {
     const inserted = await db
       .insert(schema.events)
       .values(
-        capped.map((occ) => ({
+        capped.map((occ, idx) => ({
+          // Anchor the FIRST occurrence to the client's uuid — a queued
+          // offline PATCH/DELETE references the anchor id, and without this
+          // it 404s and replays forever (single-event POST already does this).
+          id: idx === 0 && validClientId ? validClientId : undefined,
           userId: session.userId,
           title: title.trim(),
           details: validDetails,

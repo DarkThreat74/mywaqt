@@ -40,7 +40,13 @@ export async function proxy(request: NextRequest) {
   const hasCookie = !!request.cookies.get('waqt-session')?.value;
   const validSession = await hasValidSession(request);
 
-  const protectedPaths = ['/calendar', '/settings', '/onboarding', '/prayer', '/goals', '/learn'];
+  const protectedPaths = [
+    '/calendar', '/settings', '/onboarding', '/prayer', '/goals', '/learn',
+    '/dhikr', '/names', '/qibla', '/talks', '/study', '/homework', '/messages',
+    '/friends', '/birthdays', '/masjids', '/quran', '/mutashabihat', '/nasheeds',
+    '/store', '/shield', '/subscriptions', '/guide', '/profile', '/plan',
+    '/quran-tester', '/sadaqah', '/hijri',
+  ];
   const authPaths = ['/login', '/signup'];
 
   const isProtected = protectedPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));

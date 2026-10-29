@@ -237,7 +237,8 @@ export async function PATCH(request: NextRequest) {
     if (effectiveType !== "reminder" && duration <= 0) {
       return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
     }
-    newDurationMs = Math.max(0, duration);
+    // Reminders normalize to +1 minute elsewhere — never a 0-length event.
+    newDurationMs = effectiveType === "reminder" ? Math.max(60000, duration) : Math.max(0, duration);
   }
 
   // ── Series extension: generate new occurrences up to a later end date ──

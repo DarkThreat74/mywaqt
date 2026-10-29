@@ -433,7 +433,10 @@ export async function GET(request: NextRequest) {
       ? prayers.filter((p) => todayTimes[p] > nowMinForDow).length
       : 0;
     for (const stat of dayOfWeekStats) {
-      const notStarted = stat.dayIndex === todayDow ? unstartedToday : 0;
+      // Only subtract today's unstarted prayers when today actually counts —
+      // a today with no logs contributes no active day, so the subtraction
+      // would shrink other same-weekday days' denominators instead.
+      const notStarted = stat.dayIndex === todayDow && rangeActiveDates.has(todayStr) ? unstartedToday : 0;
       const expected = Math.max(0, stat.activeDays * 5 - excusedByDow[stat.dayIndex] - notStarted);
       const rawPct = expected > 0 ? Math.round((stat.totalPrayed / expected) * 100) : 0;
       stat.consistencyPct = Math.min(100, Math.max(0, rawPct));
