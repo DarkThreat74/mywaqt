@@ -214,6 +214,8 @@ async function syncOutbox() {
   try {
     const outbox = await getOutbox();
     if (outbox.length === 0) return;
+    // Forced offline mode — writes stay queued until the user flips back.
+    if (forcedOffline) return;
 
     let syncedCount = 0;
     const syncedPrefixes = new Set();
@@ -570,6 +572,10 @@ async function bustApiCache(pathname) {
 // inside a service worker — the value arrives via the SET_SESSION postMessage
 // (sent by UserStamp on mount) and is persisted in the meta store so it
 // survives SW restarts. Cached in memory for hot-path reads.
+// User-toggled offline mode — client posts FORCE_OFFLINE; session-scoped by
+// design (resets when the app closes; the flag lives only in memory here).
+let forcedOffline = false;
+
 let cachedUid = null;
 let uidLoaded = false;
 async function requestUid() {
@@ -921,6 +927,9 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         try {
+          // Forced offline mode — skip the network entirely so the write
+          // lands straight in the outbox like a real offline request.
+          if (forcedOffline) throw new Error("forced-offline");
           // Try online first — timed so a hung connection still falls through
           // to the outbox queue instead of spinning forever.
           const response = await timedFetch(request, 12000);
@@ -1332,6 +1341,11 @@ self.addEventListener("fetch", (event) => {
         // Instant path — same-account copy of THIS url: paint now,
         // revalidate in the background.
         const cachedHit = await soft(matchStampedPage(pageCache, cacheKey, uid), 1000, null);
+        // Forced offline mode — identical to real offline: stamped copy or
+        // the fallback page, never the network.
+        if (forcedOffline) {
+          return cachedHit || (uid ? (await fallbackPage().catch(() => null)) : null) || offlineResponse();
+        }
         if (cachedHit) {
           // Save-Data: fresh-enough cached page wins without a request —
           // past SAVER_MAX_AGE fall through to the normal revalidate path.
@@ -1480,6 +1494,9 @@ self.addEventListener("fetch", (event) => {
         const maybeStore = (r) => { if (!isPrefetch) return store(r); };
 
         let cached = await soft(matchStampedPage(cache, key, uid), 800, null);
+        if (forcedOffline) {
+          return cached || new Response("", { status: 503, headers: { "Content-Type": "text/x-component" } });
+        }
         if (cached) {
           // Serving a build-A Flight payload to a page running build-B JS
           // crashes hydration — compare against the cached page's build.
@@ -1651,6 +1668,11 @@ self.addEventListener("fetch", (event) => {
               .catch(() => {})
           );
           return cached;
+        }
+        if (forcedOffline) {
+          return new Response(JSON.stringify({ error: "offline" }), {
+            status: 503, headers: { "Content-Type": "application/json" },
+          });
         }
         // No cache — try network. 8s cap: on a flaky connection a bare fetch
         // can hang 30s+, which reads as a frozen app; the 503 below lets the
@@ -1912,6 +1934,10 @@ self.addEventListener("message", (event) => {
         await Promise.all(toDelete.map((key) => cache.delete(key)));
       })()
     );
+  }
+  if (event.data && event.data.type === "FORCE_OFFLINE") {
+    forcedOffline = event.data.on === true;
+    return;
   }
   if (event.data && event.data.type === "SET_DATA_SAVER") {
     // Latch only — clients without connection hints report nothing rather
