@@ -1896,11 +1896,15 @@ self.addEventListener("message", (event) => {
     );
   }
   if (event.data && event.data.type === "SET_DATA_SAVER") {
-    event.waitUntil((async () => {
-      cachedDataSaver = event.data.on === true;
-      dataSaverLoaded = true;
-      await setMeta("dataSaver", cachedDataSaver).catch(() => {});
-    })());
+    // Latch only — clients without connection hints report nothing rather
+    // than "off", so a false would wrongly clear a header-detected flag.
+    if (event.data.on === true) {
+      event.waitUntil((async () => {
+        cachedDataSaver = true;
+        dataSaverLoaded = true;
+        await setMeta("dataSaver", true).catch(() => {});
+      })());
+    }
     return;
   }
 

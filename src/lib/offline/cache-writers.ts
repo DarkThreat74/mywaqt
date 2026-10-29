@@ -250,6 +250,13 @@ interface GoalLike {
   status: string;
   goalType?: string;
   targetDate?: string | null;
+  progressCurrent?: number;
+  progressTarget?: number | null;
+  tags?: string[] | null;
+  sessionsTarget?: number | null;
+  checklist?: { id: string; text: string; done: boolean }[] | null;
+  hiddenFromToday?: boolean;
+  homeworkId?: string | null;
   sortOrder: number;
   color: string | null;
   createdAt: string | Date;
@@ -275,6 +282,13 @@ export function syncGoalsToCache(goals: GoalLike[]): void {
           status: g.status,
           goalType: g.goalType,
           targetDate: g.targetDate,
+          progressCurrent: g.progressCurrent,
+          progressTarget: g.progressTarget,
+          tags: g.tags,
+          sessionsTarget: g.sessionsTarget,
+          checklist: g.checklist,
+          hiddenFromToday: g.hiddenFromToday,
+          homeworkId: g.homeworkId,
           sortOrder: g.sortOrder,
           color: g.color,
           createdAt: typeof g.createdAt === "string" ? g.createdAt : g.createdAt.toISOString(),
@@ -497,6 +511,8 @@ export function syncHabitsToCache(habits: HabitLike[]): void {
           name: h.name,
           description: h.description,
           frequency: h.frequency,
+          timeOfDay: h.timeOfDay,
+          reminderTime: h.reminderTime,
           color: h.color,
           targetCount: h.targetCount,
           archived: h.archived,
@@ -519,6 +535,8 @@ export function upsertHabitToCache(habit: HabitLike): void {
       name: habit.name,
       description: habit.description,
       frequency: habit.frequency,
+      timeOfDay: habit.timeOfDay,
+      reminderTime: habit.reminderTime,
       color: habit.color,
       targetCount: habit.targetCount,
       archived: habit.archived,

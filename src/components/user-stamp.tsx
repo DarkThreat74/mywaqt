@@ -48,10 +48,14 @@ export default function UserStamp({ userId }: { userId: string }) {
       // revalidation and serve cached copies as-is.
       const conn = (navigator as { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
       const saver = conn?.saveData === true || conn?.effectiveType === "slow-2g" || conn?.effectiveType === "2g";
-      navigator.serviceWorker?.controller?.postMessage({ type: "SET_DATA_SAVER", on: saver });
-      navigator.serviceWorker?.ready?.then((reg) =>
-        reg.active?.postMessage({ type: "SET_DATA_SAVER", on: saver })
-      ).catch(() => {});
+      // Only latch ON — a "false" would clobber saver mode the SW detected
+      // via the Save-Data request header on browsers without connection hints.
+      if (saver) {
+        navigator.serviceWorker?.controller?.postMessage({ type: "SET_DATA_SAVER", on: true });
+        navigator.serviceWorker?.ready?.then((reg) =>
+          reg.active?.postMessage({ type: "SET_DATA_SAVER", on: true })
+        ).catch(() => {});
+      }
     } catch { /* non-critical */ }
   }, [userId]);
   return null;

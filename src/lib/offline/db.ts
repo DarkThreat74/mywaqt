@@ -77,6 +77,13 @@ export interface CachedGoal {
   status: string;
   goalType?: string;
   targetDate?: string | null;
+  progressCurrent?: number;
+  progressTarget?: number | null;
+  tags?: string[] | null;
+  sessionsTarget?: number | null;
+  checklist?: { id: string; text: string; done: boolean }[] | null;
+  hiddenFromToday?: boolean;
+  homeworkId?: string | null;
   sortOrder: number;
   color: string | null;
   createdAt: string;
@@ -123,6 +130,8 @@ export interface CachedHabit {
   name: string;
   description: string | null;
   frequency: string;
+  timeOfDay?: string | null;
+  reminderTime?: string | null;
   color: string;
   targetCount: number;
   archived: boolean;

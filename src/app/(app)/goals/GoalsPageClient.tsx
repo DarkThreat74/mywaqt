@@ -143,6 +143,9 @@ export default function GoalsPageClient({
             id: g.id, userId: g.userId, parentId: g.parentId, title: g.title,
             description: g.description, status: g.status, sortOrder: g.sortOrder,
             color: g.color, goalType: g.goalType, targetDate: g.targetDate,
+            progressCurrent: g.progressCurrent, progressTarget: g.progressTarget,
+            tags: g.tags, sessionsTarget: g.sessionsTarget, checklist: g.checklist,
+            hiddenFromToday: g.hiddenFromToday, homeworkId: g.homeworkId,
             createdAt: g.createdAt.toISOString(), updatedAt: g.updatedAt.toISOString(),
             completedAt: g.completedAt ? g.completedAt.toISOString() : null,
             _cachedAt: Date.now(),
@@ -154,7 +157,11 @@ export default function GoalsPageClient({
           db.homework.bulkPut(initialHomework.map((h) => ({
             id: h.id, title: h.title, description: h.description, classId: h.classId,
             dueDate: h.dueDate, dueTime: h.dueTime, priority: h.priority, status: h.status,
-            kind: h.kind, completedAt: h.completedAt ? h.completedAt.toISOString() : null,
+            kind: h.kind, plannedDate: h.plannedDate, plannedStartTime: h.plannedStartTime,
+            plannedEndTime: h.plannedEndTime, estimatedMinutes: h.estimatedMinutes,
+            plannedEventId: h.plannedEventId,
+            subtasks: (h as { subtasks?: { id: string; title: string; done: boolean }[] }).subtasks,
+            completedAt: h.completedAt ? h.completedAt.toISOString() : null,
             _cachedAt: Date.now(),
           })))
         ).catch(() => {});
@@ -191,7 +198,9 @@ export default function GoalsPageClient({
 
   // ── Offline-first: when the (possibly stale-cache) page shell shipped empty
   // props, rehydrate from IndexedDB so the page isn't blank on dead networks.
+  // Skip when online — refreshAll() would race and lose to a late Dexie read.
   useEffect(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine) return;
     if (
       initialGoals.length > 0 || initialHomework.length > 0 ||
       initialClasses.length > 0 || initialHabits.length > 0 ||
