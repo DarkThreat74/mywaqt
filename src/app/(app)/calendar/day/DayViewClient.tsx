@@ -273,10 +273,7 @@ export default function DayViewClient({ date }: { date: string }) {
     }
   };
   const [pendingHw, setPendingHw] = useState<Array<{ id: string; title: string }>>([]);
-  // Quran type only exists once a recite plan does (plan lives client-side).
-  const [hasQuranPlan] = useState(
-    () => typeof localStorage !== "undefined" && !!localStorage.getItem("qt:plan"),
-  );
+
   const [enableRecurrence, setEnableRecurrence] = useState(false);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
@@ -2443,26 +2440,24 @@ export default function DayViewClient({ date }: { date: string }) {
                     Study
                   </button>
                 )}
-                {hasQuranPlan && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewType("block");
-                      setEventKind("quran");
-                      setEnableRecurrence(false);
-                      if (!newTitle.trim()) setNewTitle("Quran recitation");
-                    }}
-                    className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
-                    style={{
-                      borderColor: eventKind === "quran" ? "var(--color-ink)" : "var(--color-paper-3)",
-                      backgroundColor: eventKind === "quran" ? "var(--color-ink)" : "var(--color-paper-2)",
-                      color: eventKind === "quran" ? "var(--color-paper)" : "var(--color-ink-soft)",
-                      minHeight: 44,
-                    }}
-                  >
-                    Quran
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewType("block");
+                    setEventKind("quran");
+                    setEnableRecurrence(false);
+                    if (!newTitle.trim()) setNewTitle("Quran recitation");
+                  }}
+                  className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
+                  style={{
+                    borderColor: eventKind === "quran" ? "var(--color-ink)" : "var(--color-paper-3)",
+                    backgroundColor: eventKind === "quran" ? "var(--color-ink)" : "var(--color-paper-2)",
+                    color: eventKind === "quran" ? "var(--color-paper)" : "var(--color-ink-soft)",
+                    minHeight: 44,
+                  }}
+                >
+                  Quran
+                </button>
               </div>
 
               {/* Goal / Study pickers — one-tap chips; Class picker is below */}
@@ -2483,7 +2478,7 @@ export default function DayViewClient({ date }: { date: string }) {
                           minHeight: 28,
                         }}
                       >
-                        {t === "all" ? "All" : t === "all_time" ? "All-time" : t === "rules" ? "Daily" : t === "week" ? "Weekly" : t === "month" ? "Monthly" : t === "year" ? "Yearly" : t}
+                        {t === "all" ? "All" : t === "all_time" ? "All-time" : t === "week" ? "Weekly" : t === "month" ? "Monthly" : t === "year" ? "Yearly" : t === "rules" ? "Rules" : t === "daily" ? "Daily" : t}
                       </button>
                     ))}
                   </div>

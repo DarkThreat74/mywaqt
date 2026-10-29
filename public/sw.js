@@ -1566,12 +1566,9 @@ self.addEventListener("fetch", (event) => {
           // Save-Data: a same-build cached payload under a day old wins —
           // no revalidation fetch at all. Older entries fall through.
           if ((await soft(dataSaver(), 400, false)) && saverFresh(cached)) return cached;
-          // Chrome + initial props are stable within a session — a 2-min
-          // window made every tab switch pay the network race. 15 minutes
-          // keeps taps instant while staying inside one deploy's lifetime.
-          // Degraded link: freshness loses to a frozen tap — serve any-age
-          // same-account copy instantly and heal in the background.
-          if (age < 15 * 60 * 1000 || netDegraded) {
+          // Serve instantly — always. Freshness revalidates in the
+          // background; a frozen tap is worse than a few minutes of stale.
+          if (true) {
             event.waitUntil(
               (async () => {
                 try { const r = await timedFetch(request, 6000); if (r.ok) await maybeStore(r); } catch { /* keep cached */ }
