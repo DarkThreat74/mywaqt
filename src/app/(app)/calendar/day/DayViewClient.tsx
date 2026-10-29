@@ -570,18 +570,20 @@ export default function DayViewClient({ date }: { date: string }) {
               // non-JSON response (e.g. 401, 429) — assume location is set
             }
           }
-          // Only overwrite prayerTimes to null if we don't already have
-          // cached data from IndexedDB. When offline, the API returns null
-          // (the .catch(() => null) in the Promise.all), so we must NOT
-          // wipe the cached value that was set in Step 1.
-          if (!cancelled && !prayerRes) {
-            // Offline (prayerRes is null) — keep cached prayerTimes if we have them
+          // The SW returns a resolved 503 {error:"offline"} for cache-miss
+          // reads — indistinguishable from a real failure unless we key off
+          // status. Treat null AND 503 as offline: keep the IndexedDB-seeded
+          // prayerTimes and skip the sync POST (it would hit the real
+          // network during forced offline and fail anyway).
+          const offline = !prayerRes || prayerRes.status === 503;
+          if (!cancelled && offline) {
             setLocationSet(apiLocationSet);
           } else if (!cancelled) {
             // API responded but with an error (e.g. 404, 400) — clear prayer times
             setPrayerTimes(null);
             setLocationSet(apiLocationSet);
           }
+          if (offline) apiLocationSet = false; // no sync POST offline
           // Only attempt sync if location is actually set
           if (apiLocationSet) {
             try {

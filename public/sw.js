@@ -1533,10 +1533,6 @@ self.addEventListener("fetch", (event) => {
         const maybeStore = (r) => { if (!isPrefetch) return store(r); };
 
         let cached = await soft(matchStampedPage(cache, key, uid), 800, null);
-        // Forced offline serves the cached payload only — a bare 503 crashes
-        // the client router mid-nav; with nothing cached, fall through so
-        // the tap never bricks the app.
-        if (forcedOffline && cached) return cached;
         if (cached) {
           // Serving a build-A Flight payload to a page running build-B JS
           // crashes hydration — compare against the cached page's build.
@@ -1550,6 +1546,10 @@ self.addEventListener("fetch", (event) => {
             if (pageBuild && rscBuild !== pageBuild) cached = null;
           }
         }
+        // Forced offline serves the cached payload only — a bare 503 crashes
+        // the client router mid-nav; with nothing cached, fall through so
+        // the tap never bricks the app.
+        if (forcedOffline && cached) return cached;
         if (cached) {
           const age = Date.now() - Number(cached.headers.get("x-waqt-cached-at") || 0);
           // Save-Data: a same-build cached payload under a day old wins —

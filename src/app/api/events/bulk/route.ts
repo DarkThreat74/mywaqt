@@ -124,9 +124,12 @@ export async function PATCH(request: NextRequest) {
   ];
   if (fromDate) {
     const cutoff = localDateStartUtc(fromDate, userTz);
-    if (cutoff) {
-      scopeConds.push(gte(schema.events.startAt, cutoff));
+    // Malformed date must not silently widen the edit to the whole series —
+    // DELETE already 400s on the same input.
+    if (!cutoff) {
+      return NextResponse.json({ error: "Invalid fromDate." }, { status: 400 });
     }
+    scopeConds.push(gte(schema.events.startAt, cutoff));
   }
 
   // Build update object — only update provided fields
@@ -182,6 +185,7 @@ export async function PATCH(request: NextRequest) {
           details: schema.events.details,
           color: schema.events.color,
           notify: schema.events.notify,
+          sharePublic: schema.events.sharePublic,
           recurrenceRule: schema.events.recurrenceRule,
         })
         .from(schema.events)
@@ -224,7 +228,10 @@ export async function PATCH(request: NextRequest) {
     }
     const endWall = instantToWall(newEnd, userTz);
     const startWall = newStartWall ?? instantToWall(refEvent.startAt, userTz);
-    const duration = wallTodMs(endWall) - wallTodMs(startWall);
+    // Overnight events end after local midnight — wrap the negative delta
+    // (22:00→01:00 yields -21h; +24h gives the real 3h duration).
+    let duration = wallTodMs(endWall) - wallTodMs(startWall);
+    if (duration < 0) duration += 24 * 60 * 60 * 1000;
     // For blocks/tasks, duration must be positive
     const effectiveType = (updates.type as string) || refEvent.type;
     if (effectiveType !== "reminder" && duration <= 0) {
@@ -289,6 +296,8 @@ export async function PATCH(request: NextRequest) {
           type: ((updates.type as string | undefined) ?? lastEvent.type) as "block" | "task" | "reminder",
           color: "color" in updates ? (updates.color as string | null) : lastEvent.color,
           notify: "notify" in updates ? (updates.notify as boolean) : lastEvent.notify,
+          // Hidden events must stay hidden when a series is extended.
+          sharePublic: lastEvent.sharePublic,
           recurrenceRule: newRule,
           seriesId,
           createdVia: "manual",
