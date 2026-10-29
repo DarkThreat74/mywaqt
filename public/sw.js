@@ -348,6 +348,26 @@ function buildFingerprint(res, body) {
   return (body.match(/\/_next\/static\/[^"'\\\s)]+/) || [null])[0];
 }
 
+// API reads warmed upfront so offline tabs render data on first open, not
+// only after the page was visited once online. Date-keyed endpoints use UTC
+// today — the timezone-exact key also gets cached by real visits; the extra
+// entry is harmless.
+const API_WARM = (() => {
+  const today = new Date().toISOString().slice(0, 10);
+  return [
+    `/api/prayer-log?date=${today}`,
+    `/api/prayer-times?date=${today}`,
+    `/api/prayer-log/sunnah?date=${today}`,
+    "/api/prayer-log/analytics?range=week",
+    "/api/goals",
+    "/api/homework",
+    "/api/classes",
+    "/api/habits",
+    "/api/events",
+    "/api/hayd",
+  ];
+})();
+
 let isWarming = false;
 let lastWarmTime = 0;
 async function warmCache() {
@@ -422,6 +442,22 @@ async function warmCache() {
         }
       })
     );
+    // Warm API reads — stamped uid + cached-at, same shape the GET handler
+    // writes, so offline tabs have real data without a first online visit.
+    try {
+      const apiCache = await cacheFor(API_CACHE);
+      const uid = await requestUid();
+      await Promise.allSettled(
+        API_WARM.map(async (u) => {
+          const res = await fetch(u, { credentials: "include" });
+          if (!res.ok) return;
+          const headers = new Headers(res.headers);
+          headers.set("x-waqt-cached-at", String(Date.now()));
+          if (uid) headers.set("x-waqt-uid", uid);
+          await apiCache.put(u, new Response(await res.blob(), { status: res.status, headers }));
+        })
+      );
+    } catch { /* API warm is best-effort */ }
     const succeeded = results.filter((r) => r.status === "fulfilled").length;
     // Don't arm the 10-min dedup on a dead-network warm — retry next activate.
     if (succeeded > 0) lastWarmTime = Date.now();
