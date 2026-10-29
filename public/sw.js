@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v96";
+const CACHE_VERSION = "waqt-v97";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -686,7 +686,11 @@ async function matchStampedPage(cache, key, uid) {
   const cached = await cache.match(key);
   if (!cached) return null;
   const stamped = cached.headers.get("x-waqt-uid");
-  if (!uid || stamped !== uid) return null;
+  // When uid is unverifiable (wedged IDB / restarted worker before the client
+  // re-posts SET_SESSION) a stamped page still serves — refusing made every
+  // offline navigation collapse to the "reconnecting" page. The stamp still
+  // filters cross-account data whenever the current uid IS known.
+  if (uid && stamped && stamped !== uid) return null;
   return cached;
 }
 
@@ -1461,7 +1465,7 @@ self.addEventListener("fetch", (event) => {
           // network rather than flashing the offline page on slow wifi.
           // .catch: Promise.race ADOPTS this promise's rejection — an IDB/
           // CacheStorage failure must not reject respondWith.
-          setTimeout(() => resolve(uid ? fallbackPage().catch(() => null) : null), netDegraded ? 700 : 2500)
+          setTimeout(() => resolve(fallbackPage().catch(() => null)), netDegraded ? 700 : 2500)
         );
 
         const first = await Promise.race([networkPromise, budgetPromise]);
