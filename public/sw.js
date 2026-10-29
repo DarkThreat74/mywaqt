@@ -1937,6 +1937,9 @@ self.addEventListener("message", (event) => {
   }
   if (event.data && event.data.type === "FORCE_OFFLINE") {
     forcedOffline = event.data.on === true;
+    // Coming back online — flush queued writes now rather than waiting
+    // for the next background-sync or natural request to trigger it.
+    if (!forcedOffline) event.waitUntil(syncOutbox().catch(() => {}));
     return;
   }
   if (event.data && event.data.type === "SET_DATA_SAVER") {
