@@ -231,9 +231,11 @@ export default function DayViewClient({ date }: { date: string }) {
   // Smart event kind — links occurrences to a feature (class/goal/study/quran).
   const [eventKind, setEventKind] = useState<"event" | "class" | "goal" | "study" | "quran">("event");
   const [classId, setClassId] = useState<string | null>(null);
+  const [classStartDate, setClassStartDate] = useState("");
+  const [goalTab, setGoalTab] = useState<string>("all");
   const [entityId, setEntityId] = useState<string | null>(null);
   const [classesList, setClassesList] = useState<Array<{ id: string; name: string; color: string }>>([]);
-  const [goalsList, setGoalsList] = useState<Array<{ id: string; title: string; progressCurrent: number; progressTarget: number | null }>>([]);
+  const [goalsList, setGoalsList] = useState<Array<{ id: string; title: string; goalType?: string; progressCurrent: number; progressTarget: number | null }>>([]);
   // Today's goal-event check-offs, per date — local intent, not server truth.
   const [goalChecks, setGoalChecks] = useState<Set<string>>(new Set());
   const [goalsOpen, setGoalsOpen] = useState(false);
@@ -603,8 +605,8 @@ export default function DayViewClient({ date }: { date: string }) {
             const arr = Array.isArray(data) ? data : data?.goals;
             if (Array.isArray(arr)) {
               setGoalsList(arr.filter((g: { status?: string }) => g.status === "active")
-                .map((g: { id: string; title: string; progressCurrent?: number; progressTarget?: number | null }) => ({
-                  id: g.id, title: g.title,
+                .map((g: { id: string; title: string; goalType?: string; progressCurrent?: number; progressTarget?: number | null }) => ({
+                  id: g.id, title: g.title, goalType: g.goalType,
                   progressCurrent: g.progressCurrent ?? 0,
                   progressTarget: g.progressTarget ?? null,
                 })));
@@ -1003,8 +1005,10 @@ export default function DayViewClient({ date }: { date: string }) {
     // Convert wall-clock inputs to instants in the user's stored timezone —
     // new Date("YYYY-MM-DDTHH:mm") would parse in the *browser* tz and save
     // the event on the wrong UTC instant (and possibly the wrong day).
-    const startISO = localInputToIso(date, newStart, userTimezone);
-    const endISO = localInputToIso(date, newType === "reminder" ? newStart : newEnd, userTimezone);
+    // Class series can start on a different day than the one being viewed.
+    const eventDate = eventKind === "class" && classStartDate ? classStartDate : date;
+    const startISO = localInputToIso(eventDate, newStart, userTimezone);
+    const endISO = localInputToIso(eventDate, newType === "reminder" ? newStart : newEnd, userTimezone);
 
     // Add recurrence end date if enabled
     const body: Record<string, unknown> = {
@@ -1344,6 +1348,8 @@ export default function DayViewClient({ date }: { date: string }) {
     setEventKind("event");
     setClassId(null);
     setEntityId(null);
+    setClassStartDate("");
+    setGoalTab("all");
     setEditAllInSeries(false);
     // Prefill the "Repeat until" date from the series' recurrence rule
     const untilMatch = /_UNTIL_(\d{4}-\d{2}-\d{2})$/.exec(event.recurrenceRule ?? "");
@@ -1378,6 +1384,8 @@ export default function DayViewClient({ date }: { date: string }) {
     setEventKind("event");
     setClassId(null);
     setEntityId(null);
+    setClassStartDate("");
+    setGoalTab("all");
     setEditAllInSeries(false);
     setExtendEndDate("");
     setShowSeriesList(false);
@@ -2355,7 +2363,7 @@ export default function DayViewClient({ date }: { date: string }) {
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  onClick={() => { setNewType("block"); setEventKind("event"); }}
+                  onClick={() => { setNewType("block"); setEventKind("event"); setEnableRecurrence(false); }}
                   className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
                   style={{
                     borderColor: eventKind === "event" && newType === "block" ? "var(--color-ink)" : "var(--color-paper-3)",
@@ -2368,7 +2376,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setNewType("reminder"); setEventKind("event"); }}
+                  onClick={() => { setNewType("reminder"); setEventKind("event"); setEnableRecurrence(false); }}
                   className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
                   style={{
                     borderColor: newType === "reminder" ? "var(--color-ink)" : "var(--color-paper-3)",
@@ -2401,7 +2409,13 @@ export default function DayViewClient({ date }: { date: string }) {
                 {goalsList.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => { setNewType("block"); setEventKind("goal"); }}
+                    onClick={() => {
+                      setNewType("block");
+                      setEventKind("goal");
+                      // Class leaves recurrence on — stale days/end date was
+                      // hitting the server and failing the create.
+                      setEnableRecurrence(false);
+                    }}
                     className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
                     style={{
                       borderColor: eventKind === "goal" ? "var(--color-ink)" : "var(--color-paper-3)",
@@ -2416,7 +2430,11 @@ export default function DayViewClient({ date }: { date: string }) {
                 {pendingHw.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => { setNewType("block"); setEventKind("study"); }}
+                    onClick={() => {
+                      setNewType("block");
+                      setEventKind("study");
+                      setEnableRecurrence(false);
+                    }}
                     className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
                     style={{
                       borderColor: eventKind === "study" ? "var(--color-ink)" : "var(--color-paper-3)",
@@ -2434,6 +2452,7 @@ export default function DayViewClient({ date }: { date: string }) {
                     onClick={() => {
                       setNewType("block");
                       setEventKind("quran");
+                      setEnableRecurrence(false);
                       if (!newTitle.trim()) setNewTitle("Quran recitation");
                     }}
                     className="rounded-lg border-2 px-2 py-2 text-xs font-medium transition-colors"
@@ -2451,8 +2470,28 @@ export default function DayViewClient({ date }: { date: string }) {
 
               {/* Goal / Study pickers — one-tap chips; Class picker is below */}
               {eventKind === "goal" && (
+                <div>
+                  {/* Horizon tabs — filter goals by type before picking */}
+                  <div className="mb-2 flex gap-1 overflow-x-auto">
+                    {["all", ...new Set(goalsList.map((g) => g.goalType).filter((t): t is string => !!t))].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setGoalTab(t)}
+                        className="shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors"
+                        style={{
+                          borderColor: goalTab === t ? "var(--color-ink)" : "var(--color-paper-3)",
+                          backgroundColor: goalTab === t ? "var(--color-ink)" : "var(--color-paper)",
+                          color: goalTab === t ? "var(--color-paper)" : "var(--color-ink-muted)",
+                          minHeight: 28,
+                        }}
+                      >
+                        {t === "all" ? "All" : t === "all_time" ? "All-time" : t === "rules" ? "Daily" : t === "week" ? "Weekly" : t === "month" ? "Monthly" : t === "year" ? "Yearly" : t}
+                      </button>
+                    ))}
+                  </div>
                 <div className="flex max-h-32 flex-wrap gap-2 overflow-y-auto">
-                  {goalsList.map((g) => {
+                  {goalsList.filter((g) => goalTab === "all" || g.goalType === goalTab).map((g) => {
                     const sel = entityId === g.id;
                     return (
                       <button key={g.id} type="button"
@@ -2464,6 +2503,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       </button>
                     );
                   })}
+                </div>
                 </div>
               )}
               {eventKind === "study" && (
@@ -2485,6 +2525,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
               {/* Class picker — pick one of your classes; fills title + color */}
               {eventKind === "class" && (
+                <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap gap-2">
                   {classesList.map((c) => {
                     const sel = classId === c.id;
@@ -2510,6 +2551,21 @@ export default function DayViewClient({ date }: { date: string }) {
                       </button>
                     );
                   })}
+                </div>
+                {/* Series start date — defaults to the viewed day; end date
+                    lives in the Repeat section below */}
+                <div>
+                  <span className="mb-1 block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                    Starts
+                  </span>
+                  <input
+                    type="date"
+                    value={classStartDate || date}
+                    onChange={(e) => setClassStartDate(e.target.value)}
+                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
+                  />
+                </div>
                 </div>
               )}
 
