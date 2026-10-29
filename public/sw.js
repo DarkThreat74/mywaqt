@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v97";
+const CACHE_VERSION = "waqt-v98";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -74,6 +74,7 @@ const PRECACHE_URLS = [
 // Warming all 13 pages on install contends with critical hydration requests.
 const APP_PAGES = [
   "/calendar/day",
+  "/calendar/month",
   "/prayer",
   "/goals",
   "/quran",
@@ -83,6 +84,17 @@ const APP_PAGES = [
   "/birthdays",
   "/quran-tester",
   "/recite",
+  "/dhikr",
+  "/qibla",
+  "/names",
+  "/hijri",
+  "/sadaqah",
+  "/talks",
+  "/masjids",
+  "/friends",
+  "/study",
+  "/nasheeds",
+  "/guide",
 ];
 // Server-redirect routes: store the target's HTML under the alias so an
 // offline hit on the alias boots the real page instead of a 307 to nowhere.
@@ -772,7 +784,7 @@ function soft(promise, ms, fallback) {
 // network are dead. Kept as a helper so navigation fallbacks never diverge.
 function offlineResponse() {
   return new Response(
-    "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#1a1815;color:#f5f0e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}button{margin-top:20px;padding:10px 24px;background:#f5f0e8;color:#1a1815;border:none;border-radius:8px;font-size:14px;cursor:pointer}</style></head><body><div><h1>You're offline</h1><p>Your cached data will appear when you reopen the app. Try again in a moment.</p><button onclick='location.reload()'>Retry</button></div></body></html>",
+    "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Waqt — Offline</title><style>body{font-family:system-ui,sans-serif;background:#1a1815;color:#f5f0e8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}h1{font-size:18px;margin-bottom:8px}p{font-size:14px;opacity:0.7}button{display:inline-block;margin-top:20px;padding:10px 24px;background:#f5f0e8;color:#1a1815;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-decoration:none}</style></head><body><div><h1>This page isn't saved offline</h1><p>Pages you've visited stay available — this one just hasn't been cached yet.</p><button onclick='history.back()'>Go back</button> <button onclick='location.href=\"/calendar/day\"'>Open calendar</button></div></body></html>",
     { status: 200, headers: { "Content-Type": "text/html" } }
   );
 }
