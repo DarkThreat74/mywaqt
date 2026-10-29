@@ -51,21 +51,30 @@ export default function OfflineDot() {
 
   const isOff = offline || forced;
   return (
-    <span className="relative ml-1.5 inline-flex items-center">
+    <span className="relative inline-flex items-center">
       <button
         type="button"
         onClick={onTap}
         className="inline-flex items-center gap-1.5 align-middle"
         aria-label={isOff ? "Offline" : "Online"}
       >
-        <span
-          className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ backgroundColor: isOff ? "#f97316" : "var(--color-ink-muted)", opacity: isOff ? 1 : 0.35 }}
-        />
-        {isOff && (
-          <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
-            Offline
-          </span>
+        {isOff ? (
+          <>
+            {/* Warm amber, not traffic-light orange — a quiet signal, not a badge */}
+            <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-warmth)" }} />
+            <span
+              className="text-[10px] font-medium tracking-[0.08em] uppercase"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              offline
+            </span>
+          </>
+        ) : (
+          // Online is a hollow ring — present but silent, nothing to notice.
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full"
+            style={{ border: "1.5px solid var(--color-ink-muted)", opacity: 0.45 }}
+          />
         )}
       </button>
       {pop && (

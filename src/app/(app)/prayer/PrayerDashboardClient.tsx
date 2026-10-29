@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Flame, Handshake, MapPin, Users, User, UserPlus, Copy, Check, Calendar, WifiOff, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye, Ban } from "lucide-react";
+import { Flame, Handshake, MapPin, Users, User, UserPlus, Copy, Check, Calendar, Trophy, TrendingUp, Target, Bell, Link2, ChevronDown, MessageCircle, Pencil, Eye, Ban } from "lucide-react";
 import { getSunnahsForMadhab, type SunnahDefinition } from "@/lib/prayer/sunnahs";
 import { getCurrentMinutesInTimezonePrecise, todayInTimezone, prayerDisplayName, openPrayer, activeMakruh, makruhWindows, effectiveWindowEnd, parseMinutes, sanitizeTimings } from "@/lib/prayer/checkin";
 import { getCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods, setCachedPrayerSettings } from "@/lib/offline/settings-cache";
@@ -330,7 +330,7 @@ export default function PrayerDashboard() {
   const [madhab, setMadhab] = useState<string>("hanafi");
   const [sunnahError, setSunnahError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
-  const [isOnline, setIsOnline] = useState(true);
+  // offline state is shown by the header dot — no page-level flag needed
   // Configured prayer timezone — seeded from localStorage so first render is
   // correct; analytics.timezone takes over once loaded (derived, no effect).
   const cachedTimezone = getCachedPrayerSettings()?.timezone ?? null;
@@ -348,16 +348,8 @@ export default function PrayerDashboard() {
     // Defer setState outside the effect body to avoid cascading renders
     Promise.resolve().then(() => {
       setCurrentTime(new Date());
-      setIsOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
     });
-    const on = () => setIsOnline(true);
-    const off = () => setIsOnline(false);
-    window.addEventListener("online", on);
-    window.addEventListener("offline", off);
-    return () => {
-      window.removeEventListener("online", on);
-      window.removeEventListener("offline", off);
-    };
+    return () => {};
   }, []);
 
   const todayStr = currentTime
@@ -1189,20 +1181,7 @@ export default function PrayerDashboard() {
         </div>
       )}
 
-      {/* Offline indicator */}
-      {!isOnline && (
-        <div
-          className="mb-4 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs"
-          style={{
-            borderColor: "var(--color-warmth)",
-            backgroundColor: "color-mix(in oklab, var(--color-warmth) 8%, transparent)",
-            color: "var(--color-warmth)",
-          }}
-        >
-          <WifiOff className="h-3.5 w-3.5 shrink-0" />
-          <span>You&apos;re offline. Prayer logs and sunnahs will sync when you reconnect.</span>
-        </div>
-      )}
+      {/* Offline indicator lives in the header dot — no banner duplication */}
 
       {/* Hayd control — female accounts with tracking enabled only */}
       {gender === "female" && haydTracking && (

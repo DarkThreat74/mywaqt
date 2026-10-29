@@ -199,12 +199,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             paddingTop: "calc(0.75rem + env(safe-area-inset-top))",
           }}
         >
-          <Link href="/calendar/day" className="text-base font-semibold tracking-tight transition-opacity hover:opacity-70" style={{ color: "var(--color-ink)" }}>
-            Waqt
-          </Link>
-          <div className="absolute left-1/2 -translate-x-1/2">
+          <span className="flex items-center gap-2">
+            <Link href="/calendar/day" className="text-base font-semibold tracking-tight transition-opacity hover:opacity-70" style={{ color: "var(--color-ink)" }}>
+              Waqt
+            </Link>
             <OfflineDot />
-          </div>
+          </span>
           <div className="flex items-center gap-1">
             <NotificationBell feedbackEnabled={feedbackEnabled} />
             <ToolsMenu />
