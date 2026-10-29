@@ -275,7 +275,14 @@ const QT_LOCK_OWNER = {};
 function acquireLock(owner: object = QT_LOCK_OWNER): Promise<boolean> {
   // Already-held resolves true ONLY for the same owner — warmQt's borrow must
   // not let a later startQt think it owns a lock warm is about to release.
-  if (lockHeld) return Promise.resolve(lockOwner === owner);
+  if (lockHeld) {
+    if (lockOwner === owner) return Promise.resolve(true);
+    // A warm borrow releases within a tick — retry once after a beat
+    // instead of falsely reporting another tab is already reciting.
+    return new Promise<boolean>((resolve) =>
+      setTimeout(() => resolve(acquireLock(owner)), 800)
+    );
+  }
   if (typeof navigator === "undefined" || !("locks" in navigator)) return Promise.resolve(true);
   return new Promise<boolean>((resolve) => {
     navigator.locks.request("qt-recite", { ifAvailable: true }, (held) => {

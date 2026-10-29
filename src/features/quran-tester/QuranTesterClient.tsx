@@ -270,6 +270,8 @@ export default function QuranTesterClient() {
   const lastPosWriteRef = useRef(0); // throttle word_progress → localStorage writes
   // Per-session tallies for the end-of-session stats sheet.
   const sessionStartRef = useRef(0);
+  const pausedAtRef = useRef(0);
+  const pausedMsRef = useRef(0);
   const sessionFlagsRef = useRef<Set<string>>(new Set());
   const sessionConfirmRef = useRef<Set<string>>(new Set()); // mistakes confirmed/marked this session
   const lastWordAtRef = useRef(0); // last word_progress — stall detection
@@ -905,7 +907,9 @@ export default function QuranTesterClient() {
     // Flags caught = every word ever flagged this session (incl. ones that
     // auto-cleared on re-read) plus anything confirmed manually.
     const flags = new Set([...sessionFlagsRef.current, ...sessionConfirmRef.current]).size;
-    const seconds = Math.max(1, Math.round((Date.now() - sessionStartRef.current) / 1000));
+    // Exclude paused time — a break shouldn't count as reciting seconds.
+    const pausedMs = pausedMsRef.current + (pausedAtRef.current ? Date.now() - pausedAtRef.current : 0);
+    const seconds = Math.max(1, Math.round((Date.now() - sessionStartRef.current - pausedMs) / 1000));
     // Only skip when the session genuinely never ran (instant stop).
     if (!sessionStartRef.current || (!ayahs && !flags && seconds < 5)) return;
     setStatsSheet({
@@ -1175,7 +1179,7 @@ export default function QuranTesterClient() {
       // a mutashabih slide lands at w0-1 with the previous ayah half-heard.
       const hHeard = heardRef.current;
       const finishedPrev = hHeard.loc && hHeard.loc.s === s && hHeard.loc.a === prev?.a &&
-        hHeard.total > 0 && hHeard.max >= hHeard.total - 1;
+        (hHeard.total > 0 ? hHeard.max >= hHeard.total - 1 : hHeard.max >= 3);
       if (prev && s === prev.s && a !== prev.a &&
           !(a === prev.a + 1 && (ev.word_index as number) <= 1 && finishedPrev)) {
         locLiveRef.current = { s, a };
@@ -1284,7 +1288,10 @@ export default function QuranTesterClient() {
           setSuspects((prev) => new Map(prev).set(skey, i.kind));
         }
         sessionFlagsRef.current.add(skey);
-        if (ev.type === "correction") {
+        // Re-emits of an already-flagged issue must not re-arm the banner's
+        // 10s auto-defer or overwrite a newer pending — only the first emit
+        // of this suspect owns the correction UX.
+        if (ev.type === "correction" && lastIssueKeyRef.current !== skey) {
           lastIssueKeyRef.current = skey;
           if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
           if (ayahLevel) {
@@ -2540,7 +2547,18 @@ export default function QuranTesterClient() {
             )}
             {(listen === "listening" || listen === "paused") && (
               <button
-                onClick={() => (listen === "paused" ? void resumeQt() : void pauseQt())}
+                onClick={() => {
+                  if (listen === "paused") {
+                    if (pausedAtRef.current) {
+                      pausedMsRef.current += Date.now() - pausedAtRef.current;
+                      pausedAtRef.current = 0;
+                    }
+                    void resumeQt();
+                  } else {
+                    pausedAtRef.current = Date.now();
+                    void pauseQt();
+                  }
+                }}
                 className="flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90"
                 style={{
                   borderColor: listen === "paused" ? "#c9a227" : "var(--color-paper-3)",
