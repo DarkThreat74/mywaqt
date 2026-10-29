@@ -11,9 +11,9 @@ function postForced(on: boolean) {
 }
 
 /**
- * Connectivity dot next to the logo: green when online, orange "Offline" when
- * offline — real or user-forced. Triple-click toggles a popup to switch
- * offline mode; it resets when the app closes (sessionStorage only).
+ * Connectivity state beside the logo: a faint muted dot online, an orange
+ * "Offline" label when offline (real or forced). Triple-click opens a
+ * centered dialog to toggle forced offline — resets when the app closes.
  */
 export default function OfflineDot() {
   const [offline, setOffline] = useState(() => !navigator.onLine);
@@ -59,11 +59,11 @@ export default function OfflineDot() {
         aria-label={isOff ? "Offline" : "Online"}
       >
         <span
-          className="inline-block h-2 w-2 rounded-full"
-          style={{ backgroundColor: isOff ? "#f97316" : "#22c55e" }}
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{ backgroundColor: isOff ? "#f97316" : "var(--color-ink-muted)", opacity: isOff ? 1 : 0.35 }}
         />
         {isOff && (
-          <span className="text-[11px] font-medium" style={{ color: "#f97316" }}>
+          <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>
             Offline
           </span>
         )}
@@ -73,43 +73,43 @@ export default function OfflineDot() {
           <span className="fixed inset-0 z-[90]" onClick={() => setPop(false)} aria-hidden="true" />
           <span
             role="dialog"
-            className="absolute left-0 top-6 z-[91] w-56 rounded-xl border p-3 text-left shadow-xl"
+            className="fixed left-1/2 top-24 z-[91] w-64 -translate-x-1/2 rounded-xl border p-4 text-left shadow-xl"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
           >
             {forced ? (
               <>
-                <span className="block text-xs font-medium" style={{ color: "var(--color-ink)" }}>
+                <span className="block text-sm font-medium" style={{ color: "var(--color-ink)" }}>
                   Go back online?
                 </span>
-                <span className="mt-0.5 block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                <span className="mt-1 block text-xs" style={{ color: "var(--color-ink-muted)" }}>
                   Queued writes will sync.
                 </span>
                 <button
                   type="button"
                   onClick={() => toggle(false)}
-                  className="mt-2 w-full rounded-lg py-1.5 text-xs font-semibold text-white"
-                  style={{ backgroundColor: "var(--color-accent, #16a34a)" }}
+                  className="mt-3 w-full rounded-lg border py-2 text-xs font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
                 >
                   Go online
                 </button>
               </>
             ) : offline ? (
-              <span className="block text-xs" style={{ color: "var(--color-ink)" }}>
+              <span className="block text-sm" style={{ color: "var(--color-ink)" }}>
                 You&apos;re offline — the app is running from cache.
               </span>
             ) : (
               <>
-                <span className="block text-xs font-medium" style={{ color: "var(--color-ink)" }}>
+                <span className="block text-sm font-medium" style={{ color: "var(--color-ink)" }}>
                   Switch to offline mode?
                 </span>
-                <span className="mt-0.5 block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                <span className="mt-1 block text-xs" style={{ color: "var(--color-ink-muted)" }}>
                   No network use; writes queue until you switch back or close the app.
                 </span>
                 <button
                   type="button"
                   onClick={() => toggle(true)}
-                  className="mt-2 w-full rounded-lg py-1.5 text-xs font-semibold text-white"
-                  style={{ backgroundColor: "#f97316" }}
+                  className="mt-3 w-full rounded-lg border py-2 text-xs font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
                 >
                   Go offline
                 </button>

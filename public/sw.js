@@ -1341,10 +1341,12 @@ self.addEventListener("fetch", (event) => {
         // Instant path — same-account copy of THIS url: paint now,
         // revalidate in the background.
         const cachedHit = await soft(matchStampedPage(pageCache, cacheKey, uid), 1000, null);
-        // Forced offline mode — identical to real offline: stamped copy or
-        // the fallback page, never the network.
+        // Forced offline mode — stamped copy or fallback only; if NOTHING is
+        // cached (cleared caches/first load), fall through to the network
+        // rather than bricking the app on the offline screen.
         if (forcedOffline) {
-          return cachedHit || (uid ? (await fallbackPage().catch(() => null)) : null) || offlineResponse();
+          const forced = cachedHit || (uid ? await fallbackPage().catch(() => null) : null);
+          if (forced) return forced;
         }
         if (cachedHit) {
           // Save-Data: fresh-enough cached page wins without a request —
