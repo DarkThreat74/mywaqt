@@ -46,7 +46,7 @@ const dl = async (url, slug) => {
 
 // ── token machinery ──────────────────────────────────────────────
 const EQUIP = new Set(['machine','cable','barbell','dumbbell','smith','band','banded','bodyweight','kettlebell','ez','lever','weighted','suspension','trx','plate','sled','trap','hex','cambered','v','vbar','rope','thick','fat','towel','cuff','partner','sliders','slider','stability','ball','swiss','medicine','landmine','tib','hangboard','ab','wheel','mini','resistance','assisted','bench']);
-const POSTURE = new Set(['seated','standing','lying','prone','supine','kneeling','half','incline','decline','flat','bent','upright','lean','overhead','behind','front','reverse','deficit','paused','single','double','one','two','arm','leg','hand','grip','wide','narrow','close','neutral','underhand','overhand','cross','crossbody','floor','side','lateral','high','low','45','90','reclined','split','sumo','staggered']);
+const POSTURE = new Set(['seated','standing','lying','prone','supine','kneeling','half','incline','decline','flat','bent','upright','lean','overhead','behind','front','reverse','deficit','paused','single','double','one','two','arm','hand','grip','wide','narrow','close','neutral','underhand','overhand','cross','crossbody','floor','side','lateral','high','low','45','90','reclined','split','sumo','staggered']);
 const SYN = {
   flye: ['fly','flye'], fly: ['fly','flye'],
   pushup: ['push','up'], 'push-up': ['push','up'],
@@ -91,18 +91,18 @@ const GROUP = {
 };
 const TARGET_OK = {
   chest: ['pectorals', 'serratus anterior'],
-  back: ['lats', 'traps', 'upper back', 'levator scapulae', 'spine', 'delts', 'serratus anterior'],
-  delts: ['delts', 'traps', 'pectorals', 'serratus anterior'],
+  back: ['lats', 'traps', 'upper back', 'levator scapulae', 'spine', 'erector spinae', 'deltoids', 'delts', 'serratus anterior'],
+  delts: ['delts', 'deltoids', 'traps', 'pectorals', 'serratus anterior'],
   biceps: ['biceps', 'forearms'],
   triceps: ['triceps'],
   forearms: ['forearms', 'biceps', 'triceps'],
   neck: ['*'], // exercisedb has no neck target; token match only
-  quads: ['quads', 'glutes'],
+  quads: ['quads', 'quadriceps'],
   hamstrings: ['hamstrings', 'glutes'],
-  glutes: ['glutes', 'abductors', 'adductors', 'hamstrings', 'quads'],
+  glutes: ['glutes', 'abductors', 'adductors', 'hamstrings', 'quads', 'quadriceps'],
   calves: ['calves'],
-  adductors: ['adductors', 'glutes', 'quads'],
-  hipflex: ['quads', 'abs', 'glutes', 'hamstrings', 'upper legs'],
+  adductors: ['adductors', 'glutes', 'quads', 'quadriceps'],
+  hipflex: ['quads', 'quadriceps', 'abs', 'glutes', 'hamstrings'],
   abs: ['abs'],
 };
 // action words that would contradict a different muscle group
@@ -173,6 +173,21 @@ const AUDIT_EXTRA = {
   "front-squat": ["barbell front squat", "front squat"],
 };
 
+// muscle word -> which bank groups it is compatible with (for WP title check)
+const MUSCLE_WORD = {
+  bicep: ['biceps'], biceps: ['biceps'], tricep: ['triceps'], triceps: ['triceps'],
+  quad: ['quads'], quads: ['quads'], quadriceps: ['quads'],
+  hamstring: ['hamstrings'], hamstrings: ['hamstrings'],
+  glute: ['glutes'], glutes: ['glutes'], butt: ['glutes'],
+  calf: ['calves'], calves: ['calves'], tibialis: ['calves'],
+  chest: ['chest'], pec: ['chest'], pecs: ['chest'], pectoral: ['chest'],
+  shoulder: ['delts','back'], shoulders: ['delts','back'], delt: ['delts'], delts: ['delts'],
+  lat: ['back'], lats: ['back'], trap: ['back'], traps: ['back'],
+  forearm: ['forearms'], forearms: ['forearms'], wrist: ['forearms'], grip: ['forearms'],
+  abs: ['abs'], ab: ['abs'], core: ['abs','hipflex'], oblique: ['abs'],
+  neck: ['neck'],
+};
+
 const ACTION = new Set(['press','push','pushdown','pull','pullup','pulldown','row','curl','extension','flexion','raise','fly','flye','squat','lunge','deadlift','hip','thrust','bridge','crunch','sit','plank','shrug','kickback','dip','dips','rotation','twist','abduction','adduction','hyperextension','pullover','up','down','hold','hang','carry','march','tuck','roll','circle','bend','sweep','chop','climb','step','jump','swing','clean','snatch','jerk','pinch','dig','digs','wring','wrench','pronation','supination','dorsiflexion','crunch','reverse','nordic']);
 
 const report = [];
@@ -206,6 +221,7 @@ for (const e of list) {
         const bset = new Set(bankToks);
         if (!pt.some(w => ACTION.has(w) && bset.has(w))) continue;      // shared action
         if (pt.some(w => ACTION.has(w) && !bset.has(w) && !POSTURE.has(w) && !EQUIP.has(w))) continue;
+        if (pt.some(w => MUSCLE_WORD[w] && !MUSCLE_WORD[w].includes(GROUP[e.muscle]))) continue;
         const gif = (p.content?.rendered || '').match(/https?:\/\/[^"'\s]+\.gif/)?.[0];
         if (gif) { found = { source: 'fitnessprogramer', name: title, url: gif }; break; }
       }

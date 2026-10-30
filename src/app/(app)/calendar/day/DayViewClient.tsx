@@ -141,6 +141,16 @@ const TYPE_BG: Record<string, string> = {
   reminder: "transparent",
 };
 
+// Source-specific accents — a workout event must never look like a class.
+const VIA_COLORS: Record<string, string> = {
+  workout: "#e06c4f",
+  goal: "#4f9e6b",
+  class: "#7c6fd4",
+  study: "#4f86c6",
+  homework: "#4f86c6",
+  quran: "#2fa08f",
+};
+
 // ── Manual date/time formatters (hydration-safe) ──
 // toLocaleDateString / toLocaleTimeString produce different output on Node.js
 // (server) vs browser (client), causing hydration mismatches in React 19.
@@ -1159,6 +1169,18 @@ export default function DayViewClient({ date }: { date: string }) {
   }
 
   async function handleDeleteEvent(id: string) {
+    // Deleting a workout event cancels its live session too.
+    const ev = events.find((e) => e.id === id);
+    const via = ev?.createdVia || "";
+    if (via.startsWith("workout:")) {
+      const dayId = via.split(":")[1];
+      if (dayId) {
+        void fetch("/api/workout/sessions").then((r) => (r.ok ? r.json() : null)).then((d) => {
+          const s = (d?.sessions || []).find((s: { dayId: string; endedAt: string | null }) => s.dayId === dayId && !s.endedAt);
+          if (s) void fetch("/api/workout/sessions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id, end: true }) }).catch(() => {});
+        }).catch(() => {});
+      }
+    }
     // If it's a pending offline event, remove it from local state, IndexedDB,
     // AND the SW outbox — otherwise the queued POST would recreate it on sync.
     if (id.startsWith("offline-")) {
@@ -2074,10 +2096,14 @@ export default function DayViewClient({ date }: { date: string }) {
             const leftPct = layout.colIndex * widthPct;
 
             const eventColor = event.color && event.color.length >= 4 ? event.color : null;
-            const borderColor = eventColor || TYPE_COLORS[event.type] || "var(--color-accent)";
+            const viaKind = (event.createdVia || "").split(":")[0];
+            const viaColor = VIA_COLORS[viaKind] || null;
+            const borderColor = eventColor || viaColor || TYPE_COLORS[event.type] || "var(--color-accent)";
             const bgColor = eventColor
               ? `color-mix(in oklab, ${eventColor} 18%, transparent)`
-              : TYPE_BG[event.type] || TYPE_BG.block;
+              : viaColor
+                ? `color-mix(in oklab, ${viaColor} 14%, transparent)`
+                : TYPE_BG[event.type] || TYPE_BG.block;
 
             return (
               <div
@@ -3085,16 +3111,28 @@ export default function DayViewClient({ date }: { date: string }) {
                 kind === "goal" ? { label: "Open goals", href: "/goals" } :
                 kind === "study" || kind === "homework" ? { label: "Open homework", href: "/goals#homework" } :
                 kind === "quran" ? { label: "Open Quran", href: "/quran-tester" } :
-                kind === "workout" && linkId ? { label: "Start workout", href: `/workout/active?day=${linkId}` } : null;
+                kind === "workout" && linkId ? { label: "Start / resume workout", href: `/workout/active?day=${linkId}` } : null;
               return cta ? (
-                <Link
-                  href={cta.href}
-                  onClick={() => setPeekEvent(null)}
-                  className="mt-3 block rounded-lg border px-3 py-2.5 text-center text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
-                >
-                  {cta.label}
-                </Link>
+                <>
+                  {kind === "goal" && linkId && (
+                    <button
+                      type="button"
+                      onClick={() => { toggleGoalCheck(peekEvent); setPeekEvent(null); }}
+                      className="mt-3 block w-full rounded-lg border px-3 py-2.5 text-center text-sm font-semibold transition-colors"
+                      style={{ borderColor: "var(--color-success)", color: "var(--color-success)", minHeight: 44 }}
+                    >
+                      Mark complete
+                    </button>
+                  )}
+                  <Link
+                    href={cta.href}
+                    onClick={() => setPeekEvent(null)}
+                    className="mt-3 block rounded-lg border px-3 py-2.5 text-center text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
+                  >
+                    {cta.label}
+                  </Link>
+                </>
               ) : null;
             })()}
             <div className="mt-3 flex gap-2">

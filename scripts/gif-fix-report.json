@@ -2,7 +2,7 @@
   {
     "slug": "preacher-curl",
     "source": "exercisedb",
-    "matchedName": "Dumbbell Single-Arm Hammer Preacher Curl"
+    "matchedName": "dumbbell preacher curl"
   },
   {
     "slug": "ez-bar-curl",
@@ -11,8 +11,8 @@
   },
   {
     "slug": "db-overhead-extension",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Dumbbell Seated Reverse-Grip Single-Arm Overhead Triceps Extension"
   },
   {
     "slug": "jm-press",
@@ -26,13 +26,13 @@
   },
   {
     "slug": "leg-extension",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Machine Leg Extension"
   },
   {
     "slug": "front-squat",
     "source": "exercisedb",
-    "matchedName": "kettlebell front squat"
+    "matchedName": "barbell bench front squat"
   },
   {
     "slug": "reverse-nordic",
@@ -46,8 +46,8 @@
   },
   {
     "slug": "fat-grip-curl",
-    "source": "fitnessprogramer",
-    "matchedName": "Is the EZ Bar Curl Worth It for Bicep Gains?"
+    "source": "kept-existing",
+    "matchedName": null
   },
   {
     "slug": "rice-bucket",
