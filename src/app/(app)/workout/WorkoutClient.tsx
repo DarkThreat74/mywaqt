@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { EXERCISES, MUSCLE_GROUP, GROUPS, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
@@ -24,6 +25,7 @@ export default function WorkoutClient() {
   const [heightCm, setHeightCm] = useState("");
   const [panel, setPanel] = useState<"none" | "library" | "profile">("none");
   const [weightStale, setWeightStale] = useState(false);
+  const [actionDay, setActionDay] = useState<WDay | null>(null);
   const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
@@ -470,7 +472,7 @@ export default function WorkoutClient() {
 
       <div className="mt-6 space-y-2">
         {days.map((d) => (
-          <button key={d.id} type="button" onClick={() => openProfile(d)}
+          <button key={d.id} type="button" onClick={() => setActionDay(d)}
             className="flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)]"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))" }}>
             <div className="min-w-0">
@@ -695,10 +697,16 @@ export default function WorkoutClient() {
             <div key={s.id} className="flex items-center justify-between rounded-lg border px-3 py-2"
               style={{ borderColor: "var(--color-paper-3)" }}>
               <span className="text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{s.dayName}</span>
-              <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+              <span className="flex items-center gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                 {new Date(s.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 {" · "}
                 {Math.round((new Date(s.endedAt!).getTime() - new Date(s.startedAt).getTime()) / 60000)}m
+                <button type="button" aria-label="Delete session"
+                  onClick={async () => {
+                    await fetch(`/api/workout/sessions?id=${s.id}`, { method: "DELETE" }).catch(() => {});
+                    setHistory((h) => h.filter((x) => x.id !== s.id));
+                  }}
+                  className="text-[11px]" style={{ color: "var(--color-error)" }}>✕</button>
               </span>
             </div>
           ))}
@@ -712,6 +720,37 @@ export default function WorkoutClient() {
       )}
       {msg && <p className="mt-4 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>{msg}</p>}
 
+      {actionDay && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setActionDay(null)}>
+          <div className="w-full max-w-xs rounded-t-2xl sm:rounded-2xl border p-4"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+            onClick={(e) => e.stopPropagation()}>
+            <p className="text-center text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{actionDay.name}</p>
+            <p className="mt-0.5 text-center text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{actionDay.exercises.length} exercises</p>
+            <div className="mt-3 space-y-2">
+              <Link href={`/workout/active?day=${actionDay.id}`}
+                className="block w-full rounded-xl px-4 py-3 text-center text-sm font-semibold"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+                Start workout
+              </Link>
+              <button type="button" onClick={() => { const d = actionDay; setActionDay(null); openProfile(d); }}
+                className="w-full rounded-xl border px-4 py-3 text-sm font-medium"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                Edit profile
+              </button>
+              <button type="button" onClick={async () => {
+                await fetch(`/api/workout/days?id=${actionDay.id}`, { method: "DELETE" }).catch(() => {});
+                setActionDay(null); await load();
+              }}
+                className="w-full rounded-xl border px-4 py-3 text-sm font-medium"
+                style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {detailOverlay}
     </div>
   );

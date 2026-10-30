@@ -135,14 +135,9 @@ function ActiveInner() {
     setFinished(true);
   };
 
-  // Cancel = end the session without "finished" celebration — back to /workout.
+  // Cancel = delete the session entirely — no history entry, no sets saved.
   const cancel = async () => {
-    if (sessionId) {
-      await fetch("/api/workout/sessions", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: sessionId, end: true }),
-      }).catch(() => {});
-    }
+    if (sessionId) await fetch(`/api/workout/sessions?id=${sessionId}`, { method: "DELETE" }).catch(() => {});
     router.push("/workout");
   };
 
