@@ -15,6 +15,10 @@ export interface Exercise {
   compound?: boolean;
   tier?: "S" | "A" | "B" | "C" | "D" | "F";
   cue: string;           // 1-line setup/execution cue
+  howto?: string;        // detailed setup + execution (2-3 sentences)
+  pros?: string;         // what makes it good — mechanism
+  cons?: string;         // what makes it worse than alternatives
+  source?: string;       // expert/study attribution
   img: string;
 }
 

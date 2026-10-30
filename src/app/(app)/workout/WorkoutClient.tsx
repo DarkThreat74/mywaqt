@@ -139,6 +139,28 @@ export default function WorkoutClient() {
             className="mt-4 aspect-square w-full rounded-xl"
             style={{ backgroundColor: "var(--color-paper-2)" }} />
           <p className="mt-4 text-sm font-medium" style={{ color: "var(--color-ink)" }}>{view.cue}</p>
+          {view.howto && (
+            <div className="mt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>How to do it</p>
+              <p className="mt-1 text-sm leading-relaxed" style={{ color: "var(--color-ink)" }}>{view.howto}</p>
+            </div>
+          )}
+          {(view.pros || view.cons) && (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {view.pros && (
+                <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-success)", backgroundColor: "color-mix(in oklab, var(--color-success) 5%, var(--color-paper))" }}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-success)" }}>Why it&rsquo;s good</p>
+                  <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--color-ink)" }}>{view.pros}</p>
+                </div>
+              )}
+              {view.cons && (
+                <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-warmth)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 5%, var(--color-paper))" }}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-warmth)" }}>Where it falls short</p>
+                  <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--color-ink)" }}>{view.cons}</p>
+                </div>
+              )}
+            </div>
+          )}
           {sci && (
             <div className="mt-3 rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
               <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>The science</p>
