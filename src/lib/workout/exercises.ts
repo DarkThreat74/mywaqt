@@ -179,37 +179,16 @@ export const MUSCLES = [
 ] as const;
 
 export const SPLIT_TEMPLATES: Record<string, { name: string; days: Record<number, { name: string; muscles: string[] }> }> = {
-  ppl: {
-    name: "Push / Pull / Legs",
+  week: {
+    name: "Your 7-day split",
     days: {
-      1: { name: "Push", muscles: ["chest", "upper_chest", "front_delts", "side_delts", "triceps"] },
-      3: { name: "Pull", muscles: ["lats", "mid_back", "rear_delts", "biceps", "forearms"] },
-      5: { name: "Legs", muscles: ["quads", "hamstrings", "glutes", "gastroc", "soleus"] },
-    },
-  },
-  upper_lower: {
-    name: "Upper / Lower",
-    days: {
-      1: { name: "Upper", muscles: ["chest", "lats", "mid_back", "side_delts", "biceps", "triceps"] },
-      2: { name: "Lower", muscles: ["quads", "hamstrings", "glutes", "gastroc", "soleus"] },
-      4: { name: "Upper", muscles: ["upper_chest", "rear_delts", "front_delts", "biceps", "triceps", "upper_traps"] },
-      5: { name: "Lower", muscles: ["hamstrings", "quads", "glute_med", "erectors", "soleus"] },
-    },
-  },
-  full_body: {
-    name: "Full Body ×3",
-    days: {
-      1: { name: "Full Body A", muscles: ["chest", "lats", "quads", "side_delts"] },
-      3: { name: "Full Body B", muscles: ["mid_back", "hamstrings", "front_delts", "triceps"] },
-      5: { name: "Full Body C", muscles: ["upper_chest", "glutes", "biceps", "rear_delts"] },
-    },
-  },
-  arnold: {
-    name: "Arnold Split",
-    days: {
-      1: { name: "Chest + Back", muscles: ["chest", "upper_chest", "lats", "mid_back"] },
-      3: { name: "Shoulders + Arms", muscles: ["front_delts", "side_delts", "rear_delts", "biceps", "triceps", "forearms"] },
-      5: { name: "Legs", muscles: ["quads", "hamstrings", "glutes", "gastroc", "soleus", "abs"] },
+      1: { name: "Upper", muscles: ["chest", "upper_chest", "lats", "mid_back", "side_delts", "biceps", "triceps"] },
+      2: { name: "Lower", muscles: ["quads", "hamstrings", "glutes", "erectors", "gastroc", "soleus"] },
+      3: { name: "Legs", muscles: ["quads", "hamstrings", "glutes", "gastroc", "soleus"] },
+      4: { name: "Push + Biceps", muscles: ["chest", "upper_chest", "front_delts", "side_delts", "triceps", "biceps"] },
+      5: { name: "Pull + Triceps", muscles: ["lats", "mid_back", "rear_delts", "upper_traps", "biceps", "triceps"] },
+      6: { name: "Arms", muscles: ["biceps", "triceps", "forearms", "grip"] },
+      0: { name: "Abs + Shoulders", muscles: ["upper_abs", "lower_abs", "obliques", "front_delts", "side_delts", "rear_delts"] },
     },
   },
 };
