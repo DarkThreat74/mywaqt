@@ -55,7 +55,9 @@ export default function WorkoutClient() {
     let list = EXERCISES;
     if (groupFilter !== "all") {
       list = list.filter((x) => MUSCLE_GROUP[x.muscle] === groupFilter);
-      if (headFilter !== "all") list = list.filter((x) => x.head === headFilter);
+      // heads that equal a muscle key (lats, erectors…) match via muscle;
+      // sub-heads (long_head…) match via head tag. Fallback covers both.
+      if (headFilter !== "all") list = list.filter((x) => (x.head ?? x.muscle) === headFilter);
     }
     if (tierFilter !== "all") list = list.filter((x) => x.tier === tierFilter);
     if (search.trim()) {
