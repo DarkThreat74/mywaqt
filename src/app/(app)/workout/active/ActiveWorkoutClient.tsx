@@ -7,7 +7,7 @@ import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; }
-interface SetRow { weight: string; reps: number | null; rir?: number | null; done: boolean; }
+interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; done: boolean; }
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
@@ -102,7 +102,7 @@ function ActiveInner() {
     if (sessionId) {
       await fetch("/api/workout/sets", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: next.weight, reps: next.reps, rir: next.rir, done: next.done }),
+        body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: next.weight, reps: next.reps, rir: next.rir, setType: next.setType, done: next.done }),
       }).catch(() => {});
     }
     if (patch.done) rest();
@@ -213,7 +213,7 @@ function ActiveInner() {
 
               <div className="mt-3 space-y-1.5">
                 {Array.from({ length: x.sets }, (_, i) => {
-                  const row = rows[i] || { weight: "", reps: null, done: false };
+                  const row = rows[i] || { weight: "", reps: null, done: false, setType: "working" as const };
                   const prev = prevSets[x.slug]?.[i];
                   return (
                     <div key={i} className="flex items-center gap-2">
@@ -232,6 +232,22 @@ function ActiveInner() {
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
                       />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const order = ["warmup", "working", "failure"] as const;
+                          const next = order[(order.indexOf(row.setType || "working") + 1) % 3];
+                          void logSet(x.slug, i, { setType: next });
+                        }}
+                        className="w-8 shrink-0 rounded border px-0 py-1.5 text-center text-[9px] font-bold"
+                        title="Set type — tap to cycle"
+                        style={{
+                          borderColor: row.setType === "failure" ? "var(--color-error)" : row.setType === "warmup" ? "var(--color-warmth)" : "var(--color-paper-3)",
+                          color: row.setType === "failure" ? "var(--color-error)" : row.setType === "warmup" ? "var(--color-warmth)" : "var(--color-ink-muted)",
+                        }}
+                      >
+                        {row.setType === "failure" ? "F" : row.setType === "warmup" ? "W" : "N"}
+                      </button>
                       <select
                         value={row.rir ?? ""}
                         onChange={(e) => void logSet(x.slug, i, { rir: e.target.value === "" ? null : Number(e.target.value) })}

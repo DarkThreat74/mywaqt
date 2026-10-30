@@ -17,6 +17,7 @@ export default function WorkoutClient() {
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number }>>([]);
+  const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<Array<{ id: string; dayName: string; startedAt: string; endedAt: string | null }>>([]);
@@ -38,6 +39,7 @@ export default function WorkoutClient() {
     if (pr?.ok) {
       const data = await pr.json();
       setProgress(data.progress || []);
+      setMuscles(data.muscles || []);
     }
     const hr = await fetch("/api/workout/sessions").catch(() => null);
     if (hr?.ok) {
@@ -334,6 +336,32 @@ export default function WorkoutClient() {
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
           {showProgress ? "Hide" : "Show"} progress — {progress.length} exercises tracked
         </button>
+      )}
+
+      {showProgress && muscles.length > 0 && (
+        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>
+            This week — effective sets per muscle
+          </p>
+          <div className="mt-2 space-y-1.5">
+            {muscles.filter((m) => m.effSetsWeek > 0).map((m) => {
+              const [lo, hi] = m.landmark;
+              const pct = Math.min(m.effSetsWeek / (hi * 1.4), 1) * 100;
+              const color = m.status === "over" ? "var(--color-error)" : m.status === "growing" ? "var(--color-success)" : m.status === "maintaining" ? "var(--color-accent)" : "var(--color-warmth)";
+              return (
+                <div key={m.muscle} className="flex items-center gap-2">
+                  <span className="w-20 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{m.muscle.replace(/_/g, " ")}</span>
+                  <div className="h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                    <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                  </div>
+                  <span className="w-14 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                    {m.effSetsWeek}/{lo}–{hi} {m.slopePct > 0.3 ? `+${m.slopePct}%` : m.slopePct < -0.3 ? `${m.slopePct}%` : ""}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {showProgress && (

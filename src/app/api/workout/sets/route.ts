@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const { sessionId, slug, setIndex, weight, reps, rir, done } = await request.json() as { sessionId?: string; slug?: string; setIndex?: number; weight?: string | number | null; reps?: number | null; rir?: number | null; done?: boolean };
+    const { sessionId, slug, setIndex, weight, reps, rir, setType, done } = await request.json() as { sessionId?: string; slug?: string; setIndex?: number; weight?: string | number | null; reps?: number | null; rir?: number | null; setType?: string; done?: boolean };
     if (!sessionId || !slug || !Number.isInteger(setIndex)) {
       return NextResponse.json({ error: "sessionId, slug, setIndex required." }, { status: 400 });
     }
@@ -22,14 +22,14 @@ export async function POST(request: NextRequest) {
       sessionId: sessionId!, slug: String(slug), setIndex: setIndex!,
       weight: weight == null ? null : String(weight).slice(0, 20),
       reps: Number.isInteger(reps) ? reps : null,
-      rir: Number.isInteger(rir) ? rir : null,
+      rir: Number.isInteger(rir) ? rir : null, setType: ["warmup","working","failure"].includes(setType||"") ? setType : "working",
       done: Boolean(done),
     }).onConflictDoUpdate({
       target: [schema.workoutSets.sessionId, schema.workoutSets.slug, schema.workoutSets.setIndex],
       set: {
         weight: weight == null ? null : String(weight).slice(0, 20),
         reps: Number.isInteger(reps) ? reps : null,
-        rir: Number.isInteger(rir) ? rir : null,
+        rir: Number.isInteger(rir) ? rir : null, setType: ["warmup","working","failure"].includes(setType||"") ? setType : "working",
         done: Boolean(done),
       },
     });
