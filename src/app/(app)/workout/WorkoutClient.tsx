@@ -22,6 +22,8 @@ export default function WorkoutClient() {
   const [tonPrevWeek, setTonPrevWeek] = useState(0);
   const [bodyWeight, setBodyWeight] = useState("");
   const [heightCm, setHeightCm] = useState("");
+  const [panel, setPanel] = useState<"none" | "library" | "profile">("none");
+  const [weightStale, setWeightStale] = useState(false);
   const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
@@ -55,6 +57,10 @@ export default function WorkoutClient() {
         const { prefs: p } = await prefs.json();
         if (p?.bodyWeightKg) setBodyWeight(String(p.bodyWeightKg));
         if (p?.heightCm) setHeightCm(String(p.heightCm));
+        // Weekly weight check-in — weights drift; heights don't.
+        if (!p?.bodyWeightKg || !p?.heightCm) setPanel("profile");
+        const wAt = p?.weightUpdatedAt ? new Date(p.weightUpdatedAt).getTime() : 0;
+        if (p?.bodyWeightKg && Date.now() - wAt > 7 * 86400000) setWeightStale(true);
       }
     }
     const hr = await fetch("/api/workout/sessions").catch(() => null);
@@ -383,7 +389,84 @@ export default function WorkoutClient() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6">
-      <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Workout</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Workout</h1>
+        <div className="flex gap-1.5">
+          {(["library", "profile"] as const).map((p) => (
+            <button key={p} type="button" onClick={() => setPanel(panel === p ? "none" : p)}
+              className="rounded-full border px-3 py-1 text-[10px] font-medium capitalize"
+              style={{ borderColor: panel === p ? "var(--color-ink)" : "var(--color-paper-3)", color: panel === p ? "var(--color-ink)" : "var(--color-ink-muted)" }}>
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {weightStale && (
+        <button type="button" onClick={() => { setPanel("profile"); setWeightStale(false); }}
+          className="mt-2 w-full rounded-lg border px-3 py-2 text-left text-[11px]"
+          style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>
+          Weekly check-in — update your weight for accurate strength ratios →
+        </button>
+      )}
+
+      {panel === "profile" && (
+        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>
+            {!bodyWeight ? "Set up your profile" : "Profile"}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              weight
+              <input value={bodyWeight} onChange={(e) => { setBodyWeight(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bodyWeightKg: v, weightUpdatedAt: new Date().toISOString() }) }).catch(() => {}); }}
+                placeholder="kg" className="w-16 rounded border px-2 py-1.5 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+              kg
+            </label>
+            <label className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              height
+              <input value={heightCm} onChange={(e) => { setHeightCm(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ heightCm: v }) }).catch(() => {}); }}
+                placeholder="cm" className="w-16 rounded border px-2 py-1.5 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+              cm
+            </label>
+          </div>
+          <p className="mt-2 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
+            Weight updates weekly — it drifts. Height is set once.
+          </p>
+        </div>
+      )}
+
+      {panel === "library" && (() => {
+        const libFiltered = EXERCISES.filter((x) => {
+          if (groupFilter !== "all") {
+            if (MUSCLE_GROUP[x.muscle] !== groupFilter) return false;
+            if (headFilter !== "all" && (x.head ?? x.muscle) !== headFilter) return false;
+          }
+          if (tierFilter !== "all") return x.tier === tierFilter;
+          if (search) return x.name.toLowerCase().includes(search.toLowerCase());
+          return true;
+        });
+        return (
+          <div className="mt-3">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search 367 exercises…"
+              className="w-full rounded-lg border px-3 py-2 text-xs outline-none"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+            <div className="mt-2 max-h-[60vh] space-y-1.5 overflow-y-auto">
+              {libFiltered.map((x) => (
+                <button key={x.slug} type="button" onClick={() => setView(x)}
+                  className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)" }}>
+                  <ExerciseMedia slug={x.slug} pattern={x.pattern}
+                    className="h-9 w-9 shrink-0 items-center justify-center rounded-md"
+                    style={{ backgroundColor: "var(--color-paper-2)" }} />
+                  <span className="min-w-0 flex-1 truncate text-[12px] font-medium" style={{ color: "var(--color-ink)" }}>{x.name}</span>
+                  {x.tier && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[x.tier], color: "#fff" }}>{x.tier}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
 
       <div className="mt-6 space-y-2">
         {days.map((d) => (
@@ -441,7 +524,7 @@ export default function WorkoutClient() {
           <div className="mt-2 grid grid-cols-2 gap-2">
             <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               weight
-              <input value={bodyWeight} onChange={(e) => { setBodyWeight(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bodyWeightKg: v }) }).catch(() => {}); }}
+              <input value={bodyWeight} onChange={(e) => { setBodyWeight(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bodyWeightKg: v, weightUpdatedAt: new Date().toISOString() }) }).catch(() => {}); }}
                 placeholder="kg" className="w-14 rounded border px-1.5 py-1 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
               kg
             </label>

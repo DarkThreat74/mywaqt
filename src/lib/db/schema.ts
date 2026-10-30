@@ -35,6 +35,7 @@ export interface UiPrefs {
   // they follow the account, not the browser.
   bodyWeightKg?: number;
   heightCm?: number;
+  weightUpdatedAt?: string; // weekly weight check-in timestamp
   // Where the user left off reading — syncs across devices.
   quranPosition?: { surah: number; ayah: number; updatedAt?: string };
 }
