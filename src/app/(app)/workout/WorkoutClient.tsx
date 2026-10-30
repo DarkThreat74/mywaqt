@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { EXERCISES, MUSCLES, SPLIT_TEMPLATES, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
+import { SCIENCE } from "@/lib/workout/science";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; }
 interface WDay { id: string; weekday: number | null; name: string; exercises: DayExercise[]; }
@@ -11,7 +12,9 @@ const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#4
 
 export default function WorkoutClient() {
   const [days, setDays] = useState<WDay[]>([]);
-  const [sel, setSel] = useState<number | null>(null);
+  const [step, setStep] = useState<number | null>(null); // 0=type, 1=name, 2=exercises
+  const [view, setView] = useState<Exercise | null>(null);
+  const [tierFilter, setTierFilter] = useState<string>("all");
   const [dayName, setDayName] = useState("");
   const [muscleFilter, setMuscleFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -31,12 +34,13 @@ export default function WorkoutClient() {
   const filtered = useMemo(() => {
     let list = EXERCISES;
     if (muscleFilter !== "all") list = list.filter((x) => x.muscle === muscleFilter);
+    if (tierFilter !== "all") list = list.filter((x) => x.tier === tierFilter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter((x) => x.name.toLowerCase().includes(q) || x.cue.toLowerCase().includes(q));
     }
     return [...list].sort((a, b) => (a.tier || "Z").localeCompare(b.tier || "Z"));
-  }, [muscleFilter, search]);
+  }, [muscleFilter, search, tierFilter]);
 
   const applyTemplate = async (key: string) => {
     const tpl = SPLIT_TEMPLATES[key];
@@ -57,11 +61,16 @@ export default function WorkoutClient() {
   };
 
   const openProfile = (d?: WDay) => {
-    setSel(1); // editor open flag — profiles aren't weekday-bound
+    setStep(d ? 2 : 0);
     setEditId(d?.id || null);
     setDayName(d?.name || "");
     setPicked(d?.exercises?.map((x) => ({ slug: x.slug, name: x.name, sets: x.sets, reps: x.reps })) || []);
-    setSearch(""); setMuscleFilter("all");
+    setSearch(""); setMuscleFilter("all"); setTierFilter("all");
+  };
+
+  const pickType = (t: { name: string; muscles: string[] }) => {
+    setDayName(t.name);
+    setStep(1);
   };
 
   const saveDay = async () => {
@@ -73,7 +82,7 @@ export default function WorkoutClient() {
     if (res.ok) {
       setMsg(editId ? "Updated." : "Day created.");
       setTimeout(() => setMsg(null), 2000);
-      setSel(null);
+      setStep(null);
       await load();
     } else {
       const data = await res.json().catch(() => ({}));
@@ -91,45 +100,62 @@ export default function WorkoutClient() {
     setPicked((p) => [...p, { slug: x.slug, name: x.name, sets: 3, reps: "8-12" }]);
   };
 
-  if (sel !== null) {
+  if (step === 0) {
     return (
-      <div className="mx-auto w-full max-w-2xl px-4 py-6">
-        <button type="button" onClick={() => setSel(null)} className="mb-3 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
-          ← Workouts
-        </button>
-        <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
-          {editId ? "Edit" : "New"} profile
-        </h1>
-        {/* Day-type chips — pick a template, then edit freely */}
-        <div className="mt-3 flex flex-wrap gap-1.5">
+      <div className="mx-auto w-full max-w-md px-4 py-12" style={{ animation: "fadeIn .25s ease" }}>
+        <button type="button" onClick={() => setStep(null)} className="mb-8 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>← Workouts</button>
+        <h1 className="text-xl font-semibold" style={{ color: "var(--color-ink)" }}>What are we building?</h1>
+        <div className="mt-6 grid grid-cols-2 gap-2">
           {DAY_TEMPLATES.map((t) => (
-            <button
-              key={t.name}
-              type="button"
-              onClick={() => {
-                setDayName(t.name);
-                const picks = t.muscles
-                  .map((m) => EXERCISES.find((x) => x.muscle === m && x.tier === "S") || EXERCISES.find((x) => x.muscle === m))
-                  .filter((x): x is Exercise => !!x)
-                  .map((x) => ({ slug: x.slug, name: x.name, sets: 3, reps: "8-12" }));
-                setPicked(picks);
-              }}
-              className="rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors"
-              style={{
-                borderColor: dayName === t.name ? "var(--color-ink)" : "var(--color-paper-3)",
-                backgroundColor: dayName === t.name ? "var(--color-ink)" : "var(--color-paper)",
-                color: dayName === t.name ? "var(--color-paper)" : "var(--color-ink-muted)",
-                minHeight: 32,
-              }}
-            >
+            <button key={t.name} type="button" onClick={() => pickType(t)}
+              className="rounded-xl border px-4 py-4 text-left text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
               {t.name}
             </button>
           ))}
+          <button type="button" onClick={() => { setDayName(""); setStep(1); }}
+            className="col-span-2 rounded-xl border border-dashed px-4 py-4 text-sm font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+            Other — name it myself
+          </button>
         </div>
+      </div>
+    );
+  }
+
+  if (step === 1) {
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-12" style={{ animation: "fadeIn .25s ease" }}>
+        <button type="button" onClick={() => setStep(0)} className="mb-8 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>← Back</button>
+        <h1 className="text-xl font-semibold" style={{ color: "var(--color-ink)" }}>What should we call it?</h1>
+        <input
+          autoFocus value={dayName} onChange={(e) => setDayName(e.target.value)}
+          placeholder="Push day, Legs…"
+          className="mt-6 w-full rounded-lg border px-3 py-3 text-sm outline-none"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+        />
+        <button type="button" onClick={() => setStep(2)} disabled={!dayName.trim()}
+          className="mt-4 w-full rounded-lg px-4 py-3 text-sm font-semibold disabled:opacity-40"
+          style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+          Pick exercises →
+        </button>
+      </div>
+    );
+  }
+
+  if (step !== null) {
+    return (
+      <div className="mx-auto w-full max-w-2xl px-4 py-6">
+        <button type="button" onClick={() => setStep(editId ? null : 1)} className="mb-3 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+          ← {editId ? "Workouts" : "Back"}
+        </button>
+        <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
+          {dayName || "Untitled"}
+        </h1>
         <input
           value={dayName}
           onChange={(e) => setDayName(e.target.value)}
-          placeholder="Or name it yourself…"
+          placeholder="Workout name…"
           className="mt-3 w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
         />
@@ -167,6 +193,15 @@ export default function WorkoutClient() {
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
           />
         </div>
+        <div className="mt-2 flex gap-1">
+          {["all", "S", "A", "B", "C", "D", "F"].map((t) => (
+            <button key={t} type="button" onClick={() => setTierFilter(t)}
+              className="rounded-full border px-2.5 py-1 text-[10px] font-bold"
+              style={{ borderColor: tierFilter === t ? "var(--color-ink)" : "var(--color-paper-3)", color: t === "all" ? (tierFilter === t ? "var(--color-ink)" : "var(--color-ink-muted)") : TIER_COLORS[t] }}>
+              {t === "all" ? "All" : t}
+            </button>
+          ))}
+        </div>
         <div className="mt-2 flex flex-wrap gap-1">
           <button type="button" onClick={() => setMuscleFilter("all")}
             className="rounded-full border px-2.5 py-1 text-[10px]" style={{ borderColor: muscleFilter === "all" ? "var(--color-ink)" : "var(--color-paper-3)", color: muscleFilter === "all" ? "var(--color-ink)" : "var(--color-ink-muted)" }}>
@@ -182,7 +217,8 @@ export default function WorkoutClient() {
 
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
           {filtered.map((x) => (
-            <div key={x.slug} className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div key={x.slug} role="button" tabIndex={0} onClick={() => setView(x)} onKeyDown={(e) => e.key === "Enter" && setView(x)}
+              className="cursor-pointer rounded-lg border p-3 transition-colors hover:bg-[var(--color-paper-2)]" style={{ borderColor: "var(--color-paper-3)" }}>
               <div className="flex items-start gap-3">
                 <ExerciseMedia
                   slug={x.slug} pattern={x.pattern}
@@ -201,7 +237,7 @@ export default function WorkoutClient() {
                   </div>
                   <p className="mt-1 text-[11px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>{x.cue}</p>
                 </div>
-                <button type="button" onClick={() => addExercise(x)} className="shrink-0 rounded-full border px-3 py-1 text-xs font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                <button type="button" onClick={(e) => { e.stopPropagation(); addExercise(x); }} className="shrink-0 rounded-full border px-3 py-1 text-xs font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
                   Add
                 </button>
               </div>
@@ -271,6 +307,46 @@ export default function WorkoutClient() {
         </p>
       )}
       {msg && <p className="mt-4 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>{msg}</p>}
+
+      {/* Exercise detail overlay — GIF closeup, science, citation */}
+      {view && (() => {
+        const sci = SCIENCE[view.slug];
+        return (
+          <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+            style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setView(null)}>
+            <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-2xl sm:rounded-2xl border p-5"
+              style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+              onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{view.name}</h2>
+                  <div className="mt-1 flex items-center gap-2">
+                    {view.tier && <span className="rounded px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: TIER_COLORS[view.tier], color: "#fff" }}>{view.tier}-tier</span>}
+                    <span className="text-[10px] capitalize" style={{ color: "var(--color-ink-muted)" }}>{view.muscle.replace(/_/g, " ")} · {view.equip}</span>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setView(null)} className="text-lg" style={{ color: "var(--color-ink-muted)" }}>✕</button>
+              </div>
+              <ExerciseMedia slug={view.slug} pattern={view.pattern}
+                className="mt-4 aspect-square w-full rounded-xl"
+                style={{ backgroundColor: "var(--color-paper-2)" }} />
+              <p className="mt-4 text-sm font-medium" style={{ color: "var(--color-ink)" }}>{view.cue}</p>
+              {sci && (
+                <div className="mt-3 rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>The science</p>
+                  <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--color-ink)" }}>{sci.science}</p>
+                  <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{sci.source}</p>
+                </div>
+              )}
+              <button type="button" onClick={() => { addExercise(view); setView(null); }}
+                className="mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+                Add to workout
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
