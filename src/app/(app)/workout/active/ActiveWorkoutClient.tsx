@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
-import { ExerciseDiagram } from "@/lib/workout/diagrams";
+import { ExerciseMedia } from "@/lib/workout/diagrams";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; }
 interface SetRow { weight: string; reps: number | null; done: boolean; }
@@ -161,8 +161,8 @@ function ActiveInner() {
             <div key={x.slug} className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
               <div className="flex items-start gap-3">
                 {ex && (
-                  <ExerciseDiagram
-                    pattern={ex.pattern}
+                  <ExerciseMedia
+                    slug={ex.slug} pattern={ex.pattern}
                     className="h-14 w-14 shrink-0 items-center justify-center rounded-lg"
                     style={{ backgroundColor: "var(--color-paper-2)" }}
                   />

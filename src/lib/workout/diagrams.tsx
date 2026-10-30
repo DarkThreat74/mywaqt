@@ -2,7 +2,9 @@
  * Technique diagrams — self-drawn SVG stick figures keyed by movement
  * pattern. No CDN, always renders (mobile, offline, PWA).
  */
-import React from "react";
+"use client";
+
+import React, { useState } from "react";
 
 const S = { fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 
@@ -285,4 +287,22 @@ const PATTERNS: Record<string, React.ReactNode> = {
 export function ExerciseDiagram({ pattern, className, style }: { pattern: string; className?: string; style?: React.CSSProperties }) {
   const node = PATTERNS[pattern] ?? PATTERNS.horizontal_push;
   return <span className={className} style={{ display: "inline-flex", color: "var(--color-ink-muted)", ...style }}>{node}</span>;
+}
+
+/**
+ * Real technique GIF when one was downloaded to /public/exercises, else the
+ * SVG diagram — so every exercise always shows something.
+ */
+export function ExerciseMedia({ slug, pattern, className, style }: { slug: string; pattern: string; className?: string; style?: React.CSSProperties }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <ExerciseDiagram pattern={pattern} className={className} style={style} />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- self-hosted GIF, next/image can't optimize
+    <img
+      src={`/exercises/${slug}.gif`} alt="" loading="lazy"
+      className={className}
+      style={{ objectFit: "cover", backgroundColor: "var(--color-paper-2)", ...style }}
+      onError={() => setFailed(true)}
+    />
+  );
 }

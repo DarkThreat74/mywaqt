@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { EXERCISES, MUSCLES, SPLIT_TEMPLATES, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
-import { ExerciseDiagram } from "@/lib/workout/diagrams";
+import { ExerciseMedia } from "@/lib/workout/diagrams";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; }
 interface WDay { id: string; weekday: number; name: string; exercises: DayExercise[]; }
@@ -186,8 +186,8 @@ export default function WorkoutClient() {
           {filtered.map((x) => (
             <div key={x.slug} className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
               <div className="flex items-start gap-3">
-                <ExerciseDiagram
-                  pattern={x.pattern}
+                <ExerciseMedia
+                  slug={x.slug} pattern={x.pattern}
                   className="h-14 w-14 shrink-0 items-center justify-center rounded-lg"
                   style={{ backgroundColor: "var(--color-paper-2)" }}
                 />
