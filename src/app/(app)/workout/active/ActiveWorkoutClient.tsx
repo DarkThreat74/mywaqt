@@ -111,13 +111,19 @@ function ActiveInner() {
   };
 
   const [units, setUnits] = useState<Unit>("kg");
+  useEffect(() => {
+    // Default to the unit chosen on /workout/profile; the header toggle still
+    // overrides per-session.
+    void fetch("/api/settings/prefs").then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (d?.prefs?.unitWeight === "lb" || d?.prefs?.unitWeight === "kg") setUnits(d.prefs.unitWeight);
+    }).catch(() => {});
+  }, []);
   const [setCounts, setSetCounts] = useState<Record<string, number>>({});
   const [view, setView] = useState<Exercise | null>(null);
   const [openRir, setOpenRir] = useState<string | null>(null);
   const router = useRouter();
 
   const unitToKg = (v: string) => (units === "lb" ? String(Math.round(parseFloat(v) / 2.205 * 10) / 10) : v);
-  const kgToUnit = (v: string) => (units === "lb" ? String(Math.round(parseFloat(v) * 2.205)) : v);
 
   const totalDone = useMemo(
     () => Object.values(setRows).flat().filter((r) => r?.done).length,
@@ -172,8 +178,16 @@ function ActiveInner() {
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{dayName || "Workout"}</h1>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => {
-            setUnits((u) => (u === "kg" ? "lb" : "kg"));
-            setSetRows((r) => Object.fromEntries(Object.entries(r).map(([s, rows]) => [s, rows.map((row) => ({ ...row, weight: row.weight ? kgToUnit(row.weight) : row.weight }))])));
+            const next = units === "kg" ? "lb" : "kg";
+            setUnits(next);
+            // Rows hold display-unit values — convert each to the new unit.
+            setSetRows((r) => Object.fromEntries(Object.entries(r).map(([s, rows]) => [s, rows.map((row) => ({
+              ...row,
+              weight: row.weight
+                ? next === "lb" ? String(Math.round(parseFloat(row.weight) * 2.205)) : String(Math.round(parseFloat(row.weight) / 2.205 * 10) / 10)
+                : row.weight,
+            }))])));
+            void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ unitWeight: next }) }).catch(() => {});
           }}
             className="rounded-full border px-2.5 py-1 text-[10px] font-bold"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
