@@ -46,10 +46,12 @@ export default function WorkoutClient() {
       setProgress(data.progress || []);
       setMuscles(data.muscles || []);
       setTonnage(data.totalTonnage || 0);
-      try {
-        setBodyWeight(localStorage.getItem("waqt:bw") || "");
-        setHeightCm(localStorage.getItem("waqt:ht") || "");
-      } catch { /* noop */ }
+      const prefs = await fetch("/api/settings/prefs").catch(() => null);
+      if (prefs?.ok) {
+        const { prefs: p } = await prefs.json();
+        if (p?.bodyWeightKg) setBodyWeight(String(p.bodyWeightKg));
+        if (p?.heightCm) setHeightCm(String(p.heightCm));
+      }
     }
     const hr = await fetch("/api/workout/sessions").catch(() => null);
     if (hr?.ok) {
@@ -435,13 +437,13 @@ export default function WorkoutClient() {
           <div className="mt-2 grid grid-cols-2 gap-2">
             <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               weight
-              <input value={bodyWeight} onChange={(e) => { setBodyWeight(e.target.value); try { localStorage.setItem("waqt:bw", e.target.value); } catch { /* noop */ } }}
+              <input value={bodyWeight} onChange={(e) => { setBodyWeight(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bodyWeightKg: v }) }).catch(() => {}); }}
                 placeholder="kg" className="w-14 rounded border px-1.5 py-1 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
               kg
             </label>
             <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               height
-              <input value={heightCm} onChange={(e) => { setHeightCm(e.target.value); try { localStorage.setItem("waqt:ht", e.target.value); } catch { /* noop */ } }}
+              <input value={heightCm} onChange={(e) => { setHeightCm(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ heightCm: v }) }).catch(() => {}); }}
                 placeholder="cm" className="w-14 rounded border px-1.5 py-1 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
               cm
             </label>

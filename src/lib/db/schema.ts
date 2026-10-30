@@ -31,6 +31,12 @@ import {
 export interface UiPrefs {
   theme?: 'light' | 'dark' | 'system';
   funfactDisabled?: boolean;
+  // Fitness profile — strength-ratio + BMI inputs live on the user record so
+  // they follow the account, not the browser.
+  bodyWeightKg?: number;
+  heightCm?: number;
+  // Where the user left off reading — syncs across devices.
+  quranPosition?: { surah: number; ayah: number; updatedAt?: string };
 }
 
 // ─── Enums ───

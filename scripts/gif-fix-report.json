@@ -1,13 +1,13 @@
 [
   {
     "slug": "machine-chest-press",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Machine Chest Press"
   },
   {
     "slug": "cable-flye",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable decline fly"
   },
   {
     "slug": "incline-dumbbell-press",
@@ -166,8 +166,8 @@
   },
   {
     "slug": "cable-lateral-raise",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable lateral raise"
   },
   {
     "slug": "cable-y-raise",
@@ -201,8 +201,8 @@
   },
   {
     "slug": "arnold-press",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell arnold press"
   },
   {
     "slug": "barbell-shrug",
@@ -216,8 +216,8 @@
   },
   {
     "slug": "prone-y-raise",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell incline y-raise"
   },
   {
     "slug": "bayesian-curl",
@@ -226,48 +226,48 @@
   },
   {
     "slug": "preacher-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell preacher curl"
   },
   {
     "slug": "machine-preacher-curl",
     "source": "kept-existing",
-    "matchedName": null
+    "matchedName": "download-failed: Machine Reverse-Grip Preacher Curl"
   },
   {
     "slug": "preacher-hammer-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell preacher hammer curl"
   },
   {
     "slug": "incline-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell incline hammer curl"
   },
   {
     "slug": "ez-bar-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "EZ-Bar Curl"
   },
   {
     "slug": "hammer-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell hammer curl"
   },
   {
     "slug": "reverse-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell standing reverse curl"
   },
   {
     "slug": "zottman-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell zottman curl"
   },
   {
     "slug": "concentration-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "barbell seated close-grip concentration curl"
   },
   {
     "slug": "spider-curl",
@@ -276,18 +276,18 @@
   },
   {
     "slug": "drag-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable drag curl"
   },
   {
     "slug": "cable-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable standing inner curl"
   },
   {
     "slug": "machine-curl",
     "source": "kept-existing",
-    "matchedName": null
+    "matchedName": "download-failed: Machine Reverse-Grip Preacher Curl"
   },
   {
     "slug": "cross-body-hammer",
@@ -331,8 +331,8 @@
   },
   {
     "slug": "overhead-rope-extension",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable overhead triceps extension (rope attachment)"
   },
   {
     "slug": "seated-overhead-rope",
@@ -606,8 +606,8 @@
   },
   {
     "slug": "cable-wrist-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable reverse wrist curl"
   },
   {
     "slug": "dead-hang",
@@ -1081,8 +1081,8 @@
   },
   {
     "slug": "sissy-squat",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "weighted sissy squat"
   },
   {
     "slug": "spanish-squat",
@@ -1126,8 +1126,8 @@
   },
   {
     "slug": "slider-leg-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "standing single leg curl"
   },
   {
     "slug": "leg-curl-toes-in",
@@ -1166,8 +1166,8 @@
   },
   {
     "slug": "kb-swing",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "kettlebell swing"
   },
   {
     "slug": "kas-bridge",
