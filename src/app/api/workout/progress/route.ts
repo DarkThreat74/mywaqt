@@ -139,6 +139,20 @@ export async function GET(request: NextRequest) {
       const freshness = Math.min(Math.round((hoursSince / 72) * 100), 100);
       return { muscle, effSetsWeek: Math.round(eff * 10) / 10, landmark: [lo, hi], slopePct: Math.round(slope * 10) / 10, status, freshness };
     });
-    return NextResponse.json({ progress: out, totalSessions: sessCount, muscles, totalTonnage: Math.round(totalTonnage) });
+    // Weekly volume trend — last 7d vs prior 7d (Hevy-style stat).
+    let tonWeek = 0, tonPrevWeek = 0;
+    for (const row of rows) {
+      if (!row.done) continue;
+      const w = parseFloat(row.weight || "");
+      if (!w || !row.reps) continue;
+      const age = nowMs - row.at.getTime();
+      const vol = w * row.reps;
+      if (age <= weekMs) tonWeek += vol;
+      else if (age <= 2 * weekMs) tonPrevWeek += vol;
+    }
+    return NextResponse.json({
+      progress: out, totalSessions: sessCount, muscles, totalTonnage: Math.round(totalTonnage),
+      tonWeek: Math.round(tonWeek), tonPrevWeek: Math.round(tonPrevWeek),
+    });
   } catch (e) { logError(e, { route: "workout/progress GET" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }
 }

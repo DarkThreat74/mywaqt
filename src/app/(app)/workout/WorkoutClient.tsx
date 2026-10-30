@@ -18,6 +18,8 @@ export default function WorkoutClient() {
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null }>>([]);
   const [tonnage, setTonnage] = useState(0);
+  const [tonWeek, setTonWeek] = useState(0);
+  const [tonPrevWeek, setTonPrevWeek] = useState(0);
   const [bodyWeight, setBodyWeight] = useState("");
   const [heightCm, setHeightCm] = useState("");
   const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
@@ -46,6 +48,8 @@ export default function WorkoutClient() {
       setProgress(data.progress || []);
       setMuscles(data.muscles || []);
       setTonnage(data.totalTonnage || 0);
+      setTonWeek(data.tonWeek || 0);
+      setTonPrevWeek(data.tonPrevWeek || 0);
       const prefs = await fetch("/api/settings/prefs").catch(() => null);
       if (prefs?.ok) {
         const { prefs: p } = await prefs.json();
@@ -451,11 +455,13 @@ export default function WorkoutClient() {
           {(() => {
             const bw = parseFloat(bodyWeight), ht = parseFloat(heightCm);
             const bmi = bw > 0 && ht > 0 ? bw / ((ht / 100) ** 2) : null;
+            // Symmetric-Strength-style categories — the best lift in each
+            // family scores the category; the mean is your overall score.
             const LIFTS: [string[], string, [number, number, number]][] = [
-              [["barbell-bench-press", "machine-chest-press", "dumbbell-press"], "bench", [0.75, 1.0, 1.5]],
-              [["back-squat", "front-squat", "hack-squat"], "squat", [1.0, 1.5, 2.0]],
-              [["rdl", "deadlift"], "deadlift", [1.25, 2.0, 2.5]],
-              [["barbell-ohp", "seated-db-press", "machine-shoulder-press"], "press", [0.5, 0.75, 1.0]],
+              [["back-squat", "front-squat", "hack-squat", "low-bar-squat", "safety-bar-squat"], "squat", [1.0, 1.5, 2.0]],
+              [["deadlift", "rdl", "stiff-leg-deadlift"], "pull", [1.25, 2.0, 2.5]],
+              [["barbell-bench-press", "machine-chest-press", "weighted-dip", "incline-bench-30"], "press", [0.75, 1.0, 1.5]],
+              [["barbell-ohp", "seated-db-press", "machine-shoulder-press", "standing-db-press"], "ohp", [0.5, 0.75, 1.0]],
               [["pull-up", "weighted-pullup", "chin-up"], "pull-up", [0.9, 1.2, 1.5]],
             ];
             const levelOf = (ratio: number, [b, i, a]: [number, number, number]) =>
@@ -465,11 +471,23 @@ export default function WorkoutClient() {
               return best > 0 ? { name, ratio: best / bw, level: levelOf(best / bw, marks) } : null;
             }).filter(Boolean) : [];
             const gains = progress.filter((p) => p.gainPct != null && p.gainPct !== 0).sort((a, b) => (b.gainPct || 0) - (a.gainPct || 0)).slice(0, 4);
+            // Overall score: mean of category ratios normalized to elite (100).
+            const score = lifts.length > 0
+              ? Math.round(lifts.reduce((s, l) => s + l!.ratio, 0) / (LIFTS.length * 2.2) * 100)
+              : null;
+            const scoreLabel = score === null ? null : score >= 90 ? "elite" : score >= 60 ? "advanced" : score >= 40 ? "intermediate" : score >= 20 ? "novice" : "beginner";
+            const weekDelta = tonPrevWeek > 0 ? Math.round(((tonWeek - tonPrevWeek) / tonPrevWeek) * 100) : null;
             return (
               <>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                  {score !== null && (
+                    <span>strength score <b style={{ color: "var(--color-ink)" }}>{score} <span style={{ color: "var(--color-accent)" }}>{scoreLabel}</span></b></span>
+                  )}
                   {bmi && <span>BMI <b style={{ color: "var(--color-ink)" }}>{bmi.toFixed(1)}</b></span>}
-                  {tonnage > 0 && <span>lifetime volume <b style={{ color: "var(--color-ink)" }}>{(tonnage / 1000).toFixed(1)}t</b></span>}
+                  {tonnage > 0 && <span>volume <b style={{ color: "var(--color-ink)" }}>{(tonnage / 1000).toFixed(1)}t</b></span>}
+                  {tonWeek > 0 && (
+                    <span>this week <b style={{ color: weekDelta !== null && weekDelta < 0 ? "var(--color-error)" : "var(--color-success)" }}>{(tonWeek / 1000).toFixed(1)}t{weekDelta !== null ? ` (${weekDelta > 0 ? "+" : ""}${weekDelta}%)` : ""}</b></span>
+                  )}
                   {progress.length > 0 && <span>PRs <b style={{ color: "var(--color-ink)" }}>{progress.filter((p) => (p.bestE1 || 0) > 0).length}</b></span>}
                 </div>
                 {lifts.length > 0 && (
