@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
+import { ExerciseDiagram } from "@/lib/workout/diagrams";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; }
 interface SetRow { weight: string; reps: number | null; done: boolean; }
@@ -160,11 +161,11 @@ function ActiveInner() {
             <div key={x.slug} className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
               <div className="flex items-start gap-3">
                 {ex && (
-                  // eslint-disable-next-line @next/next/no-img-element -- external MuscleWiki CDN, not optimizable locally
-                  <img src={ex.img} alt={ex.name} loading="lazy" width={56} height={56}
-                    className="h-14 w-14 shrink-0 rounded-lg object-cover"
+                  <ExerciseDiagram
+                    pattern={ex.pattern}
+                    className="h-14 w-14 shrink-0 items-center justify-center rounded-lg"
                     style={{ backgroundColor: "var(--color-paper-2)" }}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                  />
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">

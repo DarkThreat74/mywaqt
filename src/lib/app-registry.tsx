@@ -11,7 +11,7 @@ export interface AppDef {
   key: string;       // registry key — present in hiddenTabs = hidden/uninstalled
   href: string;
   label: string;
-  arabic: string;
+  arabic?: string;
   description: string;
   rating: string;
   installs: string;
@@ -274,7 +274,7 @@ export const ALL_APPS: AppDef[] = [
   { key: "/birthdays", href: "/birthdays", label: "Birthdays", arabic: "أعياد", description: "Never miss one again", rating: "4.8", installs: "10K", art: BirthdayArt },
   { key: "messages", href: "/messages", label: "Messages", arabic: "رسائل", description: "Prayer-friend chats", rating: "4.8", installs: "13K", art: MessageArt },
   { key: "/friends", href: "/friends", label: "Friends", arabic: "أصدقاء", description: "Your people, mapped — who, where, how close", rating: "4.9", installs: "8K", art: FriendsArt },
-  { key: "/workout", href: "/workout", label: "Workout", arabic: "تمرين", description: "Splits, tier-ranked exercises & live session tracking", rating: "4.9", installs: "2K", art: WorkoutArt },
+  { key: "/workout", href: "/workout", label: "Workout", description: "Splits, tier-ranked exercises & live session tracking", rating: "4.9", installs: "2K", art: WorkoutArt },
   { key: "/guide", href: "/guide", label: "Guide", arabic: "دليل", description: "How Waqt works", rating: "4.6", installs: "5K", art: GuideArt },
 ];
 

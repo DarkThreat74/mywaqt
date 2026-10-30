@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { EXERCISES, MUSCLES, SPLIT_TEMPLATES, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
+import { ExerciseDiagram } from "@/lib/workout/diagrams";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; }
 interface WDay { id: string; weekday: number; name: string; exercises: DayExercise[]; }
@@ -185,13 +186,10 @@ export default function WorkoutClient() {
           {filtered.map((x) => (
             <div key={x.slug} className="rounded-lg border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
               <div className="flex items-start gap-3">
-                {/* Real technique GIF — hides itself if the CDN misses the slug */}
-                {/* eslint-disable-next-line @next/next/no-img-element -- external MuscleWiki CDN, not optimizable locally */}
-                <img
-                  src={x.img} alt={x.name} loading="lazy" width={56} height={56}
-                  className="h-14 w-14 shrink-0 rounded-lg object-cover"
+                <ExerciseDiagram
+                  pattern={x.pattern}
+                  className="h-14 w-14 shrink-0 items-center justify-center rounded-lg"
                   style={{ backgroundColor: "var(--color-paper-2)" }}
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
