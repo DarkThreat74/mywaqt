@@ -1470,6 +1470,7 @@ export const workoutSets = pgTable('workout_sets', {
   setIndex: integer('set_index').notNull(),
   weight: text('weight'),
   reps: integer('reps'),
+  rir: integer('rir'),
   done: boolean('done').default(false).notNull(),
 }, (table) => ({
   uniq: uniqueIndex('workout_sets_session_slug_idx').on(table.sessionId, table.slug, table.setIndex),

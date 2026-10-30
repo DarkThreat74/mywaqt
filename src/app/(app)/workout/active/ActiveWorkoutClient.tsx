@@ -7,7 +7,7 @@ import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; }
-interface SetRow { weight: string; reps: number | null; done: boolean; }
+interface SetRow { weight: string; reps: number | null; rir?: number | null; done: boolean; }
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
@@ -102,7 +102,7 @@ function ActiveInner() {
     if (sessionId) {
       await fetch("/api/workout/sets", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: next.weight, reps: next.reps, done: next.done }),
+        body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: next.weight, reps: next.reps, rir: next.rir, done: next.done }),
       }).catch(() => {});
     }
     if (patch.done) rest();
@@ -191,11 +191,23 @@ function ActiveInner() {
                     )}
                   </div>
                   {ex && <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{ex.cue}</p>}
-                  {prevSets[x.slug]?.filter(Boolean).length > 0 && (
-                    <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                      last: {prevSets[x.slug].filter(Boolean).join(" / ")}
-                    </p>
-                  )}
+                  {prevSets[x.slug]?.filter(Boolean).length > 0 && (() => {
+                    const parts = prevSets[x.slug].filter(Boolean);
+                    const repTop = parseInt(x.reps.split("-").pop() || "12", 10);
+                    const hitTop = parts.every((p) => {
+                      const [w, r] = p.split("×");
+                      return w && Number(r) >= repTop;
+                    });
+                    const lastW = parseFloat(parts[0]?.split("×")[0] || "0");
+                    return (
+                      <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                        last: {parts.join(" / ")}
+                        {hitTop && lastW > 0 && (
+                          <span style={{ color: "var(--color-warmth)" }}> · try {lastW + 2.5}kg</span>
+                        )}
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -220,6 +232,16 @@ function ActiveInner() {
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
                       />
+                      <select
+                        value={row.rir ?? ""}
+                        onChange={(e) => void logSet(x.slug, i, { rir: e.target.value === "" ? null : Number(e.target.value) })}
+                        className="w-14 rounded border px-1 py-1.5 text-center text-[10px]"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
+                        aria-label="Reps in reserve"
+                      >
+                        <option value="">RIR</option>
+                        {[0, 1, 2, 3, 4].map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
                       <button
                         type="button"
                         onClick={() => void logSet(x.slug, i, { done: !row.done })}

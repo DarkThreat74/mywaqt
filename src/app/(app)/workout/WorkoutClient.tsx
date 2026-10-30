@@ -275,9 +275,26 @@ export default function WorkoutClient() {
           <button key={d.id} type="button" onClick={() => openProfile(d)}
             className="flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)]"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))" }}>
-            <div>
+            <div className="min-w-0">
               <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{d.name}</span>
               <span className="ml-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{d.exercises.length} exercises</span>
+              {/* Hevy-style sets-per-muscle mini bars */}
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                {(() => {
+                  const counts = new Map<string, number>();
+                  for (const x of d.exercises || []) {
+                    const m = EXERCISES.find((e) => e.slug === x.slug)?.muscle;
+                    if (m) counts.set(m, (counts.get(m) || 0) + (x.sets || 3));
+                  }
+                  const max = Math.max(...counts.values(), 1);
+                  return [...counts.entries()].slice(0, 5).map(([m, n]) => (
+                    <span key={m} className="flex items-center gap-1">
+                      <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}>{m.replace(/_/g, " ")}</span>
+                      <span className="h-1 rounded-full" style={{ width: 6 + 22 * (n / max), backgroundColor: "var(--color-accent)" }} />
+                    </span>
+                  ));
+                })()}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <span role="button" tabIndex={0}
