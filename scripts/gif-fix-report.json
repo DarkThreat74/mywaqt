@@ -1,0 +1,57 @@
+[
+  {
+    "slug": "preacher-curl",
+    "source": "exercisedb",
+    "matchedName": "Dumbbell Single-Arm Hammer Preacher Curl"
+  },
+  {
+    "slug": "ez-bar-curl",
+    "source": "exercisedb",
+    "matchedName": "EZ-Bar Curl"
+  },
+  {
+    "slug": "db-overhead-extension",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "jm-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-kickback",
+    "source": "exercisedb",
+    "matchedName": "cable kickback"
+  },
+  {
+    "slug": "leg-extension",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "front-squat",
+    "source": "exercisedb",
+    "matchedName": "kettlebell front squat"
+  },
+  {
+    "slug": "reverse-nordic",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "towel-pullup",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "fat-grip-curl",
+    "source": "fitnessprogramer",
+    "matchedName": "Is the EZ Bar Curl Worth It for Bicep Gains?"
+  },
+  {
+    "slug": "rice-bucket",
+    "source": "kept-existing",
+    "matchedName": null
+  }
+]

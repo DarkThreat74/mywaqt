@@ -155,6 +155,13 @@ export const HEAD_OF: Record<string, string> = {
   "abduction-upright": "glute_med", "abduction-lean-back": "glute_med",
   "donkey-calf": "gastroc", "smith-calf-raise": "gastroc", "calf-raise-toes-in": "gastroc",
   "calf-raise-toes-out": "gastroc", "calf-lengthened-partials": "gastroc",
+  "adductor-machine": "adductors", "copenhagen-long": "adductors", "copenhagen-short": "adductors",
+  "cossack-squat": "adductors", "lateral-lunge": "adductors", "cable-hip-adduction": "adductors",
+  "slider-adduction": "adductors", "sumo-squat": "adductors", "ball-squeeze-isometric": "adductors",
+  "banded-knee-drive": "hip_flexors", "lying-straight-leg-raise": "hip_flexors",
+  "cable-hip-flexion": "hip_flexors", "roman-chair-raise": "hip_flexors",
+  "weighted-high-knees": "hip_flexors", "psoas-march": "hip_flexors",
+  "tibialis-raise": "tibialis", "tib-bar-raise": "tibialis", "band-dorsiflexion": "tibialis",
   // ── extended bank: biceps ──
   "incline-curl-30": "long_head", "incline-curl-60": "long_head", "lying-cable-curl": "long_head",
   "behind-back-db-curl": "long_head", "narrow-grip-ez-curl": "long_head",
