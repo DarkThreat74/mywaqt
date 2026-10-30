@@ -21,6 +21,18 @@ export interface AppDef {
 
 const STROKE = { fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 
+export function WorkoutArt() {
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <rect x="7" y="18" width="5" height="12" rx="1.5" />
+      <rect x="36" y="18" width="5" height="12" rx="1.5" />
+      <rect x="13" y="15" width="6" height="18" rx="1.5" opacity="0.55" />
+      <rect x="29" y="15" width="6" height="18" rx="1.5" opacity="0.55" />
+      <path d="M19 24h10" />
+    </svg>
+  );
+}
+
 export function QiblaArt() {
   return (
     <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
@@ -262,6 +274,7 @@ export const ALL_APPS: AppDef[] = [
   { key: "/birthdays", href: "/birthdays", label: "Birthdays", arabic: "أعياد", description: "Never miss one again", rating: "4.8", installs: "10K", art: BirthdayArt },
   { key: "messages", href: "/messages", label: "Messages", arabic: "رسائل", description: "Prayer-friend chats", rating: "4.8", installs: "13K", art: MessageArt },
   { key: "/friends", href: "/friends", label: "Friends", arabic: "أصدقاء", description: "Your people, mapped — who, where, how close", rating: "4.9", installs: "8K", art: FriendsArt },
+  { key: "/workout", href: "/workout", label: "Workout", arabic: "تمرين", description: "Splits, tier-ranked exercises & live session tracking", rating: "4.9", installs: "2K", art: WorkoutArt },
   { key: "/guide", href: "/guide", label: "Guide", arabic: "دليل", description: "How Waqt works", rating: "4.6", installs: "5K", art: GuideArt },
 ];
 
@@ -271,7 +284,7 @@ export const CATEGORIES: { title: string; keys: string[] }[] = [
   { title: "Prayer", keys: ["/qibla", "/dhikr", "/masjids", "/shield"] },
   { title: "Quran", keys: ["/quran", "/quran-tester", "/recite", "/mutashabihat", "/names"] },
   { title: "Study", keys: ["/study", "/learn", "/talks", "/nasheeds"] },
-  { title: "Life", keys: ["/subscriptions", "/birthdays"] },
+  { title: "Life", keys: ["/workout", "/subscriptions", "/birthdays"] },
   { title: "Social", keys: ["messages", "/friends"] },
   { title: "Help", keys: ["/guide"] },
 ];
