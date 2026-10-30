@@ -171,6 +171,7 @@ export const HEAD_OF: Record<string, string> = {
   "tate-press": "lateral_head", "db-kickback": "lateral_head", "vbar-pressdown": "lateral_head",
   "reverse-grip-pressdown": "lateral_head", "single-arm-pressdown": "lateral_head",
   "cuff-pressdown": "lateral_head", "rope-pressdown": "lateral_head",
+  "single-arm-cable-kickback": "lateral_head", "cuff-kickback": "lateral_head", "lean-back-pressdown": "lateral_head",
   "california-press": "medial_head", "bench-dip": "medial_head", "weighted-dip": "medial_head",
   "machine-dip": "medial_head", "diamond-pushup": "medial_head",
   // ── extended bank: forearms/grip/fingers ──
@@ -305,6 +306,12 @@ export const EXERCISES: Exercise[] = [
   e("jm-press", "Smith JM Press", "triceps", "elbow_extension", "smith", "A", "Bar toward the chin, elbows forward — hybrid press/extension.", true),
   e("close-grip-bench", "Close-Grip Bench Press", "triceps", "horizontal_push", "barbell", "A", "Hands shoulder-width, elbows tucked — triceps own the lockout.", true),
   e("cable-kickback", "Cable Kickback", "triceps", "elbow_extension", "cable", "B", "Upper arm parallel, extend fully behind — finish work."),
+  e("single-arm-cable-kickback", "Single-Arm Cable Kickback", "triceps", "elbow_extension", "cable", "B", "Side-on to the stack, upper arm pinned parallel, extend the elbow back.",
+    false, { howto: "Stand side-on, cable handle in the far hand, upper arm parallel to the floor, elbow bent 90°. Extend the forearm straight back to lockout.", pros: "Constant tension into the shortened position; unilateral balance fix.", cons: "Light loads only; no long-head stretch.", source: "Kassem single-arm work" }),
+  e("cuff-kickback", "Cuffed Kickback", "triceps", "elbow_extension", "cable", "B", "Ankle cuff at the wrist — kickback with zero grip involvement.",
+    false, { howto: "Cuff on your wrist instead of a handle, upper arm parallel, extend straight back.", pros: "Removes forearm/grip limits — pure triceps.", cons: "Needs a cuff; still light loads.", source: "Kassem/Oly cuff cues" }),
+  e("lean-back-pressdown", "Lean-Back Single-Arm Pressdown", "triceps", "elbow_extension", "cable", "B", "Face away, torso leaned forward, single handle pressed down-back.",
+    false, { howto: "Stand facing away from the stack, lean forward slightly, handle in one hand, elbow tight. Press the handle down and slightly back to lockout.", pros: "Leaning back lengthens the triceps path slightly vs upright pressdown; unilateral.", cons: "Setup awkward; light loads.", source: "Israetel angle tweaks" }),
   // ── QUADS ──
   e("hack-squat", "Hack Squat", "quads", "squat", "machine", "S", "Feet low on the platform, knees track over toes, full depth.", true),
   e("pendulum-squat", "Pendulum Squat", "quads", "squat", "machine", "S", "Hips deep, drive through the whole foot.", true),
