@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { EXERCISES, MUSCLES, SPLIT_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
+import { EXERCISES, MUSCLES, SPLIT_TEMPLATES, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; }
 interface WDay { id: string; weekday: number; name: string; exercises: DayExercise[]; }
@@ -101,10 +101,36 @@ export default function WorkoutClient() {
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
           {WEEK[sel]} — {editId ? "Edit workout" : "New workout"}
         </h1>
+        {/* Day-type chips — pick a template, then edit freely */}
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {DAY_TEMPLATES.map((t) => (
+            <button
+              key={t.name}
+              type="button"
+              onClick={() => {
+                setDayName(t.name);
+                const picks = t.muscles
+                  .map((m) => EXERCISES.find((x) => x.muscle === m && x.tier === "S") || EXERCISES.find((x) => x.muscle === m))
+                  .filter((x): x is Exercise => !!x)
+                  .map((x) => ({ slug: x.slug, name: x.name, sets: 3, reps: "8-12" }));
+                setPicked(picks);
+              }}
+              className="rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors"
+              style={{
+                borderColor: dayName === t.name ? "var(--color-ink)" : "var(--color-paper-3)",
+                backgroundColor: dayName === t.name ? "var(--color-ink)" : "var(--color-paper)",
+                color: dayName === t.name ? "var(--color-paper)" : "var(--color-ink-muted)",
+                minHeight: 32,
+              }}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
         <input
           value={dayName}
           onChange={(e) => setDayName(e.target.value)}
-          placeholder="Push, Pull, Legs…"
+          placeholder="Or name it yourself…"
           className="mt-3 w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
         />

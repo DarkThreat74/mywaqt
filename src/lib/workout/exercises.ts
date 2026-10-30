@@ -178,17 +178,38 @@ export const MUSCLES = [
   { key: "obliques", label: "Obliques" },
 ] as const;
 
+// Per-day day types — pick any of these for any weekday inside the editor.
+export const DAY_TEMPLATES: Array<{ name: string; muscles: string[] }> = [
+  { name: "Upper", muscles: ["chest", "upper_chest", "lats", "mid_back", "side_delts", "biceps", "triceps"] },
+  { name: "Lower", muscles: ["quads", "hamstrings", "glutes", "erectors", "gastroc", "soleus"] },
+  { name: "Legs", muscles: ["quads", "hamstrings", "glutes", "gastroc", "soleus"] },
+  { name: "Push", muscles: ["chest", "upper_chest", "front_delts", "side_delts", "triceps"] },
+  { name: "Push + Biceps", muscles: ["chest", "upper_chest", "front_delts", "side_delts", "triceps", "biceps"] },
+  { name: "Pull", muscles: ["lats", "mid_back", "rear_delts", "biceps", "forearms"] },
+  { name: "Pull + Triceps", muscles: ["lats", "mid_back", "rear_delts", "upper_traps", "biceps", "triceps"] },
+  { name: "Arms", muscles: ["biceps", "triceps", "forearms", "grip"] },
+  { name: "Abs + Shoulders", muscles: ["upper_abs", "lower_abs", "obliques", "front_delts", "side_delts", "rear_delts"] },
+  { name: "Full Body", muscles: ["chest", "lats", "quads", "side_delts"] },
+];
+
 export const SPLIT_TEMPLATES: Record<string, { name: string; days: Record<number, { name: string; muscles: string[] }> }> = {
   week: {
     name: "Your 7-day split",
     days: {
-      1: { name: "Upper", muscles: ["chest", "upper_chest", "lats", "mid_back", "side_delts", "biceps", "triceps"] },
-      2: { name: "Lower", muscles: ["quads", "hamstrings", "glutes", "erectors", "gastroc", "soleus"] },
-      3: { name: "Legs", muscles: ["quads", "hamstrings", "glutes", "gastroc", "soleus"] },
-      4: { name: "Push + Biceps", muscles: ["chest", "upper_chest", "front_delts", "side_delts", "triceps", "biceps"] },
-      5: { name: "Pull + Triceps", muscles: ["lats", "mid_back", "rear_delts", "upper_traps", "biceps", "triceps"] },
-      6: { name: "Arms", muscles: ["biceps", "triceps", "forearms", "grip"] },
-      0: { name: "Abs + Shoulders", muscles: ["upper_abs", "lower_abs", "obliques", "front_delts", "side_delts", "rear_delts"] },
+      1: DAY_TEMPLATES[0], 2: DAY_TEMPLATES[1], 3: DAY_TEMPLATES[2],
+      4: DAY_TEMPLATES[4], 5: DAY_TEMPLATES[6], 6: DAY_TEMPLATES[7], 0: DAY_TEMPLATES[8],
     },
+  },
+  ppl: {
+    name: "Push / Pull / Legs",
+    days: { 1: DAY_TEMPLATES[3], 3: DAY_TEMPLATES[5], 5: DAY_TEMPLATES[2] },
+  },
+  upper_lower: {
+    name: "Upper / Lower",
+    days: { 1: DAY_TEMPLATES[0], 2: DAY_TEMPLATES[1], 4: DAY_TEMPLATES[0], 5: DAY_TEMPLATES[1] },
+  },
+  full_body: {
+    name: "Full Body ×3",
+    days: { 1: DAY_TEMPLATES[9], 3: DAY_TEMPLATES[9], 5: DAY_TEMPLATES[9] },
   },
 };
