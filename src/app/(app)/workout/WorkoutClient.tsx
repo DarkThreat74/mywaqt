@@ -5,9 +5,8 @@ import { EXERCISES, MUSCLES, SPLIT_TEMPLATES, DAY_TEMPLATES, type Exercise } fro
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; }
-interface WDay { id: string; weekday: number; name: string; exercises: DayExercise[]; }
+interface WDay { id: string; weekday: number | null; name: string; exercises: DayExercise[]; }
 
-const WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
 export default function WorkoutClient() {
@@ -57,20 +56,19 @@ export default function WorkoutClient() {
     await load();
   };
 
-  const openDay = (weekday: number) => {
-    const existing = days.find((d) => d.weekday === weekday);
-    setSel(weekday);
-    setEditId(existing?.id || null);
-    setDayName(existing?.name || "");
-    setPicked(existing?.exercises?.map((x) => ({ slug: x.slug, name: x.name, sets: x.sets, reps: x.reps })) || []);
+  const openProfile = (d?: WDay) => {
+    setSel(1); // editor open flag — profiles aren't weekday-bound
+    setEditId(d?.id || null);
+    setDayName(d?.name || "");
+    setPicked(d?.exercises?.map((x) => ({ slug: x.slug, name: x.name, sets: x.sets, reps: x.reps })) || []);
     setSearch(""); setMuscleFilter("all");
   };
 
   const saveDay = async () => {
-    if (sel === null || !dayName.trim()) return;
+    if (!dayName.trim()) return;
     const res = await fetch("/api/workout/days", {
       method: editId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: editId, weekday: sel, name: dayName, exercises: picked }),
+      body: JSON.stringify({ id: editId, name: dayName, exercises: picked }),
     });
     if (res.ok) {
       setMsg(editId ? "Updated." : "Day created.");
@@ -97,10 +95,10 @@ export default function WorkoutClient() {
     return (
       <div className="mx-auto w-full max-w-2xl px-4 py-6">
         <button type="button" onClick={() => setSel(null)} className="mb-3 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
-          ← Week
+          ← Workouts
         </button>
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
-          {WEEK[sel]} — {editId ? "Edit workout" : "New workout"}
+          {editId ? "Edit" : "New"} profile
         </h1>
         {/* Day-type chips — pick a template, then edit freely */}
         <div className="mt-3 flex flex-wrap gap-1.5">
@@ -243,34 +241,33 @@ export default function WorkoutClient() {
       </div>
 
       <div className="mt-6 space-y-2">
-        {WEEK.map((w, i) => {
-          const d = days.find((x) => x.weekday === i);
-          return (
-            <button key={w} type="button" onClick={() => openDay(i)}
-              className="flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)]"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: d ? "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))" : "var(--color-paper)" }}>
-              <div>
-                <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{w}</span>
-                {d && <span className="ml-2 text-xs" style={{ color: "var(--color-accent)" }}>{d.name}</span>}
-              </div>
-              <div className="flex items-center gap-2">
-                {d && <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{d.exercises.length} exercises</span>}
-                {d && (
-                  <span role="button" tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); void deleteDay(d.id); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); void deleteDay(d.id); } }}
-                    className="text-xs" style={{ color: "var(--color-error)" }}>✕</span>
-                )}
-                <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{d ? "Edit" : "+"}</span>
-              </div>
-            </button>
-          );
-        })}
+        {days.map((d) => (
+          <button key={d.id} type="button" onClick={() => openProfile(d)}
+            className="flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))" }}>
+            <div>
+              <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{d.name}</span>
+              <span className="ml-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{d.exercises.length} exercises</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span role="button" tabIndex={0}
+                onClick={(e) => { e.stopPropagation(); void deleteDay(d.id); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); void deleteDay(d.id); } }}
+                className="text-xs" style={{ color: "var(--color-error)" }}>✕</span>
+              <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Edit</span>
+            </div>
+          </button>
+        ))}
+        <button type="button" onClick={() => openProfile()}
+          className="w-full rounded-xl border border-dashed px-4 py-3 text-sm font-medium"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+          + New workout profile
+        </button>
       </div>
 
       {days.length === 0 && (
         <p className="mt-6 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
-          No workout days yet — pick a template or tap a weekday to build one.
+          No workouts yet — pick a template or build a profile from scratch.
         </p>
       )}
       {msg && <p className="mt-4 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>{msg}</p>}

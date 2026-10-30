@@ -1436,7 +1436,7 @@ export type QuranTesterMistake = typeof quranTesterMistakes.$inferSelect;
 export const workoutDays = pgTable('workout_days', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  weekday: integer('weekday').notNull(), // 0=Sun..6=Sat
+  weekday: integer('weekday'), // profiles are named plans — weekday optional (was NOT NULL, nullable via migration)
   name: text('name').notNull(),          // "Push", "Pull", "Legs"…
   sortOrder: integer('sort_order').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

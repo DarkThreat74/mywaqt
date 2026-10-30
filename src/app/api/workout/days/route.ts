@@ -26,12 +26,14 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const { weekday, name, exercises } = await request.json() as { weekday?: number; name?: string; exercises?: Array<{ slug?: string; name?: string; sets?: number; reps?: string }> };
-    if (!Number.isInteger(weekday) || weekday! < 0 || weekday! > 6 || typeof name !== "string" || !name.trim()) {
-      return NextResponse.json({ error: "weekday (0-6) and name required." }, { status: 400 });
+    if (typeof name !== "string" || !name.trim()) {
+      return NextResponse.json({ error: "name required." }, { status: 400 });
     }
-    const [day] = await db.insert(schema.workoutDays).values({ userId: session.userId, weekday: weekday!, name: name.trim().slice(0, 60) })
-      .onConflictDoNothing({ target: [schema.workoutDays.userId, schema.workoutDays.weekday] }).returning();
-    if (!day) return NextResponse.json({ error: "A workout already exists for that weekday." }, { status: 409 });
+    const [day] = await db.insert(schema.workoutDays).values({
+      userId: session.userId,
+      weekday: Number.isInteger(weekday) && weekday! >= 0 && weekday! <= 6 ? weekday! : null,
+      name: name.trim().slice(0, 60),
+    }).returning();
     if (Array.isArray(exercises)) {
       await db.insert(schema.workoutDayExercises).values(
         exercises.slice(0, 30).map((x, i) => ({
