@@ -18,6 +18,18 @@ export async function GET(request: NextRequest) {
       .where(eq(schema.workoutSets.sessionId, id)).orderBy(asc(schema.workoutSets.slug), asc(schema.workoutSets.setIndex));
     return NextResponse.json({ session: sess, sets });
   }
+  const lastFor = request.nextUrl.searchParams.get("lastFor");
+  if (lastFor) {
+    // Strong-style: the previous COMPLETED session for this profile + its sets,
+    // so the client can pre-fill last time's weight/reps.
+    const sessions = await db.select().from(schema.workoutSessions)
+      .where(and(eq(schema.workoutSessions.userId, session.userId), eq(schema.workoutSessions.dayId, lastFor)))
+      .orderBy(desc(schema.workoutSessions.startedAt)).limit(10);
+    const prev = sessions.find((s) => s.endedAt);
+    if (!prev) return NextResponse.json({ sets: [] });
+    const sets = await db.select().from(schema.workoutSets).where(eq(schema.workoutSets.sessionId, prev.id));
+    return NextResponse.json({ sets, sessionId: prev.id });
+  }
   const sessions = await db.select().from(schema.workoutSessions)
     .where(eq(schema.workoutSessions.userId, session.userId))
     .orderBy(desc(schema.workoutSessions.startedAt)).limit(50);

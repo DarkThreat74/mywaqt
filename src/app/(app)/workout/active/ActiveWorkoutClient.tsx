@@ -23,6 +23,7 @@ function ActiveInner() {
   const [exercises, setExercises] = useState<DayExercise[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [setRows, setSetRows] = useState<Record<string, SetRow[]>>({});
+  const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
   const [elapsed, setElapsed] = useState(0);
   const [restLeft, setRestLeft] = useState(0);
   const [finished, setFinished] = useState(false);
@@ -59,6 +60,19 @@ function ActiveInner() {
         rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps, done: s.done };
       }
       setSetRows(rows);
+      // Previous-session pre-fill (Strong-style): last completed numbers as placeholders
+      if (!sdata.resumed) {
+        const pr = await fetch(`/api/workout/sessions?lastFor=${d.id}`).catch(() => null);
+        if (pr?.ok && !cancelled) {
+          const pdata = await pr.json();
+          const prev: Record<string, string[]> = {};
+          for (const s of pdata.sets || []) {
+            prev[s.slug] = prev[s.slug] || [];
+            if (s.weight || s.reps) prev[s.slug][s.setIndex] = `${s.weight || ""}×${s.reps ?? ""}`;
+          }
+          setPrevSets(prev);
+        }
+      }
     })();
     return () => { cancelled = true; };
   }, [dayId]);
@@ -177,26 +191,32 @@ function ActiveInner() {
                     )}
                   </div>
                   {ex && <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{ex.cue}</p>}
+                  {prevSets[x.slug]?.filter(Boolean).length > 0 && (
+                    <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                      last: {prevSets[x.slug].filter(Boolean).join(" / ")}
+                    </p>
+                  )}
                 </div>
               </div>
 
               <div className="mt-3 space-y-1.5">
                 {Array.from({ length: x.sets }, (_, i) => {
                   const row = rows[i] || { weight: "", reps: null, done: false };
+                  const prev = prevSets[x.slug]?.[i];
                   return (
                     <div key={i} className="flex items-center gap-2">
                       <span className="w-6 text-center text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{i + 1}</span>
                       <input
                         value={row.weight}
                         onChange={(e) => void logSet(x.slug, i, { weight: e.target.value })}
-                        placeholder="kg"
+                        placeholder={prev ? prev.split("×")[0] || "kg" : "kg"}
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
                       />
                       <input
                         type="number" min={0} value={row.reps ?? ""}
                         onChange={(e) => void logSet(x.slug, i, { reps: e.target.value === "" ? null : Number(e.target.value) })}
-                        placeholder={x.reps}
+                        placeholder={prev ? prev.split("×")[1] || x.reps : x.reps}
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
                       />

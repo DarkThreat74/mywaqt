@@ -146,19 +146,14 @@ export default function WorkoutClient() {
   if (step !== null) {
     return (
       <div className="mx-auto w-full max-w-2xl px-4 py-6">
-        <button type="button" onClick={() => setStep(editId ? null : 1)} className="mb-3 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
-          ← {editId ? "Workouts" : "Back"}
-        </button>
-        <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
-          {dayName || "Untitled"}
-        </h1>
-        <input
-          value={dayName}
-          onChange={(e) => setDayName(e.target.value)}
-          placeholder="Workout name…"
-          className="mt-3 w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-        />
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setStep(editId ? null : 1)} className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+            ←
+          </button>
+          <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+            {dayName || "Untitled"}
+          </span>
+        </div>
 
         {picked.length > 0 && (
           <div className="mt-4 space-y-2">
@@ -202,43 +197,42 @@ export default function WorkoutClient() {
             </button>
           ))}
         </div>
-        <div className="mt-2 flex flex-wrap gap-1">
-          <button type="button" onClick={() => setMuscleFilter("all")}
-            className="rounded-full border px-2.5 py-1 text-[10px]" style={{ borderColor: muscleFilter === "all" ? "var(--color-ink)" : "var(--color-paper-3)", color: muscleFilter === "all" ? "var(--color-ink)" : "var(--color-ink-muted)" }}>
-            All
-          </button>
-          {MUSCLES.map((m) => (
-            <button key={m.key} type="button" onClick={() => setMuscleFilter(m.key)}
-              className="rounded-full border px-2.5 py-1 text-[10px]" style={{ borderColor: muscleFilter === m.key ? "var(--color-ink)" : "var(--color-paper-3)", color: muscleFilter === m.key ? "var(--color-ink)" : "var(--color-ink-muted)" }}>
-              {m.label}
-            </button>
-          ))}
-        </div>
+        <select
+          value={muscleFilter}
+          onChange={(e) => setMuscleFilter(e.target.value)}
+          className="mt-2 w-full rounded-lg border px-3 py-2 text-xs outline-none"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+        >
+          <option value="all">All muscles</option>
+          {MUSCLES.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+        </select>
 
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
           {filtered.map((x) => (
             <div key={x.slug} role="button" tabIndex={0} onClick={() => setView(x)} onKeyDown={(e) => e.key === "Enter" && setView(x)}
-              className="cursor-pointer rounded-lg border p-3 transition-colors hover:bg-[var(--color-paper-2)]" style={{ borderColor: "var(--color-paper-3)" }}>
-              <div className="flex items-start gap-3">
+              className="cursor-pointer rounded-lg border p-2 transition-colors hover:bg-[var(--color-paper-2)]" style={{ borderColor: "var(--color-paper-3)" }}>
+              <div className="flex items-center gap-2.5">
                 <ExerciseMedia
                   slug={x.slug} pattern={x.pattern}
-                  className="h-14 w-14 shrink-0 items-center justify-center rounded-lg"
+                  className="h-10 w-10 shrink-0 items-center justify-center rounded-lg"
                   style={{ backgroundColor: "var(--color-paper-2)" }}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{x.name}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{x.name}</span>
                     {x.tier && (
-                      <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[x.tier], color: "#fff" }}>
+                      <span className="shrink-0 rounded px-1 py-0.5 text-[8px] font-bold" style={{ backgroundColor: TIER_COLORS[x.tier], color: "#fff" }}>
                         {x.tier}
                       </span>
                     )}
-                    {x.compound && <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}>compound</span>}
                   </div>
-                  <p className="mt-1 text-[11px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>{x.cue}</p>
+                  <p className="mt-0.5 truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{x.cue}</p>
                 </div>
-                <button type="button" onClick={(e) => { e.stopPropagation(); addExercise(x); }} className="shrink-0 rounded-full border px-3 py-1 text-xs font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
-                  Add
+                <button type="button" onClick={(e) => { e.stopPropagation(); addExercise(x); }}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+                  style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                  aria-label={`Add ${x.name}`}>
+                  +
                 </button>
               </div>
             </div>
