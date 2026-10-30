@@ -130,6 +130,31 @@ export default function ServiceWorkerRegister() {
     // Installed PWAs are usually granted this; harmless if denied.
     navigator.storage?.persist?.().catch(() => {});
 
+    // ── Warm RSC payloads for every app route ──
+    // Next's own router cache can't serve force-dynamic pages — every tap pays
+    // a full roundtrip unless the SW has the Flight payload. Firing a real
+    // (non-prefetch) RSC request per route lets the SW store each response;
+    // first taps become cache hits. Staggered to idle so hydration wins.
+    const APP_ROUTES = [
+      "/calendar/day", "/prayer", "/goals", "/settings", "/quran", "/dhikr",
+      "/qibla", "/names", "/talks", "/masjids", "/friends", "/study",
+      "/nasheeds", "/guide", "/workout", "/subscriptions", "/birthdays",
+      "/quran-tester", "/recite", "/mutashabihat", "/hijri", "/sadaqah",
+      "/learn", "/shield", "/store", "/messages", "/calendar/month",
+    ];
+    const warmRsc = () => {
+      let i = 0;
+      const step = () => {
+        if (i >= APP_ROUTES.length) return;
+        const href = APP_ROUTES[i++];
+        fetch(href, { headers: { RSC: "1", "Next-Url": location.pathname } })
+          .catch(() => {})
+          .finally(() => { requestIdleCallback(step, { timeout: 3000 }); });
+      };
+      requestIdleCallback(step, { timeout: 3000 });
+    };
+    if (navigator.onLine) warmRsc();
+
     // ── On 'online' event, tell SW to sync outbox (don't warm cache — SW does it on activate) ──
     const handleOnline = () => {
       navigator.serviceWorker.controller?.postMessage({ type: "SYNC_OUTBOX" });

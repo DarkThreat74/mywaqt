@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v100";
+const CACHE_VERSION = "waqt-v101";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -95,6 +95,12 @@ const APP_PAGES = [
   "/study",
   "/nasheeds",
   "/guide",
+  "/workout",
+  "/workout/active",
+  "/messages",
+  "/learn",
+  "/shield",
+  "/store",
 ];
 // Server-redirect routes: store the target's HTML under the alias so an
 // offline hit on the alias boots the real page instead of a 307 to nowhere.
@@ -1574,9 +1580,9 @@ self.addEventListener("fetch", (event) => {
         // and removes two serial storage reads from every tap.
         const pageP = soft(
           cacheFor(PAGE_CACHE).then((pc) => matchStampedPage(pc, url.pathname, uid)),
-          800, null,
+          1500, null,
         );
-        let cached = await soft(matchStampedPage(cache, key, uid), 800, null);
+        let cached = await soft(matchStampedPage(cache, key, uid), 1500, null);
         if (cached) {
           // Serving a build-A Flight payload to a page running build-B JS
           // crashes hydration — compare against the cached page's build.
