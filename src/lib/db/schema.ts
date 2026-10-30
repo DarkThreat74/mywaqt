@@ -36,6 +36,8 @@ export interface UiPrefs {
   bodyWeightKg?: number;
   heightCm?: number;
   weightUpdatedAt?: string; // weekly weight check-in timestamp
+  unitWeight?: 'kg' | 'lb';
+  unitHeight?: 'cm' | 'ft';
   // Where the user left off reading — syncs across devices.
   quranPosition?: { surah: number; ayah: number; updatedAt?: string };
 }
