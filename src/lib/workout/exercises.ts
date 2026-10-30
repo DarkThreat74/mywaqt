@@ -8,14 +8,101 @@
 export interface Exercise {
   slug: string;
   name: string;
-  muscle: string;        // primary muscle key
+  muscle: string;        // fine-grained muscle key
+  head?: string;         // sub-target: long_head|short_head|brachialis|upper|mid|lower|isometric|inner|outer|medial_head|lateral_head…
   pattern: string;       // movement pattern
   equip: string;         // barbell|dumbbell|cable|machine|smith|bodyweight|band
   compound?: boolean;
-  tier?: "S" | "A" | "B" | "C";
+  tier?: "S" | "A" | "B" | "C" | "D" | "F";
   cue: string;           // 1-line setup/execution cue
   img: string;
 }
+
+// muscle → parent group (two-level filter: group → head)
+export const MUSCLE_GROUP: Record<string, string> = {
+  chest: "chest", upper_chest: "chest", lower_chest: "chest",
+  lats: "back", mid_back: "back", rear_delts: "back", erectors: "back", upper_traps: "back", lower_traps: "back",
+  front_delts: "shoulders", side_delts: "shoulders",
+  biceps: "biceps", triceps: "triceps", forearms: "forearms", grip: "forearms", fingers: "forearms",
+  neck: "neck",
+  quads: "legs", hamstrings: "legs", glutes: "legs", glute_med: "legs", gastroc: "legs", soleus: "legs",
+  upper_abs: "abs", lower_abs: "abs", abs: "abs", obliques: "abs",
+};
+
+export const GROUPS: { key: string; label: string; heads: { key: string; label: string }[] }[] = [
+  { key: "chest", label: "Chest", heads: [
+    { key: "upper", label: "Upper (clavicular)" }, { key: "mid", label: "Mid" },
+    { key: "lower", label: "Lower" }, { key: "isometric", label: "Isometric" }] },
+  { key: "back", label: "Back", heads: [
+    { key: "lats", label: "Lats" }, { key: "mid_back", label: "Mid traps / rhomboids" },
+    { key: "rear_delts", label: "Rear delts" }, { key: "erectors", label: "Erectors" },
+    { key: "upper_traps", label: "Upper traps" }, { key: "lower_traps", label: "Lower traps" }] },
+  { key: "shoulders", label: "Shoulders", heads: [
+    { key: "front_delts", label: "Front" }, { key: "side_delts", label: "Side" }] },
+  { key: "biceps", label: "Biceps", heads: [
+    { key: "long_head", label: "Long head" }, { key: "short_head", label: "Short head" }, { key: "brachialis", label: "Brachialis" }] },
+  { key: "triceps", label: "Triceps", heads: [
+    { key: "long_head", label: "Long head" }, { key: "lateral_head", label: "Lateral head" }, { key: "medial_head", label: "Medial head" }] },
+  { key: "forearms", label: "Forearms", heads: [
+    { key: "flexors", label: "Flexors" }, { key: "extensors", label: "Extensors" },
+    { key: "grip", label: "Grip" }, { key: "fingers", label: "Fingers" }] },
+  { key: "legs", label: "Legs", heads: [
+    { key: "quads", label: "Quads" }, { key: "hamstrings", label: "Hamstrings" },
+    { key: "glutes", label: "Glutes" }, { key: "glute_med", label: "Glute med" },
+    { key: "gastroc", label: "Calves (gastroc)" }, { key: "soleus", label: "Calves (soleus)" }] },
+  { key: "abs", label: "Abs", heads: [
+    { key: "upper_abs", label: "Upper" }, { key: "lower_abs", label: "Lower" },
+    { key: "obliques", label: "Obliques" }, { key: "all_abs", label: "Whole core" }] },
+  { key: "neck", label: "Neck", heads: [
+    { key: "front", label: "Front" }, { key: "back", label: "Back" }, { key: "side", label: "Sides" }, { key: "rotation", label: "Rotation" }] },
+];
+
+// slug → head tag (sub-target). Only heads that diverge from the muscle key.
+export const HEAD_OF: Record<string, string> = {
+  // chest → upper/mid/lower
+  "incline-dumbbell-press": "upper", "smith-incline-press": "upper",
+  "dips": "lower", "decline-bench-press": "lower",
+  "machine-chest-press": "mid", "barbell-bench-press": "mid", "pec-deck": "mid",
+  "cable-flye": "mid", "cable-press-around": "mid", "deficit-pushup": "mid",
+  // biceps → long_head (arm behind torso) / short_head (arm in front) / brachialis
+  "bayesian-curl": "long_head", "incline-curl": "long_head",
+  "preacher-curl": "short_head", "machine-preacher-curl": "short_head",
+  "ez-bar-curl": "short_head", "hammer-curl": "brachialis", "preacher-hammer-curl": "brachialis",
+  "reverse-curl": "brachialis", "zottman-curl": "brachialis", "fat-grip-curl": "brachialis",
+  // triceps → long_head (overhead) / lateral (pushdown) / medial (press)
+  "overhead-cable-extension": "long_head", "overhead-rope-extension": "long_head",
+  "katana-extension": "long_head", "db-overhead-extension": "long_head", "skullcrusher": "long_head",
+  "pressdown": "lateral_head", "cable-kickback": "lateral_head",
+  "close-grip-bench": "medial_head", "jm-press": "medial_head",
+  // forearms → flexors/extensors/grip/fingers
+  "wrist-curl": "flexors", "cable-wrist-curl": "flexors", "reverse-wrist-curl": "extensors",
+  "dead-hang": "grip", "towel-pullup": "grip", "farmers-carry": "grip",
+  "plate-pinch": "fingers", "rice-bucket": "fingers",
+  // legs
+  "hack-squat": "quads", "pendulum-squat": "quads", "back-squat": "quads", "smith-squat": "quads",
+  "bulgarian-split-squat": "quads", "leg-extension": "quads", "front-squat": "quads",
+  "leg-press": "quads", "reverse-nordic": "quads", "goblet-squat": "quads",
+  "seated-leg-curl": "hamstrings", "lying-leg-curl": "hamstrings", "good-morning-ham": "hamstrings",
+  "rdl-hamstrings": "hamstrings", "nordic-curl": "hamstrings", "glute-ham-raise": "hamstrings",
+  "walking-lunge": "glutes", "hip-thrust": "glutes", "ffe-lunge": "glutes",
+  "back-extension-glute": "glutes", "cable-pull-through": "glutes",
+  "hip-abduction-machine": "glute_med",
+  "standing-calf-raise": "gastroc", "leg-press-calf": "gastroc", "single-leg-calf": "gastroc",
+  "seated-calf-raise": "soleus",
+  // back heads = muscle keys already
+  // abs
+  "kneeling-cable-crunch": "upper_abs", "lat-pulldown-crunch": "upper_abs", "ab-mat-crunch": "upper_abs", "machine-crunch": "upper_abs",
+  "reverse-crunch-abmat": "lower_abs", "captains-chair-raise": "lower_abs", "garhammer-raise": "lower_abs",
+  "stabilized-hanging-raise": "lower_abs", "banded-reverse-crunch": "lower_abs",
+  "janda-situp": "all_abs", "dead-bug": "all_abs", "ab-wheel": "all_abs",
+  "cable-woodchop": "obliques", "side-crunch": "obliques", "pallof-press": "obliques",
+  // shoulders
+  "machine-shoulder-press": "front_delts", "seated-db-press": "front_delts", "arnold-press": "front_delts",
+  "cable-lateral-raise": "side_delts", "cable-y-raise": "side_delts", "cuffed-lateral-raise": "side_delts",
+  "leanin-lateral-raise": "side_delts", "machine-lateral-raise": "side_delts",
+  // neck
+  "neck-flexion": "front", "neck-extension": "back", "neck-lateral": "side", "neck-rotation": "rotation",
+};
 
 const mw = (slug: string) => `https://cdn.musclewiki.org/media/uploads/male/${slug}.gif`;
 
@@ -86,6 +173,16 @@ export const EXERCISES: Exercise[] = [
   e("hammer-curl", "Hammer Curl", "biceps", "elbow_flexion", "dumbbell", "A", "Neutral grip, alternate — brachialis + forearm thickness."),
   e("reverse-curl", "Reverse Curl", "forearms", "elbow_flexion", "barbell", undefined, "Palms-down curl — brachioradialis and wrist extensors."),
   e("zottman-curl", "Zottman Curl", "biceps", "elbow_flexion", "dumbbell", undefined, "Up palms-forward, down palms-down."),
+  e("concentration-curl", "Concentration Curl", "biceps", "elbow_flexion", "dumbbell", "C", "Highest activation in old EMG studies but short-length bias — braced on inner thigh, no swing."),
+  e("spider-curl", "Spider Curl", "biceps", "elbow_flexion", "dumbbell", "B", "Face-down incline — short-head pump, momentum removed."),
+  e("drag-curl", "Drag Curl", "biceps", "elbow_flexion", "barbell", "C", "Elbows travel back, bar drags up the torso — front-delt takeover risk."),
+  e("cable-curl", "Standing Cable Curl", "biceps", "elbow_flexion", "cable", "A", "Even tension through the whole arc, easy to load."),
+  e("machine-curl", "Machine Curl", "biceps", "elbow_flexion", "machine", "A", "Stability + matched resistance curve — take it to failure safely."),
+  e("cross-body-hammer", "Cross-Body Hammer Curl", "biceps", "elbow_flexion", "dumbbell", "B", "Curl across to the opposite shoulder — brachialis bias."),
+  e("waiter-curl", "Waiter Curl", "biceps", "elbow_flexion", "dumbbell", "C", "Dumbbell held like a tray — constant supination, peak-focus."),
+  e("twenty-ones", "21s (lengthened-first)", "biceps", "elbow_flexion", "barbell", "A", "Top-half ×7 → bottom-half ×7 → full ×7 — stretch-position partials first (Nippard order)."),
+  e("chin-up", "Chin-up", "biceps", "vertical_pull", "bodyweight", "B", "Underhand pull-up — heavy biceps load, lat sharing.", true),
+  e("cable-rope-hammer", "Cable Rope Hammer Curl", "biceps", "elbow_flexion", "cable", "B", "Rope splits at the top — constant-tension brachialis work."),
   // ── TRICEPS ──
   e("overhead-cable-extension", "Overhead Cable Triceps Extension", "triceps", "elbow_extension", "cable", "S", "Lean on the bench, arm reaches behind the head — long-head stretch."),
   e("skullcrusher", "Barbell Skullcrusher", "triceps", "elbow_extension", "barbell", "S", "Bar just behind the forehead, elbows fixed, full lockout."),
@@ -159,7 +256,7 @@ export const EXERCISES: Exercise[] = [
   e("neck-extension", "Neck Extension (plate)", "neck", "neck_extension", "bodyweight", undefined, "Face-down, plate behind head, extend slowly — most neglected muscle."),
   e("neck-lateral", "Neck Lateral Flexion", "neck", "neck_lateral", "bodyweight", undefined, "Side-lying, light plate, ear toward shoulder — both sides."),
   e("neck-rotation", "Neck Rotation (band)", "neck", "neck_rotation", "band", undefined, "Band around the head, slow rotations — posture insurance."),
-];
+].map((x) => ({ ...x, head: HEAD_OF[x.slug] }));
 
 export const MUSCLES = [
   { key: "chest", label: "Chest" }, { key: "upper_chest", label: "Upper chest" },

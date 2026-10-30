@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { EXERCISES, MUSCLES, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
+import { EXERCISES, MUSCLE_GROUP, GROUPS, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 
@@ -23,7 +23,8 @@ export default function WorkoutClient() {
   const [history, setHistory] = useState<Array<{ id: string; dayName: string; startedAt: string; endedAt: string | null }>>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [dayName, setDayName] = useState("");
-  const [muscleFilter, setMuscleFilter] = useState<string>("all");
+  const [groupFilter, setGroupFilter] = useState<string>("all");
+  const [headFilter, setHeadFilter] = useState<string>("all");
   const [muscleOpen, setMuscleOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<DayExercise[]>([]);
@@ -52,14 +53,17 @@ export default function WorkoutClient() {
 
   const filtered = useMemo(() => {
     let list = EXERCISES;
-    if (muscleFilter !== "all") list = list.filter((x) => x.muscle === muscleFilter);
+    if (groupFilter !== "all") {
+      list = list.filter((x) => MUSCLE_GROUP[x.muscle] === groupFilter);
+      if (headFilter !== "all") list = list.filter((x) => x.head === headFilter);
+    }
     if (tierFilter !== "all") list = list.filter((x) => x.tier === tierFilter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter((x) => x.name.toLowerCase().includes(q) || x.cue.toLowerCase().includes(q));
     }
     return [...list].sort((a, b) => (a.tier || "Z").localeCompare(b.tier || "Z"));
-  }, [muscleFilter, search, tierFilter]);
+  }, [groupFilter, headFilter, search, tierFilter]);
 
 
   const openProfile = (d?: WDay) => {
@@ -67,7 +71,7 @@ export default function WorkoutClient() {
     setEditId(d?.id || null);
     setDayName(d?.name || "");
     setPicked(d?.exercises?.map((x) => ({ slug: x.slug, name: x.name, sets: x.sets, reps: x.reps, supersetGroup: x.supersetGroup ?? null })) || []);
-    setSearch(""); setMuscleFilter("all"); setTierFilter("all");
+    setSearch(""); setGroupFilter("all"); setHeadFilter("all"); setTierFilter("all");
   };
 
   const pickType = (t: { name: string; muscles: string[] }) => {
@@ -261,24 +265,36 @@ export default function WorkoutClient() {
           <button type="button" onClick={() => setMuscleOpen((v) => !v)}
             className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-xs"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}>
-            <span>{muscleFilter === "all" ? "All muscles" : MUSCLES.find((m) => m.key === muscleFilter)?.label}</span>
+            <span>{groupFilter === "all" ? "All muscles" : GROUPS.find((g) => g.key === groupFilter)?.label}</span>
             <span style={{ color: "var(--color-ink-muted)", transform: muscleOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
           </button>
           {muscleOpen && (
             <div className="absolute left-0 right-0 top-full z-40 mt-1 max-h-64 overflow-y-auto rounded-lg border shadow-lg"
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-              {[{ key: "all", label: "All muscles" }, ...MUSCLES].map((m) => (
-                <button key={m.key} type="button"
-                  onClick={() => { setMuscleFilter(m.key); setMuscleOpen(false); }}
+              {[{ key: "all", label: "All muscles" }, ...GROUPS].map((g) => (
+                <button key={g.key} type="button"
+                  onClick={() => { setGroupFilter(g.key); setHeadFilter("all"); setMuscleOpen(false); }}
                   className="flex w-full items-center justify-between px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--color-paper-2)]"
-                  style={{ color: muscleFilter === m.key ? "var(--color-accent)" : "var(--color-ink)" }}>
-                  {m.label}
-                  {muscleFilter === m.key && <span>✓</span>}
+                  style={{ color: groupFilter === g.key ? "var(--color-accent)" : "var(--color-ink)" }}>
+                  {g.label}
+                  {groupFilter === g.key && <span>✓</span>}
                 </button>
               ))}
             </div>
           )}
         </div>
+
+        {groupFilter !== "all" && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {[{ key: "all", label: "All heads" }, ...(GROUPS.find((g) => g.key === groupFilter)?.heads || [])].map((h) => (
+              <button key={h.key} type="button" onClick={() => setHeadFilter(h.key)}
+                className="rounded-full border px-2.5 py-1 text-[10px]"
+                style={{ borderColor: headFilter === h.key ? "var(--color-ink)" : "var(--color-paper-3)", color: headFilter === h.key ? "var(--color-ink)" : "var(--color-ink-muted)" }}>
+                {h.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
           {filtered.map((x) => (
