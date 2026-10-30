@@ -204,7 +204,7 @@ export const HEAD_OF: Record<string, string> = {
   "neck-flexion": "front", "neck-extension": "back", "neck-lateral": "side", "neck-rotation": "rotation",
 };
 
-const mw = (slug: string) => `https://cdn.musclewiki.org/media/uploads/male/${slug}.gif`;
+const mw = (slug: string) => `/exercises/${slug}.gif`; // self-hosted — musclewiki CDN 404s
 
 type Detail = Pick<Exercise, "howto" | "pros" | "cons" | "source">;
 const e = (
