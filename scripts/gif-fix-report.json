@@ -1,28 +1,13 @@
 [
   {
-    "slug": "machine-chest-press",
-    "source": "exercisedb",
-    "matchedName": "Machine Chest Press"
-  },
-  {
-    "slug": "cable-flye",
-    "source": "exercisedb",
-    "matchedName": "cable decline fly"
-  },
-  {
     "slug": "incline-dumbbell-press",
     "source": "exercisedb",
     "matchedName": "dumbbell incline hammer press"
   },
   {
-    "slug": "barbell-bench-press",
-    "source": "exercisedb",
-    "matchedName": "barbell bench press"
-  },
-  {
     "slug": "dips",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "impossible dips"
   },
   {
     "slug": "pec-deck",
@@ -31,13 +16,8 @@
   },
   {
     "slug": "deficit-pushup",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "smith-incline-press",
     "source": "exercisedb",
-    "matchedName": "smith incline bench press"
+    "matchedName": "side push-up"
   },
   {
     "slug": "cable-press-around",
@@ -45,14 +25,9 @@
     "matchedName": null
   },
   {
-    "slug": "decline-bench-press",
-    "source": "exercisedb",
-    "matchedName": "Barbell Reverse-Grip Decline Bench Press"
-  },
-  {
     "slug": "wide-grip-pulldown",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Machine Single-Arm Lateral Wide Pulldown"
   },
   {
     "slug": "neutral-grip-pulldown",
@@ -62,22 +37,22 @@
   {
     "slug": "half-kneeling-pulldown",
     "source": "kept-existing",
-    "matchedName": null
+    "matchedName": "download-failed: Band Kneeling Single-Arm Pulldown"
   },
   {
     "slug": "pull-up",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Pull-Up (Neutral Grip)"
   },
   {
     "slug": "cable-pullover",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Machine Pullover"
   },
   {
     "slug": "db-pullover",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Machine Pullover"
   },
   {
     "slug": "crossbody-lat-pull",
@@ -91,8 +66,8 @@
   },
   {
     "slug": "seated-cable-row",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable rope elevated seated row"
   },
   {
     "slug": "meadows-row",
@@ -101,8 +76,8 @@
   },
   {
     "slug": "deficit-pendlay-row",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "barbell pendlay row"
   },
   {
     "slug": "bent-dumbbell-row",
@@ -115,19 +90,14 @@
     "matchedName": null
   },
   {
-    "slug": "tbar-row",
-    "source": "exercisedb",
-    "matchedName": "Machine T Bar Row"
-  },
-  {
     "slug": "reverse-pec-deck",
     "source": "kept-existing",
     "matchedName": null
   },
   {
     "slug": "reverse-cable-crossover",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Cable Crossover Reverse Fly"
   },
   {
     "slug": "rope-face-pull",
@@ -142,17 +112,12 @@
   {
     "slug": "rdl",
     "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "back-extension-45",
-    "source": "exercisedb",
-    "matchedName": "Machine Back Extension"
+    "matchedName": "download-failed: barbell romanian deadlift"
   },
   {
     "slug": "good-morning",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "barbell seated good morning"
   },
   {
     "slug": "deadlift",
@@ -163,11 +128,6 @@
     "slug": "farmers-carry",
     "source": "kept-existing",
     "matchedName": null
-  },
-  {
-    "slug": "cable-lateral-raise",
-    "source": "exercisedb",
-    "matchedName": "cable lateral raise"
   },
   {
     "slug": "cable-y-raise",
@@ -185,39 +145,14 @@
     "matchedName": null
   },
   {
-    "slug": "machine-lateral-raise",
-    "source": "exercisedb",
-    "matchedName": "Machine Lateral Raise"
-  },
-  {
-    "slug": "machine-shoulder-press",
-    "source": "exercisedb",
-    "matchedName": "Machine Single-Arm Shoulder Press"
-  },
-  {
-    "slug": "seated-db-press",
-    "source": "exercisedb",
-    "matchedName": "barbell seated overhead press"
-  },
-  {
-    "slug": "arnold-press",
-    "source": "exercisedb",
-    "matchedName": "dumbbell arnold press"
-  },
-  {
     "slug": "barbell-shrug",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "barbell shrug"
   },
   {
     "slug": "cable-shrug",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "prone-y-raise",
     "source": "exercisedb",
-    "matchedName": "dumbbell incline y-raise"
+    "matchedName": "cable shrug"
   },
   {
     "slug": "bayesian-curl",
@@ -225,79 +160,24 @@
     "matchedName": null
   },
   {
-    "slug": "preacher-curl",
-    "source": "exercisedb",
-    "matchedName": "dumbbell preacher curl"
-  },
-  {
     "slug": "machine-preacher-curl",
-    "source": "kept-existing",
-    "matchedName": "download-failed: Machine Reverse-Grip Preacher Curl"
-  },
-  {
-    "slug": "preacher-hammer-curl",
     "source": "exercisedb",
-    "matchedName": "dumbbell preacher hammer curl"
-  },
-  {
-    "slug": "incline-curl",
-    "source": "exercisedb",
-    "matchedName": "dumbbell incline hammer curl"
-  },
-  {
-    "slug": "ez-bar-curl",
-    "source": "exercisedb",
-    "matchedName": "EZ-Bar Curl"
-  },
-  {
-    "slug": "hammer-curl",
-    "source": "exercisedb",
-    "matchedName": "dumbbell hammer curl"
-  },
-  {
-    "slug": "reverse-curl",
-    "source": "exercisedb",
-    "matchedName": "dumbbell standing reverse curl"
-  },
-  {
-    "slug": "zottman-curl",
-    "source": "exercisedb",
-    "matchedName": "dumbbell zottman curl"
-  },
-  {
-    "slug": "concentration-curl",
-    "source": "exercisedb",
-    "matchedName": "barbell seated close-grip concentration curl"
+    "matchedName": "Machine Preacher Curl"
   },
   {
     "slug": "spider-curl",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "drag-curl",
     "source": "exercisedb",
-    "matchedName": "cable drag curl"
-  },
-  {
-    "slug": "cable-curl",
-    "source": "exercisedb",
-    "matchedName": "cable standing inner curl"
+    "matchedName": "EZ-Bar Spider Curl"
   },
   {
     "slug": "machine-curl",
-    "source": "kept-existing",
-    "matchedName": "download-failed: Machine Reverse-Grip Preacher Curl"
-  },
-  {
-    "slug": "cross-body-hammer",
     "source": "exercisedb",
-    "matchedName": "dumbbell cross body hammer curl"
+    "matchedName": "Machine Preacher Curl"
   },
   {
     "slug": "waiter-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell waiter biceps curl"
   },
   {
     "slug": "twenty-ones",
@@ -306,18 +186,8 @@
   },
   {
     "slug": "chin-up",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "cable-rope-hammer",
     "source": "exercisedb",
-    "matchedName": "cable hammer curl (with rope)"
-  },
-  {
-    "slug": "overhead-cable-extension",
-    "source": "exercisedb",
-    "matchedName": "cable overhead triceps extension (rope attachment)"
+    "matchedName": "assisted standing chin-up"
   },
   {
     "slug": "skullcrusher",
@@ -330,11 +200,6 @@
     "matchedName": "download-failed: cable triceps pushdown (v-bar)"
   },
   {
-    "slug": "overhead-rope-extension",
-    "source": "exercisedb",
-    "matchedName": "cable overhead triceps extension (rope attachment)"
-  },
-  {
     "slug": "seated-overhead-rope",
     "source": "exercisedb",
     "matchedName": "barbell seated overhead triceps extension"
@@ -342,7 +207,7 @@
   {
     "slug": "incline-overhead-cable",
     "source": "kept-existing",
-    "matchedName": null
+    "matchedName": "download-failed: cable overhead triceps extension (rope attachment)"
   },
   {
     "slug": "crossface-overhead",
@@ -355,11 +220,6 @@
     "matchedName": null
   },
   {
-    "slug": "db-overhead-extension",
-    "source": "exercisedb",
-    "matchedName": "Dumbbell Seated Reverse-Grip Single-Arm Overhead Triceps Extension"
-  },
-  {
     "slug": "jm-press",
     "source": "kept-existing",
     "matchedName": null
@@ -368,16 +228,6 @@
     "slug": "close-grip-bench",
     "source": "kept-existing",
     "matchedName": "download-failed: smith close-grip bench press"
-  },
-  {
-    "slug": "cable-kickback",
-    "source": "exercisedb",
-    "matchedName": "cable kickback"
-  },
-  {
-    "slug": "single-arm-cable-kickback",
-    "source": "exercisedb",
-    "matchedName": "Dumbbell Single-Arm Kickback"
   },
   {
     "slug": "cuff-kickback",
@@ -391,8 +241,8 @@
   },
   {
     "slug": "hack-squat",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "fitnessprogramer",
+    "matchedName": "Hack Squat vs. Barbell Squat: Which is Best for You?"
   },
   {
     "slug": "pendulum-squat",
@@ -415,44 +265,9 @@
     "matchedName": null
   },
   {
-    "slug": "leg-extension",
-    "source": "exercisedb",
-    "matchedName": "Machine Leg Extension"
-  },
-  {
-    "slug": "front-squat",
-    "source": "exercisedb",
-    "matchedName": "barbell bench front squat"
-  },
-  {
-    "slug": "leg-press",
-    "source": "exercisedb",
-    "matchedName": "Machine Alternate Leg Press"
-  },
-  {
     "slug": "reverse-nordic",
     "source": "kept-existing",
     "matchedName": null
-  },
-  {
-    "slug": "goblet-squat",
-    "source": "exercisedb",
-    "matchedName": "dumbbell goblet squat"
-  },
-  {
-    "slug": "seated-leg-curl",
-    "source": "exercisedb",
-    "matchedName": "Machine Seated Leg Curl"
-  },
-  {
-    "slug": "good-morning-ham",
-    "source": "exercisedb",
-    "matchedName": "barbell seated good morning"
-  },
-  {
-    "slug": "lying-leg-curl",
-    "source": "exercisedb",
-    "matchedName": "Machine Lying Leg Curl"
   },
   {
     "slug": "rdl-hamstrings",
@@ -465,59 +280,19 @@
     "matchedName": null
   },
   {
-    "slug": "glute-ham-raise",
-    "source": "exercisedb",
-    "matchedName": "glute-ham raise"
-  },
-  {
-    "slug": "walking-lunge",
-    "source": "exercisedb",
-    "matchedName": "walking lunge"
-  },
-  {
-    "slug": "hip-abduction-machine",
-    "source": "exercisedb",
-    "matchedName": "Machine Seated Hip Abduction"
-  },
-  {
     "slug": "back-extension-glute",
     "source": "kept-existing",
     "matchedName": null
   },
   {
     "slug": "hip-thrust",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Band Hip Thrusts On Knees"
   },
   {
     "slug": "ffe-lunge",
     "source": "kept-existing",
     "matchedName": null
-  },
-  {
-    "slug": "cable-pull-through",
-    "source": "exercisedb",
-    "matchedName": "cable pull through (with rope)"
-  },
-  {
-    "slug": "standing-calf-raise",
-    "source": "exercisedb",
-    "matchedName": "standing calf raise (on a staircase)"
-  },
-  {
-    "slug": "seated-calf-raise",
-    "source": "exercisedb",
-    "matchedName": "Machine Seated Calf Raise"
-  },
-  {
-    "slug": "leg-press-calf",
-    "source": "exercisedb",
-    "matchedName": "Machine Seated Squat Calf Raise On Leg Press Machine"
-  },
-  {
-    "slug": "single-leg-calf",
-    "source": "exercisedb",
-    "matchedName": "Single-Leg Floor Calf Raise"
   },
   {
     "slug": "kneeling-cable-crunch",
@@ -595,21 +370,6 @@
     "matchedName": null
   },
   {
-    "slug": "wrist-curl",
-    "source": "exercisedb",
-    "matchedName": "barbell wrist curl"
-  },
-  {
-    "slug": "reverse-wrist-curl",
-    "source": "exercisedb",
-    "matchedName": "dumbbell reverse wrist curl"
-  },
-  {
-    "slug": "cable-wrist-curl",
-    "source": "exercisedb",
-    "matchedName": "cable reverse wrist curl"
-  },
-  {
     "slug": "dead-hang",
     "source": "kept-existing",
     "matchedName": null
@@ -626,8 +386,8 @@
   },
   {
     "slug": "fat-grip-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "EZ-Bar Seated Curls"
   },
   {
     "slug": "rice-bucket",
@@ -641,8 +401,8 @@
   },
   {
     "slug": "neck-extension",
-    "source": "exercisedb",
-    "matchedName": "Barbell Seated Close-Grip Behind Neck Triceps Extension"
+    "source": "kept-existing",
+    "matchedName": null
   },
   {
     "slug": "neck-lateral",
@@ -655,34 +415,9 @@
     "matchedName": null
   },
   {
-    "slug": "incline-bench-15",
-    "source": "exercisedb",
-    "matchedName": "barbell incline bench press"
-  },
-  {
-    "slug": "incline-bench-30",
-    "source": "exercisedb",
-    "matchedName": "barbell incline bench press"
-  },
-  {
-    "slug": "incline-bench-45",
-    "source": "exercisedb",
-    "matchedName": "barbell incline bench press"
-  },
-  {
     "slug": "incline-db-45",
-    "source": "fitnessprogramer",
-    "matchedName": "Why You Can&#8217;t Feel Your Chest During the Bench Press"
-  },
-  {
-    "slug": "machine-incline-press",
     "source": "exercisedb",
-    "matchedName": "Machine Incline Chest Press"
-  },
-  {
-    "slug": "guillotine-press",
-    "source": "exercisedb",
-    "matchedName": "barbell guillotine bench press"
+    "matchedName": "dumbbell incline hammer press"
   },
   {
     "slug": "cambered-bar-bench",
@@ -691,18 +426,18 @@
   },
   {
     "slug": "reverse-grip-incline-press",
-    "source": "exercisedb",
-    "matchedName": "Barbell Reverse-Grip Incline Bench Press"
+    "source": "kept-existing",
+    "matchedName": null
   },
   {
     "slug": "wide-grip-bench",
     "source": "kept-existing",
-    "matchedName": "download-failed: Barbell Wide Reverse-Grip Bench Press"
+    "matchedName": null
   },
   {
     "slug": "neutral-grip-db-bench",
-    "source": "kept-existing",
-    "matchedName": "download-failed: Barbell Wide Reverse-Grip Bench Press"
+    "source": "exercisedb",
+    "matchedName": "dumbbell neutral grip bench press"
   },
   {
     "slug": "weighted-pushup",
@@ -716,18 +451,13 @@
   },
   {
     "slug": "paused-bench",
-    "source": "kept-existing",
-    "matchedName": "download-failed: Barbell Wide Reverse-Grip Bench Press"
+    "source": "fitnessprogramer",
+    "matchedName": "Why You Can&#8217;t Feel Your Chest During the Bench Press"
   },
   {
     "slug": "lengthened-partial-bench",
     "source": "kept-existing",
     "matchedName": null
-  },
-  {
-    "slug": "svend-press",
-    "source": "exercisedb",
-    "matchedName": "weighted svend press"
   },
   {
     "slug": "low-to-high-cable-flye",
@@ -740,34 +470,19 @@
     "matchedName": null
   },
   {
-    "slug": "kneeling-cable-flye",
-    "source": "exercisedb",
-    "matchedName": "cable low fly"
-  },
-  {
     "slug": "incline-cable-flye",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable incline fly (on stability ball)"
   },
   {
     "slug": "dumbbell-flye",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "neutral-grip-pullup",
-    "source": "fitnessprogramer",
-    "matchedName": "The Complete Guide To Pull-up"
+    "source": "exercisedb",
+    "matchedName": "dumbbell fly"
   },
   {
     "slug": "weighted-pullup",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "band-assisted-pullup",
-    "source": "fitnessprogramer",
-    "matchedName": "The Complete Guide To Pull-up"
+    "source": "exercisedb",
+    "matchedName": "weighted pull-up"
   },
   {
     "slug": "eccentric-pullup",
@@ -781,8 +496,8 @@
   },
   {
     "slug": "vbar-pulldown",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable lateral pulldown with v-bar"
   },
   {
     "slug": "meadows-pulldown",
@@ -791,28 +506,23 @@
   },
   {
     "slug": "straight-arm-pulldown",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "cable straight arm pulldown (with rope)"
   },
   {
     "slug": "kneeling-pulldown",
     "source": "kept-existing",
-    "matchedName": null
+    "matchedName": "download-failed: Reverse-Grip Machine Lat Pulldown"
   },
   {
     "slug": "single-arm-pulldown",
     "source": "kept-existing",
-    "matchedName": null
+    "matchedName": "download-failed: Band Kneeling Single-Arm Pulldown"
   },
   {
     "slug": "seal-row",
     "source": "kept-existing",
     "matchedName": null
-  },
-  {
-    "slug": "pendlay-row",
-    "source": "exercisedb",
-    "matchedName": "barbell pendlay row"
   },
   {
     "slug": "yates-row",
@@ -825,11 +535,6 @@
     "matchedName": null
   },
   {
-    "slug": "rear-delt-row",
-    "source": "exercisedb",
-    "matchedName": "dumbbell rear delt row (shoulder)"
-  },
-  {
     "slug": "machine-row",
     "source": "kept-existing",
     "matchedName": null
@@ -838,16 +543,6 @@
     "slug": "inverted-row",
     "source": "kept-existing",
     "matchedName": "download-failed: inverted row"
-  },
-  {
-    "slug": "landmine-row",
-    "source": "exercisedb",
-    "matchedName": "cable standing row (v-bar)"
-  },
-  {
-    "slug": "single-arm-cable-row",
-    "source": "exercisedb",
-    "matchedName": "Single-Arm Towel Row"
   },
   {
     "slug": "smith-bent-row",
@@ -875,21 +570,6 @@
     "matchedName": null
   },
   {
-    "slug": "prone-t-raise",
-    "source": "exercisedb",
-    "matchedName": "dumbbell incline t-raise"
-  },
-  {
-    "slug": "barbell-ohp",
-    "source": "exercisedb",
-    "matchedName": "dumbbell standing overhead press"
-  },
-  {
-    "slug": "standing-db-press",
-    "source": "exercisedb",
-    "matchedName": "dumbbell standing overhead press"
-  },
-  {
     "slug": "landmine-press",
     "source": "exercisedb",
     "matchedName": "cable decline press"
@@ -901,13 +581,8 @@
   },
   {
     "slug": "push-press",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "db-lateral-raise",
     "source": "exercisedb",
-    "matchedName": "dumbbell lateral raise"
+    "matchedName": "dumbbell push press"
   },
   {
     "slug": "behind-back-db-lateral",
@@ -928,36 +603,6 @@
     "slug": "scaption-raise",
     "source": "kept-existing",
     "matchedName": null
-  },
-  {
-    "slug": "prone-incline-lateral",
-    "source": "exercisedb",
-    "matchedName": "Dumbbell Incline Single-Arm Lateral Raise"
-  },
-  {
-    "slug": "band-lateral-raise",
-    "source": "exercisedb",
-    "matchedName": "band front lateral raise"
-  },
-  {
-    "slug": "db-front-raise",
-    "source": "exercisedb",
-    "matchedName": "dumbbell front raise"
-  },
-  {
-    "slug": "plate-front-raise",
-    "source": "exercisedb",
-    "matchedName": "dumbbell front raise"
-  },
-  {
-    "slug": "cable-front-raise",
-    "source": "exercisedb",
-    "matchedName": "cable front raise"
-  },
-  {
-    "slug": "incline-front-raise",
-    "source": "exercisedb",
-    "matchedName": "cable front raise"
   },
   {
     "slug": "prone-rear-flye",
@@ -986,8 +631,8 @@
   },
   {
     "slug": "db-shrug",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell decline shrug"
   },
   {
     "slug": "overhead-shrug",
@@ -996,13 +641,13 @@
   },
   {
     "slug": "incline-db-shrug",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell incline shrug"
   },
   {
     "slug": "behind-back-shrug",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "smith back shrug"
   },
   {
     "slug": "trap-bar-shrug",
@@ -1011,8 +656,8 @@
   },
   {
     "slug": "scapular-pullup",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "scapular pull-up"
   },
   {
     "slug": "push-up-plus",
@@ -1055,34 +700,14 @@
     "matchedName": null
   },
   {
-    "slug": "leg-press-high-feet",
-    "source": "exercisedb",
-    "matchedName": "sled 45° leg press"
-  },
-  {
     "slug": "leg-press-wide",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Machine Alternate Leg Press"
   },
   {
     "slug": "single-leg-press",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "reclined-leg-extension",
     "source": "exercisedb",
-    "matchedName": "Machine Leg Extension"
-  },
-  {
-    "slug": "single-leg-extension",
-    "source": "exercisedb",
-    "matchedName": "Machine Leg Extension"
-  },
-  {
-    "slug": "sissy-squat",
-    "source": "exercisedb",
-    "matchedName": "weighted sissy squat"
+    "matchedName": "Machine Alternate Leg Press"
   },
   {
     "slug": "spanish-squat",
@@ -1102,17 +727,12 @@
   {
     "slug": "step-up",
     "source": "kept-existing",
-    "matchedName": "download-failed: dumbbell step-up lunge"
+    "matchedName": null
   },
   {
     "slug": "high-step-up",
     "source": "kept-existing",
     "matchedName": null
-  },
-  {
-    "slug": "standing-leg-curl",
-    "source": "exercisedb",
-    "matchedName": "standing single leg curl"
   },
   {
     "slug": "razor-curl",
@@ -1121,23 +741,8 @@
   },
   {
     "slug": "swiss-ball-curl",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "slider-leg-curl",
     "source": "exercisedb",
     "matchedName": "standing single leg curl"
-  },
-  {
-    "slug": "leg-curl-toes-in",
-    "source": "exercisedb",
-    "matchedName": "Machine Lying Leg Curl"
-  },
-  {
-    "slug": "leg-curl-toes-out",
-    "source": "exercisedb",
-    "matchedName": "Machine Lying Leg Curl"
   },
   {
     "slug": "stiff-leg-deadlift",
@@ -1160,29 +765,19 @@
     "matchedName": null
   },
   {
-    "slug": "reverse-hyper",
-    "source": "exercisedb",
-    "matchedName": "Machine Reverse Hyperextension"
-  },
-  {
-    "slug": "kb-swing",
-    "source": "exercisedb",
-    "matchedName": "kettlebell swing"
-  },
-  {
     "slug": "kas-bridge",
     "source": "kept-existing",
     "matchedName": null
   },
   {
     "slug": "hip-thrust-feet-forward",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Band Hip Thrusts On Knees"
   },
   {
     "slug": "hip-thrust-wide",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Band Hip Thrusts On Knees"
   },
   {
     "slug": "single-leg-hip-thrust",
@@ -1191,8 +786,8 @@
   },
   {
     "slug": "smith-hip-thrust",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Band Hip Thrusts On Knees"
   },
   {
     "slug": "frog-pump",
@@ -1213,36 +808,6 @@
     "slug": "reverse-lunge",
     "source": "kept-existing",
     "matchedName": null
-  },
-  {
-    "slug": "abduction-upright",
-    "source": "exercisedb",
-    "matchedName": "Band Seated Hip Abduction"
-  },
-  {
-    "slug": "abduction-lean-back",
-    "source": "exercisedb",
-    "matchedName": "Band Seated Hip Abduction"
-  },
-  {
-    "slug": "donkey-calf",
-    "source": "exercisedb",
-    "matchedName": "Single-Leg Donkey Calf Raise"
-  },
-  {
-    "slug": "smith-calf-raise",
-    "source": "exercisedb",
-    "matchedName": "Machine Seated Calf Raise"
-  },
-  {
-    "slug": "calf-raise-toes-in",
-    "source": "exercisedb",
-    "matchedName": "barbell floor calf raise"
-  },
-  {
-    "slug": "calf-raise-toes-out",
-    "source": "exercisedb",
-    "matchedName": "barbell floor calf raise"
   },
   {
     "slug": "calf-lengthened-partials",
@@ -1266,18 +831,8 @@
   },
   {
     "slug": "cossack-squat",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "lateral-lunge",
     "source": "exercisedb",
-    "matchedName": "barbell lateral lunge"
-  },
-  {
-    "slug": "cable-hip-adduction",
-    "source": "exercisedb",
-    "matchedName": "cable hip adduction"
+    "matchedName": "Weighted Cossack Squats"
   },
   {
     "slug": "slider-adduction",
@@ -1286,8 +841,8 @@
   },
   {
     "slug": "sumo-squat",
-    "source": "exercisedb",
-    "matchedName": "barbell narrow stance squat"
+    "source": "kept-existing",
+    "matchedName": null
   },
   {
     "slug": "ball-squeeze-isometric",
@@ -1316,8 +871,8 @@
   },
   {
     "slug": "weighted-high-knees",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "hug knees to chest"
   },
   {
     "slug": "psoas-march",
@@ -1340,26 +895,6 @@
     "matchedName": null
   },
   {
-    "slug": "incline-curl-30",
-    "source": "exercisedb",
-    "matchedName": "dumbbell incline curl"
-  },
-  {
-    "slug": "incline-curl-60",
-    "source": "exercisedb",
-    "matchedName": "dumbbell incline curl"
-  },
-  {
-    "slug": "ez-preacher-curl",
-    "source": "exercisedb",
-    "matchedName": "EZ-Bar Close-Grip Preacher Curl"
-  },
-  {
-    "slug": "one-arm-cable-preacher",
-    "source": "exercisedb",
-    "matchedName": "Single-Arm Cable Rope Preacher Curl"
-  },
-  {
     "slug": "strict-wall-curl",
     "source": "kept-existing",
     "matchedName": null
@@ -1370,16 +905,6 @@
     "matchedName": null
   },
   {
-    "slug": "wide-grip-ez-curl",
-    "source": "exercisedb",
-    "matchedName": "barbell standing wide-grip curl"
-  },
-  {
-    "slug": "narrow-grip-ez-curl",
-    "source": "exercisedb",
-    "matchedName": "Barbell Standing Close-Grip Curl"
-  },
-  {
     "slug": "inverse-zottman",
     "source": "kept-existing",
     "matchedName": null
@@ -1388,16 +913,6 @@
     "slug": "pinwheel-curl",
     "source": "kept-existing",
     "matchedName": null
-  },
-  {
-    "slug": "incline-hammer-curl",
-    "source": "exercisedb",
-    "matchedName": "dumbbell incline hammer curl"
-  },
-  {
-    "slug": "lying-cable-curl",
-    "source": "exercisedb",
-    "matchedName": "dumbbell lying wide curl"
   },
   {
     "slug": "behind-back-db-curl",
@@ -1415,11 +930,6 @@
     "matchedName": "Dumbbell Single-Arm Standing Hammer Curl"
   },
   {
-    "slug": "french-press",
-    "source": "exercisedb",
-    "matchedName": "EZ-Bar Standing French Press"
-  },
-  {
     "slug": "incline-db-overhead-ext",
     "source": "exercisedb",
     "matchedName": "cable overhead triceps extension (rope attachment)"
@@ -1431,8 +941,8 @@
   },
   {
     "slug": "overhead-bar-extension",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "EZ-Bar Seated Triceps Extension"
   },
   {
     "slug": "incline-skullcrusher",
@@ -1456,23 +966,8 @@
   },
   {
     "slug": "tate-press",
-    "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "suspension-triceps",
     "source": "exercisedb",
-    "matchedName": "assisted standing triceps extension (with towel)"
-  },
-  {
-    "slug": "db-kickback",
-    "source": "exercisedb",
-    "matchedName": "Dumbbell Single-Arm Kickback"
-  },
-  {
-    "slug": "bench-dip",
-    "source": "exercisedb",
-    "matchedName": "bench dip on floor"
+    "matchedName": "dumbbell tate press"
   },
   {
     "slug": "vbar-pressdown",
@@ -1480,49 +975,14 @@
     "matchedName": null
   },
   {
-    "slug": "reverse-grip-pressdown",
-    "source": "exercisedb",
-    "matchedName": "cable reverse-grip pushdown"
-  },
-  {
-    "slug": "single-arm-pressdown",
-    "source": "exercisedb",
-    "matchedName": "Cable Single-Arm Triceps Pushdown"
-  },
-  {
     "slug": "cuff-pressdown",
     "source": "kept-existing",
     "matchedName": null
   },
   {
-    "slug": "rope-pressdown",
-    "source": "exercisedb",
-    "matchedName": "cable pushdown"
-  },
-  {
     "slug": "weighted-dip",
     "source": "kept-existing",
-    "matchedName": null
-  },
-  {
-    "slug": "machine-dip",
-    "source": "exercisedb",
-    "matchedName": "Machine Seated Dip"
-  },
-  {
-    "slug": "diamond-pushup",
-    "source": "exercisedb",
-    "matchedName": "diamond push-up"
-  },
-  {
-    "slug": "db-wrist-curl",
-    "source": "exercisedb",
-    "matchedName": "barbell wrist curl"
-  },
-  {
-    "slug": "behind-back-wrist-curl",
-    "source": "exercisedb",
-    "matchedName": "barbell standing back wrist curl"
+    "matchedName": "download-failed: weighted straight bar dip"
   },
   {
     "slug": "wrist-roller",
@@ -1545,14 +1005,9 @@
     "matchedName": null
   },
   {
-    "slug": "pronation-lever",
-    "source": "exercisedb",
-    "matchedName": "dumbbell lying pronation"
-  },
-  {
     "slug": "supination-lever",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell lying supination"
   },
   {
     "slug": "finger-extension-band",
@@ -1561,8 +1016,8 @@
   },
   {
     "slug": "finger-roll-curl",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "dumbbell finger curls"
   },
   {
     "slug": "one-arm-dead-hang",
@@ -1591,8 +1046,8 @@
   },
   {
     "slug": "gripper-crush",
-    "source": "kept-existing",
-    "matchedName": null
+    "source": "exercisedb",
+    "matchedName": "Machine Gripper Hands"
   },
   {
     "slug": "rope-climb",
@@ -1816,8 +1271,8 @@
   },
   {
     "slug": "banded-neck-extension",
-    "source": "exercisedb",
-    "matchedName": "Barbell Seated Close-Grip Behind Neck Triceps Extension"
+    "source": "kept-existing",
+    "matchedName": null
   },
   {
     "slug": "partner-neck-curl",

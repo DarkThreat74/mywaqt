@@ -46,17 +46,17 @@ const dl = async (url, slug) => {
 
 // ── token machinery ──────────────────────────────────────────────
 const EQUIP = new Set(['machine','cable','barbell','dumbbell','smith','band','banded','bodyweight','kettlebell','ez','lever','weighted','suspension','trx','plate','sled','trap','hex','cambered','v','vbar','rope','thick','fat','towel','cuff','partner','sliders','slider','stability','ball','swiss','medicine','landmine','tib','hangboard','ab','wheel','mini','resistance','assisted','bench']);
-const POSTURE = new Set(['seated','standing','lying','prone','supine','kneeling','half','incline','decline','flat','bent','upright','lean','overhead','behind','front','deficit','paused','single','double','one','two','arm','hand','grip','cross','crossbody','floor','side','lateral','high','low','45','90','reclined','split']);
+const POSTURE = new Set(['seated','standing','lying','prone','supine','kneeling','half','incline','decline','flat','bent','upright','lean','overhead','behind','front','deficit','paused','single','double','one','two','arm','hand','grip','cross','crossbody','floor','side','lateral','high','low','45','90','reclined','split','conventional','back']);
 const SYN = {
-  flye: ['fly','flye'], fly: ['fly','flye'],
+  flye: ['fly'], fly: ['fly'],
   pushup: ['push','up'], 'push-up': ['push','up'],
-  pressdown: ['pushdown','pressdown'], pushdown: ['pushdown','pressdown'],
+  pressdown: ['pushdown'], pushdown: ['pushdown'],
   pullup: ['pull','up'], pulldown: ['pull','down'],
   db: ['dumbbell'], bb: ['barbell'],
   kickback: ['kickback'], extensions: ['extension'],
   rdl: ['romanian','deadlift'], 'dead-lift': ['deadlift'],
   'pull-over': ['pullover'], pullover: ['pullover'],
-  skullcrusher: ['skull','crusher','triceps','extension','lying'],
+  skullcrusher: ['skullcrusher'], crusher: ['skullcrusher'], skull: ['skull'],
   '21s': ['twenty','ones','barbell','curl'],
   chinup: ['chin','up'], 'chin-up': ['chin','up'],
   situp: ['sit','up'], 'sit-up': ['sit','up'],
@@ -97,13 +97,13 @@ const TARGET_OK = {
   triceps: ['triceps', 'triceps brachii', 'pectorals'],
   forearms: ['forearms', 'biceps', 'triceps', 'brachialis', 'wrist flexors', 'wrist extensors'],
   neck: ['*'], // exercisedb has no neck target; token match only
-  quads: ['quads', 'quadriceps'],
+  quads: ['quads', 'quadriceps', 'glutes'],
   hamstrings: ['hamstrings', 'glutes'],
   glutes: ['glutes', 'gluteus maximus', 'gluteus medius', 'abductors', 'adductors', 'hamstrings', 'quads', 'quadriceps'],
   calves: ['calves', 'gastrocnemius', 'soleus'],
   adductors: ['adductors', 'glutes', 'quads', 'quadriceps'],
   hipflex: ['quads', 'quadriceps', 'abs', 'glutes', 'hamstrings', 'hip flexors', 'iliopsoas'],
-  abs: ['abs', 'obliques', 'rectus abdominis', 'core'],
+  abs: ['abs', 'abdominals', 'obliques', 'rectus abdominis', 'core'],
 };
 // action words that would contradict a different muscle group
 const CONTRA = {

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { EXERCISES, MUSCLE_GROUP, GROUPS, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
@@ -23,8 +24,9 @@ export default function WorkoutClient() {
   const [tonPrevWeek, setTonPrevWeek] = useState(0);
   const [bodyWeight, setBodyWeight] = useState("");
   const [heightCm, setHeightCm] = useState("");
-  const [weightStale, setWeightStale] = useState(false);
+
   const [actionDay, setActionDay] = useState<WDay | null>(null);
+  const router = useRouter();
   const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
@@ -58,11 +60,7 @@ export default function WorkoutClient() {
         const { prefs: p } = await prefs.json();
         if (p?.bodyWeightKg) setBodyWeight(String(p.bodyWeightKg));
         if (p?.heightCm) setHeightCm(String(p.heightCm));
-        // Weekly weight check-in — weights drift; heights don't.
-        // first-time users land on the profile page via the banner
-        if (!p?.bodyWeightKg || !p?.heightCm) setWeightStale(true);
-        const wAt = p?.weightUpdatedAt ? new Date(p.weightUpdatedAt).getTime() : 0;
-        if (p?.bodyWeightKg && Date.now() - wAt > 7 * 86400000) setWeightStale(true);
+        if (!p?.bodyWeightKg || !p?.heightCm) router.push("/workout/profile");
       }
     }
     const hr = await fetch("/api/workout/sessions").catch(() => null);
@@ -71,7 +69,7 @@ export default function WorkoutClient() {
       setHistory((data.sessions || []).filter((s: { endedAt: string | null }) => s.endedAt).slice(0, 10));
     }
   }
-  useEffect(() => { Promise.resolve().then(() => { void load(); setNow(Date.now()); }); }, []);
+  useEffect(() => { Promise.resolve().then(() => { void load(); setNow(Date.now()); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only
 
   const filtered = useMemo(() => {
     let list = EXERCISES;
@@ -120,10 +118,7 @@ export default function WorkoutClient() {
     }
   };
 
-  const deleteDay = async (id: string) => {
-    await fetch(`/api/workout/days?id=${id}`, { method: "DELETE" }).catch(() => {});
-    await load();
-  };
+
 
   const addExercise = (x: Exercise) => {
     if (picked.some((p) => p.slug === x.slug)) return;
@@ -401,13 +396,7 @@ export default function WorkoutClient() {
         </div>
       </div>
 
-      {weightStale && (
-        <Link href="/workout/profile" onClick={() => setWeightStale(false)}
-          className="mt-2 block w-full rounded-lg border px-3 py-2 text-left text-[11px]"
-          style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>
-          Weekly check-in — update your weight for accurate strength ratios →
-        </Link>
-      )}
+
 
 
 
@@ -437,18 +426,12 @@ export default function WorkoutClient() {
                 })()}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span role="button" tabIndex={0}
-                onClick={(e) => { e.stopPropagation(); void deleteDay(d.id); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); void deleteDay(d.id); } }}
-                className="text-xs" style={{ color: "var(--color-error)" }}>✕</span>
-              <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Edit</span>
-            </div>
+            <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>›</span>
           </button>
         ))}
         <button type="button" onClick={() => openProfile()}
-          className="w-full rounded-xl border border-dashed px-4 py-3 text-sm font-medium"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+          className="mx-auto mt-1 block px-3 py-1.5 text-[11px]"
+          style={{ color: "var(--color-ink-muted)" }}>
           + New workout profile
         </button>
       </div>
@@ -664,29 +647,33 @@ export default function WorkoutClient() {
       {actionDay && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setActionDay(null)}>
-          <div className="w-full max-w-xs rounded-t-2xl sm:rounded-2xl border p-4"
+          <div className="w-full max-w-xs rounded-t-2xl sm:rounded-2xl border p-4 pt-3"
             style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
             onClick={(e) => e.stopPropagation()}>
-            <p className="text-center text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{actionDay.name}</p>
+            <div className="mx-auto h-1 w-9 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
+            <p className="mt-3 text-center text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{actionDay.name}</p>
             <p className="mt-0.5 text-center text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{actionDay.exercises.length} exercises</p>
-            <div className="mt-3 space-y-2">
+            <div className="mt-4 space-y-1.5">
               <Link href={`/workout/active?day=${actionDay.id}`}
-                className="block w-full rounded-xl px-4 py-3 text-center text-sm font-semibold"
+                className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold"
                 style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
-                Start workout
+                <span>▶ Start workout</span>
+                <span className="text-[10px] font-normal opacity-70">resumes if in progress</span>
               </Link>
               <button type="button" onClick={() => { const d = actionDay; setActionDay(null); openProfile(d); }}
-                className="w-full rounded-xl border px-4 py-3 text-sm font-medium"
+                className="flex w-full items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
-                Edit profile
+                <span>✎ Edit profile</span>
+                <span className="text-[10px] font-normal" style={{ color: "var(--color-ink-muted)" }}>name & exercises</span>
               </button>
               <button type="button" onClick={async () => {
                 await fetch(`/api/workout/days?id=${actionDay.id}`, { method: "DELETE" }).catch(() => {});
                 setActionDay(null); await load();
               }}
-                className="w-full rounded-xl border px-4 py-3 text-sm font-medium"
-                style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }}>
-                Delete
+                className="flex w-full items-center justify-between rounded-xl border px-4 py-2.5 text-[12px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-error)", color: "var(--color-error)", opacity: 0.8 }}>
+                <span>Delete profile</span>
+                <span className="text-[9px] opacity-70">removes the routine</span>
               </button>
             </div>
           </div>
