@@ -23,7 +23,6 @@ export default function WorkoutClient() {
   const [tonPrevWeek, setTonPrevWeek] = useState(0);
   const [bodyWeight, setBodyWeight] = useState("");
   const [heightCm, setHeightCm] = useState("");
-  const [panel, setPanel] = useState<"none" | "library" | "profile">("none");
   const [weightStale, setWeightStale] = useState(false);
   const [actionDay, setActionDay] = useState<WDay | null>(null);
   const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
@@ -60,7 +59,8 @@ export default function WorkoutClient() {
         if (p?.bodyWeightKg) setBodyWeight(String(p.bodyWeightKg));
         if (p?.heightCm) setHeightCm(String(p.heightCm));
         // Weekly weight check-in — weights drift; heights don't.
-        if (!p?.bodyWeightKg || !p?.heightCm) setPanel("profile");
+        // first-time users land on the profile page via the banner
+        if (!p?.bodyWeightKg || !p?.heightCm) setWeightStale(true);
         const wAt = p?.weightUpdatedAt ? new Date(p.weightUpdatedAt).getTime() : 0;
         if (p?.bodyWeightKg && Date.now() - wAt > 7 * 86400000) setWeightStale(true);
       }
@@ -394,80 +394,21 @@ export default function WorkoutClient() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Workout</h1>
         <div className="flex gap-1.5">
-          {(["library", "profile"] as const).map((p) => (
-            <button key={p} type="button" onClick={() => setPanel(panel === p ? "none" : p)}
-              className="rounded-full border px-3 py-1 text-[10px] font-medium capitalize"
-              style={{ borderColor: panel === p ? "var(--color-ink)" : "var(--color-paper-3)", color: panel === p ? "var(--color-ink)" : "var(--color-ink-muted)" }}>
-              {p}
-            </button>
-          ))}
+          <Link href="/workout/library" className="rounded-full border px-3 py-1 text-[10px] font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Library</Link>
+          <Link href="/workout/profile" className="rounded-full border px-3 py-1 text-[10px] font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Profile</Link>
         </div>
       </div>
 
       {weightStale && (
-        <button type="button" onClick={() => { setPanel("profile"); setWeightStale(false); }}
-          className="mt-2 w-full rounded-lg border px-3 py-2 text-left text-[11px]"
+        <Link href="/workout/profile" onClick={() => setWeightStale(false)}
+          className="mt-2 block w-full rounded-lg border px-3 py-2 text-left text-[11px]"
           style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>
           Weekly check-in — update your weight for accurate strength ratios →
-        </button>
+        </Link>
       )}
 
-      {panel === "profile" && (
-        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
-          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>
-            {!bodyWeight ? "Set up your profile" : "Profile"}
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              weight
-              <input value={bodyWeight} onChange={(e) => { setBodyWeight(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bodyWeightKg: v, weightUpdatedAt: new Date().toISOString() }) }).catch(() => {}); }}
-                placeholder="kg" className="w-16 rounded border px-2 py-1.5 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
-              kg
-            </label>
-            <label className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-              height
-              <input value={heightCm} onChange={(e) => { setHeightCm(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ heightCm: v }) }).catch(() => {}); }}
-                placeholder="cm" className="w-16 rounded border px-2 py-1.5 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
-              cm
-            </label>
-          </div>
-          <p className="mt-2 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
-            Weight updates weekly — it drifts. Height is set once.
-          </p>
-        </div>
-      )}
-
-      {panel === "library" && (() => {
-        const libFiltered = EXERCISES.filter((x) => {
-          if (groupFilter !== "all") {
-            if (MUSCLE_GROUP[x.muscle] !== groupFilter) return false;
-            if (headFilter !== "all" && (x.head ?? x.muscle) !== headFilter) return false;
-          }
-          if (tierFilter !== "all") return x.tier === tierFilter;
-          if (search) return x.name.toLowerCase().includes(search.toLowerCase());
-          return true;
-        });
-        return (
-          <div className="mt-3">
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search 367 exercises…"
-              className="w-full rounded-lg border px-3 py-2 text-xs outline-none"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
-            <div className="mt-2 max-h-[60vh] space-y-1.5 overflow-y-auto">
-              {libFiltered.map((x) => (
-                <button key={x.slug} type="button" onClick={() => setView(x)}
-                  className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition-colors hover:bg-[var(--color-paper-2)]"
-                  style={{ borderColor: "var(--color-paper-3)" }}>
-                  <ExerciseMedia slug={x.slug} pattern={x.pattern}
-                    className="h-9 w-9 shrink-0 items-center justify-center rounded-md"
-                    style={{ backgroundColor: "var(--color-paper-2)" }} />
-                  <span className="min-w-0 flex-1 truncate text-[12px] font-medium" style={{ color: "var(--color-ink)" }}>{x.name}</span>
-                  {x.tier && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[x.tier], color: "#fff" }}>{x.tier}</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
 
 
       <div className="mt-6 space-y-2">
