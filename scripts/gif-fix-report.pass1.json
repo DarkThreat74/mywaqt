@@ -1,0 +1,1837 @@
+[
+  {
+    "slug": "machine-chest-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-flye",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "incline-dumbbell-press",
+    "source": "exercisedb",
+    "matchedName": "dumbbell incline hammer press"
+  },
+  {
+    "slug": "barbell-bench-press",
+    "source": "exercisedb",
+    "matchedName": "barbell bench press"
+  },
+  {
+    "slug": "dips",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pec-deck",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "deficit-pushup",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "smith-incline-press",
+    "source": "exercisedb",
+    "matchedName": "smith incline bench press"
+  },
+  {
+    "slug": "cable-press-around",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "decline-bench-press",
+    "source": "exercisedb",
+    "matchedName": "Barbell Reverse-Grip Decline Bench Press"
+  },
+  {
+    "slug": "wide-grip-pulldown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "neutral-grip-pulldown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "half-kneeling-pulldown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pull-up",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-pullover",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "db-pullover",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "crossbody-lat-pull",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "chest-supported-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "seated-cable-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "meadows-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "deficit-pendlay-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "bent-dumbbell-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "kroc-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "tbar-row",
+    "source": "exercisedb",
+    "matchedName": "Machine T Bar Row"
+  },
+  {
+    "slug": "reverse-pec-deck",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "reverse-cable-crossover",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "rope-face-pull",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "seated-face-pull",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "rdl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "back-extension-45",
+    "source": "exercisedb",
+    "matchedName": "Machine Back Extension"
+  },
+  {
+    "slug": "good-morning",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "deadlift",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "farmers-carry",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-lateral-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-y-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cuffed-lateral-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "leanin-lateral-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "machine-lateral-raise",
+    "source": "exercisedb",
+    "matchedName": "Machine Lateral Raise"
+  },
+  {
+    "slug": "machine-shoulder-press",
+    "source": "exercisedb",
+    "matchedName": "Machine Single-Arm Shoulder Press"
+  },
+  {
+    "slug": "seated-db-press",
+    "source": "exercisedb",
+    "matchedName": "barbell seated overhead press"
+  },
+  {
+    "slug": "arnold-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "barbell-shrug",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-shrug",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "prone-y-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "bayesian-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "preacher-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "machine-preacher-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "preacher-hammer-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "incline-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "ez-bar-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hammer-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "reverse-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "zottman-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "concentration-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "spider-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "drag-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "machine-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cross-body-hammer",
+    "source": "exercisedb",
+    "matchedName": "dumbbell cross body hammer curl"
+  },
+  {
+    "slug": "waiter-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "twenty-ones",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "chin-up",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-rope-hammer",
+    "source": "exercisedb",
+    "matchedName": "cable hammer curl (with rope)"
+  },
+  {
+    "slug": "overhead-cable-extension",
+    "source": "exercisedb",
+    "matchedName": "cable overhead triceps extension (rope attachment)"
+  },
+  {
+    "slug": "skullcrusher",
+    "source": "exercisedb",
+    "matchedName": "Barbell Reverse-Grip Skullcrusher"
+  },
+  {
+    "slug": "pressdown",
+    "source": "kept-existing",
+    "matchedName": "download-failed: cable triceps pushdown (v-bar)"
+  },
+  {
+    "slug": "overhead-rope-extension",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "seated-overhead-rope",
+    "source": "exercisedb",
+    "matchedName": "barbell seated overhead triceps extension"
+  },
+  {
+    "slug": "incline-overhead-cable",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "crossface-overhead",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "katana-extension",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "db-overhead-extension",
+    "source": "exercisedb",
+    "matchedName": "Dumbbell Seated Reverse-Grip Single-Arm Overhead Triceps Extension"
+  },
+  {
+    "slug": "jm-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "close-grip-bench",
+    "source": "kept-existing",
+    "matchedName": "download-failed: smith close-grip bench press"
+  },
+  {
+    "slug": "cable-kickback",
+    "source": "exercisedb",
+    "matchedName": "cable kickback"
+  },
+  {
+    "slug": "single-arm-cable-kickback",
+    "source": "exercisedb",
+    "matchedName": "Dumbbell Single-Arm Kickback"
+  },
+  {
+    "slug": "cuff-kickback",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "lean-back-pressdown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hack-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pendulum-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "back-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "smith-squat",
+    "source": "exercisedb",
+    "matchedName": "smith chair squat"
+  },
+  {
+    "slug": "bulgarian-split-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "leg-extension",
+    "source": "exercisedb",
+    "matchedName": "Machine Leg Extension"
+  },
+  {
+    "slug": "front-squat",
+    "source": "exercisedb",
+    "matchedName": "barbell bench front squat"
+  },
+  {
+    "slug": "leg-press",
+    "source": "exercisedb",
+    "matchedName": "Machine Alternate Leg Press"
+  },
+  {
+    "slug": "reverse-nordic",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "goblet-squat",
+    "source": "exercisedb",
+    "matchedName": "dumbbell goblet squat"
+  },
+  {
+    "slug": "seated-leg-curl",
+    "source": "exercisedb",
+    "matchedName": "Machine Seated Leg Curl"
+  },
+  {
+    "slug": "good-morning-ham",
+    "source": "exercisedb",
+    "matchedName": "barbell seated good morning"
+  },
+  {
+    "slug": "lying-leg-curl",
+    "source": "exercisedb",
+    "matchedName": "Machine Lying Leg Curl"
+  },
+  {
+    "slug": "rdl-hamstrings",
+    "source": "kept-existing",
+    "matchedName": "download-failed: barbell romanian deadlift"
+  },
+  {
+    "slug": "nordic-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "glute-ham-raise",
+    "source": "exercisedb",
+    "matchedName": "glute-ham raise"
+  },
+  {
+    "slug": "walking-lunge",
+    "source": "exercisedb",
+    "matchedName": "walking lunge"
+  },
+  {
+    "slug": "hip-abduction-machine",
+    "source": "exercisedb",
+    "matchedName": "Machine Seated Hip Abduction"
+  },
+  {
+    "slug": "back-extension-glute",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hip-thrust",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "ffe-lunge",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-pull-through",
+    "source": "exercisedb",
+    "matchedName": "cable pull through (with rope)"
+  },
+  {
+    "slug": "standing-calf-raise",
+    "source": "exercisedb",
+    "matchedName": "standing calf raise (on a staircase)"
+  },
+  {
+    "slug": "seated-calf-raise",
+    "source": "exercisedb",
+    "matchedName": "Machine Seated Calf Raise"
+  },
+  {
+    "slug": "leg-press-calf",
+    "source": "exercisedb",
+    "matchedName": "Machine Seated Squat Calf Raise On Leg Press Machine"
+  },
+  {
+    "slug": "single-leg-calf",
+    "source": "exercisedb",
+    "matchedName": "Single-Leg Floor Calf Raise"
+  },
+  {
+    "slug": "kneeling-cable-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "lat-pulldown-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "ab-mat-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "machine-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "reverse-crunch-abmat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "captains-chair-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "garhammer-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "stabilized-hanging-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "janda-situp",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "banded-reverse-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-woodchop",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "side-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pallof-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "dead-bug",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "ab-wheel",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "wrist-curl",
+    "source": "exercisedb",
+    "matchedName": "barbell wrist curl"
+  },
+  {
+    "slug": "reverse-wrist-curl",
+    "source": "exercisedb",
+    "matchedName": "dumbbell reverse wrist curl"
+  },
+  {
+    "slug": "cable-wrist-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "dead-hang",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "plate-pinch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "towel-pullup",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "fat-grip-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "rice-bucket",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "neck-flexion",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "neck-extension",
+    "source": "exercisedb",
+    "matchedName": "Barbell Seated Close-Grip Behind Neck Triceps Extension"
+  },
+  {
+    "slug": "neck-lateral",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "neck-rotation",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "incline-bench-15",
+    "source": "exercisedb",
+    "matchedName": "barbell incline bench press"
+  },
+  {
+    "slug": "incline-bench-30",
+    "source": "exercisedb",
+    "matchedName": "barbell incline bench press"
+  },
+  {
+    "slug": "incline-bench-45",
+    "source": "exercisedb",
+    "matchedName": "barbell incline bench press"
+  },
+  {
+    "slug": "incline-db-45",
+    "source": "fitnessprogramer",
+    "matchedName": "Why You Can&#8217;t Feel Your Chest During the Bench Press"
+  },
+  {
+    "slug": "machine-incline-press",
+    "source": "exercisedb",
+    "matchedName": "Machine Incline Chest Press"
+  },
+  {
+    "slug": "guillotine-press",
+    "source": "exercisedb",
+    "matchedName": "barbell guillotine bench press"
+  },
+  {
+    "slug": "cambered-bar-bench",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "reverse-grip-incline-press",
+    "source": "exercisedb",
+    "matchedName": "Barbell Reverse-Grip Incline Bench Press"
+  },
+  {
+    "slug": "wide-grip-bench",
+    "source": "kept-existing",
+    "matchedName": "download-failed: Barbell Wide Reverse-Grip Bench Press"
+  },
+  {
+    "slug": "neutral-grip-db-bench",
+    "source": "kept-existing",
+    "matchedName": "download-failed: Barbell Wide Reverse-Grip Bench Press"
+  },
+  {
+    "slug": "weighted-pushup",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hex-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "paused-bench",
+    "source": "kept-existing",
+    "matchedName": "download-failed: Barbell Wide Reverse-Grip Bench Press"
+  },
+  {
+    "slug": "lengthened-partial-bench",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "svend-press",
+    "source": "exercisedb",
+    "matchedName": "weighted svend press"
+  },
+  {
+    "slug": "low-to-high-cable-flye",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "high-to-low-cable-flye",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "kneeling-cable-flye",
+    "source": "exercisedb",
+    "matchedName": "cable low fly"
+  },
+  {
+    "slug": "incline-cable-flye",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "dumbbell-flye",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "neutral-grip-pullup",
+    "source": "fitnessprogramer",
+    "matchedName": "The Complete Guide To Pull-up"
+  },
+  {
+    "slug": "weighted-pullup",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "band-assisted-pullup",
+    "source": "fitnessprogramer",
+    "matchedName": "The Complete Guide To Pull-up"
+  },
+  {
+    "slug": "eccentric-pullup",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "underhand-pulldown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "vbar-pulldown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "meadows-pulldown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "straight-arm-pulldown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "kneeling-pulldown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "single-arm-pulldown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "seal-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pendlay-row",
+    "source": "exercisedb",
+    "matchedName": "barbell pendlay row"
+  },
+  {
+    "slug": "yates-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "helms-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "rear-delt-row",
+    "source": "exercisedb",
+    "matchedName": "dumbbell rear delt row (shoulder)"
+  },
+  {
+    "slug": "machine-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "inverted-row",
+    "source": "kept-existing",
+    "matchedName": "download-failed: inverted row"
+  },
+  {
+    "slug": "landmine-row",
+    "source": "exercisedb",
+    "matchedName": "cable standing row (v-bar)"
+  },
+  {
+    "slug": "single-arm-cable-row",
+    "source": "exercisedb",
+    "matchedName": "Single-Arm Towel Row"
+  },
+  {
+    "slug": "smith-bent-row",
+    "source": "kept-existing",
+    "matchedName": "download-failed: smith bent over row"
+  },
+  {
+    "slug": "face-pull-to-forehead",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "face-pull-er",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "kelso-shrug",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "prone-w-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "prone-t-raise",
+    "source": "exercisedb",
+    "matchedName": "dumbbell incline t-raise"
+  },
+  {
+    "slug": "barbell-ohp",
+    "source": "exercisedb",
+    "matchedName": "dumbbell standing overhead press"
+  },
+  {
+    "slug": "standing-db-press",
+    "source": "exercisedb",
+    "matchedName": "dumbbell standing overhead press"
+  },
+  {
+    "slug": "landmine-press",
+    "source": "exercisedb",
+    "matchedName": "cable decline press"
+  },
+  {
+    "slug": "z-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "push-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "db-lateral-raise",
+    "source": "exercisedb",
+    "matchedName": "dumbbell lateral raise"
+  },
+  {
+    "slug": "behind-back-db-lateral",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "seated-strict-lateral",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "lengthened-partial-lateral",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "scaption-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "prone-incline-lateral",
+    "source": "exercisedb",
+    "matchedName": "Dumbbell Incline Single-Arm Lateral Raise"
+  },
+  {
+    "slug": "band-lateral-raise",
+    "source": "exercisedb",
+    "matchedName": "band front lateral raise"
+  },
+  {
+    "slug": "db-front-raise",
+    "source": "exercisedb",
+    "matchedName": "dumbbell front raise"
+  },
+  {
+    "slug": "plate-front-raise",
+    "source": "exercisedb",
+    "matchedName": "dumbbell front raise"
+  },
+  {
+    "slug": "cable-front-raise",
+    "source": "exercisedb",
+    "matchedName": "cable front raise"
+  },
+  {
+    "slug": "incline-front-raise",
+    "source": "exercisedb",
+    "matchedName": "cable front raise"
+  },
+  {
+    "slug": "prone-rear-flye",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "bent-over-rear-flye",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-crossbody-rear-flye",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "single-arm-cable-rear-flye",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "band-pull-apart",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "db-shrug",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "overhead-shrug",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "incline-db-shrug",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "behind-back-shrug",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "trap-bar-shrug",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "scapular-pullup",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "push-up-plus",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "low-bar-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "zercher-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "safety-bar-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cyclist-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "belt-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pause-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "one-half-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "leg-press-high-feet",
+    "source": "exercisedb",
+    "matchedName": "sled 45° leg press"
+  },
+  {
+    "slug": "leg-press-wide",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "single-leg-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "reclined-leg-extension",
+    "source": "exercisedb",
+    "matchedName": "Machine Leg Extension"
+  },
+  {
+    "slug": "single-leg-extension",
+    "source": "exercisedb",
+    "matchedName": "Machine Leg Extension"
+  },
+  {
+    "slug": "sissy-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "spanish-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "atg-split-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "forward-lunge",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "step-up",
+    "source": "kept-existing",
+    "matchedName": "download-failed: dumbbell step-up lunge"
+  },
+  {
+    "slug": "high-step-up",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "standing-leg-curl",
+    "source": "exercisedb",
+    "matchedName": "standing single leg curl"
+  },
+  {
+    "slug": "razor-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "swiss-ball-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "slider-leg-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "leg-curl-toes-in",
+    "source": "exercisedb",
+    "matchedName": "Machine Lying Leg Curl"
+  },
+  {
+    "slug": "leg-curl-toes-out",
+    "source": "exercisedb",
+    "matchedName": "Machine Lying Leg Curl"
+  },
+  {
+    "slug": "stiff-leg-deadlift",
+    "source": "kept-existing",
+    "matchedName": "download-failed: dumbbell stiff leg deadlift"
+  },
+  {
+    "slug": "single-leg-rdl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "deficit-rdl",
+    "source": "kept-existing",
+    "matchedName": "download-failed: barbell romanian deadlift"
+  },
+  {
+    "slug": "snatch-grip-rdl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "reverse-hyper",
+    "source": "exercisedb",
+    "matchedName": "Machine Reverse Hyperextension"
+  },
+  {
+    "slug": "kb-swing",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "kas-bridge",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hip-thrust-feet-forward",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hip-thrust-wide",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "single-leg-hip-thrust",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "smith-hip-thrust",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "frog-pump",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-glute-kickback",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "deficit-reverse-lunge",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "reverse-lunge",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "abduction-upright",
+    "source": "exercisedb",
+    "matchedName": "Band Seated Hip Abduction"
+  },
+  {
+    "slug": "abduction-lean-back",
+    "source": "exercisedb",
+    "matchedName": "Band Seated Hip Abduction"
+  },
+  {
+    "slug": "donkey-calf",
+    "source": "exercisedb",
+    "matchedName": "Single-Leg Donkey Calf Raise"
+  },
+  {
+    "slug": "smith-calf-raise",
+    "source": "exercisedb",
+    "matchedName": "Machine Seated Calf Raise"
+  },
+  {
+    "slug": "calf-raise-toes-in",
+    "source": "exercisedb",
+    "matchedName": "barbell floor calf raise"
+  },
+  {
+    "slug": "calf-raise-toes-out",
+    "source": "exercisedb",
+    "matchedName": "barbell floor calf raise"
+  },
+  {
+    "slug": "calf-lengthened-partials",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "adductor-machine",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "copenhagen-long",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "copenhagen-short",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cossack-squat",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "lateral-lunge",
+    "source": "exercisedb",
+    "matchedName": "barbell lateral lunge"
+  },
+  {
+    "slug": "cable-hip-adduction",
+    "source": "exercisedb",
+    "matchedName": "cable hip adduction"
+  },
+  {
+    "slug": "slider-adduction",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "sumo-squat",
+    "source": "exercisedb",
+    "matchedName": "barbell narrow stance squat"
+  },
+  {
+    "slug": "ball-squeeze-isometric",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "banded-knee-drive",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "lying-straight-leg-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-hip-flexion",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "roman-chair-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "weighted-high-knees",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "psoas-march",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "tibialis-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "tib-bar-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "band-dorsiflexion",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "incline-curl-30",
+    "source": "exercisedb",
+    "matchedName": "dumbbell incline curl"
+  },
+  {
+    "slug": "incline-curl-60",
+    "source": "exercisedb",
+    "matchedName": "dumbbell incline curl"
+  },
+  {
+    "slug": "ez-preacher-curl",
+    "source": "exercisedb",
+    "matchedName": "EZ-Bar Close-Grip Preacher Curl"
+  },
+  {
+    "slug": "one-arm-cable-preacher",
+    "source": "exercisedb",
+    "matchedName": "Single-Arm Cable Rope Preacher Curl"
+  },
+  {
+    "slug": "strict-wall-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cheat-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "wide-grip-ez-curl",
+    "source": "exercisedb",
+    "matchedName": "barbell standing wide-grip curl"
+  },
+  {
+    "slug": "narrow-grip-ez-curl",
+    "source": "exercisedb",
+    "matchedName": "Barbell Standing Close-Grip Curl"
+  },
+  {
+    "slug": "inverse-zottman",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pinwheel-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "incline-hammer-curl",
+    "source": "exercisedb",
+    "matchedName": "dumbbell incline hammer curl"
+  },
+  {
+    "slug": "lying-cable-curl",
+    "source": "exercisedb",
+    "matchedName": "dumbbell lying wide curl"
+  },
+  {
+    "slug": "behind-back-db-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "double-biceps-cable-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "standing-db-curl",
+    "source": "exercisedb",
+    "matchedName": "Dumbbell Single-Arm Standing Hammer Curl"
+  },
+  {
+    "slug": "french-press",
+    "source": "exercisedb",
+    "matchedName": "EZ-Bar Standing French Press"
+  },
+  {
+    "slug": "incline-db-overhead-ext",
+    "source": "exercisedb",
+    "matchedName": "cable overhead triceps extension (rope attachment)"
+  },
+  {
+    "slug": "two-arm-db-overhead",
+    "source": "exercisedb",
+    "matchedName": "Dumbbell Seated Reverse-Grip Single-Arm Overhead Triceps Extension"
+  },
+  {
+    "slug": "overhead-bar-extension",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "incline-skullcrusher",
+    "source": "exercisedb",
+    "matchedName": "Barbell Reverse-Grip Skullcrusher"
+  },
+  {
+    "slug": "behind-head-skullcrusher",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "decline-skullcrusher",
+    "source": "exercisedb",
+    "matchedName": "Barbell Reverse-Grip Skullcrusher"
+  },
+  {
+    "slug": "california-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "tate-press",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "suspension-triceps",
+    "source": "exercisedb",
+    "matchedName": "assisted standing triceps extension (with towel)"
+  },
+  {
+    "slug": "db-kickback",
+    "source": "exercisedb",
+    "matchedName": "Dumbbell Single-Arm Kickback"
+  },
+  {
+    "slug": "bench-dip",
+    "source": "exercisedb",
+    "matchedName": "bench dip on floor"
+  },
+  {
+    "slug": "vbar-pressdown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "reverse-grip-pressdown",
+    "source": "exercisedb",
+    "matchedName": "cable reverse-grip pushdown"
+  },
+  {
+    "slug": "single-arm-pressdown",
+    "source": "exercisedb",
+    "matchedName": "Cable Single-Arm Triceps Pushdown"
+  },
+  {
+    "slug": "cuff-pressdown",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "rope-pressdown",
+    "source": "exercisedb",
+    "matchedName": "cable pushdown"
+  },
+  {
+    "slug": "weighted-dip",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "machine-dip",
+    "source": "exercisedb",
+    "matchedName": "Machine Seated Dip"
+  },
+  {
+    "slug": "diamond-pushup",
+    "source": "exercisedb",
+    "matchedName": "diamond push-up"
+  },
+  {
+    "slug": "db-wrist-curl",
+    "source": "exercisedb",
+    "matchedName": "barbell wrist curl"
+  },
+  {
+    "slug": "behind-back-wrist-curl",
+    "source": "exercisedb",
+    "matchedName": "barbell standing back wrist curl"
+  },
+  {
+    "slug": "wrist-roller",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "wrist-roller-extensor",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "radial-deviation",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "ulnar-deviation",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pronation-lever",
+    "source": "exercisedb",
+    "matchedName": "dumbbell lying pronation"
+  },
+  {
+    "slug": "supination-lever",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "finger-extension-band",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "finger-roll-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "one-arm-dead-hang",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "active-hang",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hub-lift",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "thick-bar-hold",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "wrist-wrench",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "gripper-crush",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "rope-climb",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hangboard-half-crimp",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hangboard-max-hang",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hangboard-repeaters",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hangboard-one-arm",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pinch-block-hang",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "standing-cable-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "barbell-rollout",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "standing-ab-wheel",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hollow-body-hold",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hollow-rock",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "stability-ball-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "decline-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "weighted-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "dead-bug-banded",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "dead-bug-weighted",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hanging-knee-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "hanging-leg-raise",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "toes-to-bar",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "lying-leg-raise-hip-lift",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "decline-reverse-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "dragon-flag",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "l-sit-hold",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "pallof-kneeling",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cable-lift",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "side-plank",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "side-plank-hip-dip",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "russian-twist",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "landmine-rotation",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "cross-body-climber",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "bicycle-crunch",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "stir-the-pot",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "renegade-row",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "rkc-plank",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "body-saw",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "stomach-vacuum",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "mcgill-curl-up",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "bird-dog",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "chin-tuck",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "banded-chin-tuck",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "harness-neck-flexion",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "harness-neck-extension",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "neck-4way-machine",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "iso-neck-4way",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "banded-neck-extension",
+    "source": "exercisedb",
+    "matchedName": "Barbell Seated Close-Grip Behind Neck Triceps Extension"
+  },
+  {
+    "slug": "partner-neck-curl",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "prone-neck-y-lift",
+    "source": "kept-existing",
+    "matchedName": null
+  },
+  {
+    "slug": "wrestlers-bridge",
+    "source": "kept-existing",
+    "matchedName": null
+  }
+]

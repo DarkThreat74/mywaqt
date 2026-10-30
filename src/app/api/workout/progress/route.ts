@@ -30,13 +30,14 @@ export async function GET(request: NextRequest) {
       .where(and(eq(schema.workoutSessions.userId, session.userId), isNotNull(schema.workoutSessions.endedAt)))
       .orderBy(desc(schema.workoutSessions.startedAt));
     // Group per slug → history points (best e1RM per session) + last-session detail
-    const bySlug = new Map<string, { points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sessions: number }>();
+    const bySlug = new Map<string, { points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sessions: number; tonnage: number; best: number }>();
+    let totalTonnage = 0;
     for (const row of rows) {
       if (!row.done) continue;
       const w = parseFloat(row.weight || "");
       const r = row.reps || 0;
       if (!w || !r) continue;
-      const e = bySlug.get(row.slug) || { points: [], last: null, sessions: 0 };
+      const e = bySlug.get(row.slug) || { points: [], last: null, sessions: 0, tonnage: 0, best: 0 };
       const val = e1rm(w, r);
       if (!e.points.find((p) => p.at === row.at.toISOString())) {
         e.points.push({ at: row.at.toISOString(), e1: val });
@@ -46,6 +47,9 @@ export async function GET(request: NextRequest) {
       }
       if (!e.last) e.last = { w, r, rir: row.rir, at: row.at.toISOString() };
       e.sessions++;
+      e.tonnage += w * r;
+      if (val > e.best) e.best = val;
+      totalTonnage += w * r;
       bySlug.set(row.slug, e);
     }
     // sessions-between: count distinct sessions overall for context
@@ -55,6 +59,12 @@ export async function GET(request: NextRequest) {
       points: v.points.reverse(), // oldest → newest
       last: v.last,
       sets: v.sessions,
+      bestE1: Math.round(v.best * 10) / 10,
+      firstE1: v.points.length ? Math.round(v.points[0].e1 * 10) / 10 : null,
+      lastE1: v.points.length ? Math.round(v.points[v.points.length - 1].e1 * 10) / 10 : null,
+      gainPct: v.points.length >= 2 && v.points[0].e1 > 0
+        ? Math.round(((v.points[v.points.length - 1].e1 - v.points[0].e1) / v.points[0].e1) * 1000) / 10
+        : null,
     }));
 
     // ── Muscle-growth model ──
@@ -129,6 +139,6 @@ export async function GET(request: NextRequest) {
       const freshness = Math.min(Math.round((hoursSince / 72) * 100), 100);
       return { muscle, effSetsWeek: Math.round(eff * 10) / 10, landmark: [lo, hi], slopePct: Math.round(slope * 10) / 10, status, freshness };
     });
-    return NextResponse.json({ progress: out, totalSessions: sessCount, muscles });
+    return NextResponse.json({ progress: out, totalSessions: sessCount, muscles, totalTonnage: Math.round(totalTonnage) });
   } catch (e) { logError(e, { route: "workout/progress GET" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }
 }

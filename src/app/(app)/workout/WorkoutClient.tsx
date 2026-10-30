@@ -16,7 +16,10 @@ export default function WorkoutClient() {
   const [view, setView] = useState<Exercise | null>(null);
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [showProgress, setShowProgress] = useState(false);
-  const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number }>>([]);
+  const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null }>>([]);
+  const [tonnage, setTonnage] = useState(0);
+  const [bodyWeight, setBodyWeight] = useState("");
+  const [heightCm, setHeightCm] = useState("");
   const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
@@ -42,6 +45,11 @@ export default function WorkoutClient() {
       const data = await pr.json();
       setProgress(data.progress || []);
       setMuscles(data.muscles || []);
+      setTonnage(data.totalTonnage || 0);
+      try {
+        setBodyWeight(localStorage.getItem("waqt:bw") || "");
+        setHeightCm(localStorage.getItem("waqt:ht") || "");
+      } catch { /* noop */ }
     }
     const hr = await fetch("/api/workout/sessions").catch(() => null);
     if (hr?.ok) {
@@ -419,6 +427,73 @@ export default function WorkoutClient() {
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
           {showProgress ? "Hide" : "Show"} progress — {progress.length} exercises tracked
         </button>
+      )}
+
+      {showProgress && (
+        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Your stats</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+              weight
+              <input value={bodyWeight} onChange={(e) => { setBodyWeight(e.target.value); try { localStorage.setItem("waqt:bw", e.target.value); } catch { /* noop */ } }}
+                placeholder="kg" className="w-14 rounded border px-1.5 py-1 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+              kg
+            </label>
+            <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+              height
+              <input value={heightCm} onChange={(e) => { setHeightCm(e.target.value); try { localStorage.setItem("waqt:ht", e.target.value); } catch { /* noop */ } }}
+                placeholder="cm" className="w-14 rounded border px-1.5 py-1 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+              cm
+            </label>
+          </div>
+          {(() => {
+            const bw = parseFloat(bodyWeight), ht = parseFloat(heightCm);
+            const bmi = bw > 0 && ht > 0 ? bw / ((ht / 100) ** 2) : null;
+            const LIFTS: [string[], string, [number, number, number]][] = [
+              [["barbell-bench-press", "machine-chest-press", "dumbbell-press"], "bench", [0.75, 1.0, 1.5]],
+              [["back-squat", "front-squat", "hack-squat"], "squat", [1.0, 1.5, 2.0]],
+              [["rdl", "deadlift"], "deadlift", [1.25, 2.0, 2.5]],
+              [["barbell-ohp", "seated-db-press", "machine-shoulder-press"], "press", [0.5, 0.75, 1.0]],
+              [["pull-up", "weighted-pullup", "chin-up"], "pull-up", [0.9, 1.2, 1.5]],
+            ];
+            const levelOf = (ratio: number, [b, i, a]: [number, number, number]) =>
+              ratio >= a ? "advanced" : ratio >= i ? "intermediate" : ratio >= b ? "novice" : "beginner";
+            const lifts = bw > 0 ? LIFTS.map(([slugs, name, marks]) => {
+              const best = Math.max(0, ...slugs.map((s) => progress.find((p) => p.slug === s)?.bestE1 || 0));
+              return best > 0 ? { name, ratio: best / bw, level: levelOf(best / bw, marks) } : null;
+            }).filter(Boolean) : [];
+            const gains = progress.filter((p) => p.gainPct != null && p.gainPct !== 0).sort((a, b) => (b.gainPct || 0) - (a.gainPct || 0)).slice(0, 4);
+            return (
+              <>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                  {bmi && <span>BMI <b style={{ color: "var(--color-ink)" }}>{bmi.toFixed(1)}</b></span>}
+                  {tonnage > 0 && <span>lifetime volume <b style={{ color: "var(--color-ink)" }}>{(tonnage / 1000).toFixed(1)}t</b></span>}
+                  {progress.length > 0 && <span>PRs <b style={{ color: "var(--color-ink)" }}>{progress.filter((p) => (p.bestE1 || 0) > 0).length}</b></span>}
+                </div>
+                {lifts.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {lifts.map((l) => l && (
+                      <div key={l.name} className="flex items-center gap-2">
+                        <span className="w-14 text-[10px]" style={{ color: "var(--color-ink)" }}>{l.name}</span>
+                        <div className="h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                          <div className="h-1.5 rounded-full" style={{ width: `${Math.min((l.ratio / 2.5) * 100, 100)}%`, backgroundColor: l.level === "advanced" ? "var(--color-success)" : l.level === "intermediate" ? "var(--color-accent)" : "var(--color-warmth)" }} />
+                        </div>
+                        <span className="w-20 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                          {l.ratio.toFixed(2)}×bw · {l.level}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {gains.length > 0 && (
+                  <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    biggest gains: {gains.map((g) => `${EXERCISES.find((e) => e.slug === g.slug)?.name || g.slug} ${g.gainPct! > 0 ? "+" : ""}${g.gainPct}%`).join(" · ")}
+                  </p>
+                )}
+              </>
+            );
+          })()}
+        </div>
       )}
 
       {showProgress && muscles.length > 0 && (

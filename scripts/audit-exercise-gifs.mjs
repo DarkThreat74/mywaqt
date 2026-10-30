@@ -46,7 +46,7 @@ const dl = async (url, slug) => {
 
 // ── token machinery ──────────────────────────────────────────────
 const EQUIP = new Set(['machine','cable','barbell','dumbbell','smith','band','banded','bodyweight','kettlebell','ez','lever','weighted','suspension','trx','plate','sled','trap','hex','cambered','v','vbar','rope','thick','fat','towel','cuff','partner','sliders','slider','stability','ball','swiss','medicine','landmine','tib','hangboard','ab','wheel','mini','resistance','assisted','bench']);
-const POSTURE = new Set(['seated','standing','lying','prone','supine','kneeling','half','incline','decline','flat','bent','upright','lean','overhead','behind','front','reverse','deficit','paused','single','double','one','two','arm','hand','grip','wide','narrow','close','neutral','underhand','overhand','cross','crossbody','floor','side','lateral','high','low','45','90','reclined','split','sumo','staggered']);
+const POSTURE = new Set(['seated','standing','lying','prone','supine','kneeling','half','incline','decline','flat','bent','upright','lean','overhead','behind','front','deficit','paused','single','double','one','two','arm','hand','grip','cross','crossbody','floor','side','lateral','high','low','45','90','reclined','split']);
 const SYN = {
   flye: ['fly','flye'], fly: ['fly','flye'],
   pushup: ['push','up'], 'push-up': ['push','up'],
@@ -117,6 +117,7 @@ const CONTRA = {
   calves: ['press','row','pull','crunch','shrug','fly','curl','squat?'],
   abs: ['curl','squat','lunge','press','row','shrug','raise','extension','kickback','leg'],
   forearms: ['squat','lunge','press','row','crunch','fly','leg'],
+  neck: ['triceps','biceps','quad','glute','calf','chest','pec','press','row','squat','lunge','crunch','shrug','pushdown','pulldown','kickback','fly','raise','deadlift'],
 };
 // words in CANDIDATE names we ignore for contra-check when bank name also has them
 const isContra = (candToks, bankToks, muscle) => {
