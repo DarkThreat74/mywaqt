@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { EXERCISES, MUSCLES, SPLIT_TEMPLATES, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
+import { EXERCISES, MUSCLES, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 
@@ -24,6 +24,7 @@ export default function WorkoutClient() {
   const [showHistory, setShowHistory] = useState(false);
   const [dayName, setDayName] = useState("");
   const [muscleFilter, setMuscleFilter] = useState<string>("all");
+  const [muscleOpen, setMuscleOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<DayExercise[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
@@ -60,23 +61,6 @@ export default function WorkoutClient() {
     return [...list].sort((a, b) => (a.tier || "Z").localeCompare(b.tier || "Z"));
   }, [muscleFilter, search, tierFilter]);
 
-  const applyTemplate = async (key: string) => {
-    const tpl = SPLIT_TEMPLATES[key];
-    if (!tpl) return;
-    for (const [weekday, d] of Object.entries(tpl.days)) {
-      // Suggest the tier-S exercise per muscle for each day — the bank's
-      // ranked defaults, fully editable after.
-      const picks = d.muscles
-        .map((m) => EXERCISES.find((x) => x.muscle === m && x.tier === "S") || EXERCISES.find((x) => x.muscle === m))
-        .filter((x): x is Exercise => !!x)
-        .map((x) => ({ slug: x.slug, name: x.name, sets: 3, reps: "8-12" }));
-      await fetch("/api/workout/days", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekday: Number(weekday), name: d.name, exercises: picks }),
-      }).catch(() => {});
-    }
-    await load();
-  };
 
   const openProfile = (d?: WDay) => {
     setStep(d ? 2 : 0);
@@ -129,6 +113,45 @@ export default function WorkoutClient() {
     }));
   };
 
+  const detailOverlay = view ? (() => {
+    const sci = SCIENCE[view.slug];
+    return (
+      <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+        style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setView(null)}>
+        <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-2xl sm:rounded-2xl border p-5"
+          style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+          onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{view.name}</h2>
+              <div className="mt-1 flex items-center gap-2">
+                {view.tier && <span className="rounded px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: TIER_COLORS[view.tier], color: "#fff" }}>{view.tier}-tier</span>}
+                <span className="text-[10px] capitalize" style={{ color: "var(--color-ink-muted)" }}>{view.muscle.replace(/_/g, " ")} · {view.equip}</span>
+              </div>
+            </div>
+            <button type="button" onClick={() => setView(null)} className="text-lg" style={{ color: "var(--color-ink-muted)" }}>✕</button>
+          </div>
+          <ExerciseMedia slug={view.slug} pattern={view.pattern}
+            className="mt-4 aspect-square w-full rounded-xl"
+            style={{ backgroundColor: "var(--color-paper-2)" }} />
+          <p className="mt-4 text-sm font-medium" style={{ color: "var(--color-ink)" }}>{view.cue}</p>
+          {sci && (
+            <div className="mt-3 rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>The science</p>
+              <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--color-ink)" }}>{sci.science}</p>
+              <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{sci.source}</p>
+            </div>
+          )}
+          <button type="button" onClick={() => { addExercise(view); setView(null); }}
+            className="mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+            Add to workout
+          </button>
+        </div>
+      </div>
+    );
+  })() : null;
+
   if (step === 0) {
     return (
       <div className="mx-auto w-full max-w-md px-4 py-12" style={{ animation: "fadeIn .25s ease" }}>
@@ -148,6 +171,7 @@ export default function WorkoutClient() {
             Other — name it myself
           </button>
         </div>
+        {detailOverlay}
       </div>
     );
   }
@@ -168,6 +192,7 @@ export default function WorkoutClient() {
           style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
           Pick exercises →
         </button>
+        {detailOverlay}
       </div>
     );
   }
@@ -232,15 +257,28 @@ export default function WorkoutClient() {
             </button>
           ))}
         </div>
-        <select
-          value={muscleFilter}
-          onChange={(e) => setMuscleFilter(e.target.value)}
-          className="mt-2 w-full rounded-lg border px-3 py-2 text-xs outline-none"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
-        >
-          <option value="all">All muscles</option>
-          {MUSCLES.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-        </select>
+        <div className="relative mt-2">
+          <button type="button" onClick={() => setMuscleOpen((v) => !v)}
+            className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-xs"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}>
+            <span>{muscleFilter === "all" ? "All muscles" : MUSCLES.find((m) => m.key === muscleFilter)?.label}</span>
+            <span style={{ color: "var(--color-ink-muted)", transform: muscleOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+          </button>
+          {muscleOpen && (
+            <div className="absolute left-0 right-0 top-full z-40 mt-1 max-h-64 overflow-y-auto rounded-lg border shadow-lg"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+              {[{ key: "all", label: "All muscles" }, ...MUSCLES].map((m) => (
+                <button key={m.key} type="button"
+                  onClick={() => { setMuscleFilter(m.key); setMuscleOpen(false); }}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ color: muscleFilter === m.key ? "var(--color-accent)" : "var(--color-ink)" }}>
+                  {m.label}
+                  {muscleFilter === m.key && <span>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
           {filtered.map((x) => (
@@ -284,6 +322,7 @@ export default function WorkoutClient() {
           {editId ? "Save workout" : "Create workout"}
         </button>
         {msg && <p className="mt-2 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>{msg}</p>}
+        {detailOverlay}
       </div>
     );
   }
@@ -291,19 +330,6 @@ export default function WorkoutClient() {
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6">
       <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Workout</h1>
-      <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-        Pick a split or build each day — the tier list is baked in.
-      </p>
-
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {Object.entries(SPLIT_TEMPLATES).map(([key, t]) => (
-          <button key={key} type="button" onClick={() => void applyTemplate(key)}
-            className="rounded-xl border px-3 py-3 text-left text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
-            {t.name}
-          </button>
-        ))}
-      </div>
 
       <div className="mt-6 space-y-2">
         {days.map((d) => (
@@ -468,45 +494,7 @@ export default function WorkoutClient() {
       )}
       {msg && <p className="mt-4 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>{msg}</p>}
 
-      {/* Exercise detail overlay — GIF closeup, science, citation */}
-      {view && (() => {
-        const sci = SCIENCE[view.slug];
-        return (
-          <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
-            style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setView(null)}>
-            <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-2xl sm:rounded-2xl border p-5"
-              style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
-              onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{view.name}</h2>
-                  <div className="mt-1 flex items-center gap-2">
-                    {view.tier && <span className="rounded px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: TIER_COLORS[view.tier], color: "#fff" }}>{view.tier}-tier</span>}
-                    <span className="text-[10px] capitalize" style={{ color: "var(--color-ink-muted)" }}>{view.muscle.replace(/_/g, " ")} · {view.equip}</span>
-                  </div>
-                </div>
-                <button type="button" onClick={() => setView(null)} className="text-lg" style={{ color: "var(--color-ink-muted)" }}>✕</button>
-              </div>
-              <ExerciseMedia slug={view.slug} pattern={view.pattern}
-                className="mt-4 aspect-square w-full rounded-xl"
-                style={{ backgroundColor: "var(--color-paper-2)" }} />
-              <p className="mt-4 text-sm font-medium" style={{ color: "var(--color-ink)" }}>{view.cue}</p>
-              {sci && (
-                <div className="mt-3 rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>The science</p>
-                  <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--color-ink)" }}>{sci.science}</p>
-                  <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{sci.source}</p>
-                </div>
-              )}
-              <button type="button" onClick={() => { addExercise(view); setView(null); }}
-                className="mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold"
-                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
-                Add to workout
-              </button>
-            </div>
-          </div>
-        );
-      })()}
+      {detailOverlay}
     </div>
   );
 }
