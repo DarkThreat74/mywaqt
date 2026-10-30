@@ -15,6 +15,10 @@ export default function WorkoutClient() {
   const [step, setStep] = useState<number | null>(null); // 0=type, 1=name, 2=exercises
   const [view, setView] = useState<Exercise | null>(null);
   const [tierFilter, setTierFilter] = useState<string>("all");
+  const [showProgress, setShowProgress] = useState(false);
+  const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number }>>([]);
+  const [targets, setTargets] = useState<Record<string, string>>({});
+  const [now, setNow] = useState(0);
   const [dayName, setDayName] = useState("");
   const [muscleFilter, setMuscleFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -28,8 +32,13 @@ export default function WorkoutClient() {
       const data = await res.json();
       setDays(data.days || []);
     }
+    const pr = await fetch("/api/workout/progress").catch(() => null);
+    if (pr?.ok) {
+      const data = await pr.json();
+      setProgress(data.progress || []);
+    }
   }
-  useEffect(() => { Promise.resolve().then(() => void load()); }, []);
+  useEffect(() => { Promise.resolve().then(() => { void load(); setNow(Date.now()); }); }, []);
 
   const filtered = useMemo(() => {
     let list = EXERCISES;
@@ -311,6 +320,67 @@ export default function WorkoutClient() {
           + New workout profile
         </button>
       </div>
+
+      {progress.length > 0 && (
+        <button type="button" onClick={() => setShowProgress((v) => !v)}
+          className="mt-4 w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+          {showProgress ? "Hide" : "Show"} progress — {progress.length} exercises tracked
+        </button>
+      )}
+
+      {showProgress && (
+        <div className="mt-3 space-y-2">
+          {progress.map((p) => {
+            const ex = EXERCISES.find((e) => e.slug === p.slug);
+            if (!ex || !p.last) return null;
+            const isLower = ["quads", "hamstrings", "glutes", "gastroc", "soleus", "glute_med", "erectors"].includes(ex.muscle);
+            const inc = isLower ? 5 : 2.5;
+            const daysSince = (now - new Date(p.last.at).getTime()) / 86400000;
+            // Alpha-Progression-lite: top-of-range + low RIR → add increment;
+            // 2+ weeks off → hold weight (detrain caution); weak session → -5%.
+            let suggest = p.last.w;
+            if (p.last.r >= 12 && (p.last.rir === null || p.last.rir <= 1)) suggest = p.last.w + inc;
+            else if (p.last.r <= 6) suggest = Math.round(p.last.w * 0.95 * 2) / 2;
+            if (daysSince > 14) suggest = p.last.w;
+            const target = targets[p.slug] ?? String(Math.round(suggest * 2) / 2);
+            const max = Math.max(...p.points.map((pt) => pt.e1));
+            const min = Math.min(...p.points.map((pt) => pt.e1));
+            return (
+              <div key={p.slug} className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{ex.name}</span>
+                  <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    e1RM {Math.round(p.points[p.points.length - 1]?.e1 || 0)}kg
+                  </span>
+                </div>
+                {/* sparkline */}
+                <svg viewBox="0 0 100 18" className="mt-2 h-5 w-full" preserveAspectRatio="none" aria-hidden="true">
+                  <polyline
+                    points={p.points.map((pt, i) => `${(i / Math.max(p.points.length - 1, 1)) * 100},${16 - ((pt.e1 - min) / Math.max(max - min, 1)) * 14}`).join(" ")}
+                    fill="none" stroke="var(--color-accent)" strokeWidth="1.5"
+                  />
+                </svg>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    {daysSince > 14 ? `${Math.floor(daysSince)}d off — hold` : `last ${p.last.w}×${p.last.r}${p.last.rir !== null ? ` RIR${p.last.rir}` : ""}`}
+                  </span>
+                  <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    try
+                    <input
+                      value={target}
+                      onChange={(e) => setTargets((t) => ({ ...t, [p.slug]: e.target.value }))}
+                      className="w-12 rounded border px-1 py-0.5 text-center text-[10px]"
+                      style={{ borderColor: "var(--color-warmth)", color: "var(--color-ink)" }}
+                    />
+                    kg
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {days.length === 0 && (
         <p className="mt-6 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
