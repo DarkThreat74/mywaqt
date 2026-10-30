@@ -73,6 +73,10 @@ export const HEAD_OF: Record<string, string> = {
   "preacher-curl": "short_head", "machine-preacher-curl": "short_head",
   "ez-bar-curl": "short_head", "hammer-curl": "brachialis", "preacher-hammer-curl": "brachialis",
   "reverse-curl": "brachialis", "zottman-curl": "brachialis", "fat-grip-curl": "brachialis",
+  "concentration-curl": "short_head", "spider-curl": "short_head",
+  "drag-curl": "long_head", "waiter-curl": "short_head",
+  "cable-curl": "short_head", "machine-curl": "short_head", "twenty-ones": "short_head",
+  "cross-body-hammer": "brachialis", "cable-rope-hammer": "brachialis", "chin-up": "short_head",
   // triceps → long_head (overhead) / lateral (pushdown) / medial (press)
   "overhead-cable-extension": "long_head", "overhead-rope-extension": "long_head",
   "katana-extension": "long_head", "db-overhead-extension": "long_head", "skullcrusher": "long_head",
@@ -112,8 +116,9 @@ const mw = (slug: string) => `https://cdn.musclewiki.org/media/uploads/male/${sl
 
 const e = (
   slug: string, name: string, muscle: string, pattern: string, equip: string,
-  tier: "S" | "A" | "B" | "C" | undefined, cue: string, compound = false,
-): Exercise => ({ slug, name, muscle, pattern, equip, tier, cue, compound, img: mw(slug) });
+  tier: "S" | "A" | "B" | "C" | "D" | "F" | undefined, cue: string, compound = false,
+  detail?: Pick<Exercise, "howto" | "pros" | "cons" | "source">,
+): Exercise => ({ slug, name, muscle, pattern, equip, tier, cue, compound, img: mw(slug), ...detail });
 
 export const EXERCISES: Exercise[] = [
   // ── CHEST ──
