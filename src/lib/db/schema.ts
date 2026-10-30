@@ -1451,6 +1451,7 @@ export const workoutDayExercises = pgTable('workout_day_exercises', {
   name: text('name').notNull(),
   sets: integer('sets').default(3).notNull(),
   reps: text('reps').default('8-12').notNull(),
+  supersetGroup: integer('superset_group'),
   sortOrder: integer('sort_order').default(0).notNull(),
 });
 

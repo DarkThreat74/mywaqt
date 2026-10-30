@@ -6,7 +6,7 @@ import Link from "next/link";
 import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 
-interface DayExercise { slug: string; name: string; sets: number; reps: string; }
+interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; done: boolean; }
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
@@ -172,7 +172,10 @@ function ActiveInner() {
           const ex: Exercise | undefined = EXERCISES.find((e) => e.slug === x.slug);
           const rows = setRows[x.slug] || [];
           return (
-            <div key={x.slug} className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div key={x.slug} className="rounded-xl border p-3" style={{ borderColor: x.supersetGroup != null ? "var(--color-accent)" : "var(--color-paper-3)" }}>
+              {x.supersetGroup != null && (
+                <p className="mb-2 text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-accent)" }}>superset</p>
+              )}
               <div className="flex items-start gap-3">
                 {ex && (
                   <ExerciseMedia

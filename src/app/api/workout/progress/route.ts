@@ -99,6 +99,13 @@ export async function GET(request: NextRequest) {
       arr.push(...points.map((p) => ({ t: new Date(p.at).getTime(), e: p.e1 })));
       musclePoints.set(muscle, arr);
     }
+    const lastTrained = new Map<string, number>();
+    for (const row of rows) {
+      const muscle = muscleOf.get(row.slug);
+      if (!muscle) continue;
+      const t = row.at.getTime();
+      if (!lastTrained.get(muscle) || t > lastTrained.get(muscle)!) lastTrained.set(muscle, t);
+    }
     const muscles = [...new Set([...effWeek.keys(), ...musclePoints.keys()])].map((muscle) => {
       const pts = (musclePoints.get(muscle) || []).sort((a, b) => a.t - b.t);
       let slope = 0;
@@ -117,7 +124,10 @@ export async function GET(request: NextRequest) {
         eff > hi ? "over" :
         slope > 0.3 ? "growing" :
         slope > -0.3 ? "maintaining" : "stalling";
-      return { muscle, effSetsWeek: Math.round(eff * 10) / 10, landmark: [lo, hi], slopePct: Math.round(slope * 10) / 10, status };
+      // Fitbod-style freshness: ~48-72h to recover → % recovered
+      const hoursSince = lastTrained.get(muscle) ? (nowMs - lastTrained.get(muscle)!) / 3600000 : Infinity;
+      const freshness = Math.min(Math.round((hoursSince / 72) * 100), 100);
+      return { muscle, effSetsWeek: Math.round(eff * 10) / 10, landmark: [lo, hi], slopePct: Math.round(slope * 10) / 10, status, freshness };
     });
     return NextResponse.json({ progress: out, totalSessions: sessCount, muscles });
   } catch (e) { logError(e, { route: "workout/progress GET" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }

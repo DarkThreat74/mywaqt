@@ -5,7 +5,7 @@ import { EXERCISES, MUSCLES, SPLIT_TEMPLATES, DAY_TEMPLATES, type Exercise } fro
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 
-interface DayExercise { slug: string; name: string; sets: number; reps: string; }
+interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface WDay { id: string; weekday: number | null; name: string; exercises: DayExercise[]; }
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
@@ -17,7 +17,7 @@ export default function WorkoutClient() {
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number }>>([]);
-  const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string }>>([]);
+  const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<Array<{ id: string; dayName: string; startedAt: string; endedAt: string | null }>>([]);
@@ -82,7 +82,7 @@ export default function WorkoutClient() {
     setStep(d ? 2 : 0);
     setEditId(d?.id || null);
     setDayName(d?.name || "");
-    setPicked(d?.exercises?.map((x) => ({ slug: x.slug, name: x.name, sets: x.sets, reps: x.reps })) || []);
+    setPicked(d?.exercises?.map((x) => ({ slug: x.slug, name: x.name, sets: x.sets, reps: x.reps, supersetGroup: x.supersetGroup ?? null })) || []);
     setSearch(""); setMuscleFilter("all"); setTierFilter("all");
   };
 
@@ -115,7 +115,18 @@ export default function WorkoutClient() {
 
   const addExercise = (x: Exercise) => {
     if (picked.some((p) => p.slug === x.slug)) return;
-    setPicked((p) => [...p, { slug: x.slug, name: x.name, sets: 3, reps: "8-12" }]);
+    setPicked((p) => [...p, { slug: x.slug, name: x.name, sets: 3, reps: "8-12", supersetGroup: null }]);
+  };
+
+  // Superset link — groups this exercise with the one above it
+  const toggleLink = (i: number) => {
+    setPicked((p) => p.map((q, j) => {
+      if (j === i) {
+        const linked = q.supersetGroup != null;
+        return { ...q, supersetGroup: linked ? null : (p[i - 1]?.supersetGroup ?? i - 1) };
+      }
+      return q;
+    }));
   };
 
   if (step === 0) {
@@ -176,7 +187,13 @@ export default function WorkoutClient() {
         {picked.length > 0 && (
           <div className="mt-4 space-y-2">
             {picked.map((p, i) => (
-              <div key={p.slug} className="flex items-center gap-3 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-paper-3)" }}>
+              <div key={p.slug} className="flex items-center gap-3 rounded-lg border px-3 py-2" style={{ borderColor: p.supersetGroup != null ? "var(--color-accent)" : "var(--color-paper-3)" }}>
+                {i > 0 && (
+                  <button type="button" onClick={() => toggleLink(i)} title={p.supersetGroup != null ? "Unlink superset" : "Superset with exercise above"}
+                    className="text-xs" style={{ color: p.supersetGroup != null ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+                    {p.supersetGroup != null ? "⛓" : "○"}
+                  </button>
+                )}
                 <span className="flex-1 text-sm font-medium" style={{ color: "var(--color-ink)" }}>{p.name}</span>
                 <input
                   type="number" min={1} max={20} value={p.sets}
@@ -356,6 +373,10 @@ export default function WorkoutClient() {
                   </div>
                   <span className="w-14 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                     {m.effSetsWeek}/{lo}–{hi} {m.slopePct > 0.3 ? `+${m.slopePct}%` : m.slopePct < -0.3 ? `${m.slopePct}%` : ""}
+                  </span>
+                  <span className="w-9 text-right text-[9px] tabular-nums" title="Recovered — Fitbod-style freshness"
+                    style={{ color: m.freshness >= 90 ? "var(--color-success)" : m.freshness >= 50 ? "var(--color-warmth)" : "var(--color-error)" }}>
+                    {m.freshness}%
                   </span>
                 </div>
               );

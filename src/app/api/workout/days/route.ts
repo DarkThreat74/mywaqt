@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const { weekday, name, exercises } = await request.json() as { weekday?: number; name?: string; exercises?: Array<{ slug?: string; name?: string; sets?: number; reps?: string }> };
+    const { weekday, name, exercises } = await request.json() as { weekday?: number; name?: string; exercises?: Array<{ slug?: string; name?: string; sets?: number; reps?: string; supersetGroup?: number | null }> };
     if (typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "name required." }, { status: 400 });
     }
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     if (Array.isArray(exercises)) {
       await db.insert(schema.workoutDayExercises).values(
         exercises.slice(0, 30).map((x, i) => ({
-          dayId: day.id, slug: String(x.slug || ""), name: String(x.name || "").slice(0, 120),
+          dayId: day.id, slug: String(x.slug || ""), name: String(x.name || "").slice(0, 120), supersetGroup: Number.isInteger(x.supersetGroup) ? x.supersetGroup : null,
           sets: Number.isInteger(x.sets) ? Math.min(20, Math.max(1, x.sets!)) : 3,
           reps: String(x.reps || "8-12").slice(0, 20), sortOrder: i,
         })),
@@ -51,7 +51,7 @@ export async function PATCH(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const { id, name, exercises } = await request.json() as { id?: string; name?: string; exercises?: Array<{ slug?: string; name?: string; sets?: number; reps?: string }> };
+    const { id, name, exercises } = await request.json() as { id?: string; name?: string; exercises?: Array<{ slug?: string; name?: string; sets?: number; reps?: string; supersetGroup?: number | null }> };
     if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });
     const [day] = await db.select().from(schema.workoutDays)
       .where(and(eq(schema.workoutDays.id, id), eq(schema.workoutDays.userId, session.userId))).limit(1);
@@ -64,7 +64,7 @@ export async function PATCH(request: NextRequest) {
       if (exercises.length) {
         await db.insert(schema.workoutDayExercises).values(
           exercises.slice(0, 30).map((x, i) => ({
-            dayId: id, slug: String(x.slug || ""), name: String(x.name || "").slice(0, 120),
+            dayId: id, slug: String(x.slug || ""), name: String(x.name || "").slice(0, 120), supersetGroup: Number.isInteger(x.supersetGroup) ? x.supersetGroup : null,
             sets: Number.isInteger(x.sets) ? Math.min(20, Math.max(1, x.sets!)) : 3,
             reps: String(x.reps || "8-12").slice(0, 20), sortOrder: i,
           })),
