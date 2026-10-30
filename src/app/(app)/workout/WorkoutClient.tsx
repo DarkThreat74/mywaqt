@@ -19,6 +19,8 @@ export default function WorkoutClient() {
   const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
+  const [history, setHistory] = useState<Array<{ id: string; dayName: string; startedAt: string; endedAt: string | null }>>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [dayName, setDayName] = useState("");
   const [muscleFilter, setMuscleFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -36,6 +38,11 @@ export default function WorkoutClient() {
     if (pr?.ok) {
       const data = await pr.json();
       setProgress(data.progress || []);
+    }
+    const hr = await fetch("/api/workout/sessions").catch(() => null);
+    if (hr?.ok) {
+      const data = await hr.json();
+      setHistory((data.sessions || []).filter((s: { endedAt: string | null }) => s.endedAt).slice(0, 10));
     }
   }
   useEffect(() => { Promise.resolve().then(() => { void load(); setNow(Date.now()); }); }, []);
@@ -379,6 +386,29 @@ export default function WorkoutClient() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <button type="button" onClick={() => setShowHistory((v) => !v)}
+          className="mt-3 w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+          {showHistory ? "Hide" : "Show"} history — {history.length} sessions
+        </button>
+      )}
+      {showHistory && (
+        <div className="mt-2 space-y-1.5">
+          {history.map((s) => (
+            <div key={s.id} className="flex items-center justify-between rounded-lg border px-3 py-2"
+              style={{ borderColor: "var(--color-paper-3)" }}>
+              <span className="text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{s.dayName}</span>
+              <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                {new Date(s.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                {" · "}
+                {Math.round((new Date(s.endedAt!).getTime() - new Date(s.startedAt).getTime()) / 60000)}m
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
