@@ -229,7 +229,8 @@ export default function DayViewClient({ date }: { date: string }) {
   const [newEnd, setNewEnd] = useState("10:00");
   const [newType, setNewType] = useState<"block" | "task" | "reminder">("block");
   // Smart event kind — links occurrences to a feature (class/goal/study/quran).
-  const [eventKind, setEventKind] = useState<"event" | "class" | "goal" | "study" | "quran">("event");
+  const [eventKind, setEventKind] = useState<"event" | "class" | "goal" | "study" | "quran" | "workout">("event");
+  const [workoutDays, setWorkoutDays] = useState<Array<{ id: string; name: string; weekday: number }>>([]);
   const [classId, setClassId] = useState<string | null>(null);
   const [classStartDate, setClassStartDate] = useState("");
   const [goalTab, setGoalTab] = useState<string>("all");
@@ -513,7 +514,7 @@ export default function DayViewClient({ date }: { date: string }) {
       // the events filter below uses the authoritative timezone instead of
       // re-running this whole effect when userTimezone state updates.
       try {
-        const [eventsRes, prayerRes, logRes, hwRes, blocksRes, classRes, goalsRes] = await Promise.all([
+        const [eventsRes, prayerRes, logRes, hwRes, blocksRes, classRes, goalsRes, wodRes] = await Promise.all([
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
@@ -521,6 +522,7 @@ export default function DayViewClient({ date }: { date: string }) {
           fetch(`/api/blocks?date=${date}`).catch(() => null),
           fetch(`/api/classes`).catch(() => null),
           fetch(`/api/goals`).catch(() => null),
+          fetch(`/api/workout/days`).catch(() => null),
         ]);
 
         if (cancelled) return;
@@ -598,6 +600,15 @@ export default function DayViewClient({ date }: { date: string }) {
           } catch {
             // non-critical
           }
+        }
+
+        if (wodRes?.ok && !cancelled) {
+          try {
+            const data = await wodRes.json();
+            if (Array.isArray(data?.days)) {
+              setWorkoutDays(data.days.map((d: { id: string; name: string; weekday: number }) => ({ id: d.id, name: d.name, weekday: d.weekday })));
+            }
+          } catch { /* non-critical */ }
         }
 
         if (goalsRes?.ok && !cancelled) {
@@ -997,8 +1008,8 @@ export default function DayViewClient({ date }: { date: string }) {
         return;
       }
     }
-    if ((eventKind === "goal" || eventKind === "study") && !entityId) {
-      setError(eventKind === "goal" ? "Pick a goal." : "Pick something to study.");
+    if ((eventKind === "goal" || eventKind === "study" || eventKind === "workout") && !entityId) {
+      setError(eventKind === "goal" ? "Pick a goal." : eventKind === "workout" ? "Pick a workout day." : "Pick something to study.");
       return;
     }
 
@@ -1033,6 +1044,8 @@ export default function DayViewClient({ date }: { date: string }) {
         body.recurrenceEndDate = recurrenceEndDate;
         if (recurrenceDays.length > 0) body.recurrenceDays = recurrenceDays;
       }
+    } else if (eventKind === "workout" && entityId) {
+      body.createdVia = `workout:${entityId}`;
     } else if (eventKind === "quran") {
       body.createdVia = "quran";
       if (enableRecurrence && recurrenceEndDate) {
@@ -2333,6 +2346,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   classesList.length > 0 && { kind: "class", label: "Class", desc: "Recurring schedule" },
                   goalsList.length > 0 && { kind: "goal", label: "Goal", desc: "From your goals" },
                   pendingHw.length > 0 && { kind: "study", label: "Study", desc: "From homework" },
+                  workoutDays.length > 0 && { kind: "workout", label: "Workout", desc: "From your split" },
                   { kind: "quran", label: "Quran", desc: "Recitation time" },
                 ].filter(Boolean) as Array<{ kind: string; label: string; desc: string }>).map((opt) => (
                   <button
@@ -2431,6 +2445,22 @@ export default function DayViewClient({ date }: { date: string }) {
                     );
                   })}
                 </div>
+                </div>
+              )}
+              {eventKind === "workout" && (
+                <div className="flex max-h-32 flex-wrap gap-2 overflow-y-auto">
+                  {workoutDays.map((d) => {
+                    const sel = entityId === d.id;
+                    return (
+                      <button key={d.id} type="button"
+                        onClick={() => { setEntityId(d.id); if (!newTitle.trim()) setNewTitle(`${d.name} workout`); }}
+                        className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+                        style={{ borderColor: sel ? "var(--color-ink)" : "var(--color-paper-3)", backgroundColor: sel ? "var(--color-paper-2)" : "var(--color-paper)", color: "var(--color-ink)", minHeight: 36 }}
+                      >
+                        {d.name} ({["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.weekday]})
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               {eventKind === "study" && (
@@ -3049,12 +3079,13 @@ export default function DayViewClient({ date }: { date: string }) {
             )}
             {/* Linked event — jump to the feature it belongs to */}
             {(() => {
-              const kind = (peekEvent.createdVia || "").split(":")[0];
+              const [kind, linkId] = (peekEvent.createdVia || "").split(":");
               const cta =
                 kind === "class" ? { label: "Open classes", href: "/goals#homework" } :
                 kind === "goal" ? { label: "Open goals", href: "/goals" } :
                 kind === "study" || kind === "homework" ? { label: "Open homework", href: "/goals#homework" } :
-                kind === "quran" ? { label: "Open Quran", href: "/quran-tester" } : null;
+                kind === "quran" ? { label: "Open Quran", href: "/quran-tester" } :
+                kind === "workout" && linkId ? { label: "Start workout", href: `/workout/active?day=${linkId}` } : null;
               return cta ? (
                 <Link
                   href={cta.href}

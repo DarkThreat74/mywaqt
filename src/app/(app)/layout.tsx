@@ -5,7 +5,7 @@ import { unstable_cache } from "next/cache";
 import { getSession } from "@/lib/auth/session";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
-import { Calendar, Settings, Flame, NotebookPen } from "lucide-react";
+import { Calendar, Settings, Flame, NotebookPen, Dumbbell } from "lucide-react";
 import ServiceWorkerRegister from "@/components/sw-register";
 import NotificationScheduler from "@/components/notification-scheduler";
 import BiometricGate from "@/components/biometric-gate";
@@ -142,6 +142,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { label: "Calendar", href: "/calendar/day", icon: Calendar, alert: false },
     { label: "Prayer", href: "/prayer", icon: Flame, alert: false },
     { label: "Planner", href: "/goals", icon: NotebookPen, alert: false },
+    { label: "Workout", href: "/workout", icon: Dumbbell, alert: false },
     { label: "Settings", href: "/settings", icon: Settings, alert: needsSettings },
   ];
 

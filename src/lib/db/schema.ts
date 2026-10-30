@@ -1431,3 +1431,51 @@ export const quranTesterMistakes = pgTable('quran_tester_mistakes', {
 }));
 
 export type QuranTesterMistake = typeof quranTesterMistakes.$inferSelect;
+
+// ── Workout planner ──
+export const workoutDays = pgTable('workout_days', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  weekday: integer('weekday').notNull(), // 0=Sun..6=Sat
+  name: text('name').notNull(),          // "Push", "Pull", "Legs"…
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  uniq: uniqueIndex('workout_days_user_weekday_idx').on(table.userId, table.weekday),
+}));
+
+export const workoutDayExercises = pgTable('workout_day_exercises', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  dayId: uuid('day_id').notNull().references(() => workoutDays.id, { onDelete: 'cascade' }),
+  slug: text('slug').notNull(),          // exercise bank slug
+  name: text('name').notNull(),
+  sets: integer('sets').default(3).notNull(),
+  reps: text('reps').default('8-12').notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+});
+
+export const workoutSessions = pgTable('workout_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  dayId: uuid('day_id').references(() => workoutDays.id, { onDelete: 'set null' }),
+  dayName: text('day_name').notNull(),
+  startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+  endedAt: timestamp('ended_at', { withTimezone: true }),
+});
+
+export const workoutSets = pgTable('workout_sets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sessionId: uuid('session_id').notNull().references(() => workoutSessions.id, { onDelete: 'cascade' }),
+  slug: text('slug').notNull(),
+  setIndex: integer('set_index').notNull(),
+  weight: text('weight'),
+  reps: integer('reps'),
+  done: boolean('done').default(false).notNull(),
+}, (table) => ({
+  uniq: uniqueIndex('workout_sets_session_slug_idx').on(table.sessionId, table.slug, table.setIndex),
+}));
+
+export type WorkoutDay = typeof workoutDays.$inferSelect;
+export type WorkoutDayExercise = typeof workoutDayExercises.$inferSelect;
+export type WorkoutSession = typeof workoutSessions.$inferSelect;
+export type WorkoutSet = typeof workoutSets.$inferSelect;
