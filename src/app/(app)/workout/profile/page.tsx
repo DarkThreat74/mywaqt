@@ -225,7 +225,12 @@ export default function WorkoutProfilePage() {
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Body weight</p>
-              <UnitBtn value={wUnit} opts={["kg","lb"] as const} set={(v) => { setWUnit(v as WUnit); save({ unitWeight: v }); }} />
+              <UnitBtn value={wUnit} opts={["kg","lb"] as const} set={(v) => {
+                // Convert the typed value so the number stays correct across units.
+                const d = parseFloat(weight);
+                if (d > 0 && v !== wUnit) setWeight(v === "lb" ? String(Math.round(d * 2.205)) : String(Math.round(d / 2.205 * 10) / 10));
+                setWUnit(v as WUnit); save({ unitWeight: v });
+              }} />
             </div>
             <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Updates weekly — it drifts.</p>
             <div className="mt-2 flex items-center gap-2">
@@ -240,7 +245,15 @@ export default function WorkoutProfilePage() {
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Height</p>
-              <UnitBtn value={hUnit} opts={["cm","ft"] as const} set={(v) => { setHUnit(v as HUnit); save({ unitHeight: v }); }} />
+              <UnitBtn value={hUnit} opts={["cm","ft"] as const} set={(v) => {
+                // Pre-fill the new unit's fields from the current height.
+                const cm = hUnit === "cm" ? parseFloat(cmVal) : Math.round(((parseFloat(ftVal) || 0) * 12 + (parseFloat(inVal) || 0)) * 2.54);
+                if (cm > 0 && v !== hUnit) {
+                  if (v === "ft") { setFtVal(String(Math.floor(cm / 30.48))); setInVal(String(Math.round((cm / 2.54) % 12))); }
+                  else setCmVal(String(cm));
+                }
+                setHUnit(v as HUnit); save({ unitHeight: v });
+              }} />
             </div>
             <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Asked once — it doesn&apos;t change.</p>
             {hUnit === "cm" ? (
