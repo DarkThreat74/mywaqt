@@ -2105,6 +2105,17 @@ export default function DayViewClient({ date }: { date: string }) {
               : viaColor
                 ? `color-mix(in oklab, ${viaColor} 14%, transparent)`
                 : TYPE_BG[event.type] || TYPE_BG.block;
+            // Per-type signature border — each event kind gets its own frame.
+            const VIA_BORDER: Record<string, { style: string; width: number; leftW: number }> = {
+              workout: { style: "double", width: 3, leftW: 3 },
+              goal:    { style: "dotted", width: 2, leftW: 4 },
+              class:   { style: "solid", width: 2, leftW: 5 },
+              study:   { style: "dashed", width: 1.5, leftW: 3 },
+              homework:{ style: "dashed", width: 1.5, leftW: 3 },
+              quran:   { style: "double", width: 3, leftW: 1.5 },
+              deadline:{ style: "solid", width: 2, leftW: 2 },
+            };
+            const vb = VIA_BORDER[viaKind] || { style: event.type === "reminder" ? "dashed" : "solid", width: 1, leftW: 3 };
 
             return (
               <div
@@ -2118,7 +2129,9 @@ export default function DayViewClient({ date }: { date: string }) {
                   width: `calc((100% - ${TIME_COL}px) * ${widthPct / 100} - 3px)`,
                   backgroundColor: bgColor,
                   borderColor,
-                  borderLeftWidth: 3,
+                  borderStyle: vb.style,
+                  borderWidth: vb.width,
+                  borderLeftWidth: vb.leftW,
                 }}
               >
                 <div className="relative flex h-full flex-col items-center justify-center gap-0.5 px-1.5 py-1 sm:px-2">
@@ -2368,13 +2381,13 @@ export default function DayViewClient({ date }: { date: string }) {
                   What type of event?
                 </p>
                 {([
-                  { kind: "event", label: "Block", desc: "Time slot on your day" },
+                  { kind: "event", label: "Event", desc: "Time slot on your day" },
                   { kind: "reminder", label: "Reminder", desc: "One-time nudge" },
-                  classesList.length > 0 && { kind: "class", label: "Class", desc: "Recurring schedule" },
-                  goalsList.length > 0 && { kind: "goal", label: "Goal", desc: "From your goals" },
+                  classesList.length > 0 && { kind: "class", label: "New class", desc: "Recurring schedule" },
+                  goalsList.length > 0 && { kind: "goal", label: "Plan goal", desc: "From your goals" },
                   pendingHw.length > 0 && { kind: "study", label: "Study", desc: "From homework" },
                   workoutDays.length > 0 && { kind: "workout", label: "Workout", desc: "From your split" },
-                  { kind: "quran", label: "Quran", desc: "Recitation time" },
+                  { kind: "quran", label: "Read quran", desc: "Recitation time" },
                 ].filter(Boolean) as Array<{ kind: string; label: string; desc: string }>).map((opt) => (
                   <button
                     key={opt.label}
@@ -2408,7 +2421,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="self-start rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
                   style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 32 }}
                 >
-                  ← Back · {eventKind === "event" ? (newType === "reminder" ? "Reminder" : "Block") : eventKind}
+                  ← Back · {eventKind === "event" ? (newType === "reminder" ? "Reminder" : "Event") : eventKind === "class" ? "New class" : eventKind === "goal" ? "Plan goal" : eventKind === "quran" ? "Read quran" : eventKind}
                 </button>
               )}
               {/* Title */}
