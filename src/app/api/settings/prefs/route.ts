@@ -22,8 +22,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ prefs: row?.uiPrefs ?? {} });
 }
 
-// PUT /api/settings/prefs — merge patch into ui_prefs. Unknown keys dropped.
-export async function PUT(request: NextRequest) {
+// PUT+PATCH /api/settings/prefs — merge patch into ui_prefs. Unknown keys dropped.
+async function updatePrefs(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -39,10 +39,27 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const b = body as { theme?: unknown; funfactDisabled?: unknown };
+  const b = body as Record<string, unknown>;
   const patch: Record<string, unknown> = {};
   if (typeof b.theme === "string" && THEMES.has(b.theme)) patch.theme = b.theme;
   if (typeof b.funfactDisabled === "boolean") patch.funfactDisabled = b.funfactDisabled;
+  // Fitness profile — canonical metric values; display units stored too.
+  const num = (v: unknown, lo: number, hi: number) => (typeof v === "number" && v >= lo && v <= hi ? v : undefined);
+  const bw = num(b.bodyWeightKg, 20, 500); if (bw !== undefined) patch.bodyWeightKg = bw;
+  const ht = num(b.heightCm, 80, 280); if (ht !== undefined) patch.heightCm = ht;
+  const bf = num(b.bodyfatPct, 2, 70); if (bf !== undefined) patch.bodyfatPct = bf;
+  if (b.bodyfatPct === null) patch.bodyfatPct = null;
+  if (typeof b.weightUpdatedAt === "string" && !Number.isNaN(Date.parse(b.weightUpdatedAt))) patch.weightUpdatedAt = b.weightUpdatedAt;
+  if (b.unitWeight === "kg" || b.unitWeight === "lb") patch.unitWeight = b.unitWeight;
+  if (b.unitHeight === "cm" || b.unitHeight === "ft") patch.unitHeight = b.unitHeight;
+  if (b.sex === "m" || b.sex === "f") patch.sex = b.sex;
+  const qp = b.quranPosition;
+  if (qp && typeof qp === "object") {
+    const q = qp as { surah?: unknown; ayah?: unknown };
+    if (typeof q.surah === "number" && typeof q.ayah === "number" && q.surah >= 1 && q.surah <= 114 && q.ayah >= 1 && q.ayah <= 286) {
+      patch.quranPosition = { surah: q.surah, ayah: q.ayah, updatedAt: new Date().toISOString() };
+    }
+  }
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
   }
@@ -58,3 +75,6 @@ export async function PUT(request: NextRequest) {
 
   return NextResponse.json({ ok: true, prefs });
 }
+
+export const PUT = updatePrefs;
+export const PATCH = updatePrefs;
