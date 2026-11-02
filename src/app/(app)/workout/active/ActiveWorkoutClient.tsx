@@ -6,6 +6,7 @@ import Link from "next/link";
 import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
+import { estimateE1 } from "@/lib/workout/ratios";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; done: boolean; }
@@ -26,6 +27,7 @@ function ActiveInner() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [setRows, setSetRows] = useState<Record<string, SetRow[]>>({});
   const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
+  const [bestE1, setBestE1] = useState<Map<string, number>>(new Map());
   const [elapsed, setElapsed] = useState(0);
   const [restLeft, setRestLeft] = useState(0);
   const [finished, setFinished] = useState(false);
@@ -74,6 +76,12 @@ function ActiveInner() {
           }
           setPrevSets(prev);
         }
+      }
+      // All-time bests — feeds the cross-lift e1RM estimator.
+      const p2 = await fetch("/api/workout/progress").catch(() => null);
+      if (p2?.ok && !cancelled) {
+        const d2 = await p2.json();
+        setBestE1(new Map((d2.progress || []).map((p: { slug: string; bestE1?: number }) => [p.slug, p.bestE1 || 0])));
       }
     })();
     return () => { cancelled = true; };
@@ -273,10 +281,29 @@ function ActiveInner() {
                       </p>
                     );
                   })()}
+                  {/* No direct history — estimate from the strongest related lift */}
+                  {!prevSets[x.slug]?.filter(Boolean).length && (() => {
+                    const est = estimateE1(x.slug, bestE1);
+                    if (!est) return null;
+                    const from = EXERCISES.find((e) => e.slug === est.from)?.name || est.from;
+                    return (
+                      <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }} title={`${est.why} — ~75% of estimated 1RM as a working weight`}>
+                        est. {dispW(est.e1 * 0.75)}{units}×8-10 <span style={{ opacity: 0.7 }}>(from {from})</span>
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
 
               <div className="mt-3 space-y-1.5">
+                <div className="flex items-center gap-2 px-1 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
+                  <span className="w-6 text-center">#</span>
+                  <span className="w-16 text-center">{units}</span>
+                  <span className="w-16 text-center">reps</span>
+                  <span className="w-8 text-center" title="N normal working set · W warmup · F taken to failure">type</span>
+                  <span className="w-12 text-center" title="Reps in reserve — how many more you could have done">RIR</span>
+                  <span className="flex-1" />
+                </div>
                 {Array.from({ length: setCounts[x.slug] ?? 1 }, (_, i) => {
                   const row = rows[i] || { weight: "", reps: null, done: false, setType: "working" as const };
                   const prev = prevSets[x.slug]?.[i];
@@ -330,12 +357,12 @@ function ActiveInner() {
                             <p className="border-b px-2 py-1 text-[9px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
                               Reps in reserve — how many more you could do
                             </p>
-                            {[0, 1, 2, 3, 4].map((r) => (
+                            {[0, 1, 2, 3, 4, 5].map((r) => (
                               <button key={r} type="button"
                                 onClick={() => { void logSet(x.slug, i, { rir: r }); setOpenRir(null); }}
                                 className="block w-full px-2 py-1.5 text-left text-[10px] hover:bg-[var(--color-paper-2)]"
                                 style={{ color: "var(--color-ink)" }}>
-                                {r} — {r === 0 ? "to failure" : r === 1 ? "almost failure" : `${r} left`}
+                                {r === 5 ? "5+ — easy set (little growth)" : `${r} — ${r === 0 ? "to failure" : r === 1 ? "almost failure" : `${r} left`}`}
                               </button>
                             ))}
                           </div>
