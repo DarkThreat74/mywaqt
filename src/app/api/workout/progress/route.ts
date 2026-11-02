@@ -67,6 +67,12 @@ export async function GET(request: NextRequest) {
       bestE1: Math.round(v.best * 10) / 10,
       firstE1: v.points.length ? Math.round(v.points[0].e1 * 10) / 10 : null,
       lastE1: v.points.length ? Math.round(v.points[v.points.length - 1].e1 * 10) / 10 : null,
+      // Detraining model — strength holds ~4wk, then fades ~5%/wk of past-peak,
+      // floored at 70% (muscle memory: myonuclei persist, regaining is fast).
+      daysSince: v.last ? Math.round((nowMs - new Date(v.last.at).getTime()) / 86400000) : null,
+      retained: v.last
+        ? Math.max(0.7, 1 - 0.05 * Math.max(0, (nowMs - new Date(v.last.at).getTime()) / 604800000 - 4))
+        : 1,
       gainPct: v.points.length >= 2 && v.points[0].e1 > 0
         ? Math.round(((v.points[v.points.length - 1].e1 - v.points[0].e1) / v.points[0].e1) * 1000) / 10
         : null,

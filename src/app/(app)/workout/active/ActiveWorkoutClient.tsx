@@ -28,6 +28,7 @@ function ActiveInner() {
   const [setRows, setSetRows] = useState<Record<string, SetRow[]>>({});
   const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
   const [bestE1, setBestE1] = useState<Map<string, number>>(new Map());
+  const [retained, setRetained] = useState<Map<string, { d: number; r: number }>>(new Map());
   const [lastAt, setLastAt] = useState<Map<string, number>>(new Map());
   const [stalled, setStalled] = useState<Set<string>>(new Set());
   const [elapsed, setElapsed] = useState(0);
@@ -84,7 +85,11 @@ function ActiveInner() {
       if (p2?.ok && !cancelled) {
         const d2 = await p2.json();
         setBestE1(new Map((d2.progress || []).map((p: { slug: string; bestE1?: number }) => [p.slug, p.bestE1 || 0])));
-        const at = new Map<string, number>(), stall = new Set<string>();
+        const at = new Map<string, number>(), stall = new Set<string>(), ret = new Map<string, { d: number; r: number }>();
+        for (const p of d2.progress || []) {
+          if (p.daysSince != null && p.retained != null) ret.set(p.slug, { d: p.daysSince, r: p.retained });
+        }
+        setRetained(ret);
         for (const p of d2.progress || []) {
           const last = p.points?.[p.points.length - 1];
           if (last?.at) at.set(p.slug, new Date(last.at).getTime());
@@ -290,8 +295,16 @@ function ActiveInner() {
                       <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                         last: {parts.map(dispSet).join(" / ")}
                         {hitTop && lastW > 0 && (
-                          <span style={{ color: "var(--color-warmth)" }}> · try {dispW(lastW + (isLower ? 5 : 2.5))}{units}</span>
+                          <span style={{ color: "var(--color-warmth)" }}> · try {dispW((lastW + (isLower ? 5 : 2.5)) * (retained.get(x.slug)?.r ?? 1))}{units}</span>
                         )}
+                        {(() => {
+                          const rw = retained.get(x.slug);
+                          return rw && rw.d > 28 ? (
+                            <span className="block" style={{ color: "var(--color-accent)" }}>
+                              back after {Math.round(rw.d / 7)}w — restart ~{dispW(lastW * rw.r)}{units}, muscle memory fills in fast
+                            </span>
+                          ) : null;
+                        })()}
                         {/* Warmup ramp — ~40% then ~75% of top weight optimizes output (Ribeiro 2020) */}
                         {lastW > 20 && (
                           <span className="block" style={{ color: "var(--color-ink-faint)" }}>
