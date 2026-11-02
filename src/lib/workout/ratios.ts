@@ -250,6 +250,16 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "feet-fwd", label: "feet forward", note: "hamstring bias" },
     { key: "wide", label: "feet wide", note: "glute med bias" },
   ],
+  "incline-dumbbell-press": [
+    { key: "15", label: "15°", note: "mostly flat-pec feel, some upper" },
+    { key: "30", label: "30°", note: "best upper-pec line (Rodríguez-Ridao 2020)" },
+    { key: "45", label: "45°", note: "front delts take over" },
+  ],
+  "incline-db-45": [
+    { key: "15", label: "15°", note: "mostly flat-pec feel" },
+    { key: "30", label: "30°", note: "best upper-pec line" },
+    { key: "45", label: "45°", note: "front delts take over" },
+  ],
 };
 
 // Estimate a target lift's e1RM from the user's logged bests on related lifts.

@@ -148,6 +148,7 @@ function ActiveInner() {
   const [setCounts, setSetCounts] = useState<Record<string, number>>({});
   const [view, setView] = useState<Exercise | null>(null);
   const [openRir, setOpenRir] = useState<string | null>(null);
+  const [leaveAsk, setLeaveAsk] = useState(false);
   const router = useRouter();
 
   const unitToKg = (v: string) => (units === "lb" ? String(Math.round(parseFloat(v) / 2.205 * 10) / 10) : v);
@@ -231,8 +232,8 @@ function ActiveInner() {
           <span className="rounded-full border px-3 py-1 text-xs tabular-nums" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
             {fmt(elapsed)}
           </span>
-          <button type="button" onClick={cancel} className="rounded-full border px-2 py-1 text-[10px]"
-            style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }} title="End this workout now">
+          <button type="button" onClick={() => setLeaveAsk(true)} className="rounded-full border px-2 py-1 text-[10px]"
+            style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }} title="Leave — deletes this session">
             ✕
           </button>
         </div>
@@ -460,6 +461,27 @@ function ActiveInner() {
         Finish workout
       </button>
 
+      {leaveAsk && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setLeaveAsk(false)}>
+          <div className="w-full max-w-xs rounded-t-2xl sm:rounded-2xl border p-4"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+            onClick={(e) => e.stopPropagation()}>
+            <p className="text-center text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Leave workout?</p>
+            <p className="mt-1 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              This deletes the session — no history, nothing feeds the algorithm. You can restart it from Calendar anytime.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button type="button" onClick={() => setLeaveAsk(false)}
+                className="flex-1 rounded-xl border px-3 py-2.5 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Keep going</button>
+              <button type="button" onClick={cancel}
+                className="flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold"
+                style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}>Leave</button>
+            </div>
+          </div>
+        </div>
+      )}
       {view && (() => {
         const sci = SCIENCE[view.slug];
         return (
