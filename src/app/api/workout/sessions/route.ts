@@ -33,6 +33,19 @@ export async function GET(request: NextRequest) {
   const sessions = await db.select().from(schema.workoutSessions)
     .where(eq(schema.workoutSessions.userId, session.userId))
     .orderBy(desc(schema.workoutSessions.startedAt)).limit(50);
+  // Abandoned sessions: >30min old, still open → purge if empty, else end at
+  // the last logged set's time (the session's real duration).
+  for (const s of sessions.filter((x) => !x.endedAt && Date.now() - x.startedAt.getTime() > 30 * 60000)) {
+    const doneSets = await db.select().from(schema.workoutSets)
+      .where(and(eq(schema.workoutSets.sessionId, s.id), eq(schema.workoutSets.done, true)));
+    if (!doneSets.length) {
+      await db.delete(schema.workoutSessions).where(eq(schema.workoutSessions.id, s.id));
+      sessions.splice(sessions.indexOf(s), 1);
+    } else {
+      s.endedAt = new Date(s.startedAt.getTime() + 30 * 60000); // approx real end
+      await db.update(schema.workoutSessions).set({ endedAt: s.endedAt }).where(eq(schema.workoutSessions.id, s.id));
+    }
+  }
   return NextResponse.json({ sessions });
 }
 

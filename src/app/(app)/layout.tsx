@@ -9,6 +9,7 @@ import { Calendar, Settings, Flame, NotebookPen } from "lucide-react";
 import ServiceWorkerRegister from "@/components/sw-register";
 import NotificationScheduler from "@/components/notification-scheduler";
 import BiometricGate from "@/components/biometric-gate";
+import WorkoutPill from "@/components/WorkoutPill";
 import DeepLinkHandler from "@/components/deep-link-handler";
 import PendingInvite from "@/components/pending-invite";
 import ToolsMenu from "@/components/tools-menu";
@@ -218,6 +219,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden">
           <BiometricGate>{children}</BiometricGate>
         </main>
+        <WorkoutPill />
       </div>
 
       {/* ── Mobile bottom nav ── */}

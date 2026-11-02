@@ -60,6 +60,7 @@ function ActiveInner() {
       const sdata = await sres.json();
       setSessionId(sdata.session.id);
       startRef.current = Date.now() - (sdata.resumed ? Date.now() - new Date(sdata.session.startedAt).getTime() : 0);
+      try { localStorage.setItem("waqt:workout-live", JSON.stringify({ dayId: d.id, name: d.name, startedAt: new Date(sdata.session.startedAt).getTime() })); } catch { /* noop */ }
       // Hydrate logged sets (resumed sessions come back with rows)
       const rows: Record<string, SetRow[]> = {};
       for (const s of sdata.sets || []) {
@@ -173,12 +174,14 @@ function ActiveInner() {
         body: JSON.stringify({ id: sessionId, end: true }),
       }).catch(() => {});
     }
+    try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ }
     setFinished(true);
   };
 
   // Cancel = delete the session entirely — no history entry, no sets saved.
   const cancel = async () => {
     if (sessionId) await fetch(`/api/workout/sessions?id=${sessionId}`, { method: "DELETE" }).catch(() => {});
+    try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ }
     router.push("/workout");
   };
 
