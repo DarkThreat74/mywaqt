@@ -39,16 +39,27 @@ export const RATIOS: Record<string, RatioLink> = {
 
 // Estimate a target lift's e1RM from the user's logged bests on related lifts.
 // Parents are tried in order — the first logged one wins (they're ordered by
-// confidence). Returns { e1, from } or null when nothing is logged yet.
+// confidence). When the user has logged BOTH lifts of a pair, their personal
+// ratio blends 50/50 with the population default (one session is noisy data).
+// Returns { e1, from } or null when nothing is logged yet.
 export function estimateE1(
   slug: string,
   bestBySlug: Map<string, number>,
-): { e1: number; from: string; conf: number; why: string } | null {
+): { e1: number; from: string; conf: number; why: string; personal?: boolean } | null {
   const link = RATIOS[slug];
   if (!link) return null;
+  const myE = bestBySlug.get(slug);
   for (const parent of link.from) {
     const pe = bestBySlug.get(parent);
-    if (pe && pe > 0) return { e1: Math.round(pe * link.r * 10) / 10, from: parent, conf: link.conf, why: link.why };
+    if (pe && pe > 0) {
+      let r = link.r, personal = false;
+      if (myE && myE > 0) {
+        // Personal ratio: demonstrated variant/parent relationship, half-weight.
+        r = (myE / pe) * 0.5 + link.r * 0.5;
+        personal = true;
+      }
+      return { e1: Math.round(pe * r * 10) / 10, from: parent, conf: link.conf, why: link.why, personal };
+    }
   }
   return null;
 }

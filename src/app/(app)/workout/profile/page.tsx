@@ -45,6 +45,7 @@ export default function WorkoutProfilePage() {
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
+  const [growth, setGrowth] = useState<{ name: string; first: number; last: number; gainPct: number | null; points: { e1: number }[] }[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -95,6 +96,17 @@ export default function WorkoutProfilePage() {
           upperLower: get("press") > 0 && get("squat") > 0 ? get("press") / get("squat") : null,
           scoreLabel: score === null ? null : score >= 90 ? "elite" : score >= 60 ? "advanced" : score >= 40 ? "intermediate" : score >= 20 ? "novice" : "beginner",
         });
+        // Growth-over-time — every logged exercise with its first vs latest e1RM.
+        setGrowth((d.progress || [])
+          .filter((x: { firstE1?: number | null }) => (x.firstE1 || 0) > 0)
+          .map((x: { slug: string; firstE1: number; lastE1: number; gainPct: number | null; points?: { e1: number }[] }) => ({
+            name: x.slug.replace(/-/g, " "),
+            first: x.firstE1, last: x.lastE1 || 0,
+            gainPct: x.gainPct ?? null,
+            points: x.points || [],
+          }))
+          .sort((a: { last: number }, b: { last: number }) => b.last - a.last)
+          .slice(0, 10));
       }
       setLoaded(true);
     }).catch(() => setLoaded(true));
@@ -213,6 +225,33 @@ export default function WorkoutProfilePage() {
               </div>
             </div>
           )}
+          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Growth since day one — e1RM per session</p>
+            {growth.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Log sets to start your trend lines.</p>}
+            <div className="mt-2 space-y-1.5">
+              {growth.map((g) => {
+                const vals = g.points.map((p) => p.e1);
+                const min = Math.min(...vals, g.first), max = Math.max(...vals, g.first);
+                const span = max - min || 1;
+                return (
+                  <div key={g.name} className="flex items-center gap-2">
+                    <span className="w-28 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{g.name}</span>
+                    <svg viewBox="0 0 60 16" className="h-4 w-16 shrink-0" preserveAspectRatio="none">
+                      <polyline fill="none" stroke="var(--color-accent)" strokeWidth="1.5"
+                        points={[g.first, ...vals].map((v, i, a) => `${(i / Math.max(a.length - 1, 1)) * 58},${15 - ((v - min) / span) * 13}`).join(" ")} />
+                    </svg>
+                    <span className="w-24 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                      {Math.round(g.first)}→{Math.round(g.last)}kg
+                    </span>
+                    <span className="w-12 text-right text-[9px] font-semibold tabular-nums"
+                      style={{ color: g.gainPct === null ? "var(--color-ink-muted)" : g.gainPct >= 0 ? "var(--color-success)" : "var(--color-error)" }}>
+                      {g.gainPct !== null ? `${g.gainPct > 0 ? "+" : ""}${g.gainPct}%` : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
             <span>lifetime volume <b style={{ color: "var(--color-ink)" }}>{stats?.tonnage ? `${(stats.tonnage / 1000).toFixed(1)}t` : "—"}</b></span>
             <span>this week <b style={{ color: "var(--color-ink)" }}>{stats?.tonWeek ? `${(stats.tonWeek / 1000).toFixed(1)}t` : "—"}</b></span>
