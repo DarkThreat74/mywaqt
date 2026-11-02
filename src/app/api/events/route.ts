@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lte, like } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
@@ -42,6 +42,18 @@ export async function GET(request: NextRequest) {
   const fromStr = searchParams.get("from");
   const toStr = searchParams.get("to");
   const seriesId = searchParams.get("seriesId");
+  const createdVia = searchParams.get("createdVia");
+
+  // GET /api/events?createdVia=<prefix> — linked-entity lookup (e.g. goal:)
+  if (createdVia) {
+    if (createdVia.length > 80) return NextResponse.json({ error: "Invalid filter." }, { status: 400 });
+    const rows = await db
+      .select(EVENT_COLUMNS)
+      .from(schema.events)
+      .where(and(eq(schema.events.userId, session.userId), like(schema.events.createdVia, `${createdVia}%`)))
+      .limit(500);
+    return NextResponse.json(rows);
+  }
 
   // GET /api/events?seriesId=... — list all events in a recurring series
   if (seriesId) {

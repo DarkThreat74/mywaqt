@@ -76,6 +76,34 @@ export default function GoalsTab({
   // Session history for "N/target" on test-tagged goals — local now, server
   // merged in (cross-device).
   const [history, setHistory] = useState<SessionEntry[]>(() => getDiscipline().history);
+  // goal.id → calendar event id for deadline events (createdVia "goal:<id>")
+  const [calMap, setCalMap] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    void fetch("/api/events?createdVia=goal:").then((r) => (r.ok ? r.json() : [])).then((rows: Array<{ id: string; createdVia?: string | null }>) => {
+      const m = new Map<string, string>();
+      for (const e of rows || []) {
+        const gid = e.createdVia?.split(":")[1];
+        if (gid) m.set(gid, e.id);
+      }
+      setCalMap(m);
+    }).catch(() => {});
+  }, []);
+  const toggleCal = async (goal: Goal) => {
+    const eid = calMap.get(goal.id);
+    if (eid) {
+      await fetch(`/api/events/${eid}`, { method: "DELETE" }).catch(() => {});
+      setCalMap((m) => { const n = new Map(m); n.delete(goal.id); return n; });
+    } else if (goal.targetDate) {
+      const res = await fetch("/api/events", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: `Due: ${goal.title}`, startAt: `${goal.targetDate}T09:00:00`, endAt: `${goal.targetDate}T09:30:00`, createdVia: `goal:${goal.id}` }),
+      }).catch(() => null);
+      if (res?.ok) {
+        const ev = await res.json();
+        if (ev?.id) setCalMap((m) => new Map(m).set(goal.id, ev.id));
+      }
+    }
+  };
   useEffect(() => {
     let cancelled = false;
     fetch("/api/study-history")
@@ -410,6 +438,8 @@ export default function GoalsTab({
               }
               onUpdate={updateGoal}
               onDelete={deleteGoal}
+              calEventId={calMap.get(goal.id) ?? null}
+              onToggleCal={() => void toggleCal(goal)}
             />
           ))}
         </div>
@@ -423,7 +453,7 @@ function GoalRow({
   goal, horizon, editMode, isFirst, isLast, onMove, editingId, setEditingId,
   editTitle, setEditTitle, editDescription, setEditDescription, editTargetDate, setEditTargetDate,
   editTags, setEditTags, editSessionsTarget, setEditSessionsTarget,
-  editProgressTarget, setEditProgressTarget, sessionsDone, onUpdate, onDelete,
+  editProgressTarget, setEditProgressTarget, sessionsDone, onUpdate, onDelete, calEventId, onToggleCal,
 }: {
   goal: Goal;
   horizon: GoalHorizon;
@@ -448,6 +478,8 @@ function GoalRow({
   sessionsDone: number;
   onUpdate: (id: string, updates: Partial<Goal>) => void;
   onDelete: (id: string) => void;
+  calEventId?: string | null;
+  onToggleCal?: () => void;
 }) {
   const isDone = goal.status === "done";
   const isEditing = editingId === goal.id;
@@ -459,6 +491,7 @@ function GoalRow({
   const isChecklistGoal = (goal.tags ?? []).some((t) => CHECKLIST_TAGS.has(t));
   const quantityTag = editTags.find((t) => QUANTITY_TAGS[t]);
   const [seededEditId, setSeededEditId] = useState<string | null>(null);
+  const [calAsk, setCalAsk] = useState(false);
   const saveEdit = () => {
     onUpdate(goal.id, {
       title: editTitle,
@@ -680,17 +713,56 @@ function GoalRow({
             </button>
           </>
         )}
-        <button
-          onClick={() => onDelete(goal.id)}
-          className="rounded p-1.5 transition-colors hover:bg-[var(--color-paper-3)]"
-          style={{ color: "var(--color-ink-muted)" }}
-          title="Delete"
-          aria-label={`Delete ${goal.title}`}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex flex-col items-center gap-0.5">
+          <button
+            onClick={() => onDelete(goal.id)}
+            className="rounded p-1.5 transition-colors hover:bg-[var(--color-paper-3)]"
+            style={{ color: "var(--color-ink-muted)" }}
+            title="Delete"
+            aria-label={`Delete ${goal.title}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+          {goal.targetDate && onToggleCal && (
+            <button
+              onClick={() => setCalAsk(true)}
+              className="rounded p-1 transition-colors hover:bg-[var(--color-paper-3)]"
+              style={{ color: "var(--color-ink-muted)" }}
+              title={calEventId ? "On the calendar" : "Add to calendar"}
+              aria-label={calEventId ? `Remove ${goal.title} from calendar` : `Add ${goal.title} to calendar`}
+            >
+              {calEventId ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+            </button>
+          )}
+        </div>
       </div>
     </div>
+
+    {/* Calendar-link confirm — + asks to add, ✓ asks to remove */}
+    {calAsk && (
+      <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
+        <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }} onClick={() => setCalAsk(false)} aria-label="Cancel" />
+        <div className="relative w-full max-w-xs rounded-t-2xl border-t p-4 sm:rounded-2xl sm:border"
+          style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}>
+          <p className="text-center text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+            {calEventId ? "Remove from calendar?" : "Add to calendar?"}
+          </p>
+          <p className="mt-1 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            {calEventId ? `“${goal.title}” is scheduled on ${goal.targetDate}` : `“${goal.title}” on ${goal.targetDate}`}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button type="button" onClick={() => setCalAsk(false)}
+              className="flex-1 rounded-xl border px-3 py-2.5 text-sm"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Cancel</button>
+            <button type="button" onClick={() => { setCalAsk(false); onToggleCal?.(); }}
+              className="flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold"
+              style={calEventId ? { border: "1px solid var(--color-error)", color: "var(--color-error)" } : { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+              {calEventId ? "Remove" : "Add"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* Edit sheet — replaces inline editing. Bottom sheet on mobile,
         centered dialog on larger screens. */}
