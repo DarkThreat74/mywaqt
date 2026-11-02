@@ -124,6 +124,13 @@ function ActiveInner() {
   const router = useRouter();
 
   const unitToKg = (v: string) => (units === "lb" ? String(Math.round(parseFloat(v) / 2.205 * 10) / 10) : v);
+  // Stored weights are canonical kg — convert for display when in lb mode.
+  const dispW = (kg: number) => (units === "lb" ? Math.round(kg * 2.205) : Math.round(kg * 10) / 10);
+  const dispSet = (s: string) => {
+    const [w, r] = s.split("×");
+    const n = parseFloat(w);
+    return Number.isFinite(n) && n > 0 ? `${dispW(n)}×${r || ""}` : s;
+  };
 
   const totalDone = useMemo(
     () => Object.values(setRows).flat().filter((r) => r?.done).length,
@@ -250,11 +257,18 @@ function ActiveInner() {
                       return w && Number(r) >= repTop;
                     });
                     const lastW = parseFloat(parts[0]?.split("×")[0] || "0");
+                    const isLower = ex ? /squat|deadlift|lunge|thrust|leg|calf|rdl/.test(ex.slug) : false;
                     return (
                       <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                        last: {parts.join(" / ")}
+                        last: {parts.map(dispSet).join(" / ")}
                         {hitTop && lastW > 0 && (
-                          <span style={{ color: "var(--color-warmth)" }}> · try {lastW + 2.5}kg</span>
+                          <span style={{ color: "var(--color-warmth)" }}> · try {dispW(lastW + (isLower ? 5 : 2.5))}{units}</span>
+                        )}
+                        {/* Warmup ramp — ~40% then ~75% of top weight optimizes output (Ribeiro 2020) */}
+                        {lastW > 20 && (
+                          <span className="block" style={{ color: "var(--color-ink-faint)" }}>
+                            warm up: {dispW(lastW * 0.4)}{units}×8 · {dispW(lastW * 0.75)}{units}×5
+                          </span>
                         )}
                       </p>
                     );
@@ -273,7 +287,7 @@ function ActiveInner() {
                       <input
                         value={row.weight}
                         onChange={(e) => void logSet(x.slug, i, { weight: e.target.value })}
-                        placeholder={prev ? prev.split("×")[0] || "kg" : "kg"}
+                        placeholder={prev ? String(dispW(parseFloat(prev.split("×")[0]) || 0)) : units}
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
                       />
