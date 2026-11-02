@@ -149,6 +149,7 @@ const VIA_COLORS: Record<string, string> = {
   study: "#4f86c6",
   homework: "#4f86c6",
   quran: "#2fa08f",
+  deadline: "var(--color-error)", // hard cutoffs are red — reserved, per Things convention
 };
 
 // ── Manual date/time formatters (hydration-safe) ──

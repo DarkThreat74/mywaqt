@@ -89,6 +89,9 @@ export default function GoalsPageClient({
   });
   const [goalHorizon, setGoalHorizon] = useState<GoalHorizon>("week");
   const [goals, setGoals] = useState<Goal[]>(initialGoals);
+  const [deadlineOpen, setDeadlineOpen] = useState(false);
+  const [dlTitle, setDlTitle] = useState("");
+  const [dlDate, setDlDate] = useState("");
   const [homework, setHomework] = useState<Homework[]>(initialHomework);
   const [classes, setClasses] = useState<Class[]>(initialClasses);
   const [habits, setHabits] = useState<Habit[]>(initialHabits);
@@ -400,6 +403,73 @@ export default function GoalsPageClient({
                 </button>
               ))}
             </div>
+            {/* Deadlines — any active goal carrying a target date, sorted soonest first */}
+            {(() => {
+              const dated = goals
+                .filter((g) => g.targetDate && g.status === "active")
+                .sort((a, b) => new Date(a.targetDate!).getTime() - new Date(b.targetDate!).getTime());
+              return (
+                <div className="mb-4 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Deadlines</p>
+                  <div className="mt-2 space-y-1.5">
+                    {dated.map((g) => {
+                      const days = Math.ceil((new Date(g.targetDate!).getTime() - Date.now()) / 86400000);
+                      const color = days < 0 ? "var(--color-ink-muted)" : days <= 7 ? "var(--color-error)" : days <= 30 ? "var(--color-warmth)" : "var(--color-ink-muted)";
+                      return (
+                        <div key={g.id} className="flex items-center gap-2.5 rounded-lg border px-3 py-2"
+                          style={{ borderColor: "var(--color-paper-3)", borderLeftWidth: 3, borderLeftColor: color }}>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13px] font-medium" style={{ color: "var(--color-ink)", textDecoration: days < 0 ? "line-through" : "none" }}>{g.title}</p>
+                            <p className="text-[10px]" style={{ color }}>
+                              {days < 0 ? `passed ${-days}d ago` : days === 0 ? "today" : `${days}d left`} · {g.targetDate}
+                            </p>
+                          </div>
+                          <button type="button" title="Add to calendar"
+                            onClick={() => {
+                              const start = `${g.targetDate}T09:00:00`;
+                              void fetch("/api/events", { method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ title: `Due: ${g.title}`, startAt: start, endAt: `${g.targetDate}T09:30:00`, createdVia: `deadline:${g.id}` }) }).catch(() => {});
+                            }}
+                            className="shrink-0 rounded-full border px-2 py-1 text-[10px]"
+                            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                            +cal
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {deadlineOpen ? (
+                      <form onSubmit={async (e) => {
+                        e.preventDefault();
+                        const title = dlTitle.trim(), date = dlDate;
+                        if (!title || !date) return;
+                        const res = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ title, targetDate: date, goalType: "all_time" }) }).catch(() => null);
+                        if (res?.ok) {
+                          const { goal } = await res.json();
+                          if (goal) setGoals((prev) => [...prev, goal]);
+                          setDlTitle(""); setDlDate(""); setDeadlineOpen(false);
+                        }
+                      }} className="flex items-center gap-2">
+                        <input value={dlTitle} onChange={(e) => setDlTitle(e.target.value)} placeholder="What is due?" autoFocus
+                          className="min-w-0 flex-1 rounded-lg border px-2.5 py-2 text-xs outline-none"
+                          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+                        <input type="date" value={dlDate} onChange={(e) => setDlDate(e.target.value)} required
+                          className="rounded-lg border px-2 py-2 text-xs outline-none"
+                          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+                        <button type="submit" className="rounded-lg px-3 py-2 text-xs font-semibold"
+                          style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Add</button>
+                      </form>
+                    ) : (
+                      <button type="button" onClick={() => setDeadlineOpen(true)}
+                        className="w-full rounded-lg border border-dashed px-3 py-2 text-[11px]"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                        + Add a deadline
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
             <GoalsTab goals={goals} setGoals={setGoals} goalType={goalHorizon} />
           </div>
         )}
