@@ -63,7 +63,7 @@ export const EQUIP_NOTES: Record<string, string> = {
 // Exercise variations — foot/grip/attachment positions that change muscle
 // emphasis. Stored per set so history tracks which position was used.
 export const VARIATIONS: Record<string, { key: string; label: string; note: string }[]> = {
-  "leg-curl": [
+  "standing-leg-curl": [
     { key: "neutral", label: "toes straight", note: "even hamstring emphasis" },
     { key: "out", label: "toes out", note: "more inner hamstrings (semitendinosus)" },
     { key: "in", label: "toes in", note: "more outer hamstrings (biceps femoris)" },
@@ -73,13 +73,13 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "out", label: "toes out", note: "more inner hamstrings" },
     { key: "in", label: "toes in", note: "more outer hamstrings" },
   ],
-  "bb-curl": [
+  "ez-bar-curl": [
     { key: "barbell", label: "barbell", note: "heaviest load, both arms" },
     { key: "ez", label: "EZ bar", note: "easier wrists, ~10kg bar" },
     { key: "cable", label: "cable", note: "constant tension through the rep" },
     { key: "dumbbell", label: "dumbbell", note: "per-hand, allows supination" },
   ],
-  "db-curl": [
+  "standing-db-curl": [
     { key: "supinating", label: "supinating", note: "twist up — full biceps" },
     { key: "hammer", label: "hammer", note: "neutral — brachialis + forearm" },
     { key: "cross", label: "cross-body", note: "brachialis emphasis" },
@@ -105,13 +105,22 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "wide", label: "wide bar", note: "upper back, rear delts" },
     { key: "single", label: "single arm", note: "unilateral, more ROM" },
   ],
-  "lateral-raise": [
-    { key: "dumbbell", label: "dumbbell", note: "classic — slack at bottom" },
-    { key: "cable", label: "cable", note: "tension at bottom — better SFR" },
-    { key: "cuff", label: "cuffed", note: "cable on wrist — pure delt, no grip" },
-    { key: "lean", label: "lean-away", note: "cable, stretched position bias" },
+  "cable-lateral-raise": [
+    { key: "standard", label: "standard", note: "tension at bottom — better SFR than DB" },
+    { key: "cuff", label: "cuffed", note: "on the wrist — pure delt, no grip limit" },
+    { key: "lean", label: "lean-away", note: "stretched position bias" },
+    { key: "crossbody", label: "crossbody", note: "cable across body — deep stretch" },
   ],
-  "bench-press": [
+  "machine-lateral-raise": [
+    { key: "standard", label: "seated", note: "fixed path — pure side delt" },
+    { key: "partial", label: "lengthened partials", note: "bottom-half reps — stretch bias" },
+  ],
+  "db-lateral-raise": [
+    { key: "standard", label: "standard", note: "classic — slack at bottom" },
+    { key: "lean", label: "lean on bench", note: "arm hangs free — stretch bias" },
+    { key: "partial", label: "lengthened partials", note: "bottom half only" },
+  ],
+  "barbell-bench-press": [
     { key: "medium", label: "medium grip", note: "balanced pec+triceps" },
     { key: "wide", label: "wide grip", note: "more pec, less triceps, shorter ROM" },
     { key: "close", label: "close grip", note: "more triceps" },
@@ -149,7 +158,7 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "high", label: "foot high", note: "glute bias" },
     { key: "low", label: "foot low", note: "quad bias" },
   ],
-  "calf-raise": [
+  "smith-calf-raise": [
     { key: "neutral", label: "toes straight", note: "even calf" },
     { key: "out", label: "toes out", note: "inner head (medial gastroc)" },
     { key: "in", label: "toes in", note: "outer head (lateral gastroc)" },
@@ -170,7 +179,7 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "dumbbell", label: "dumbbells", note: "independent arms" },
     { key: "cable", label: "cable", note: "tension at top, no rest point" },
   ],
-  "overhead-db-extension": [
+  "two-arm-db-overhead": [
     { key: "both", label: "two hands one DB", note: "heaviest load" },
     { key: "single", label: "single arm", note: "unilateral, strict" },
     { key: "cable", label: "cable low pulley", note: "constant tension overhead" },
@@ -184,7 +193,7 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "cuff", label: "cuff", note: "ankle strap — pure triceps" },
     { key: "handle", label: "handle", note: "single handle grip" },
   ],
-  "lat-pulldown": [
+  "neutral-grip-pulldown": [
     { key: "wide", label: "wide overhand", note: "lats + teres major" },
     { key: "neutral", label: "neutral V-bar", note: "stretch-heavy lat path" },
     { key: "underhand", label: "underhand", note: "biceps assist, lower lats" },
@@ -194,7 +203,7 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "wide", label: "wide overhand", note: "lats + teres" },
     { key: "underhand", label: "wide underhand", note: "lower lats + biceps" },
   ],
-  "face-pull": [
+  "rope-face-pull": [
     { key: "rope", label: "rope", note: "ends pulled apart — rear delt + rotation" },
     { key: "forehead", label: "to forehead", note: "rear delts, less rotation" },
     { key: "er", label: "with rotation", note: "external rotate at end — rotator cuff" },
@@ -214,7 +223,7 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "standing", label: "standing", note: "elite — full anti-extension" },
     { key: "ramp", label: "to ramp", note: "reduced ROM while building" },
   ],
-  "plank": [
+  "rkc-plank": [
     { key: "elbows", label: "elbows", note: "standard anti-extension" },
     { key: "side", label: "side", note: "obliques + QL" },
     { key: "rkc", label: "RKC hardstyle", note: "max tension, short holds" },
@@ -230,7 +239,7 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "toes", label: "toes to bar", note: "full ROM, advanced" },
     { key: "twist", label: "with twist", note: "obliques" },
   ],
-  "romanian-deadlift": [
+  "rdl": [
     { key: "barbell", label: "barbell", note: "heaviest" },
     { key: "dumbbell", label: "dumbbells", note: "independent hands" },
     { key: "single", label: "single leg", note: "unilateral + balance" },
