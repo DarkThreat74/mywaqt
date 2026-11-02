@@ -20,10 +20,16 @@ export const RATIOS: Record<string, RatioLink> = {
   "barbell-ohp": { from: ["barbell-bench-press", "incline-bench-60"], r: 0.65, conf: 0.8, why: "no bench support, smaller prime movers" },
   "seated-db-press": { from: ["barbell-ohp", "barbell-bench-press"], r: 1.08, conf: 0.6, why: "seated with back support vs standing barbell" },
   "machine-shoulder-press": { from: ["barbell-ohp"], r: 1.1, conf: 0.5, why: "guided path removes stabilization" },
-  "front-squat": { from: ["back-squat", "low-bar-squat"], r: 0.8, conf: 0.8, why: "upright torso; rack position limits before legs" },
+  "front-squat": { from: ["back-squat", "low-bar-squat"], r: 0.83, conf: 0.85, why: "upright torso; rack position limits before legs (btwb data)" },
   "low-bar-squat": { from: ["back-squat", "hack-squat"], r: 1.05, conf: 0.6, why: "posterior chain takes more load" },
   "hack-squat": { from: ["back-squat"], r: 1.1, conf: 0.5, why: "guided path; back supported" },
-  "leg-press": { from: ["back-squat"], r: 2.0, conf: 0.4, why: "sled travel doubles apparent load — varies by machine" },
+  "smith-squat": { from: ["back-squat"], r: 1.06, conf: 0.5, why: "guided path — +4-8% (Cotterman 2005)" },
+  "smith-bench": { from: ["barbell-bench-press"], r: 0.88, conf: 0.6, why: "Smith bench is LIGHTER not heavier (−11%, Cotterman 2005)" },
+  "leg-press": { from: ["back-squat"], r: 2.25, conf: 0.4, why: "sled ~2-2.5× squat — machine-dependent" },
+  "leg-press-wide": { from: ["back-squat"], r: 2.25, conf: 0.4, why: "same sled estimate" },
+  "single-leg-press": { from: ["leg-press"], r: 0.58, conf: 0.6, why: "bilateral deficit — each leg ~58% of half" },
+  "deadlift": { from: ["back-squat"], r: 1.22, conf: 0.7, why: "coaching standard ~120-125% of squat" },
+  "trap-bar-deadlift": { from: ["deadlift"], r: 1.07, conf: 0.75, why: "hex bar +6-8%, more quad less hip (Swinton 2011)" },
   "rdl": { from: ["deadlift", "stiff-leg-deadlift"], r: 0.8, conf: 0.7, why: "no leg drive, no floor reset" },
   "stiff-leg-deadlift": { from: ["deadlift"], r: 0.75, conf: 0.6, why: "straight legs remove quad contribution" },
   "sumo-deadlift": { from: ["deadlift"], r: 0.95, conf: 0.5, why: "shorter ROM, more quads — very individual" },
@@ -45,20 +51,37 @@ export const RATIOS: Record<string, RatioLink> = {
 export function estimateE1(
   slug: string,
   bestBySlug: Map<string, number>,
+  lastAt?: Map<string, number>, // slug → ms timestamp of last logged session
 ): { e1: number; from: string; conf: number; why: string; personal?: boolean } | null {
   const link = RATIOS[slug];
   if (!link) return null;
   const myE = bestBySlug.get(slug);
+  const now = Date.now();
+  // Recency decay — strength estimates fade: full weight <4wk, half at ~12wk.
+  const decay = (slugKey: string) => {
+    const at = lastAt?.get(slugKey);
+    if (!at) return 0.6; // unknown age → cautious
+    const weeks = (now - at) / 604800000;
+    return Math.max(0.4, Math.exp(-weeks / 12));
+  };
+  // Sibling transfer: a logged pair elsewhere in the same family calibrates
+  // the user's personal deviation from the population ratio.
+  const familyAdj = (() => {
+    for (const [sib, sl] of Object.entries(RATIOS)) {
+      const se = bestBySlug.get(sib), pe = sl.from.map((f) => bestBySlug.get(f)).find((v) => v && v > 0);
+      if (se && se > 0 && pe && pe > 0) return (se / pe) / sl.r; // e.g. user inclines 0.72 not 0.78
+    }
+    return 1;
+  })();
   for (const parent of link.from) {
     const pe = bestBySlug.get(parent);
     if (pe && pe > 0) {
-      let r = link.r, personal = false;
+      let r = link.r * familyAdj, personal = familyAdj !== 1;
       if (myE && myE > 0) {
-        // Personal ratio: demonstrated variant/parent relationship, half-weight.
-        r = (myE / pe) * 0.5 + link.r * 0.5;
+        r = (myE / pe) * 0.5 + r * 0.5;
         personal = true;
       }
-      return { e1: Math.round(pe * r * 10) / 10, from: parent, conf: link.conf, why: link.why, personal };
+      return { e1: Math.round(pe * r * decay(parent) * 10) / 10, from: parent, conf: link.conf, why: link.why, personal };
     }
   }
   return null;

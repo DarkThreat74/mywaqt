@@ -28,6 +28,8 @@ function ActiveInner() {
   const [setRows, setSetRows] = useState<Record<string, SetRow[]>>({});
   const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
   const [bestE1, setBestE1] = useState<Map<string, number>>(new Map());
+  const [lastAt, setLastAt] = useState<Map<string, number>>(new Map());
+  const [stalled, setStalled] = useState<Set<string>>(new Set());
   const [elapsed, setElapsed] = useState(0);
   const [restLeft, setRestLeft] = useState(0);
   const [finished, setFinished] = useState(false);
@@ -82,6 +84,18 @@ function ActiveInner() {
       if (p2?.ok && !cancelled) {
         const d2 = await p2.json();
         setBestE1(new Map((d2.progress || []).map((p: { slug: string; bestE1?: number }) => [p.slug, p.bestE1 || 0])));
+        const at = new Map<string, number>(), stall = new Set<string>();
+        for (const p of d2.progress || []) {
+          const last = p.points?.[p.points.length - 1];
+          if (last?.at) at.set(p.slug, new Date(last.at).getTime());
+          // Deload signal: 3+ consecutive sessions without a new best e1RM.
+          const pts = (p.points || []).map((x: { e1: number }) => x.e1);
+          if (pts.length >= 4) {
+            const tail = pts.slice(-4);
+            if (tail.every((v: number, i: number) => i === 0 || v <= tail[i - 1])) stall.add(p.slug);
+          }
+        }
+        setLastAt(at); setStalled(stall);
       }
     })();
     return () => { cancelled = true; };
@@ -221,6 +235,12 @@ function ActiveInner() {
       <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
         {totalDone}/{totalPlanned} sets · {restLeft > 0 ? `rest ${fmt(restLeft)}` : "rest timer starts after a set"}
       </p>
+      {exercises.some((x) => stalled.has(x.slug)) && (
+        <div className="mt-2 rounded-lg border px-3 py-2 text-[11px]"
+          style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>
+          Stalled lifts detected — consider a deload week: drop weights ~50%, keep reps, return next week.
+        </div>
+      )}
       {restLeft > 0 && (
         <div className="mt-2 rounded-lg border px-3 py-2 text-center text-sm font-medium tabular-nums"
           style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>
@@ -283,12 +303,12 @@ function ActiveInner() {
                   })()}
                   {/* No direct history — estimate from the strongest related lift */}
                   {!prevSets[x.slug]?.filter(Boolean).length && (() => {
-                    const est = estimateE1(x.slug, bestE1);
+                    const est = estimateE1(x.slug, bestE1, lastAt);
                     if (!est) return null;
                     const from = EXERCISES.find((e) => e.slug === est.from)?.name || est.from;
                     return (
                       <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }} title={`${est.why} — ~75% of estimated 1RM as a working weight`}>
-                        est. {dispW(est.e1 * 0.75)}{units}×8-10 <span style={{ opacity: 0.7 }}>(from {from})</span>
+                        est. {dispW(est.e1 * 0.75)}{units}×8-10 <span style={{ opacity: 0.7 }}>(from {from}{est.personal ? ", calibrated" : ""})</span>
                       </p>
                     );
                   })()}
