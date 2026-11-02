@@ -7,6 +7,7 @@ import {
   BookOpen,
   Repeat,
   CheckCircle2,
+  Timer,
 } from "lucide-react";
 import type { Goal, Homework, Class, Habit, HabitLog, Chore } from "@/lib/db/schema";
 import { getOfflineDB } from "@/lib/offline/db";
@@ -23,7 +24,7 @@ import HabitsTab from "./tabs/HabitsTab";
 import TodayTab from "./tabs/TodayTab";
 import DoneTab from "./tabs/DoneTab";
 
-export type TabId = "today" | "goals" | "homework" | "habits" | "done";
+export type TabId = "today" | "goals" | "deadlines" | "homework" | "habits" | "done";
 
 interface TabDef {
   id: TabId;
@@ -34,6 +35,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: "today", label: "Today", icon: Calendar },
   { id: "goals", label: "Goals", icon: Target },
+  { id: "deadlines", label: "Deadlines", icon: Timer },
   { id: "homework", label: "Homework", icon: BookOpen },
   { id: "habits", label: "Habits", icon: Repeat },
   { id: "done", label: "Done", icon: CheckCircle2 },
@@ -403,6 +405,11 @@ export default function GoalsPageClient({
                 </button>
               ))}
             </div>
+            <GoalsTab goals={goals} setGoals={setGoals} goalType={goalHorizon} />
+          </div>
+        )}
+        {activeTab === "deadlines" && (
+          <div className="mt-4">
             {/* Deadlines — any active goal carrying a target date, sorted soonest first */}
             {(() => {
               const dated = goals
@@ -470,7 +477,6 @@ export default function GoalsPageClient({
                 </div>
               );
             })()}
-            <GoalsTab goals={goals} setGoals={setGoals} goalType={goalHorizon} />
           </div>
         )}
         {activeTab === "homework" && (
