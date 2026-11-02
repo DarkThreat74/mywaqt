@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff, Cake } from "lucide-react";
+import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff, Cake, Dumbbell, Target, GraduationCap, BookOpenText, AlarmClock, Flag } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { layoutOverlap } from "@/lib/calendar/overlap";
@@ -2116,6 +2116,12 @@ export default function DayViewClient({ date }: { date: string }) {
               deadline:{ style: "solid", width: 2, leftW: 2 },
             };
             const vb = VIA_BORDER[viaKind] || { style: event.type === "reminder" ? "dashed" : "solid", width: 1, leftW: 3 };
+            const VIA_ICON: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+              workout: Dumbbell, goal: Target, class: GraduationCap,
+              study: BookOpen, homework: BookOpen, quran: BookOpenText,
+              deadline: Flag,
+            };
+            const ViaIcon = VIA_ICON[viaKind] || (event.type === "reminder" ? AlarmClock : null);
 
             return (
               <div
@@ -2135,6 +2141,9 @@ export default function DayViewClient({ date }: { date: string }) {
                 }}
               >
                 <div className="relative flex h-full flex-col items-center justify-center gap-0.5 px-1.5 py-1 sm:px-2">
+                  {ViaIcon && (
+                    <ViaIcon className="absolute left-1 top-1 h-3 w-3 opacity-70" style={{ color: borderColor }} />
+                  )}
                   <p className="w-full truncate text-center text-[11px] font-medium leading-tight sm:text-xs" style={{ color: "var(--color-ink)" }}>
                     {event.title}
                     {event._pending && (
