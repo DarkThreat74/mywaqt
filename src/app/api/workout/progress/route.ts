@@ -45,7 +45,12 @@ export async function GET(request: NextRequest) {
         const p = e.points.find((p) => p.at === row.at.toISOString())!;
         if (val > p.e1) p.e1 = val;
       }
-      if (!e.last) e.last = { w, r, rir: row.rir, at: row.at.toISOString() };
+      // "last" = latest session's best set — prefer working/failure over
+      // warmups so the "try X" hint suggests a real working weight.
+      if (!e.last || row.setType !== "warmup") {
+        if (!e.last) e.last = { w, r, rir: row.rir, at: row.at.toISOString() };
+        else if (row.setType !== "warmup" && val > e1rm(e.last.w, e.last.r)) e.last = { w, r, rir: row.rir, at: row.at.toISOString() };
+      }
       e.sessions++;
       e.tonnage += w * r;
       if (val > e.best) e.best = val;
