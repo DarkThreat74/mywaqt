@@ -22,6 +22,7 @@ export default function WorkoutClient() {
   const [tonnage, setTonnage] = useState(0);
   const [tonWeek, setTonWeek] = useState(0);
   const [tonPrevWeek, setTonPrevWeek] = useState(0);
+  const [volumeSpike, setVolumeSpike] = useState(false);
   const [bodyWeight, setBodyWeight] = useState("");
   const [heightCm, setHeightCm] = useState("");
 
@@ -55,6 +56,7 @@ export default function WorkoutClient() {
       setTonnage(data.totalTonnage || 0);
       setTonWeek(data.tonWeek || 0);
       setTonPrevWeek(data.tonPrevWeek || 0);
+      setVolumeSpike(!!data.volumeSpike);
       const prefs = await fetch("/api/settings/prefs").catch(() => null);
       if (prefs?.ok) {
         const { prefs: p } = await prefs.json();
@@ -436,6 +438,12 @@ export default function WorkoutClient() {
         </button>
       </div>
 
+      {volumeSpike && (
+        <div className="mt-3 rounded-lg border px-3 py-2 text-[11px]"
+          style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>
+          Volume spiked &gt;30% over last week — injury-risk territory. Consider holding this week&apos;s load.
+        </div>
+      )}
       {progress.length > 0 && (
         <button type="button" onClick={() => setShowProgress((v) => !v)}
           className="mt-4 w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"

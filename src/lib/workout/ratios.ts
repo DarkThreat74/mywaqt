@@ -43,6 +43,23 @@ export const RATIOS: Record<string, RatioLink> = {
   "dips": { from: ["barbell-bench-press", "close-grip-bench"], r: 1.0, conf: 0.4, why: "bodyweight+added — compare added load only" },
 };
 
+// Equipment/attachment caveats — surfaced as tips, not ratio entries, because
+// they change the *reading*, not the lift. Dual-pulley cable stacks mechanically
+// halve the pin load; bars aren't all 20kg.
+export const EQUIP_NOTES: Record<string, string> = {
+  // cable machines
+  "pressdown": "on a dual-stack pulley the pin reads ~2× the real load — log what the pin says, compare same-machine only",
+  "rope-pressdown": "rope allows an outward pull at the bottom — slightly more long head than a straight bar",
+  "vbar-pressdown": "v-bar is fixed-grip — same line as a bar, easier on the wrists",
+  "cable-lateral-raise": "cable keeps tension at the bottom — no slack at the start like a dumbbell",
+  "overhead-rope-extension": "rope on the dual stack reads ~2× — also lets hands separate at lockout",
+  // bars & machines
+  "ez-bar-curl": "EZ bar is ~10kg, not 20 — a 30kg 'barbell curl' on EZ is really ~25kg",
+  "smith-bench": "Smith bar is often ~7-15kg counterbalanced, not 20 — check the machine's label",
+  "smith-squat": "Smith bar is often ~7-15kg counterbalanced, not 20 — check the machine's label",
+  "machine-preacher-curl": "plate-loaded machines vary — same number isn't comparable across brands",
+};
+
 // Estimate a target lift's e1RM from the user's logged bests on related lifts.
 // Parents are tried in order — the first logged one wins (they're ordered by
 // confidence). When the user has logged BOTH lifts of a pair, their personal

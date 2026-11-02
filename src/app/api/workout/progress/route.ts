@@ -158,6 +158,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       progress: out, totalSessions: sessCount, muscles, totalTonnage: Math.round(totalTonnage),
       tonWeek: Math.round(tonWeek), tonPrevWeek: Math.round(tonPrevWeek),
+      // ACWR-style flag — >30% weekly load jump is the documented injury-risk line
+      volumeSpike: tonPrevWeek > 0 && tonWeek > tonPrevWeek * 1.3,
     });
   } catch (e) { logError(e, { route: "workout/progress GET" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }
 }

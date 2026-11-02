@@ -6,7 +6,7 @@ import Link from "next/link";
 import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
-import { estimateE1 } from "@/lib/workout/ratios";
+import { estimateE1, EQUIP_NOTES } from "@/lib/workout/ratios";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; done: boolean; }
@@ -302,6 +302,11 @@ function ActiveInner() {
                     );
                   })()}
                   {/* No direct history — estimate from the strongest related lift */}
+                  {EQUIP_NOTES[x.slug] && (
+                    <p className="mt-0.5 text-[9px] italic" style={{ color: "var(--color-ink-muted)", opacity: 0.8 }}>
+                      {EQUIP_NOTES[x.slug]}
+                    </p>
+                  )}
                   {!prevSets[x.slug]?.filter(Boolean).length && (() => {
                     const est = estimateE1(x.slug, bestE1, lastAt);
                     if (!est) return null;
