@@ -121,6 +121,126 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
     { key: "neutral", label: "neutral", note: "easiest on shoulders, brachialis" },
     { key: "chin", label: "underhand", note: "biceps assist — usually strongest" },
   ],
+  "leg-extension": [
+    { key: "neutral", label: "toes straight", note: "even quad emphasis" },
+    { key: "out", label: "toes out", note: "more inner quad (VMO/teardrop)" },
+    { key: "in", label: "toes in", note: "more outer quad (vastus lateralis)" },
+    { key: "single", label: "single leg", note: "unilateral — exposes imbalances" },
+  ],
+  "leg-press": [
+    { key: "mid", label: "feet mid", note: "balanced quad+glute" },
+    { key: "high", label: "feet high", note: "glutes + hamstrings" },
+    { key: "low", label: "feet low", note: "more quads, more knee stress" },
+    { key: "wide", label: "feet wide", note: "adductors + glutes" },
+    { key: "narrow", label: "feet narrow", note: "outer quad sweep" },
+  ],
+  "back-squat": [
+    { key: "high-bar", label: "high bar", note: "upright torso, quad-dominant" },
+    { key: "low-bar", label: "low bar", note: "hip hinge, posterior chain — usually heaviest" },
+    { key: "heels", label: "heels elevated", note: "quad bias, deeper knees" },
+  ],
+  "leg-press-wide": [
+    { key: "high", label: "feet high", note: "glutes + hamstrings" },
+    { key: "mid", label: "feet mid", note: "balanced" },
+    { key: "low", label: "feet low", note: "more quads" },
+  ],
+  "single-leg-press": [
+    { key: "mid", label: "foot mid", note: "balanced" },
+    { key: "high", label: "foot high", note: "glute bias" },
+    { key: "low", label: "foot low", note: "quad bias" },
+  ],
+  "calf-raise": [
+    { key: "neutral", label: "toes straight", note: "even calf" },
+    { key: "out", label: "toes out", note: "inner head (medial gastroc)" },
+    { key: "in", label: "toes in", note: "outer head (lateral gastroc)" },
+  ],
+  "standing-calf-raise": [
+    { key: "neutral", label: "toes straight", note: "even calf" },
+    { key: "out", label: "toes out", note: "inner head" },
+    { key: "in", label: "toes in", note: "outer head" },
+  ],
+  "seated-calf-raise": [
+    { key: "neutral", label: "toes straight", note: "even soleus" },
+    { key: "out", label: "toes out", note: "inner soleus" },
+    { key: "in", label: "toes in", note: "outer soleus" },
+  ],
+  "skullcrusher": [
+    { key: "ez", label: "EZ bar", note: "angled grip — wrist-friendly" },
+    { key: "barbell", label: "barbell", note: "straight bar, heaviest" },
+    { key: "dumbbell", label: "dumbbells", note: "independent arms" },
+    { key: "cable", label: "cable", note: "tension at top, no rest point" },
+  ],
+  "overhead-db-extension": [
+    { key: "both", label: "two hands one DB", note: "heaviest load" },
+    { key: "single", label: "single arm", note: "unilateral, strict" },
+    { key: "cable", label: "cable low pulley", note: "constant tension overhead" },
+  ],
+  "cable-kickback": [
+    { key: "cuff", label: "cuff", note: "ankle strap on wrist — no grip limit" },
+    { key: "handle", label: "handle", note: "standard single handle" },
+    { key: "db", label: "dumbbell", note: "no cable needed" },
+  ],
+  "cuff-kickback": [
+    { key: "cuff", label: "cuff", note: "ankle strap — pure triceps" },
+    { key: "handle", label: "handle", note: "single handle grip" },
+  ],
+  "lat-pulldown": [
+    { key: "wide", label: "wide overhand", note: "lats + teres major" },
+    { key: "neutral", label: "neutral V-bar", note: "stretch-heavy lat path" },
+    { key: "underhand", label: "underhand", note: "biceps assist, lower lats" },
+    { key: "single", label: "single arm", note: "unilateral, full range" },
+  ],
+  "wide-grip-pulldown": [
+    { key: "wide", label: "wide overhand", note: "lats + teres" },
+    { key: "underhand", label: "wide underhand", note: "lower lats + biceps" },
+  ],
+  "face-pull": [
+    { key: "rope", label: "rope", note: "ends pulled apart — rear delt + rotation" },
+    { key: "forehead", label: "to forehead", note: "rear delts, less rotation" },
+    { key: "er", label: "with rotation", note: "external rotate at end — rotator cuff" },
+  ],
+  "dumbbell-flye": [
+    { key: "flat", label: "flat bench", note: "mid pec stretch" },
+    { key: "incline", label: "incline", note: "upper pec" },
+    { key: "deep", label: "deep stretch", note: "slight decline — max lengthened" },
+  ],
+  "cable-flye": [
+    { key: "mid", label: "mid height", note: "mid pec" },
+    { key: "low-high", label: "low→high", note: "upper pec line" },
+    { key: "high-low", label: "high→low", note: "lower pec line" },
+  ],
+  "ab-wheel": [
+    { key: "knees", label: "from knees", note: "standard" },
+    { key: "standing", label: "standing", note: "elite — full anti-extension" },
+    { key: "ramp", label: "to ramp", note: "reduced ROM while building" },
+  ],
+  "plank": [
+    { key: "elbows", label: "elbows", note: "standard anti-extension" },
+    { key: "side", label: "side", note: "obliques + QL" },
+    { key: "rkc", label: "RKC hardstyle", note: "max tension, short holds" },
+  ],
+  "wrist-curl": [
+    { key: "palms-up", label: "palms up", note: "flexors" },
+    { key: "palms-down", label: "palms down", note: "extensors" },
+    { key: "behind-back", label: "behind back", note: "long-range flexor stretch" },
+  ],
+  "hanging-leg-raise": [
+    { key: "straight", label: "straight legs", note: "harder, hip flexors + abs" },
+    { key: "knees", label: "bent knees", note: "easier entry" },
+    { key: "toes", label: "toes to bar", note: "full ROM, advanced" },
+    { key: "twist", label: "with twist", note: "obliques" },
+  ],
+  "romanian-deadlift": [
+    { key: "barbell", label: "barbell", note: "heaviest" },
+    { key: "dumbbell", label: "dumbbells", note: "independent hands" },
+    { key: "single", label: "single leg", note: "unilateral + balance" },
+  ],
+  "hip-thrust": [
+    { key: "barbell", label: "barbell", note: "heaviest glute load" },
+    { key: "single", label: "single leg", note: "unilateral" },
+    { key: "feet-fwd", label: "feet forward", note: "hamstring bias" },
+    { key: "wide", label: "feet wide", note: "glute med bias" },
+  ],
 };
 
 // Estimate a target lift's e1RM from the user's logged bests on related lifts.
