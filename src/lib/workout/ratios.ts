@@ -60,6 +60,69 @@ export const EQUIP_NOTES: Record<string, string> = {
   "machine-preacher-curl": "plate-loaded machines vary — same number isn't comparable across brands",
 };
 
+// Exercise variations — foot/grip/attachment positions that change muscle
+// emphasis. Stored per set so history tracks which position was used.
+export const VARIATIONS: Record<string, { key: string; label: string; note: string }[]> = {
+  "leg-curl": [
+    { key: "neutral", label: "toes straight", note: "even hamstring emphasis" },
+    { key: "out", label: "toes out", note: "more inner hamstrings (semitendinosus)" },
+    { key: "in", label: "toes in", note: "more outer hamstrings (biceps femoris)" },
+  ],
+  "lying-leg-curl": [
+    { key: "neutral", label: "toes straight", note: "even hamstring emphasis" },
+    { key: "out", label: "toes out", note: "more inner hamstrings" },
+    { key: "in", label: "toes in", note: "more outer hamstrings" },
+  ],
+  "bb-curl": [
+    { key: "barbell", label: "barbell", note: "heaviest load, both arms" },
+    { key: "ez", label: "EZ bar", note: "easier wrists, ~10kg bar" },
+    { key: "cable", label: "cable", note: "constant tension through the rep" },
+    { key: "dumbbell", label: "dumbbell", note: "per-hand, allows supination" },
+  ],
+  "db-curl": [
+    { key: "supinating", label: "supinating", note: "twist up — full biceps" },
+    { key: "hammer", label: "hammer", note: "neutral — brachialis + forearm" },
+    { key: "cross", label: "cross-body", note: "brachialis emphasis" },
+  ],
+  "pressdown": [
+    { key: "bar", label: "straight bar", note: "stable, heaviest" },
+    { key: "rope", label: "rope", note: "hands separate at lockout — more long head" },
+    { key: "vbar", label: "V-bar", note: "bar line, wrist-friendly" },
+    { key: "cuff", label: "cuff/single", note: "one arm, strict isolation" },
+  ],
+  "overhead-rope-extension": [
+    { key: "rope", label: "rope", note: "hands apart at top — long head" },
+    { key: "bar", label: "bar", note: "fixed grip, heavier" },
+    { key: "cuff", label: "cuff single-arm", note: "unilateral, crossface option" },
+  ],
+  "single-arm-pressdown": [
+    { key: "overhand", label: "overhand", note: "lateral head emphasis" },
+    { key: "underhand", label: "underhand", note: "medial head emphasis" },
+    { key: "crossface", label: "crossface", note: "long head — arm across body" },
+  ],
+  "seated-cable-row": [
+    { key: "vbar", label: "V-bar", note: "lats + squeeze" },
+    { key: "wide", label: "wide bar", note: "upper back, rear delts" },
+    { key: "single", label: "single arm", note: "unilateral, more ROM" },
+  ],
+  "lateral-raise": [
+    { key: "dumbbell", label: "dumbbell", note: "classic — slack at bottom" },
+    { key: "cable", label: "cable", note: "tension at bottom — better SFR" },
+    { key: "cuff", label: "cuffed", note: "cable on wrist — pure delt, no grip" },
+    { key: "lean", label: "lean-away", note: "cable, stretched position bias" },
+  ],
+  "bench-press": [
+    { key: "medium", label: "medium grip", note: "balanced pec+triceps" },
+    { key: "wide", label: "wide grip", note: "more pec, less triceps, shorter ROM" },
+    { key: "close", label: "close grip", note: "more triceps" },
+  ],
+  "pull-up": [
+    { key: "overhand", label: "overhand", note: "lats + teres, hardest" },
+    { key: "neutral", label: "neutral", note: "easiest on shoulders, brachialis" },
+    { key: "chin", label: "underhand", note: "biceps assist — usually strongest" },
+  ],
+};
+
 // Estimate a target lift's e1RM from the user's logged bests on related lifts.
 // Parents are tried in order — the first logged one wins (they're ordered by
 // confidence). When the user has logged BOTH lifts of a pair, their personal

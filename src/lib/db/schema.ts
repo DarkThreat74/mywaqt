@@ -1484,6 +1484,7 @@ export const workoutSets = pgTable('workout_sets', {
   reps: integer('reps'),
   rir: integer('rir'),
   setType: text('set_type').default('working').notNull(), // warmup | working | failure
+  variation: text('variation'), // toe/grip/attachment position — see VARIATIONS
   done: boolean('done').default(false).notNull(),
 }, (table) => ({
   uniq: uniqueIndex('workout_sets_session_slug_idx').on(table.sessionId, table.slug, table.setIndex),

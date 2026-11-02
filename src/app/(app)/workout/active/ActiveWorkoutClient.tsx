@@ -6,10 +6,10 @@ import Link from "next/link";
 import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
-import { estimateE1, EQUIP_NOTES } from "@/lib/workout/ratios";
+import { estimateE1, EQUIP_NOTES, VARIATIONS } from "@/lib/workout/ratios";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
-interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; done: boolean; }
+interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; variation?: string | null; done: boolean; }
 type Unit = "kg" | "lb";
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
@@ -64,7 +64,7 @@ function ActiveInner() {
       const rows: Record<string, SetRow[]> = {};
       for (const s of sdata.sets || []) {
         rows[s.slug] = rows[s.slug] || [];
-        rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps, done: s.done };
+        rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps, rir: s.rir, setType: s.setType, variation: s.variation, done: s.done };
       }
       setSetRows(rows);
       // Previous-session pre-fill (Strong-style): last completed numbers as placeholders
@@ -131,7 +131,7 @@ function ActiveInner() {
     if (sessionId) {
       await fetch("/api/workout/sets", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, done: next.done }),
+        body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, done: next.done }),
       }).catch(() => {});
     }
     if (patch.done) rest();
@@ -333,6 +333,24 @@ function ActiveInner() {
                 </div>
               </div>
 
+              {VARIATIONS[x.slug] && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {VARIATIONS[x.slug].map((v) => {
+                    const active = (rows[0]?.variation ?? VARIATIONS[x.slug][0].key) === v.key;
+                    return (
+                      <button key={v.key} type="button" title={v.note}
+                        onClick={() => {
+                          // Apply the variation to every set row for this exercise.
+                          for (let i = 0; i < (setCounts[x.slug] ?? 1); i++) void logSet(x.slug, i, { variation: v.key });
+                        }}
+                        className="rounded-full border px-2.5 py-1 text-[10px]"
+                        style={{ borderColor: active ? "var(--color-accent)" : "var(--color-paper-3)", color: active ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+                        {v.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className="mt-3 space-y-1.5">
                 <div className="flex items-center gap-2 px-1 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
                   <span className="w-6 text-center">#</span>
