@@ -7,7 +7,6 @@ import {
   BookOpen,
   Repeat,
   CheckCircle2,
-  Timer,
 } from "lucide-react";
 import type { Goal, Homework, Class, Habit, HabitLog, Chore } from "@/lib/db/schema";
 import { getOfflineDB } from "@/lib/offline/db";
@@ -24,7 +23,7 @@ import HabitsTab from "./tabs/HabitsTab";
 import TodayTab from "./tabs/TodayTab";
 import DoneTab from "./tabs/DoneTab";
 
-export type TabId = "today" | "goals" | "deadlines" | "homework" | "habits" | "done";
+export type TabId = "today" | "goals" | "homework" | "habits" | "done";
 
 interface TabDef {
   id: TabId;
@@ -35,7 +34,6 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: "today", label: "Today", icon: Calendar },
   { id: "goals", label: "Goals", icon: Target },
-  { id: "deadlines", label: "Deadlines", icon: Timer },
   { id: "homework", label: "Homework", icon: BookOpen },
   { id: "habits", label: "Habits", icon: Repeat },
   { id: "done", label: "Done", icon: CheckCircle2 },
@@ -49,7 +47,7 @@ const GOAL_HORIZONS: { key: GoalHorizon; label: string }[] = [
   { key: "week", label: "Week" },
   { key: "month", label: "Month" },
   { key: "year", label: "Year" },
-  { key: "all_time", label: "All-time" },
+  { key: "all_time", label: "Deadlines" },
   { key: "rules", label: "Rules" },
 ];
 
@@ -405,13 +403,8 @@ export default function GoalsPageClient({
                 </button>
               ))}
             </div>
-            <GoalsTab goals={goals} setGoals={setGoals} goalType={goalHorizon} />
-          </div>
-        )}
-        {activeTab === "deadlines" && (
-          <div className="mt-4">
-            {/* Deadlines — any active goal carrying a target date, sorted soonest first */}
-            {(() => {
+            {/* Deadlines — dated goals, sorted soonest first (shown in the Deadlines tab) */}
+            {goalHorizon === "all_time" && (() => {
               const dated = goals
                 .filter((g) => g.targetDate && g.status === "active")
                 .sort((a, b) => new Date(a.targetDate!).getTime() - new Date(b.targetDate!).getTime());
@@ -477,6 +470,7 @@ export default function GoalsPageClient({
                 </div>
               );
             })()}
+            <GoalsTab goals={goals} setGoals={setGoals} goalType={goalHorizon} />
           </div>
         )}
         {activeTab === "homework" && (
