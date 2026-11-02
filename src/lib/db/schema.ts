@@ -38,6 +38,8 @@ export interface UiPrefs {
   weightUpdatedAt?: string; // weekly weight check-in timestamp
   unitWeight?: 'kg' | 'lb';
   unitHeight?: 'cm' | 'ft';
+  sex?: 'm' | 'f';          // needed for Wilks/DOTS coefficients
+  bodyfatPct?: number;      // optional — enables FFMI
   // Where the user left off reading — syncs across devices.
   quranPosition?: { surah: number; ayah: number; updatedAt?: string };
 }

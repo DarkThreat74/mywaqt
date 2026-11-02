@@ -7,6 +7,18 @@ import { useRouter } from "next/navigation";
 type WUnit = "kg" | "lb";
 type HUnit = "cm" | "ft";
 
+// Wilks — the powerlifting relative-strength standard. x = bodyweight kg,
+// clamped; points = total × 500/poly(x).
+const WILKS = {
+  m: [-216.0475144, 16.2606339, -0.002388645, -0.00113732, 7.01863e-6, -1.291e-8],
+  f: [594.31747775582, -27.23842536447, 0.82112226871, -0.00930733913, 4.731582e-5, -9.054e-8],
+} as const;
+const wilks = (bw: number, sex: "m" | "f") => {
+  const x = Math.min(Math.max(bw, 40), 201.9);
+  const [a, b, c, d, e, f] = WILKS[sex];
+  return 500 / (a + b * x + c * x ** 2 + d * x ** 3 + e * x ** 4 + f * x ** 5);
+};
+
 function UnitBtn<T extends string>({ value, opts, set }: { value: T; opts: readonly T[]; set: (v: T) => void }) {
   return (
     <span className="inline-flex rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
@@ -28,9 +40,11 @@ export default function WorkoutProfilePage() {
   const [inVal, setInVal] = useState("");
   const [wUnit, setWUnit] = useState<WUnit>("kg");
   const [hUnit, setHUnit] = useState<HUnit>("cm");
+  const [sex, setSex] = useState<"m" | "f">("m");
+  const [bodyfat, setBodyfat] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; lifts: { name: string; ratio: number; level: string }[]; score: number | null; scoreLabel: string | null } | null>(null);
+  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -39,6 +53,8 @@ export default function WorkoutProfilePage() {
       const wu: WUnit = p?.unitWeight === "lb" ? "lb" : "kg";
       const hu: HUnit = p?.unitHeight === "ft" ? "ft" : "cm";
       setWUnit(wu); setHUnit(hu);
+      if (p?.sex === "m" || p?.sex === "f") setSex(p.sex);
+      if (p?.bodyfatPct) setBodyfat(String(p.bodyfatPct));
       const bwKg = p?.bodyWeightKg || 0;
       if (bwKg > 0) setWeight(wu === "lb" ? String(Math.round(bwKg * 2.205)) : String(bwKg));
       if (p?.heightCm) {
@@ -62,13 +78,21 @@ export default function WorkoutProfilePage() {
         const levelOf = (r: number, [b, i, a]: [number, number, number]) => r >= a ? "advanced" : r >= i ? "intermediate" : r >= b ? "novice" : "beginner";
         const lifts = bwKg > 0 ? LIFTS.map(([slugs, name, marks]) => {
           const best = Math.max(0, ...slugs.map((s) => d.progress?.find((x: { slug: string; bestE1?: number }) => x.slug === s)?.bestE1 || 0));
-          return best > 0 ? { name, ratio: best / bwKg, level: levelOf(best / bwKg, marks), e1: best } : null;
+          const gain = Math.max(-99, ...slugs.map((s) => d.progress?.find((x: { slug: string; gainPct?: number | null }) => x.slug === s)?.gainPct ?? -99));
+          return best > 0 ? { name, ratio: best / bwKg, level: levelOf(best / bwKg, marks), e1: best, gainPct: gain > -99 ? gain : null } : null;
         }).filter((l): l is NonNullable<typeof l> => !!l) : [];
         const score = lifts.length > 0 ? Math.round(lifts.reduce((s, l) => s + l.ratio, 0) / (LIFTS.length * 2.2) * 100) : null;
+        // Powerlifting total = squat + bench + deadlift e1RMs (the big three).
+        const get = (n: string) => lifts.find((l) => l.name === n)?.e1 || 0;
+        const total = get("squat") + get("press") + get("pull");
         setStats({
           tonnage: d.totalTonnage || 0, tonWeek: d.tonWeek || 0,
           prs: (d.progress || []).filter((x: { bestE1?: number }) => (x.bestE1 || 0) > 0).length,
-          lifts, score,
+          sessions: d.totalSessions || 0,
+          lifts, score, total,
+          wilks: bwKg > 0 && total > 0 ? Math.round(total * wilks(bwKg, p?.sex === "f" ? "f" : "m")) : null,
+          pushPull: get("press") > 0 && get("pull-up") > 0 ? get("press") / get("pull-up") : null,
+          upperLower: get("press") > 0 && get("squat") > 0 ? get("press") / get("squat") : null,
           scoreLabel: score === null ? null : score >= 90 ? "elite" : score >= 60 ? "advanced" : score >= 40 ? "intermediate" : score >= 20 ? "novice" : "beginner",
         });
       }
@@ -81,7 +105,7 @@ export default function WorkoutProfilePage() {
     const bw = wUnit === "lb" ? Math.round(disp / 2.205 * 10) / 10 : disp;
     const cm = hUnit === "cm" ? parseFloat(cmVal) : Math.round(((parseFloat(ftVal) || 0) * 12 + (parseFloat(inVal) || 0)) * 2.54);
     if (bw > 0 && cm > 0) {
-      save({ bodyWeightKg: bw, heightCm: cm, unitWeight: wUnit, unitHeight: hUnit, weightUpdatedAt: new Date().toISOString() });
+      save({ bodyWeightKg: bw, heightCm: cm, unitWeight: wUnit, unitHeight: hUnit, sex, bodyfatPct: parseFloat(bodyfat) || null, weightUpdatedAt: new Date().toISOString() });
       router.push("/workout");
     }
   };
@@ -131,25 +155,70 @@ export default function WorkoutProfilePage() {
             </div>
           </div>
           {stats?.score !== null && stats?.score !== undefined && (
-            <div className="rounded-xl border p-4 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength score</p>
-              <p className="mt-1 text-3xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats.score}</p>
-              <p className="text-[11px] font-medium" style={{ color: "var(--color-accent)" }}>{stats.scoreLabel}</p>
+            <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength score</p>
+                  <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats.score}</p>
+                  <p className="text-[10px] font-medium" style={{ color: "var(--color-accent)" }}>{stats.scoreLabel}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Total (S+B+D)</p>
+                  <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{Math.round(stats.total)}</p>
+                  <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>kg e1RM</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Wilks</p>
+                  <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats.wilks ?? "—"}</p>
+                  <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>pts</p>
+                </div>
+              </div>
             </div>
           )}
           {stats && stats.lifts.length > 0 && (
             <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength levels</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength levels — e1RM, ratio to bodyweight, tier</p>
               <div className="mt-2 space-y-1.5">
                 {stats.lifts.map((l) => (
                   <div key={l.name} className="flex items-center gap-2">
                     <span className="w-14 text-[11px]" style={{ color: "var(--color-ink)" }}>{l.name}</span>
+                    <span className="w-14 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{Math.round(l.e1)}kg</span>
                     <div className="h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
                       <div className="h-1.5 rounded-full" style={{ width: `${Math.min((l.ratio / 2.5) * 100, 100)}%`, backgroundColor: l.level === "advanced" ? "var(--color-success)" : l.level === "intermediate" ? "var(--color-accent)" : "var(--color-warmth)" }} />
                     </div>
-                    <span className="w-20 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{l.ratio.toFixed(2)}×bw · {l.level}</span>
+                    <span className="w-24 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                      {l.ratio.toFixed(2)}×bw · {l.level}{l.gainPct != null ? ` ${l.gainPct > 0 ? "+" : ""}${l.gainPct}%` : ""}
+                    </span>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+          {stats && (stats.pushPull || stats.upperLower || bmi) && (
+            <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Balance & body</p>
+              <div className="mt-2 grid grid-cols-2 gap-y-1.5 text-[11px]" style={{ color: "var(--color-ink)" }}>
+                {bmi && <span>BMI <b>{bmi}</b></span>}
+                {stats.pushPull && (
+                  <span>push : pull <b>{stats.pushPull.toFixed(2)}</b>
+                    <span className="text-[9px]" style={{ color: stats.pushPull > 1.25 ? "var(--color-error)" : "var(--color-ink-muted)" }}> {stats.pushPull > 1.25 ? "push-heavy" : "balanced"}</span>
+                  </span>
+                )}
+                {stats.upperLower && (
+                  <span>upper : lower <b>{stats.upperLower.toFixed(2)}</b>
+                    <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}> {stats.upperLower < 0.5 ? "lower-dominant" : stats.upperLower > 0.8 ? "upper-dominant" : "balanced"}</span>
+                  </span>
+                )}
+                {bw > 0 && stats.total > 0 && <span>strength / kg <b>{(stats.total / bw).toFixed(2)}×</b></span>}
+                {(() => {
+                  const bf = parseFloat(bodyfat);
+                  if (bf > 0 && bw > 0 && ht > 0) {
+                    const ffmi = (bw * (1 - bf / 100)) / ((ht / 100) ** 2);
+                    return <span>FFMI <b>{ffmi.toFixed(1)}</b></span>;
+                  }
+                  return null;
+                })()}
+                {stats.sessions > 0 && <span>sessions <b>{stats.sessions}</b></span>}
               </div>
             </div>
           )}
@@ -205,12 +274,23 @@ export default function WorkoutProfilePage() {
               </div>
             )}
           </div>
-          {bmi && (
-            <div className="rounded-xl border p-4 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>BMI</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{bmi}</p>
+          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Sex</p>
+              <UnitBtn value={sex} opts={["m", "f"] as const} set={setSex} />
             </div>
-          )}
+            <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Used for the Wilks score — its coefficients differ by sex.</p>
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Body fat %</p>
+              <span className="flex items-center gap-1.5">
+                <input value={bodyfat} onChange={(e) => setBodyfat(e.target.value)}
+                  inputMode="decimal" placeholder="optional"
+                  className="w-20 rounded-lg border px-3 py-1.5 text-sm" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+                <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>%</span>
+              </span>
+            </div>
+            <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Optional — enables FFMI (lean mass per height²).</p>
+          </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => { const bw = parseFloat(weight); if (bw > 0) setEditing(false); }}
               className="rounded-xl border px-4 py-3 text-sm"
