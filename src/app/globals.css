@@ -425,3 +425,10 @@ a,
 .skip-link:focus {
   transform: translateY(0);
 }
+
+/* ── Page transition fade — smooth mount for client pages ── */
+@keyframes waqt-page-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.page-fade { animation: waqt-page-fade 0.25s ease-out; }

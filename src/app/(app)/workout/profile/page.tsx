@@ -120,14 +120,17 @@ export default function WorkoutProfilePage() {
   const bmi = bw > 0 && ht > 0 ? (bw / ((ht / 100) ** 2)).toFixed(1) : null;
 
   return (
-    <div className="mx-auto w-full max-w-md px-4 py-6">
+    <div className="page-fade mx-auto w-full max-w-md px-4 py-6">
       <div className="flex items-center gap-3">
         <Link href="/workout" className="text-sm" style={{ color: "var(--color-ink-muted)" }}>←</Link>
         <h1 className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>Profile</h1>
       </div>
 
       {!loaded && <p className="mt-8 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>}
-      {loaded && !editing && (
+      {loaded && !editing && (() => {
+        const LIFT_ROWS = ["squat", "pull", "press", "ohp", "pull-up"].map((n) =>
+          stats?.lifts.find((l) => l.name === n) ?? { name: n, ratio: 0, level: "—", e1: 0, gainPct: null });
+        return (
         <div className="mt-4 space-y-3">
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="flex items-center justify-between">
@@ -154,83 +157,69 @@ export default function WorkoutProfilePage() {
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Edit</button>
             </div>
           </div>
-          {stats?.score !== null && stats?.score !== undefined && (
-            <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength score</p>
-                  <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats.score}</p>
-                  <p className="text-[10px] font-medium" style={{ color: "var(--color-accent)" }}>{stats.scoreLabel}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Total (S+B+D)</p>
-                  <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{Math.round(stats.total)}</p>
-                  <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>kg e1RM</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Wilks</p>
-                  <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats.wilks ?? "—"}</p>
-                  <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>pts</p>
-                </div>
+          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength score</p>
+                <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.score ?? "—"}</p>
+                <p className="text-[10px] font-medium" style={{ color: "var(--color-accent)" }}>{stats?.scoreLabel ?? ""}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Total (S+B+D)</p>
+                <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats && stats.total > 0 ? Math.round(stats.total) : "—"}</p>
+                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>kg e1RM</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Wilks</p>
+                <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.wilks ?? "—"}</p>
+                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>pts</p>
               </div>
             </div>
-          )}
-          {stats && stats.lifts.length > 0 && (
-            <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength levels — e1RM, ratio to bodyweight, tier</p>
-              <div className="mt-2 space-y-1.5">
-                {stats.lifts.map((l) => (
-                  <div key={l.name} className="flex items-center gap-2">
-                    <span className="w-14 text-[11px]" style={{ color: "var(--color-ink)" }}>{l.name}</span>
-                    <span className="w-14 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{Math.round(l.e1)}kg</span>
-                    <div className="h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-                      <div className="h-1.5 rounded-full" style={{ width: `${Math.min((l.ratio / 2.5) * 100, 100)}%`, backgroundColor: l.level === "advanced" ? "var(--color-success)" : l.level === "intermediate" ? "var(--color-accent)" : "var(--color-warmth)" }} />
-                    </div>
-                    <span className="w-24 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                      {l.ratio.toFixed(2)}×bw · {l.level}{l.gainPct != null ? ` ${l.gainPct > 0 ? "+" : ""}${l.gainPct}%` : ""}
-                    </span>
+          </div>
+          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength levels — e1RM, ratio to bodyweight, tier</p>
+            <div className="mt-2 space-y-1.5">
+              {LIFT_ROWS.map((l) => (
+                <div key={l.name} className="flex items-center gap-2">
+                  <span className="w-14 text-[11px]" style={{ color: "var(--color-ink)" }}>{l.name}</span>
+                  <span className="w-14 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{l.e1 > 0 ? `${Math.round(l.e1)}kg` : "—"}</span>
+                  <div className="h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                    <div className="h-1.5 rounded-full" style={{ width: `${Math.min((l.ratio / 2.5) * 100, 100)}%`, backgroundColor: l.level === "advanced" ? "var(--color-success)" : l.level === "intermediate" ? "var(--color-accent)" : "var(--color-warmth)" }} />
                   </div>
-                ))}
-              </div>
+                  <span className="w-24 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                    {l.e1 > 0 ? `${l.ratio.toFixed(2)}×bw · ${l.level}${l.gainPct != null ? ` ${l.gainPct > 0 ? "+" : ""}${l.gainPct}%` : ""}` : "—"}
+                  </span>
+                </div>
+              ))}
             </div>
-          )}
-          {stats && (stats.pushPull || stats.upperLower || bmi) && (
+          </div>
+          {(stats || bmi) && (
             <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
               <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Balance & body</p>
               <div className="mt-2 grid grid-cols-2 gap-y-1.5 text-[11px]" style={{ color: "var(--color-ink)" }}>
-                {bmi && <span>BMI <b>{bmi}</b></span>}
-                {stats.pushPull && (
-                  <span>push : pull <b>{stats.pushPull.toFixed(2)}</b>
-                    <span className="text-[9px]" style={{ color: stats.pushPull > 1.25 ? "var(--color-error)" : "var(--color-ink-muted)" }}> {stats.pushPull > 1.25 ? "push-heavy" : "balanced"}</span>
-                  </span>
-                )}
-                {stats.upperLower && (
-                  <span>upper : lower <b>{stats.upperLower.toFixed(2)}</b>
-                    <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}> {stats.upperLower < 0.5 ? "lower-dominant" : stats.upperLower > 0.8 ? "upper-dominant" : "balanced"}</span>
-                  </span>
-                )}
-                {bw > 0 && stats.total > 0 && <span>strength / kg <b>{(stats.total / bw).toFixed(2)}×</b></span>}
-                {(() => {
+                <span>BMI <b>{bmi ?? "—"}</b></span>
+                <span>push : pull <b>{stats?.pushPull ? stats.pushPull.toFixed(2) : "—"}</b>
+                  {stats?.pushPull ? <span className="text-[9px]" style={{ color: stats.pushPull > 1.25 ? "var(--color-error)" : "var(--color-ink-muted)" }}> {stats.pushPull > 1.25 ? "push-heavy" : "balanced"}</span> : null}
+                </span>
+                <span>upper : lower <b>{stats?.upperLower ? stats.upperLower.toFixed(2) : "—"}</b>
+                  {stats?.upperLower ? <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}> {stats.upperLower < 0.5 ? "lower-dominant" : stats.upperLower > 0.8 ? "upper-dominant" : "balanced"}</span> : null}
+                </span>
+                <span>strength / kg <b>{bw > 0 && stats && stats.total > 0 ? `${(stats.total / bw).toFixed(2)}×` : "—"}</b></span>
+                <span>FFMI <b>{(() => {
                   const bf = parseFloat(bodyfat);
-                  if (bf > 0 && bw > 0 && ht > 0) {
-                    const ffmi = (bw * (1 - bf / 100)) / ((ht / 100) ** 2);
-                    return <span>FFMI <b>{ffmi.toFixed(1)}</b></span>;
-                  }
-                  return null;
-                })()}
-                {stats.sessions > 0 && <span>sessions <b>{stats.sessions}</b></span>}
+                  return bf > 0 && bw > 0 && ht > 0 ? ((bw * (1 - bf / 100)) / ((ht / 100) ** 2)).toFixed(1) : "—";
+                })()}</b></span>
+                <span>sessions <b>{stats?.sessions || "—"}</b></span>
               </div>
             </div>
           )}
-          {stats && (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-              {stats.tonnage > 0 && <span>lifetime volume <b style={{ color: "var(--color-ink)" }}>{(stats.tonnage / 1000).toFixed(1)}t</b></span>}
-              {stats.tonWeek > 0 && <span>this week <b style={{ color: "var(--color-ink)" }}>{(stats.tonWeek / 1000).toFixed(1)}t</b></span>}
-              {stats.prs > 0 && <span>PRs <b style={{ color: "var(--color-ink)" }}>{stats.prs}</b></span>}
-            </div>
-          )}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+            <span>lifetime volume <b style={{ color: "var(--color-ink)" }}>{stats?.tonnage ? `${(stats.tonnage / 1000).toFixed(1)}t` : "—"}</b></span>
+            <span>this week <b style={{ color: "var(--color-ink)" }}>{stats?.tonWeek ? `${(stats.tonWeek / 1000).toFixed(1)}t` : "—"}</b></span>
+            <span>PRs <b style={{ color: "var(--color-ink)" }}>{stats?.prs || "—"}</b></span>
+          </div>
         </div>
-      )}
+      );})()}
       {loaded && editing && (
         <div className="mt-4 space-y-3">
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
