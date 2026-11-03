@@ -11,6 +11,7 @@ import { estimateE1, EQUIP_NOTES, VARIATIONS, HANDED } from "@/lib/workout/ratio
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; variation?: string | null; done: boolean; }
 type Unit = "kg" | "lb";
+type HandMode = "both" | "one";
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
@@ -26,6 +27,7 @@ function ActiveInner() {
   const [exercises, setExercises] = useState<DayExercise[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [setRows, setSetRows] = useState<Record<string, SetRow[]>>({});
+  const [handModes, setHandModes] = useState<Record<string, HandMode>>({});
   const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
   const [bestE1, setBestE1] = useState<Map<string, number>>(new Map());
   const [retained, setRetained] = useState<Map<string, { d: number; r: number }>>(new Map());
@@ -84,6 +86,11 @@ function ActiveInner() {
         rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps, rir: s.rir, setType: s.setType, variation: s.variation, done: s.done };
       }
       setSetRows(rows);
+      const modes: Record<string, HandMode> = {};
+      for (const [slug, sets] of Object.entries(rows)) {
+        if (sets.some((set) => set?.variation === "hand:left" || set?.variation === "hand:right")) modes[slug] = "one";
+      }
+      setHandModes(modes);
       // Previous-session pre-fill (Strong-style): last completed numbers as placeholders
       if (!sdata.resumed) {
         const pr = await fetch(`/api/workout/sessions?lastFor=${d.id}`).catch(() => null);
@@ -156,6 +163,14 @@ function ActiveInner() {
     if (patch.done && !finishing.current) rest();
   };
 
+  const setHandMode = (slug: string, mode: HandMode) => {
+    setHandModes((prev) => ({ ...prev, [slug]: mode }));
+    if (mode === "both") {
+      const count = setCounts[slug] ?? 1;
+      for (let i = 0; i < count; i++) void logSet(slug, i, { variation: "hand:both" });
+    }
+  };
+
   const [units, setUnits] = useState<Unit>("kg");
   useEffect(() => {
     // Default to the unit chosen on /workout/profile; the header toggle still
@@ -194,7 +209,11 @@ function ActiveInner() {
         for (let i = 0; i < arr.length; i++) {
           const r = arr[i];
           if (r && !r.done && parseFloat(r.weight) > 0 && r.reps != null && r.reps > 0) {
-            await logSet(slug, i, { done: true });
+            await logSet(slug, i, {
+              done: true,
+              ...(HANDED.has(slug) && handModes[slug] === "one" && !r.variation ? { variation: "hand:left" } : {}),
+              ...(HANDED.has(slug) && (handModes[slug] ?? "both") === "both" && !r.variation ? { variation: "hand:both" } : {}),
+            });
           }
         }
       }
@@ -410,6 +429,26 @@ function ActiveInner() {
                   })}
                 </div>
               )}
+              {HANDED.has(x.slug) && (
+                <div className="mt-2 flex items-center gap-2 rounded-lg border px-2 py-1.5"
+                  style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper-2) 55%, transparent)" }}>
+                  <span className="text-[10px] font-medium" style={{ color: "var(--color-ink-muted)" }}>How are you lifting?</span>
+                  {(["both", "one"] as const).map((mode) => (
+                    <button key={mode} type="button" onClick={() => setHandMode(x.slug, mode)}
+                      className="rounded-full border px-2.5 py-1 text-[10px] font-semibold"
+                      style={{
+                        borderColor: (handModes[x.slug] ?? "both") === mode ? "var(--color-accent)" : "var(--color-paper-3)",
+                        color: (handModes[x.slug] ?? "both") === mode ? "var(--color-accent)" : "var(--color-ink-muted)",
+                        backgroundColor: (handModes[x.slug] ?? "both") === mode ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "transparent",
+                      }}>
+                      {mode === "both" ? "2 hands" : "1 hand"}
+                    </button>
+                  ))}
+                  <span className="ml-auto text-[9px]" style={{ color: "var(--color-ink-faint)" }}>
+                    {(handModes[x.slug] ?? "both") === "one" ? "choose L/R per set" : "bilateral load"}
+                  </span>
+                </div>
+              )}
               <div className="mt-3 space-y-1.5">
                 <div className="flex items-center gap-2 px-1 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
                   <span className="w-6 text-center">#</span>
@@ -456,20 +495,20 @@ function ActiveInner() {
                       >
                         {row.setType === "failure" ? "F" : row.setType === "warmup" ? "W" : "N"}
                       </button>
-                      {HANDED.has(x.slug) && (
+                      {HANDED.has(x.slug) && (handModes[x.slug] ?? "both") === "one" && (
                         <button type="button"
-                          title="One hand or both — limbs have different strengths; log each side's own sets"
+                          title="Choose which hand did this set"
                           onClick={() => {
-                            const order = ["hand:both", "hand:left", "hand:right"] as const;
-                            const cur = (row.variation || "").startsWith("hand:") ? row.variation as typeof order[number] : "hand:both";
-                            void logSet(x.slug, i, { variation: order[(order.indexOf(cur) + 1) % 3] });
+                            const order = ["hand:left", "hand:right"] as const;
+                            const cur = row.variation === "hand:right" ? "hand:right" : "hand:left";
+                            void logSet(x.slug, i, { variation: order[(order.indexOf(cur) + 1) % 2] });
                           }}
                           className="flex h-7 w-7 items-center justify-center rounded-full border text-[9px] font-bold"
                           style={{
                             borderColor: row.variation === "hand:left" || row.variation === "hand:right" ? "var(--color-accent)" : "var(--color-paper-3)",
                             color: row.variation === "hand:left" || row.variation === "hand:right" ? "var(--color-accent)" : "var(--color-ink-muted)",
                           }}>
-                          {row.variation === "hand:left" ? "L" : row.variation === "hand:right" ? "R" : "2H"}
+                          {row.variation === "hand:right" ? "R" : "L"}
                         </button>
                       )}
                       <div className="relative">

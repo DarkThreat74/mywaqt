@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
         reps: schema.workoutSets.reps,
         rir: schema.workoutSets.rir,
         setType: schema.workoutSets.setType,
+        variation: schema.workoutSets.variation,
         done: schema.workoutSets.done,
         at: schema.workoutSessions.startedAt,
         sessionId: schema.workoutSessions.id,
@@ -29,8 +30,10 @@ export async function GET(request: NextRequest) {
       .innerJoin(schema.workoutSessions, eq(schema.workoutSets.sessionId, schema.workoutSessions.id))
       .where(and(eq(schema.workoutSessions.userId, session.userId), isNotNull(schema.workoutSessions.endedAt)))
       .orderBy(desc(schema.workoutSessions.startedAt));
+    const nowMs = Date.now();
     // Group per slug → history points (best e1RM per session) + last-session detail
     const bySlug = new Map<string, { points: { at: string; e1: number; pos?: number }[]; last: { w: number; r: number; rir: number | null; at: string; pos?: number } | null; sessions: number; tonnage: number; best: number; positions: number[] }>();
+    const limbBySlug = new Map<string, Map<"left" | "right" | "both", { best: number; first: number; last: number; points: number[] }>>();
     // Exercise position per session — same-day order from workout_day_exercises
     // sortOrder. A set logged as exercise #3 can't fairly compare to exercise #1.
     const dayIds = [...new Set(rows.map((r) => r.dayId).filter(Boolean))] as string[];
@@ -49,6 +52,16 @@ export async function GET(request: NextRequest) {
       if (!w || !r) continue;
       const e = bySlug.get(row.slug) || { points: [], last: null, sessions: 0, tonnage: 0, best: 0, positions: [] };
       const val = e1rm(w, r);
+      const hand = row.variation === "hand:left" ? "left" : row.variation === "hand:right" ? "right" : row.variation === "hand:both" ? "both" : null;
+      if (hand) {
+        const limbs = limbBySlug.get(row.slug) || new Map();
+        const limb = limbs.get(hand) || { best: 0, first: val, last: val, points: [] };
+        limb.best = Math.max(limb.best, val);
+        limb.last = val;
+        limb.points.push(val);
+        limbs.set(hand, limb);
+        limbBySlug.set(row.slug, limbs);
+      }
       const pos = posMap.get(`${sessionDay.get(row.sessionId)}:${row.slug}`);
       if (pos !== undefined && !e.positions.includes(pos)) e.positions.push(pos);
       if (!e.points.find((p) => p.at === row.at.toISOString())) {
@@ -86,6 +99,15 @@ export async function GET(request: NextRequest) {
       posMode: v.positions.length
         ? v.positions.sort((a, b) => a - b)[0] // earliest slot it usually runs
         : null,
+      limbs: Object.fromEntries([...((limbBySlug.get(slug) || new Map()).entries())].map(([hand, l]) => [hand, {
+        bestE1: Math.round(l.best * 10) / 10,
+        // Rows arrive newest-first; reverse the observed points for growth.
+        firstE1: Math.round((l.points[l.points.length - 1] || l.first) * 10) / 10,
+        lastE1: Math.round((l.points[0] || l.last) * 10) / 10,
+        gainPct: (l.points[l.points.length - 1] || l.first) > 0
+          ? Math.round((((l.points[0] || l.last) - (l.points[l.points.length - 1] || l.first)) / (l.points[l.points.length - 1] || l.first)) * 1000) / 10
+          : null,
+      }])),
       // Detraining model — strength holds ~4wk, then fades ~5%/wk of past-peak,
       // floored at 70% (muscle memory: myonuclei persist, regaining is fast).
       daysSince: v.last ? Math.round((nowMs - new Date(v.last.at).getTime()) / 86400000) : null,
@@ -118,7 +140,6 @@ export async function GET(request: NextRequest) {
       return rir <= 1 ? 1 : rir === 2 ? 0.8 : rir === 3 ? 0.5 : 0.25;
     };
     const weekMs = 7 * 86400000;
-    const nowMs = Date.now();
     const effWeek = new Map<string, number>();
     for (const row of rows) {
       if (!row.done || row.weight === undefined) continue;
