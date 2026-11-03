@@ -38,3 +38,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e) { logError(e, { route: "workout/sets POST" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }
 }
+
+export async function DELETE(request: NextRequest) {
+  const session = await getSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const { searchParams } = new URL(request.url);
+    const sessionId = searchParams.get("sessionId");
+    const slug = searchParams.get("slug");
+    const setIndex = Number(searchParams.get("setIndex"));
+    if (!sessionId || !slug || !Number.isInteger(setIndex)) {
+      return NextResponse.json({ error: "sessionId, slug, setIndex required." }, { status: 400 });
+    }
+    const [owned] = await db.select({ id: schema.workoutSessions.id })
+      .from(schema.workoutSessions)
+      .where(and(eq(schema.workoutSessions.id, sessionId), eq(schema.workoutSessions.userId, session.userId)))
+      .limit(1);
+    if (!owned) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    await db.delete(schema.workoutSets).where(and(
+      eq(schema.workoutSets.sessionId, sessionId),
+      eq(schema.workoutSets.slug, slug),
+      eq(schema.workoutSets.setIndex, setIndex),
+    ));
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    logError(e, { route: "workout/sets DELETE" });
+    return NextResponse.json({ error: "Server error." }, { status: 500 });
+  }
+}

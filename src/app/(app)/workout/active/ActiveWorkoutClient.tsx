@@ -167,11 +167,27 @@ function ActiveInner() {
     if (patch.done && !finishing.current) rest();
   };
 
+  const removeSetRow = async (slug: string, idx: number) => {
+    if (!sessionId) return;
+    await fetch(`/api/workout/sets?sessionId=${encodeURIComponent(sessionId)}&slug=${encodeURIComponent(slug)}&setIndex=${idx}`, { method: "DELETE" }).catch(() => {});
+    setSetRows((prev) => {
+      const rows = [...(prev[slug] || [])];
+      rows[idx] = undefined as unknown as SetRow;
+      return { ...prev, [slug]: rows };
+    });
+  };
+
   const setHandMode = (slug: string, mode: HandMode) => {
     setHandModes((prev) => ({ ...prev, [slug]: mode }));
     if (mode === "both") {
       const count = setCounts[slug] ?? 1;
+      // Remove paired side rows before returning to one bilateral row per set.
+      for (let i = 0; i < count; i++) void removeSetRow(slug, count + i);
       for (let i = 0; i < count; i++) void logSet(slug, i, { variation: "hand:both" });
+    } else {
+      const count = setCounts[slug] ?? 1;
+      // Remove old bilateral rows so a later finish cannot count both modes.
+      for (let i = 0; i < count; i++) void removeSetRow(slug, i);
     }
   };
 
