@@ -6,7 +6,7 @@ import Link from "next/link";
 import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
-import { estimateE1, EQUIP_NOTES, VARIATIONS } from "@/lib/workout/ratios";
+import { estimateE1, EQUIP_NOTES, VARIATIONS, HANDED } from "@/lib/workout/ratios";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; variation?: string | null; done: boolean; }
@@ -456,6 +456,22 @@ function ActiveInner() {
                       >
                         {row.setType === "failure" ? "F" : row.setType === "warmup" ? "W" : "N"}
                       </button>
+                      {HANDED.has(x.slug) && (
+                        <button type="button"
+                          title="One hand or both — limbs have different strengths; log each side's own sets"
+                          onClick={() => {
+                            const order = ["hand:both", "hand:left", "hand:right"] as const;
+                            const cur = (row.variation || "").startsWith("hand:") ? row.variation as typeof order[number] : "hand:both";
+                            void logSet(x.slug, i, { variation: order[(order.indexOf(cur) + 1) % 3] });
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded-full border text-[9px] font-bold"
+                          style={{
+                            borderColor: row.variation === "hand:left" || row.variation === "hand:right" ? "var(--color-accent)" : "var(--color-paper-3)",
+                            color: row.variation === "hand:left" || row.variation === "hand:right" ? "var(--color-accent)" : "var(--color-ink-muted)",
+                          }}>
+                          {row.variation === "hand:left" ? "L" : row.variation === "hand:right" ? "R" : "2H"}
+                        </button>
+                      )}
                       <div className="relative">
                         <button
                           type="button"
