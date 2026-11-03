@@ -119,6 +119,7 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
         source: "/quran-tester",
         headers: [
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
@@ -145,7 +146,6 @@ const nextConfig: NextConfig = {
           },
         ],
       },
-      {
     ];
   },
 };
