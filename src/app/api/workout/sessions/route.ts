@@ -48,22 +48,35 @@ export async function GET(request: NextRequest) {
   }
   const sessionIds = sessions.map((s) => s.id);
   const completed = sessionIds.length
-    ? await db.select({
+      ? await db.select({
         sessionId: schema.workoutSets.sessionId,
         slug: schema.workoutSets.slug,
+        weight: schema.workoutSets.weight,
+        reps: schema.workoutSets.reps,
+        rir: schema.workoutSets.rir,
       }).from(schema.workoutSets)
         .where(and(inArray(schema.workoutSets.sessionId, sessionIds), eq(schema.workoutSets.done, true)))
     : [];
-  const bySession = new Map<string, Map<string, number>>();
+  const bySession = new Map<string, Map<string, { setCount: number; recommendedWeightKg: number }>>();
   for (const set of completed) {
-    const exercises = bySession.get(set.sessionId) || new Map<string, number>();
-    exercises.set(set.slug, (exercises.get(set.slug) || 0) + 1);
+    const weight = Number.parseFloat(set.weight || "");
+    if (!(weight > 0) || !(set.reps && set.reps > 0)) continue;
+    const exercises = bySession.get(set.sessionId) || new Map<string, { setCount: number; recommendedWeightKg: number }>();
+    const previous = exercises.get(set.slug) || { setCount: 0, recommendedWeightKg: 0 };
+    const bump = set.rir != null && set.rir >= 3 ? 0 : set.rir === 2 ? 0.025 : 0.05;
+    previous.setCount += 1;
+    previous.recommendedWeightKg = Math.max(previous.recommendedWeightKg, weight * (1 + bump));
+    exercises.set(set.slug, previous);
     bySession.set(set.sessionId, exercises);
   }
   return NextResponse.json({
     sessions: sessions.map((s) => ({
       ...s,
-      completedExercises: [...(bySession.get(s.id) || new Map())].map(([slug, setCount]) => ({ slug, setCount })),
+      completedExercises: [...(bySession.get(s.id) || new Map())].map(([slug, summary]) => ({
+        slug,
+        setCount: summary.setCount,
+        recommendedWeightKg: Math.round(summary.recommendedWeightKg * 10) / 10,
+      })),
     })),
   });
 }

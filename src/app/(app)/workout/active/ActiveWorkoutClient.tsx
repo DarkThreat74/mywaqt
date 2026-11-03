@@ -228,9 +228,7 @@ function ActiveInner() {
       for (const [slug, arr] of Object.entries(setRows)) {
         for (let i = 0; i < arr.length; i++) {
           const r = arr[i];
-          // Reps-only rows are valid for bodyweight movements; do not require
-          // a load before preserving a completed set.
-          if (r && !r.done && r.reps != null && r.reps > 0 && (parseFloat(r.weight) > 0 || !r.weight.trim())) {
+          if (r && !r.done && r.reps != null && r.reps > 0 && parseFloat(r.weight) > 0) {
             await logSet(slug, i, {
               done: true,
               ...(HANDED.has(slug) && handModes[slug] === "one" && !r.variation ? { variation: "hand:left" } : {}),
@@ -555,6 +553,7 @@ function ActiveInner() {
                       </div>
                       <button
                         type="button"
+                        disabled={!row.done && (!(parseFloat(row.weight) > 0) || !(row.reps && row.reps > 0))}
                         onClick={() => void logSet(x.slug, rowIndex, { done: !row.done })}
                         className="flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
                         style={{
@@ -562,9 +561,10 @@ function ActiveInner() {
                           backgroundColor: row.done ? "var(--color-success)" : "var(--color-paper-2)",
                           color: row.done ? "var(--color-paper)" : "var(--color-ink)",
                           minHeight: 36,
+                          opacity: !row.done && (!(parseFloat(row.weight) > 0) || !(row.reps && row.reps > 0)) ? 0.5 : 1,
                         }}
                       >
-                        {row.done ? "Done ✓" : "Log"}
+                        {row.done ? "Done ✓" : (!(parseFloat(row.weight) > 0) ? "Enter weight" : "Log")}
                       </button>
                     </div>
                   );
