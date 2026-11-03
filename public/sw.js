@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v102";
+const CACHE_VERSION = "waqt-v103";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -1687,7 +1687,7 @@ self.addEventListener("fetch", (event) => {
           ]);
           // Save-Data: a fresh-enough cached copy is served without a
           // network call — stale-beyond-a-day entries still go online.
-          if (await soft(dataSaver(), 400, false) && cache) {
+          if (url.pathname !== "/api/workout/sessions" && await soft(dataSaver(), 400, false) && cache) {
             const hit = await soft(cache.match(request), 800, null);
             if (hit && hit.headers.get("x-waqt-uid") === uid && saverFresh(hit)) return hit;
           }
