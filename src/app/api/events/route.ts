@@ -10,6 +10,9 @@ import { isValidUUID } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 // Project only the columns the calendar clients need — reduces payload at 100k scale
+// Response whitelist — any new column the client needs (styling, linkage,
+// recurrence) MUST be added here or it silently vanishes after refetch.
+// Bug 2025-04: createdVia was missing → typed borders/icons reverted on reload.
 const EVENT_COLUMNS = {
   id: schema.events.id,
   title: schema.events.title,
