@@ -22,6 +22,7 @@ const EVENT_COLUMNS = {
   sharePublic: schema.events.sharePublic,
   recurrenceRule: schema.events.recurrenceRule,
   seriesId: schema.events.seriesId,
+  createdVia: schema.events.createdVia,
 };
 
 // GET /api/events?date=YYYY-MM-DD — list events for a specific day (in user's timezone)
