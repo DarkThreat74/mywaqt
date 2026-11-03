@@ -123,6 +123,7 @@ function ActiveInner() {
     }, 1000);
   };
 
+  const finishing = useRef(false);
   const logSet = async (slug: string, idx: number, patch: Partial<SetRow>) => {
     const prev = setRows[slug]?.[idx] || { weight: "", reps: null, done: false };
     const next = { ...prev, ...patch };
@@ -137,7 +138,7 @@ function ActiveInner() {
         body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, done: next.done }),
       }).catch(() => {});
     }
-    if (patch.done) rest();
+    if (patch.done && !finishing.current) rest();
   };
 
   const [units, setUnits] = useState<Unit>("kg");
@@ -171,6 +172,7 @@ function ActiveInner() {
 
   const finish = async () => {
     if (sessionId) {
+      finishing.current = true; // don't fire the rest timer per flushed row
       // Flush every row that has data but was never marked done — a partial
       // workout still counts; typed numbers shouldn't vanish on finish.
       for (const [slug, arr] of Object.entries(setRows)) {
