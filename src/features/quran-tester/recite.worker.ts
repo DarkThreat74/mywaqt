@@ -91,7 +91,7 @@ setInterval(() => {
 let feeding = false;
 let audioPending: { samples: Float32Array; rate: number }[] = [];
 let pendingCtl = 0;
-const MAX_BACKLOG_SEC = 1.5;
+const MAX_BACKLOG_SEC = 1.0;
 
 // ── Mutashabihat divergence watcher ─────────────────────────────────────
 // Filled at init from structuralRules.looks. `muta_approach` fires once per
@@ -436,10 +436,8 @@ async function init(sampleRate: number) {
     // neighbour anchors and even on ayah-boundary words, where pausal forms
     // make the acoustics look most unlike the canonical decode.
     slipHead: "strict",
-    // Aggressive search cadence (shorter queries, more frequent full-Quran
-    // searches) starves single-threaded WASM decode — the audio backlog
-    // overflows, transcript corrupts, locate never lands. Only the verdict
-    // observation window is tightened vs default.
+    // Full-Quran relocation is the expensive fallback. Running it too often
+    // starves single-threaded WASM decode and makes the cursor trail speech.
     config: {
       // 15 (0.6s) judged the cursor word mid-madd — a held vowel produces no
       // new chars, so `settled` fired while still being pronounced and the
@@ -459,8 +457,8 @@ async function init(sampleRate: number) {
       holdWindow: 22,
       holdRate: 0.7,
       lostRate: 0.55,
-      relocateEveryFrames: 30,
-      relocateQueryChars: 120,
+      relocateEveryFrames: 45,
+      relocateQueryChars: 96,
       // Drop to the free-search hard reset after 2 bad ticks instead of 3 —
       // a wedged tracker recovers ~1.6s sooner and nothing else uses the
       // struggles counter.

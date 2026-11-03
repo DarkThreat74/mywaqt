@@ -696,9 +696,9 @@ export async function startQt(): Promise<void> {
     const chunk: Float32Array = e.data;
     micChunks.push(chunk);
     micLen += chunk.length;
-    // 100ms sends (was 250ms): the encoder emits on a 480ms hop, so every
-    // ms shaved here comes straight off perceived word-follow latency.
-    if (micLen >= ctx.sampleRate / 10) {
+    // Keep transport chunks short enough to reduce cursor latency without
+    // flooding postMessage with tiny AudioWorklet buffers.
+    if (micLen >= ctx.sampleRate / 12.5) {
       // Mic level for the UI meter — throttled to ~5Hz: every emit repaints
       // the full mushaf tree, which is the main thread's biggest cost.
       const now = Date.now();
