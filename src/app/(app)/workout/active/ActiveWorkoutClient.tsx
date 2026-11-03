@@ -148,7 +148,11 @@ function ActiveInner() {
   const finishing = useRef(false);
   const logSet = async (slug: string, idx: number, patch: Partial<SetRow>) => {
     const prev = setRows[slug]?.[idx] || { weight: "", reps: null, done: false };
-    const next = { ...prev, ...patch };
+    const mode = handModes[slug] ?? "both";
+    const automaticHand = HANDED.has(slug)
+      ? mode === "one" ? (idx % 2 === 0 ? "hand:left" : "hand:right") : "hand:both"
+      : undefined;
+    const next = { ...prev, ...patch, variation: patch.variation ?? prev.variation ?? automaticHand };
     setSetRows((m) => {
       const arr = [...(m[slug] || [])];
       arr[idx] = next;
@@ -458,23 +462,27 @@ function ActiveInner() {
                   <span className="w-12 text-center" title="Reps in reserve — how many more you could have done">RIR</span>
                   <span className="flex-1" />
                 </div>
-                {Array.from({ length: setCounts[x.slug] ?? 1 }, (_, i) => {
-                  const row = rows[i] || { weight: "", reps: null, done: false, setType: "working" as const };
-                  const prev = prevSets[x.slug]?.[i];
+                {Array.from({ length: (setCounts[x.slug] ?? 1) * ((HANDED.has(x.slug) && (handModes[x.slug] ?? "both") === "one") ? 2 : 1) }, (_, slot) => {
+                  const oneHand = HANDED.has(x.slug) && (handModes[x.slug] ?? "both") === "one";
+                  const logicalIndex = oneHand ? Math.floor(slot / 2) : slot;
+                  const rowIndex = oneHand ? logicalIndex * 2 + (slot % 2) : logicalIndex;
+                  const side = slot % 2 === 0 ? "left" : "right";
+                  const row = rows[rowIndex] || { weight: "", reps: null, done: false, setType: "working" as const, variation: oneHand ? `hand:${side}` : "hand:both" };
+                  const prev = prevSets[x.slug]?.[logicalIndex];
                   return (
-                    <div key={i} className="flex items-center gap-2 rounded-lg px-1 py-0.5 transition-colors"
+                    <div key={rowIndex} className="flex items-center gap-2 rounded-lg px-1 py-0.5 transition-colors"
                       style={{ backgroundColor: row.done ? "color-mix(in oklab, var(--color-success) 12%, transparent)" : "transparent" }}>
-                      <span className="w-6 text-center text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{i + 1}</span>
+                      <span className="w-6 text-center text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{logicalIndex + 1}{oneHand ? ` ${side === "left" ? "L" : "R"}` : ""}</span>
                       <input
                         value={row.weight}
-                        onChange={(e) => void logSet(x.slug, i, { weight: e.target.value })}
+                        onChange={(e) => void logSet(x.slug, rowIndex, { weight: e.target.value })}
                         placeholder={prev ? String(dispW(parseFloat(prev.split("×")[0]) || 0)) : units}
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
                       />
                       <input
                         type="number" min={0} value={row.reps ?? ""}
-                        onChange={(e) => void logSet(x.slug, i, { reps: e.target.value === "" ? null : Number(e.target.value) })}
+                        onChange={(e) => void logSet(x.slug, rowIndex, { reps: e.target.value === "" ? null : Number(e.target.value) })}
                         placeholder={prev ? prev.split("×")[1] || x.reps : x.reps}
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
@@ -484,7 +492,7 @@ function ActiveInner() {
                         onClick={() => {
                           const order = ["warmup", "working", "failure"] as const;
                           const next = order[(order.indexOf(row.setType || "working") + 1) % 3];
-                          void logSet(x.slug, i, { setType: next });
+                          void logSet(x.slug, rowIndex, { setType: next });
                         }}
                         className="w-8 shrink-0 rounded border px-0 py-1.5 text-center text-[9px] font-bold"
                         title="Set type — tap to cycle"
@@ -495,33 +503,22 @@ function ActiveInner() {
                       >
                         {row.setType === "failure" ? "F" : row.setType === "warmup" ? "W" : "N"}
                       </button>
-                      {HANDED.has(x.slug) && (handModes[x.slug] ?? "both") === "one" && (
-                        <button type="button"
-                          title="Choose which hand did this set"
-                          onClick={() => {
-                            const order = ["hand:left", "hand:right"] as const;
-                            const cur = row.variation === "hand:right" ? "hand:right" : "hand:left";
-                            void logSet(x.slug, i, { variation: order[(order.indexOf(cur) + 1) % 2] });
-                          }}
-                          className="flex h-7 w-7 items-center justify-center rounded-full border text-[9px] font-bold"
-                          style={{
-                            borderColor: row.variation === "hand:left" || row.variation === "hand:right" ? "var(--color-accent)" : "var(--color-paper-3)",
-                            color: row.variation === "hand:left" || row.variation === "hand:right" ? "var(--color-accent)" : "var(--color-ink-muted)",
-                          }}>
-                          {row.variation === "hand:right" ? "R" : "L"}
-                        </button>
+                      {oneHand && (
+                        <span className="w-7 text-center text-[9px] font-semibold" style={{ color: "var(--color-accent)" }} title="This row logs one side independently">
+                          {side === "left" ? "L" : "R"}
+                        </span>
                       )}
                       <div className="relative">
                         <button
                           type="button"
-                          onClick={() => setOpenRir(openRir === `${x.slug}-${i}` ? null : `${x.slug}-${i}`)}
+                          onClick={() => setOpenRir(openRir === `${x.slug}-${rowIndex}` ? null : `${x.slug}-${rowIndex}`)}
                           className="w-12 rounded border px-1 py-1.5 text-center text-[10px]"
                           title="RIR — reps in reserve (how many more reps you could do)"
                           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
                         >
                           {row.rir === null || row.rir === undefined ? "RIR" : `RIR ${row.rir}`}
                         </button>
-                        {openRir === `${x.slug}-${i}` && (
+                        {openRir === `${x.slug}-${rowIndex}` && (
                           <div className="absolute bottom-full right-0 z-40 mb-1 w-28 rounded-lg border shadow-lg"
                             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
                             <p className="border-b px-2 py-1 text-[9px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
@@ -529,7 +526,7 @@ function ActiveInner() {
                             </p>
                             {[0, 1, 2, 3, 4, 5].map((r) => (
                               <button key={r} type="button"
-                                onClick={() => { void logSet(x.slug, i, { rir: r }); setOpenRir(null); }}
+                                onClick={() => { void logSet(x.slug, rowIndex, { rir: r }); setOpenRir(null); }}
                                 className="block w-full px-2 py-1.5 text-left text-[10px] hover:bg-[var(--color-paper-2)]"
                                 style={{ color: "var(--color-ink)" }}>
                                 {r === 5 ? "5+ — easy set (little growth)" : `${r} — ${r === 0 ? "to failure" : r === 1 ? "almost failure" : `${r} left`}`}
@@ -540,7 +537,7 @@ function ActiveInner() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => void logSet(x.slug, i, { done: !row.done })}
+                        onClick={() => void logSet(x.slug, rowIndex, { done: !row.done })}
                         className="flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
                         style={{
                           borderColor: row.done ? "var(--color-success)" : "var(--color-paper-3)",
