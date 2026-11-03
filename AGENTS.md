@@ -377,7 +377,6 @@ Grep to verify functions/types you reference actually exist.
 - Never push without explicit user request.
 - Never force-push or rewrite history.
 - Never commit secrets or `.env*` files.
-- Co-Authored-By trailer added per the standard format.
 
 ---
 

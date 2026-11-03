@@ -29,6 +29,7 @@ function ActiveInner() {
   const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
   const [bestE1, setBestE1] = useState<Map<string, number>>(new Map());
   const [retained, setRetained] = useState<Map<string, { d: number; r: number }>>(new Map());
+  const [lastPos, setLastPos] = useState<Map<string, number>>(new Map());
   const [lastAt, setLastAt] = useState<Map<string, number>>(new Map());
   const [stalled, setStalled] = useState<Set<string>>(new Set());
   const [elapsed, setElapsed] = useState(0);
@@ -86,11 +87,12 @@ function ActiveInner() {
       if (p2?.ok && !cancelled) {
         const d2 = await p2.json();
         setBestE1(new Map((d2.progress || []).map((p: { slug: string; bestE1?: number }) => [p.slug, p.bestE1 || 0])));
-        const at = new Map<string, number>(), stall = new Set<string>(), ret = new Map<string, { d: number; r: number }>();
+        const at = new Map<string, number>(), stall = new Set<string>(), ret = new Map<string, { d: number; r: number }>(), pos = new Map<string, number>();
         for (const p of d2.progress || []) {
           if (p.daysSince != null && p.retained != null) ret.set(p.slug, { d: p.daysSince, r: p.retained });
+          if (p.lastPos != null) pos.set(p.slug, p.lastPos);
         }
-        setRetained(ret);
+        setRetained(ret); setLastPos(pos);
         for (const p of d2.progress || []) {
           const last = p.points?.[p.points.length - 1];
           if (last?.at) at.set(p.slug, new Date(last.at).getTime());
@@ -298,6 +300,11 @@ function ActiveInner() {
                     return (
                       <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                         last: {parts.map(dispSet).join(" / ")}
+                        {lastPos.get(x.slug) !== undefined && (
+                          <span style={{ opacity: 0.7 }} title="Position in that workout — exercises done later naturally get less weight">
+                            {" "}(#{lastPos.get(x.slug)})
+                          </span>
+                        )}
                         {hitTop && lastW > 0 && (
                           <span style={{ color: "var(--color-warmth)" }}> · try {dispW((lastW + (isLower ? 5 : 2.5)) * (retained.get(x.slug)?.r ?? 1))}{units}</span>
                         )}

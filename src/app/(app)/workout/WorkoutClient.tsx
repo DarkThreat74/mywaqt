@@ -31,7 +31,7 @@ export default function WorkoutClient() {
   const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
-  const [history, setHistory] = useState<Array<{ id: string; dayName: string; startedAt: string; endedAt: string | null }>>([]);
+  const [history, setHistory] = useState<Array<{ id: string; dayId?: string; dayName: string; startedAt: string; endedAt: string | null }>>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [dayName, setDayName] = useState("");
   const [groupFilter, setGroupFilter] = useState<string>("all");
@@ -68,7 +68,7 @@ export default function WorkoutClient() {
     const hr = await fetch("/api/workout/sessions").catch(() => null);
     if (hr?.ok) {
       const data = await hr.json();
-      setHistory((data.sessions || []).filter((s: { endedAt: string | null }) => s.endedAt).slice(0, 10));
+      setHistory((data.sessions || []).slice(0, 10));
     }
   }
   useEffect(() => { Promise.resolve().then(() => { void load(); setNow(Date.now()); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only
@@ -616,23 +616,31 @@ export default function WorkoutClient() {
         </div>
       )}
 
-      {history.length > 0 && (
-        <button type="button" onClick={() => setShowHistory((v) => !v)}
-          className="mt-3 w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
-          {showHistory ? "Hide" : "Show"} history — {history.length} sessions
-        </button>
-      )}
+      <button type="button" onClick={() => setShowHistory((v) => !v)}
+        className="mt-3 w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+        {showHistory ? "Hide" : "Show"} history{history.length ? ` — ${history.length} sessions` : ""}
+      </button>
       {showHistory && (
         <div className="mt-2 space-y-1.5">
+          {history.length === 0 && (
+            <p className="px-2 py-3 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              No sessions yet — finish your first workout and it lands here.
+            </p>
+          )}
           {history.map((s) => (
             <div key={s.id} className="flex items-center justify-between rounded-lg border px-3 py-2"
-              style={{ borderColor: "var(--color-paper-3)" }}>
+              style={{ borderColor: s.endedAt ? "var(--color-paper-3)" : "var(--color-accent)" }}>
               <span className="text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{s.dayName}</span>
               <span className="flex items-center gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                 {new Date(s.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 {" · "}
-                {Math.round((new Date(s.endedAt!).getTime() - new Date(s.startedAt).getTime()) / 60000)}m
+                {s.endedAt
+                  ? `${Math.round((new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()) / 60000)}m`
+                  : "in progress"}
+                {!s.endedAt && (
+                  <a href={`/workout/active?day=${s.dayId}`} style={{ color: "var(--color-accent)" }} className="font-medium">Resume →</a>
+                )}
                 <button type="button" aria-label="Delete session"
                   onClick={async () => {
                     await fetch(`/api/workout/sessions?id=${s.id}`, { method: "DELETE" }).catch(() => {});

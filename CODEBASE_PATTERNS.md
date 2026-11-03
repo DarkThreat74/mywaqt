@@ -2218,7 +2218,6 @@ git commit -m "fix: description of what was fixed"
 # Never push without explicit user request
 # Never force-push or rewrite history
 # Never commit secrets
-# Co-Authored-By trailer is added automatically
 ```
 
 ---

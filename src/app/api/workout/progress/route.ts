@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, desc, isNotNull } from "drizzle-orm";
+import { eq, and, desc, isNotNull, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
@@ -30,17 +30,29 @@ export async function GET(request: NextRequest) {
       .where(and(eq(schema.workoutSessions.userId, session.userId), isNotNull(schema.workoutSessions.endedAt)))
       .orderBy(desc(schema.workoutSessions.startedAt));
     // Group per slug → history points (best e1RM per session) + last-session detail
-    const bySlug = new Map<string, { points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sessions: number; tonnage: number; best: number }>();
+    const bySlug = new Map<string, { points: { at: string; e1: number; pos?: number }[]; last: { w: number; r: number; rir: number | null; at: string; pos?: number } | null; sessions: number; tonnage: number; best: number; positions: number[] }>();
+    // Exercise position per session — same-day order from workout_day_exercises
+    // sortOrder. A set logged as exercise #3 can't fairly compare to exercise #1.
+    const dayIds = [...new Set(rows.map((r) => r.dayId).filter(Boolean))] as string[];
+    const posMap = new Map<string, number>(); // "dayId:slug" -> sortOrder
+    if (dayIds.length) {
+      const dex = await db.select().from(schema.workoutDayExercises)
+        .where(inArray(schema.workoutDayExercises.dayId, dayIds));
+      for (const dx of dex) posMap.set(`${dx.dayId}:${dx.slug}`, dx.sortOrder);
+    }
+    const sessionDay = new Map(rows.map((r) => [r.sessionId, r.dayId]));
     let totalTonnage = 0;
     for (const row of rows) {
       if (!row.done) continue;
       const w = parseFloat(row.weight || "");
       const r = row.reps || 0;
       if (!w || !r) continue;
-      const e = bySlug.get(row.slug) || { points: [], last: null, sessions: 0, tonnage: 0, best: 0 };
+      const e = bySlug.get(row.slug) || { points: [], last: null, sessions: 0, tonnage: 0, best: 0, positions: [] };
       const val = e1rm(w, r);
+      const pos = posMap.get(`${sessionDay.get(row.sessionId)}:${row.slug}`);
+      if (pos !== undefined && !e.positions.includes(pos)) e.positions.push(pos);
       if (!e.points.find((p) => p.at === row.at.toISOString())) {
-        e.points.push({ at: row.at.toISOString(), e1: val });
+        e.points.push({ at: row.at.toISOString(), e1: val, pos });
       } else {
         const p = e.points.find((p) => p.at === row.at.toISOString())!;
         if (val > p.e1) p.e1 = val;
@@ -48,8 +60,8 @@ export async function GET(request: NextRequest) {
       // "last" = latest session's best set — prefer working/failure over
       // warmups so the "try X" hint suggests a real working weight.
       if (!e.last || row.setType !== "warmup") {
-        if (!e.last) e.last = { w, r, rir: row.rir, at: row.at.toISOString() };
-        else if (row.setType !== "warmup" && val > e1rm(e.last.w, e.last.r)) e.last = { w, r, rir: row.rir, at: row.at.toISOString() };
+        if (!e.last) e.last = { w, r, rir: row.rir, at: row.at.toISOString(), pos };
+        else if (row.setType !== "warmup" && val > e1rm(e.last.w, e.last.r)) e.last = { w, r, rir: row.rir, at: row.at.toISOString(), pos };
       }
       e.sessions++;
       e.tonnage += w * r;
@@ -67,6 +79,13 @@ export async function GET(request: NextRequest) {
       bestE1: Math.round(v.best * 10) / 10,
       firstE1: v.points.length ? Math.round(v.points[0].e1 * 10) / 10 : null,
       lastE1: v.points.length ? Math.round(v.points[v.points.length - 1].e1 * 10) / 10 : null,
+      // Exercise-order context — last logged position in the workout and the
+      // typical position, so "35lb preacher then 20lb bayesian" reads as
+      // fatigue-from-order, not regression.
+      lastPos: v.last?.pos ?? null,
+      posMode: v.positions.length
+        ? v.positions.sort((a, b) => a - b)[0] // earliest slot it usually runs
+        : null,
       // Detraining model — strength holds ~4wk, then fades ~5%/wk of past-peak,
       // floored at 70% (muscle memory: myonuclei persist, regaining is fast).
       daysSince: v.last ? Math.round((nowMs - new Date(v.last.at).getTime()) / 86400000) : null,
