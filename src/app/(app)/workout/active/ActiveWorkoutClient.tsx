@@ -171,9 +171,22 @@ function ActiveInner() {
 
   const finish = async () => {
     if (sessionId) {
+      // Flush every row that has data but was never marked done — a partial
+      // workout still counts; typed numbers shouldn't vanish on finish.
+      for (const [slug, arr] of Object.entries(setRows)) {
+        for (let i = 0; i < arr.length; i++) {
+          const r = arr[i];
+          if (r && !r.done && parseFloat(r.weight) > 0 && r.reps != null && r.reps > 0) {
+            await logSet(slug, i, { done: true });
+          }
+        }
+      }
+      // <5min with data = probably backfilling an old workout — save the sets
+      // but don't inflate the duration stat.
+      const quick = elapsed < 300;
       await fetch("/api/workout/sessions", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: sessionId, end: true }),
+        body: JSON.stringify({ id: sessionId, end: true, endAt: quick ? new Date(startRef.current + 60000).toISOString() : undefined }),
       }).catch(() => {});
     }
     try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ }
