@@ -61,7 +61,10 @@ function ActiveInner() {
       const sdata = await sres.json();
       setSessionId(sdata.session.id);
       startRef.current = Date.now() - (sdata.resumed ? Date.now() - new Date(sdata.session.startedAt).getTime() : 0);
-      try { localStorage.setItem("waqt:workout-live", JSON.stringify({ dayId: d.id, name: d.name, startedAt: new Date(sdata.session.startedAt).getTime() })); } catch { /* noop */ }
+      try {
+        const startedMs = Date.parse(sdata.session.startedAt ?? "") || Date.now();
+        localStorage.setItem("waqt:workout-live", JSON.stringify({ dayId: d.id, name: d.name, startedAt: startedMs }));
+      } catch { /* noop */ }
       // Hydrate logged sets (resumed sessions come back with rows)
       const rows: Record<string, SetRow[]> = {};
       for (const s of sdata.sets || []) {
@@ -196,6 +199,16 @@ function ActiveInner() {
   };
 
   // Cancel = delete the session entirely — no history entry, no sets saved.
+  // Persist the in-session reorder back to the profile — the day's sortOrder
+  // IS the position the algorithm reads, so arrows teach it the real order.
+  const persistOrder = async (ordered: DayExercise[]) => {
+    if (!dayId) return;
+    await fetch("/api/workout/days", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: dayId, exercises: ordered }),
+    }).catch(() => {});
+  };
+
   const cancel = async () => {
     if (sessionId) await fetch(`/api/workout/sessions?id=${sessionId}`, { method: "DELETE" }).catch(() => {});
     try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ }
@@ -275,7 +288,7 @@ function ActiveInner() {
       )}
 
       <div className="mt-5 space-y-4">
-        {exercises.map((x) => {
+        {exercises.map((x, xi) => {
           const ex: Exercise | undefined = EXERCISES.find((e) => e.slug === x.slug);
           const rows = setRows[x.slug] || [];
           return (
@@ -284,6 +297,14 @@ function ActiveInner() {
                 <p className="mb-2 text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-accent)" }}>superset</p>
               )}
               <div className="flex items-start gap-3">
+                <div className="flex flex-col items-center" style={{ color: "var(--color-ink-muted)" }}>
+                  <button type="button" disabled={xi === 0} aria-label={`Move ${x.name} up`}
+                    onClick={() => { const n = [...exercises]; [n[xi - 1], n[xi]] = [n[xi], n[xi - 1]]; setExercises(n); void persistOrder(n); }}
+                    className="text-[10px] leading-none disabled:opacity-25">▲</button>
+                  <button type="button" disabled={xi === exercises.length - 1} aria-label={`Move ${x.name} down`}
+                    onClick={() => { const n = [...exercises]; [n[xi], n[xi + 1]] = [n[xi + 1], n[xi]]; setExercises(n); void persistOrder(n); }}
+                    className="text-[10px] leading-none disabled:opacity-25">▼</button>
+                </div>
                 {ex && (
                   <button type="button" onClick={() => setView(ex)} title="How to do it" className="shrink-0">
                     <ExerciseMedia
