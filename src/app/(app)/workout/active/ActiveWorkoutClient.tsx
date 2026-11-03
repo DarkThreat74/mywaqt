@@ -33,6 +33,18 @@ function ActiveInner() {
   const [lastAt, setLastAt] = useState<Map<string, number>>(new Map());
   const [stalled, setStalled] = useState<Set<string>>(new Set());
   const [elapsed, setElapsed] = useState(0);
+  // Live-pill flag — keyed on the session existing, not mount ordering, so it
+  // always fires for both fresh and resumed sessions.
+  useEffect(() => {
+    if (!sessionId || !dayId) return;
+    try {
+      localStorage.setItem("waqt:workout-live", JSON.stringify({
+        dayId, name: dayName || "Workout",
+        startedAt: startRef.current || Date.now(),
+      }));
+    } catch { /* noop */ }
+    return () => { try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ } };
+  }, [sessionId, dayId, dayName]);
   const [restLeft, setRestLeft] = useState(0);
   const [finished, setFinished] = useState(false);
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
