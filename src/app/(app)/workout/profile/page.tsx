@@ -46,6 +46,7 @@ export default function WorkoutProfilePage() {
   const [editing, setEditing] = useState(false);
   const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
   const [growth, setGrowth] = useState<{ name: string; first: number; last: number; gainPct: number | null; points: { e1: number }[] }[]>([]);
+  const [limbStats, setLimbStats] = useState<{ name: string; left: number; right: number; gap: number | null }[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -107,6 +108,19 @@ export default function WorkoutProfilePage() {
           }))
           .sort((a: { last: number }, b: { last: number }) => b.last - a.last)
           .slice(0, 10));
+        setLimbStats((d.progress || [])
+          .filter((x: { limbs?: Record<string, { lastE1?: number }> }) => x.limbs?.left || x.limbs?.right)
+          .map((x: { slug: string; limbs: Record<string, { lastE1?: number }> }) => {
+            const left = x.limbs.left?.lastE1 || 0;
+            const right = x.limbs.right?.lastE1 || 0;
+            return {
+              name: x.slug.replace(/-/g, " "),
+              left, right,
+              gap: left && right ? Math.round((Math.abs(left - right) / Math.max(left, right)) * 1000) / 10 : null,
+            };
+          })
+          .sort((a: { gap: number | null }, b: { gap: number | null }) => (b.gap || 0) - (a.gap || 0))
+          .slice(0, 8));
       }
       setLoaded(true);
     }).catch(() => setLoaded(true));
@@ -247,6 +261,31 @@ export default function WorkoutProfilePage() {
                       style={{ color: g.gainPct === null ? "var(--color-ink-muted)" : g.gainPct >= 0 ? "var(--color-success)" : "var(--color-error)" }}>
                       {g.gainPct !== null ? `${g.gainPct > 0 ? "+" : ""}${g.gainPct}%` : "—"}
                     </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Left / right balance</p>
+              <span className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>latest e1RM · per hand</span>
+            </div>
+            {limbStats.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Choose 1 hand and log both sides to measure asymmetry.</p>}
+            <div className="mt-2 space-y-2">
+              {limbStats.map((l) => {
+                const max = Math.max(l.left, l.right, 1);
+                return (
+                  <div key={l.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
+                    <span className="truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{l.name}</span>
+                    <span className="text-[9px] tabular-nums" style={{ color: l.gap !== null && l.gap >= 10 ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
+                      {l.gap !== null ? `${l.gap}% gap` : "one side"}
+                    </span>
+                    <div className="col-span-2 flex h-1.5 gap-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                      <span className="rounded-full" style={{ width: `${(l.left / max) * 50}%`, backgroundColor: "var(--color-accent)" }} />
+                      <span className="rounded-full" style={{ width: `${(l.right / max) * 50}%`, backgroundColor: "var(--color-warmth)" }} />
+                    </div>
+                    <span className="text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>L {l.left ? `${l.left.toFixed(1)}kg` : "—"} · R {l.right ? `${l.right.toFixed(1)}kg` : "—"}</span>
                   </div>
                 );
               })}
