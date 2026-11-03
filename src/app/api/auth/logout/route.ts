@@ -11,6 +11,17 @@ export async function POST(request: NextRequest) {
     if (!checkRateLimit("logout", ip, 10, 15 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
+    // CSRF check — a cross-site POST could force-logout a logged-in user.
+    const origin = request.headers.get("origin");
+    if (origin) {
+      try {
+        const o = new URL(origin);
+        const firstParty = o.protocol === "capacitor:" || o.protocol === "ionic:" || o.protocol === "app:";
+        if (!firstParty && o.host !== request.nextUrl.host) {
+          return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+        }
+      } catch { return NextResponse.json({ error: "Forbidden." }, { status: 403 }); }
+    }
     await clearSessionCookie();
     return NextResponse.json({ ok: true });
   } catch (err) {
