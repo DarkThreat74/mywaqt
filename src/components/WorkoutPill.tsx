@@ -6,29 +6,45 @@ import Link from "next/link";
 const KEY = "waqt:workout-live";
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-// Floating elapsed-time pill — set by the active workout page, cleared on
-// finish/cancel. Shows on every app route while a session is live.
+interface Live { dayId: string; name: string; startedAt: number }
+
+const readLocal = (): Live | null => {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY) || "null");
+    return d?.dayId && d?.startedAt ? d : null;
+  } catch { return null; }
+};
+
+// Floating elapsed-time pill — DB is the source of truth (an open session row
+// survives reloads + other devices); localStorage is the offline fallback so
+// the pill still appears when the fetch can't reach the server.
 export default function WorkoutPill() {
-  const [live, setLive] = useState<{ dayId: string; name: string; startedAt: number } | null>(null);
+  const [live, setLive] = useState<Live | null>(null);
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    const read = () => {
-      try {
-        const raw = localStorage.getItem(KEY);
-        const d = raw ? JSON.parse(raw) : null;
-        setLive(d?.dayId && d?.startedAt ? d : null);
-      } catch { setLive(null); }
-    };
-    read();
-    const t = setInterval(() => {
-      read();
-      try {
-        const d = JSON.parse(localStorage.getItem(KEY) || "null");
-        if (d?.startedAt) setElapsed((Date.now() - d.startedAt) / 1000);
-      } catch { /* noop */ }
+    // 1s tick — elapsed counter + instant local read (covers offline starts).
+    const t1 = setInterval(() => {
+      const l = readLocal();
+      if (l) { setLive(l); setElapsed((Date.now() - l.startedAt) / 1000); }
+      else setLive((prev) => (prev ? { ...prev } : null)); // keep DB state if live
     }, 1000);
-    return () => clearInterval(t);
+    // 10s DB tick — authoritative open-session check; survives reload + devices.
+    const dbTick = async () => {
+      try {
+        const r = await fetch("/api/workout/sessions");
+        if (!r.ok) return;
+        const { sessions } = await r.json();
+        const open = (sessions || []).find((s: { endedAt: string | null }) => !s.endedAt);
+        if (open) {
+          const l = { dayId: open.dayId, name: open.dayName, startedAt: new Date(open.startedAt).getTime() };
+          setLive(l); setElapsed((Date.now() - l.startedAt) / 1000);
+        } else if (!readLocal()) setLive(null);
+      } catch { /* offline — local copy carries the pill */ }
+    };
+    void dbTick();
+    const t2 = setInterval(() => void dbTick(), 10 * 1000);
+    return () => { clearInterval(t1); clearInterval(t2); };
   }, []);
 
   if (!live) return null;
