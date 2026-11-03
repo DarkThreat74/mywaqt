@@ -45,13 +45,15 @@ function ActiveInner() {
         startedAt: startRef.current || Date.now(),
       }));
     } catch { /* noop */ }
-    return () => { try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ } };
+    // Do not clear on unmount: navigating to Calendar/workout history must
+    // leave the offline resume pill visible. Finish/cancel clear it explicitly.
   }, [sessionId, dayId, dayName]);
   const [restLeft, setRestLeft] = useState(0);
   const [finished, setFinished] = useState(false);
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0);
+  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -167,6 +169,23 @@ function ActiveInner() {
     if (patch.done && !finishing.current) rest();
   };
 
+  // Text inputs save after the user pauses, preventing an older keystroke
+  // request from racing a newer one (e.g. "3" overwriting "35").
+  const queueSetSave = (slug: string, idx: number, patch: Partial<SetRow>) => {
+    const key = `${slug}:${idx}`;
+    setSetRows((prev) => {
+      const rows = [...(prev[slug] || [])];
+      const current = rows[idx] || { weight: "", reps: null, done: false, setType: "working" as const };
+      rows[idx] = { ...current, ...patch };
+      return { ...prev, [slug]: rows };
+    });
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(() => {
+      delete saveTimers.current[key];
+      void logSet(slug, idx, patch);
+    }, 350);
+  };
+
   const removeSetRow = async (slug: string, idx: number) => {
     if (!sessionId) return;
     await fetch(`/api/workout/sets?sessionId=${encodeURIComponent(sessionId)}&slug=${encodeURIComponent(slug)}&setIndex=${idx}`, { method: "DELETE" }).catch(() => {});
@@ -223,6 +242,8 @@ function ActiveInner() {
   const finish = async () => {
     if (sessionId) {
       finishing.current = true; // don't fire the rest timer per flushed row
+      for (const timer of Object.values(saveTimers.current)) clearTimeout(timer);
+      saveTimers.current = {};
       // Flush every row that has data but was never marked done — a partial
       // workout still counts; typed numbers shouldn't vanish on finish.
       for (const [slug, arr] of Object.entries(setRows)) {
@@ -491,14 +512,14 @@ function ActiveInner() {
                       <span className="w-6 text-center text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{logicalIndex + 1}{oneHand ? ` ${side === "left" ? "L" : "R"}` : ""}</span>
                       <input
                         value={row.weight}
-                        onChange={(e) => void logSet(x.slug, rowIndex, { weight: e.target.value })}
+                        onChange={(e) => queueSetSave(x.slug, rowIndex, { weight: e.target.value })}
                         placeholder={prev ? String(dispW(parseFloat(prev.split("×")[0]) || 0)) : units}
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
                       />
                       <input
                         type="number" min={0} value={row.reps ?? ""}
-                        onChange={(e) => void logSet(x.slug, rowIndex, { reps: e.target.value === "" ? null : Number(e.target.value) })}
+                        onChange={(e) => queueSetSave(x.slug, rowIndex, { reps: e.target.value === "" ? null : Number(e.target.value) })}
                         placeholder={prev ? prev.split("×")[1] || x.reps : x.reps}
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
