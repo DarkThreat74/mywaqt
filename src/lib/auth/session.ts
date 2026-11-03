@@ -165,6 +165,17 @@ export async function getSession(): Promise<SessionPayload | null> {
  * may not reliably read the request cookies.
  */
 export async function getSessionFromRequest(request: NextRequest): Promise<SessionPayload | null> {
+  // CSRF defense-in-depth: mutating requests carrying an Origin header that
+  // doesn't match the host are rejected — SameSite=lax alone doesn't cover
+  // same-site sibling origins. GET/HEAD and same-origin requests pass through.
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const origin = request.headers.get("origin");
+    if (origin) {
+      try {
+        if (new URL(origin).host !== request.nextUrl.host) return null;
+      } catch { return null; }
+    }
+  }
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const payload = await decryptSession(token);

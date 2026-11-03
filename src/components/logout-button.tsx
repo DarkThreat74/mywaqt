@@ -65,7 +65,7 @@ export default function LogoutButton() {
         Object.keys(localStorage)
           // waqt:funfact:* is exempt — content indices + an on/off toggle,
           // no private data; wiping it reset the cards preference every logout.
-          .filter((k) => ((k.startsWith("waqt-") || k.startsWith("waqt:")) && !k.startsWith("waqt:funfact:")) || k === "quran-best-streak" || k.startsWith("qt:"))
+          .filter((k) => ((k.startsWith("waqt-") || k.startsWith("waqt:")) && !k.startsWith("waqt:funfact:")) || k === "quran-best-streak" || k.startsWith("qt:") || k.startsWith("birthdays:") || k.startsWith("friends:") || k.startsWith("profile:") || k.startsWith("subs:") || k.startsWith("expenses:") || k.startsWith("talks:") || k.startsWith("messages:"))
           .forEach((k) => localStorage.removeItem(k));
       } catch { /* ignore */ }
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
