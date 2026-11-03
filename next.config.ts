@@ -70,13 +70,6 @@ const nextConfig: NextConfig = {
         // SharedArrayBuffer so the WASM recognizer can run multi-threaded.
         // Everything it loads is same-origin (/qt/*, /data/*, fonts), so
         // require-corp is safe here; app-wide COEP would break Turnstile/tiles.
-        source: "/quran-tester",
-        headers: [
-          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
-        ],
-      },
-      {
         source: "/manifest.webmanifest",
         headers: [
           { key: "Cache-Control", value: "public, max-age=86400" },
@@ -110,6 +103,32 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com",
+              "style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://fonts.openfreemap.org",
+              "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tiles.openfreemap.org",
+              "font-src 'self' data: https://fonts.openfreemap.org https://tiles.openfreemap.org",
+              "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com https://*.r2.cloudflarestorage.com",
+              "worker-src 'self' blob:",
+              "media-src 'self' blob: https:",
+              "frame-src https://challenges.cloudflare.com",
+              "frame-ancestors 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "object-src 'none'",
+            ].join("; "),
+          },
+        ],
+      },
+        source: "/quran-tester",
+        headers: [
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+          // ONNX runtime needs 'unsafe-eval' — scoped here only; the global
+          // CSP denies it everywhere else.
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
               "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval' https://challenges.cloudflare.com",
               "style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://fonts.openfreemap.org",
               "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tiles.openfreemap.org",
@@ -126,6 +145,7 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
     ];
   },
 };
