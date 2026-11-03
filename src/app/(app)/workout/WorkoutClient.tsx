@@ -260,6 +260,14 @@ export default function WorkoutClient() {
           <div className="mt-4 space-y-2">
             {picked.map((p, i) => (
               <div key={p.slug} className="flex items-center gap-3 rounded-lg border px-3 py-2" style={{ borderColor: p.supersetGroup != null ? "var(--color-accent)" : "var(--color-paper-3)" }}>
+                <span className="flex flex-col" style={{ color: "var(--color-ink-muted)" }}>
+                  <button type="button" disabled={i === 0} aria-label={`Move ${p.name} up`}
+                    onClick={() => setPicked((prev) => { const n = [...prev]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n; })}
+                    className="text-[10px] leading-none disabled:opacity-30">▲</button>
+                  <button type="button" disabled={i === picked.length - 1} aria-label={`Move ${p.name} down`}
+                    onClick={() => setPicked((prev) => { const n = [...prev]; [n[i], n[i + 1]] = [n[i + 1], n[i]]; return n; })}
+                    className="text-[10px] leading-none disabled:opacity-30">▼</button>
+                </span>
                 {i > 0 && (
                   <button type="button" onClick={() => toggleLink(i)} title={p.supersetGroup != null ? "Unlink superset" : "Superset with exercise above"}
                     className="text-xs" style={{ color: p.supersetGroup != null ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
