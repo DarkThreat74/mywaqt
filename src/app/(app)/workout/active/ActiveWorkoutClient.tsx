@@ -228,7 +228,9 @@ function ActiveInner() {
       for (const [slug, arr] of Object.entries(setRows)) {
         for (let i = 0; i < arr.length; i++) {
           const r = arr[i];
-          if (r && !r.done && parseFloat(r.weight) > 0 && r.reps != null && r.reps > 0) {
+          // Reps-only rows are valid for bodyweight movements; do not require
+          // a load before preserving a completed set.
+          if (r && !r.done && r.reps != null && r.reps > 0 && (parseFloat(r.weight) > 0 || !r.weight.trim())) {
             await logSet(slug, i, {
               done: true,
               ...(HANDED.has(slug) && handModes[slug] === "one" && !r.variation ? { variation: "hand:left" } : {}),

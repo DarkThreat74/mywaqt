@@ -31,7 +31,10 @@ export default function WorkoutClient() {
   const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
-  const [history, setHistory] = useState<Array<{ id: string; dayId?: string; dayName: string; startedAt: string; endedAt: string | null }>>([]);
+  const [history, setHistory] = useState<Array<{
+    id: string; dayId?: string; dayName: string; startedAt: string; endedAt: string | null;
+    completedExercises?: Array<{ slug: string; setCount: number }>;
+  }>>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [dayName, setDayName] = useState("");
   const [groupFilter, setGroupFilter] = useState<string>("all");
@@ -639,8 +642,18 @@ export default function WorkoutClient() {
           {history.map((s) => (
             <div key={s.id} className="flex items-center justify-between rounded-lg border px-3 py-2"
               style={{ borderColor: s.endedAt ? "var(--color-paper-3)" : "var(--color-accent)" }}>
-              <span className="text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{s.dayName}</span>
-              <span className="flex items-center gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{s.dayName}</p>
+                <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                  {s.completedExercises?.length
+                    ? s.completedExercises.map((x) => {
+                      const name = EXERCISES.find((e) => e.slug === x.slug)?.name || x.slug.replace(/-/g, " ");
+                      return `${name} · ${x.setCount} ${x.setCount === 1 ? "set" : "sets"}`;
+                    }).join("  •  ")
+                    : s.endedAt ? "No completed sets" : "No sets logged yet"}
+                </p>
+              </div>
+              <span className="ml-3 flex shrink-0 items-center gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                 {new Date(s.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 {" · "}
                 {s.endedAt

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
@@ -46,7 +46,26 @@ export async function GET(request: NextRequest) {
       await db.update(schema.workoutSessions).set({ endedAt: s.endedAt }).where(eq(schema.workoutSessions.id, s.id));
     }
   }
-  return NextResponse.json({ sessions });
+  const sessionIds = sessions.map((s) => s.id);
+  const completed = sessionIds.length
+    ? await db.select({
+        sessionId: schema.workoutSets.sessionId,
+        slug: schema.workoutSets.slug,
+      }).from(schema.workoutSets)
+        .where(and(inArray(schema.workoutSets.sessionId, sessionIds), eq(schema.workoutSets.done, true)))
+    : [];
+  const bySession = new Map<string, Map<string, number>>();
+  for (const set of completed) {
+    const exercises = bySession.get(set.sessionId) || new Map<string, number>();
+    exercises.set(set.slug, (exercises.get(set.slug) || 0) + 1);
+    bySession.set(set.sessionId, exercises);
+  }
+  return NextResponse.json({
+    sessions: sessions.map((s) => ({
+      ...s,
+      completedExercises: [...(bySession.get(s.id) || new Map())].map(([slug, setCount]) => ({ slug, setCount })),
+    })),
+  });
 }
 
 export async function POST(request: NextRequest) {
