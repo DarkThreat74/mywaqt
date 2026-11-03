@@ -24,6 +24,46 @@ import { jwtVerify } from 'jose';
 // bundle). SESSION_SECRET read directly; same fail-closed rule applies.
 const encodedKey = new TextEncoder().encode(process.env.SESSION_SECRET ?? '');
 
+// ─── Per-request CSP nonce ───
+// Dynamic HTML gets script-src 'nonce-<value>' + 'strict-dynamic' instead of
+// 'unsafe-inline'. The nonce reaches the RSC render via the x-nonce request
+// header (read in src/app/layout.tsx); Next stamps it on its own inline
+// boot/flight scripts automatically. This header overrides the catch-all CSP
+// in next.config.ts — keep the directives in sync with it, and with the
+// CURRENT_CSP fallback in public/sw.js.
+function buildCsp(nonce: string, isQuranTester: boolean): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval'${
+      isQuranTester ? " 'unsafe-eval'" : ''
+    } https://challenges.cloudflare.com`,
+    "style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://fonts.openfreemap.org",
+    "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tiles.openfreemap.org",
+    "font-src 'self' data: https://fonts.openfreemap.org https://tiles.openfreemap.org",
+    "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com https://*.r2.cloudflarestorage.com",
+    "worker-src 'self' blob:",
+    "media-src 'self' blob: https:",
+    "frame-src https://challenges.cloudflare.com",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
+  ].join('; ');
+}
+
+// Prerendered pages ship frozen HTML — their inline scripts can never carry a
+// per-request nonce, so a nonce CSP would hard-break hydration. They keep the
+// next.config.ts policy ('unsafe-inline'). Only public marketing/legal pages
+// are static; every session-bearing app route is force-dynamic.
+const STATIC_PAGES = new Set([
+  '/', '/terms', '/privacy', '/data-deletion', '/cookies', '/support',
+]);
+
+// Non-HTML public files (offline.html, /data/*.json, icons) render inline
+// scripts of their own or don't need a CSP at all — leave them to the config
+// headers. Only extensionless page paths get the nonce policy.
+const hasFileExtension = (pathname: string) => /\.[a-zA-Z0-9]+$/.test(pathname);
+
 async function hasValidSession(request: NextRequest): Promise<boolean> {
   const token = request.cookies.get('waqt-session')?.value;
   if (!token || encodedKey.length === 0) return false;
@@ -39,6 +79,16 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasCookie = !!request.cookies.get('waqt-session')?.value;
   const validSession = await hasValidSession(request);
+
+  // Per-request nonce — forwarded via x-nonce so Server Components can read it.
+  const nonce = btoa(
+    String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))
+  );
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-nonce', nonce);
+  const next = () => NextResponse.next({ request: { headers: requestHeaders } });
+  const wantsNonceCsp =
+    !hasFileExtension(pathname) && !STATIC_PAGES.has(pathname);
 
   const protectedPaths = [
     '/calendar', '/settings', '/onboarding', '/prayer', '/goals', '/learn',
@@ -71,9 +121,12 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(new URL('/calendar/day', request.url));
     }
     if (hasCookie) {
-      const res = NextResponse.next();
+      const res = next();
       res.cookies.delete('waqt-session');
       res.cookies.delete('waqt-uid');
+      if (wantsNonceCsp) {
+        res.headers.set('Content-Security-Policy', buildCsp(nonce, pathname.startsWith('/quran-tester')));
+      }
       return res;
     }
   }
@@ -90,7 +143,7 @@ export async function proxy(request: NextRequest) {
   // logout; a forged value only causes the SW to serve that same user's own
   // cached pages, never another's.
   const uid = request.cookies.get('waqt-uid')?.value;
-  const res = NextResponse.next();
+  const res = next();
   if (uid) res.headers.set('x-waqt-uid', uid);
   // Deploy stamp — the service worker can't read a real buildId out of App
   // Router chunk URLs (filenames hash content, not the build), so it can't
@@ -99,6 +152,9 @@ export async function proxy(request: NextRequest) {
   // mismatch triggers a client reload into the new build.
   const build = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VERCEL_DEPLOYMENT_ID;
   if (build) res.headers.set('x-waqt-build', build);
+  if (wantsNonceCsp) {
+    res.headers.set('Content-Security-Policy', buildCsp(nonce, pathname.startsWith('/quran-tester')));
+  }
   return res;
 }
 

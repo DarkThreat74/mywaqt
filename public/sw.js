@@ -25,6 +25,13 @@ const CACHE_VERSION = "waqt-v101";
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
+// TRADE-OFF: the live page CSP is now nonce-based (see src/proxy.ts), but a
+// service worker cannot generate a nonce that matches anything — a cached
+// HTML response is frozen bytes. This stamped fallback therefore keeps the
+// pre-nonce policy including 'unsafe-inline'. That is acceptable: it only
+// repairs stale worker/chunk responses, while page documents still carry
+// their own fresh nonce CSP from the server (or the cached copy they were
+// rendered with).
 const CURRENT_CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval' https://challenges.cloudflare.com",

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Spectral, Amiri } from "next/font/google";
 import "./globals.css";
 import { UISFXProvider } from "@/components/uisfx-provider";
@@ -104,8 +105,11 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  // Inline script — runs before paint to prevent flash of wrong theme
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Inline script — runs before paint to prevent flash of wrong theme.
+  // The nonce comes from middleware (x-nonce) and is also present in the
+  // response CSP; Next.js applies the same nonce to its own boot scripts.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const themeScript = `(function(){try{var t=localStorage.getItem("waqt:theme");if(t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.setAttribute("data-theme","dark")}else{document.documentElement.setAttribute("data-theme","light")}}catch(e){}})()`;
 
   return (
@@ -115,7 +119,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="min-h-dvh flex flex-col" style={{ fontFamily: "var(--font-spectral), Georgia, serif" }}>
         <NativeShellEnhancements />
