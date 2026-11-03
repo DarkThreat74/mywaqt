@@ -78,6 +78,8 @@ export async function GET(request: NextRequest) {
         recommendedWeightKg: Math.round(summary.recommendedWeightKg * 10) / 10,
       })),
     })),
+  }, {
+    headers: { "Cache-Control": "private, no-store, max-age=0" },
   });
 }
 

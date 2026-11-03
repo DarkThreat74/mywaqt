@@ -32,7 +32,7 @@ export default function WorkoutPill() {
     // 10s DB tick — authoritative open-session check; survives reload + devices.
     const dbTick = async () => {
       try {
-        const r = await fetch("/api/workout/sessions");
+        const r = await fetch("/api/workout/sessions", { cache: "no-store" });
         if (!r.ok) return;
         const { sessions } = await r.json();
         const open = (sessions || []).find((s: { endedAt: string | null }) => !s.endedAt);

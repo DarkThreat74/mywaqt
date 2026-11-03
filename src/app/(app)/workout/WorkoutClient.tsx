@@ -68,7 +68,7 @@ export default function WorkoutClient() {
         if (!p?.bodyWeightKg || !p?.heightCm) router.push("/workout/profile");
       }
     }
-    const hr = await fetch("/api/workout/sessions").catch(() => null);
+    const hr = await fetch("/api/workout/sessions", { cache: "no-store" }).catch(() => null);
     if (hr?.ok) {
       const data = await hr.json();
       setHistory((data.sessions || []).slice(0, 10));
