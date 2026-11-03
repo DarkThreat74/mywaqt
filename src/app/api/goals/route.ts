@@ -289,9 +289,9 @@ export async function PATCH(request: NextRequest) {
       }
       updates.progressCurrent = Math.round(body.progressCurrent);
     }
-    if (body.color !== undefined) updates.color = body.color || null;
+    if (body.color !== undefined) updates.color = typeof body.color === "string" && /^#[0-9a-fA-F]{3,8}$/.test(body.color) ? body.color : null;
     if (body.parentId !== undefined) updates.parentId = body.parentId;
-    if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder;
+    if (body.sortOrder !== undefined) updates.sortOrder = Number.isFinite(body.sortOrder) ? Math.round(body.sortOrder as number) : 0;
     if (body.tags !== undefined) {
       const clean = Array.isArray(body.tags)
         ? [...new Set(body.tags.filter((t): t is string => typeof t === "string").map((t) => t.trim().toLowerCase()).filter((t) => t && t.length <= 24))].slice(0, 10)

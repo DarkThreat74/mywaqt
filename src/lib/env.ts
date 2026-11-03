@@ -58,6 +58,9 @@ export const env = {
   // Native Push — APNs (iOS). All optional: if absent, iOS push is a no-op.
   // APNS_PRIVATE_KEY is the p8 file content (PEM string), not a file path.
   apnsKeyId: process.env.APNS_KEY_ID ?? '',
+  // Optional Upstash Redis for durable rate limiting (auth/sensitive routes).
+  upstashRestUrl: process.env.UPSTASH_REDIS_REST_URL ?? '',
+  upstashRestToken: process.env.UPSTASH_REDIS_REST_TOKEN ?? '',
   apnsTeamId: process.env.APNS_TEAM_ID ?? '',
   apnsPrivateKey: process.env.APNS_PRIVATE_KEY ?? '',
   apnsBundleId: process.env.APNS_BUNDLE_ID ?? '',

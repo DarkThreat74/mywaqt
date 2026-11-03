@@ -172,7 +172,10 @@ export async function getSessionFromRequest(request: NextRequest): Promise<Sessi
     const origin = request.headers.get("origin");
     if (origin) {
       try {
-        if (new URL(origin).host !== request.nextUrl.host) return null;
+        const o = new URL(origin);
+        // Capacitor/TWA WebViews are first-party — not a CSRF vector.
+        if (o.protocol === "capacitor:" || o.protocol === "ionic:" || o.protocol === "app:") { /* allowed */ }
+        else if (o.host !== request.nextUrl.host) return null;
       } catch { return null; }
     }
   }

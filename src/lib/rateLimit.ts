@@ -100,8 +100,9 @@ export async function checkRateLimitAsync(
   maxRequests: number,
   windowMs: number,
 ): Promise<boolean> {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const { env } = await import("./env");
+  const url = env.upstashRestUrl;
+  const token = env.upstashRestToken;
   if (!url || !token) return checkRateLimit(namespace, key, maxRequests, windowMs);
   try {
     const redisKey = `rl:${namespace}:${key}`;
