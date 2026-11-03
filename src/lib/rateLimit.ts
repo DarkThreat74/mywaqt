@@ -87,3 +87,33 @@ export function checkRateLimit(
 
   return true;
 }
+
+/**
+ * Durable variant — counts in Upstash Redis over REST so limits survive
+ * serverless cold starts. Falls back to the in-memory check when the env vars
+ * aren't set or the call fails (rate limiting should fail open for availability).
+ * Use on security-sensitive namespaces: auth, token issuance, share links.
+ */
+export async function checkRateLimitAsync(
+  namespace: string,
+  key: string,
+  maxRequests: number,
+  windowMs: number,
+): Promise<boolean> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return checkRateLimit(namespace, key, maxRequests, windowMs);
+  try {
+    const redisKey = `rl:${namespace}:${key}`;
+    const res = await fetch(`${url}/pipeline`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify([["INCR", redisKey], ["PEXPIRE", redisKey, String(windowMs), "NX"]]),
+    });
+    if (!res.ok) return checkRateLimit(namespace, key, maxRequests, windowMs);
+    const json = await res.json() as Array<{ result: number }>;
+    return (json[0]?.result ?? 0) <= maxRequests;
+  } catch {
+    return checkRateLimit(namespace, key, maxRequests, windowMs);
+  }
+}

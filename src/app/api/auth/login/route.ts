@@ -4,7 +4,7 @@ import { eq, and, gt } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { setSessionCookie } from "@/lib/auth/session";
 import { isValidEmail, isHoneypotTripped, isTimeTrapTripped, isValidFingerprintHash } from "@/lib/validation";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { getDeviceLabel } from "@/lib/auth/device-label";
 import { logError } from "@/lib/logError";
 
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   try {
   // ── Rate limit: 5 login attempts per 15 min per IP ──
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("login", ip, 5, 15 * 60 * 1000)) {
+  if (!await checkRateLimitAsync("login", ip, 5, 15 * 60 * 1000)) {
     return NextResponse.json(
       { error: "Too many attempts. Please try again later." },
       { status: 429 },

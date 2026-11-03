@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { isValidEmail, isHoneypotTripped, isTimeTrapTripped, isValidFingerprintHash } from "@/lib/validation";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { sendEmail } from "@/lib/email";
 import { createUserWithPrayerCode, trustDevice } from "@/lib/auth/create-user";
@@ -19,8 +19,8 @@ export async function POST(request: NextRequest) {
   // Bots solving the captcha still can't mint accounts faster than this.
   const ip = getClientIp(request.headers);
   if (
-    !checkRateLimit("signup", ip, 5, 15 * 60 * 1000) ||
-    !checkRateLimit("signup-hourly", ip, 3, 60 * 60 * 1000)
+    !await checkRateLimitAsync("signup", ip, 5, 15 * 60 * 1000) ||
+    !await checkRateLimitAsync("signup-hourly", ip, 3, 60 * 60 * 1000)
   ) {
     return NextResponse.json(
       { error: "Too many attempts. Please try again later." },
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
 
   // ── Per-email burn — the same address can't retry more than 3/hour,
   // regardless of IP. Checked before any DB work. ──
-  if (!checkRateLimit(`signup-email:${normalizedEmail}`, normalizedEmail, 3, 60 * 60 * 1000)) {
+  if (!await checkRateLimitAsync(`signup-email:${normalizedEmail}`, normalizedEmail, 3, 60 * 60 * 1000)) {
     return NextResponse.json(GENERIC_OK); // generic — don't leak the throttle exists
   }
 

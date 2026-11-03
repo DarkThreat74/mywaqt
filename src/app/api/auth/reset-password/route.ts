@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { eq, and, isNull, gt } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { isValidEmail, isHoneypotTripped, isTimeTrapTripped } from "@/lib/validation";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 import { logError } from "@/lib/logError";
@@ -37,7 +37,7 @@ function sha256(s: string): string {
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("reset-password", ip, 5, 15 * 60 * 1000)) {
+    if (!await checkRateLimitAsync("reset-password", ip, 5, 15 * 60 * 1000)) {
       return NextResponse.json(
         { error: "Too many attempts. Please try again later." },
         { status: 429 },
