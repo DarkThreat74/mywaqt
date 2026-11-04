@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { Plus, Search, X } from "lucide-react";
 import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
@@ -265,6 +266,10 @@ function ActiveInner() {
   const [readiness, setReadiness] = useState({ sleepHours: "", energy: "", soreness: "", stress: "" });
   const [readinessSaving, setReadinessSaving] = useState(false);
   const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [exercisePickerOpen, setExercisePickerOpen] = useState(false);
+  const [customExerciseOpen, setCustomExerciseOpen] = useState(false);
+  const [exerciseQuery, setExerciseQuery] = useState("");
+  const [customExerciseName, setCustomExerciseName] = useState("");
   const router = useRouter();
 
   const unitToKg = (v: string) => (units === "lb" ? String(Math.round(parseFloat(v) / 2.205 * 10) / 10) : v);
@@ -368,6 +373,29 @@ function ActiveInner() {
     setReadinessOpen(false);
   };
 
+  const addExercise = (exercise: DayExercise) => {
+    if (exercises.some((item) => item.slug === exercise.slug)) return;
+    const next = [...exercises, exercise];
+    setExercises(next);
+    setSetCounts((counts) => ({ ...counts, [exercise.slug]: Math.max(1, exercise.sets) }));
+    void persistOrder(next);
+    setExercisePickerOpen(false);
+  };
+
+  const addCustomExercise = () => {
+    const name = customExerciseName.trim();
+    if (!name) return;
+    addExercise({
+      slug: `custom-${crypto.randomUUID()}`,
+      name,
+      sets: 1,
+      reps: "8-12",
+      supersetGroup: null,
+    });
+    setCustomExerciseName("");
+    setCustomExerciseOpen(false);
+  };
+
   if (!dayId && exercises.length === 0 && !dayName) {
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center">
@@ -445,6 +473,12 @@ function ActiveInner() {
             className="hidden rounded-full px-3 py-1.5 text-[10px] font-semibold sm:inline-block"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: sessionId ? 1 : 0.45 }}>
             Finish
+          </button>
+          <button type="button" onClick={() => setExercisePickerOpen(true)}
+            className="flex h-8 w-8 items-center justify-center rounded-full border"
+            style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+            title="Add exercise" aria-label="Add exercise">
+            <Plus className="h-4 w-4" />
           </button>
           <button type="button" onClick={() => setLeaveAsk(true)} className="rounded-full border px-2 py-1 text-[10px]"
             style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }} title="Leave — deletes this session">
@@ -767,6 +801,86 @@ function ActiveInner() {
         style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
         Finish workout
       </button>
+
+      <button type="button" onClick={() => setExercisePickerOpen(true)}
+        className="mx-auto mt-3 flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold"
+        style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+        <Plus className="h-3.5 w-3.5" /> Add another exercise
+      </button>
+
+      {exercisePickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setExercisePickerOpen(false)}>
+          <div className="max-h-[82vh] w-full max-w-lg overflow-hidden rounded-t-3xl border sm:rounded-3xl"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+            onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b px-4 py-3"
+              style={{ borderColor: "var(--color-paper-3)" }}>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Add to this session</p>
+                <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Choose a saved movement or create one for this routine.</p>
+              </div>
+              <button type="button" onClick={() => setExercisePickerOpen(false)} aria-label="Close exercise picker"
+                className="rounded-full p-2" style={{ color: "var(--color-ink-muted)" }}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="border-b p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+              <label className="flex items-center gap-2 rounded-xl border px-3 py-2.5"
+                style={{ borderColor: "var(--color-paper-3)" }}>
+                <Search className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
+                <input value={exerciseQuery} onChange={(event) => setExerciseQuery(event.target.value)}
+                  autoFocus placeholder="Search the exercise library…"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                  style={{ color: "var(--color-ink)" }} />
+              </label>
+              <button type="button" onClick={() => { setExercisePickerOpen(false); setCustomExerciseOpen(true); }}
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-2.5 text-xs font-semibold"
+                style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+                <Plus className="h-3.5 w-3.5" /> Other — add a custom exercise
+              </button>
+            </div>
+            <div className="max-h-[52vh] overflow-y-auto p-3">
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {EXERCISES
+                  .filter((exercise) => !exercises.some((item) => item.slug === exercise.slug))
+                  .filter((exercise) => !exerciseQuery.trim() || `${exercise.name} ${exercise.muscle} ${exercise.equip}`.toLowerCase().includes(exerciseQuery.toLowerCase()))
+                  .slice(0, 60)
+                  .map((exercise) => (
+                    <button key={exercise.slug} type="button"
+                      onClick={() => addExercise({ slug: exercise.slug, name: exercise.name, sets: 1, reps: "8-12", supersetGroup: null })}
+                      className="flex items-center justify-between rounded-xl border px-3 py-2.5 text-left"
+                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                      <span className="min-w-0 truncate text-xs">{exercise.name}</span>
+                      <Plus className="ml-2 h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />
+                    </button>
+                  ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {customExerciseOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setCustomExerciseOpen(false)}>
+          <div className="w-full max-w-sm rounded-t-3xl border p-4 sm:rounded-3xl"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+            onClick={(event) => event.stopPropagation()}>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Add another movement</p>
+            <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>It will be added to this routine and start with one set.</p>
+            <input value={customExerciseName} onChange={(event) => setCustomExerciseName(event.target.value)}
+              autoFocus placeholder="Exercise name"
+              className="mt-3 w-full rounded-xl border px-3 py-2.5 text-sm"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+            <button type="button" onClick={addCustomExercise} disabled={!customExerciseName.trim()}
+              className="mt-3 w-full rounded-xl px-3 py-2.5 text-sm font-semibold"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: customExerciseName.trim() ? 1 : 0.45 }}>
+              Add exercise
+            </button>
+          </div>
+        </div>
+      )}
 
       {leaveAsk && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
