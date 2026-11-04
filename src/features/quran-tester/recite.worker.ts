@@ -427,15 +427,10 @@ async function init(sampleRate: number) {
       post(m as Record<string, unknown>);
     },
     // Slip head: a logistic probe over the model's encoder frames that
-    // scores each tracker's word span acoustically — catches wrong-sounding
-    // words (kaf-vs-ha level substitutions) without waiting for word-level
-    // alignment to settle. Needs the model's optional encoder output;
-    // the manifest declares it, and the head silently stays off if a model
-    // without it is ever loaded.
-    // "high" was the false-positive factory: the slip probe fires with NO
-    // neighbour anchors and even on ayah-boundary words, where pausal forms
-    // make the acoustics look most unlike the canonical decode.
-    slipHead: "strict",
+    // The slip head adds a second encoder-frame classifier to every live
+    // segment. It is valuable for deep grading, but it starves the streaming
+    // tracker on phones; live mode relies on the correction engine instead.
+    slipHead: false,
     // Full-Quran relocation is the expensive fallback. Running it too often
     // starves single-threaded WASM decode and makes the cursor trail speech.
     config: {
