@@ -3,7 +3,7 @@
 // validation (or a title-checked fitnessprogramer post). Writes
 // scripts/gif-fix-report.json: [{slug, source, matchedName}]
 // Usage: node scripts/audit-exercise-gifs.mjs [slug ...]
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 
 const SRC = 'src/lib/workout/exercises.ts';
 const OUT = 'public/exercises';

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'fs';
+import { writeFileSync } from 'fs';
 // slug → search terms that actually match source titles
 const MAP = {
   "ab-mat-crunch": ["Ab Mat Crunch","crunch ab mat"],
