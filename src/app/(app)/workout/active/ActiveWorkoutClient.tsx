@@ -78,14 +78,27 @@ function ActiveInner() {
       setExercises(d.exercises || []);
       setSetCounts(Object.fromEntries((d.exercises || []).map((exercise: DayExercise) => [exercise.slug, Math.max(1, exercise.sets || 1)])));
       // Start/resume session
-      const sres = await fetch(`/api/workout/sessions?start=${Date.now()}`, {
+      const startBody = {
+        dayId: d.id,
+        dayName: d.name,
+        exerciseOrder: Object.fromEntries((d.exercises || []).map((exercise: DayExercise, index: number) => [exercise.slug, index])),
+      };
+      let sres = await fetch(`/api/workout/sessions?start=${Date.now()}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dayId: d.id,
-          dayName: d.name,
-          exerciseOrder: Object.fromEntries((d.exercises || []).map((exercise: DayExercise, index: number) => [exercise.slug, index])),
-        }),
+        body: JSON.stringify(startBody),
       }).catch(() => null);
+      // A pre-update service worker may return the old synthetic offline
+      // response without a session object. Remove that registration once and
+      // retry against the network before failing the workout.
+      if (sres?.ok) {
+        const probe = await sres.clone().json().catch(() => null);
+        if (!probe?.session?.id && "serviceWorker" in navigator) {
+          await navigator.serviceWorker.getRegistration().then((registration) => registration?.unregister()).catch(() => {});
+          sres = await fetch(`/api/workout/sessions?start=${Date.now()}&retry=1`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(startBody),
+          }).catch(() => null);
+        }
+      }
       if (!sres?.ok || cancelled) {
         let detail = "The workout session could not be created.";
         if (sres) {
@@ -112,7 +125,8 @@ function ActiveInner() {
       try {
         const startedMs = Date.parse(sdata.session.startedAt ?? "") || Date.now();
         localStorage.setItem("waqt:workout-live", JSON.stringify({ dayId: d.id, name: d.name, startedAt: startedMs }));
-      } catch { /* noop */ }
+    } catch { /* noop */ }
+      window.dispatchEvent(new Event("waqt:workout-live-changed"));
       // Hydrate logged sets (resumed sessions come back with rows)
       const rows: Record<string, SetRow[]> = {};
       for (const s of sdata.sets || []) {
@@ -331,6 +345,7 @@ function ActiveInner() {
       return;
     }
     try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ }
+    window.dispatchEvent(new Event("waqt:workout-live-changed"));
     setFinished(true);
   };
 
@@ -348,6 +363,7 @@ function ActiveInner() {
   const cancel = async () => {
     if (sessionId) await fetch(`/api/workout/sessions?id=${sessionId}`, { method: "DELETE" }).catch(() => {});
     try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ }
+    window.dispatchEvent(new Event("waqt:workout-live-changed"));
     router.push("/workout");
   };
 

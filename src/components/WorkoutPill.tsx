@@ -23,6 +23,9 @@ export default function WorkoutPill() {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
+    const clearLive = () => setLive(null);
+    window.addEventListener("waqt:workout-live-changed", clearLive);
+    window.addEventListener("storage", clearLive);
     // 1s tick — elapsed counter + instant local read (covers offline starts).
     const t1 = setInterval(() => {
       const l = readLocal();
@@ -44,7 +47,12 @@ export default function WorkoutPill() {
     };
     void dbTick();
     const t2 = setInterval(() => void dbTick(), 10 * 1000);
-    return () => { clearInterval(t1); clearInterval(t2); };
+    return () => {
+      clearInterval(t1);
+      clearInterval(t2);
+      window.removeEventListener("waqt:workout-live-changed", clearLive);
+      window.removeEventListener("storage", clearLive);
+    };
   }, []);
 
   if (!live) return null;
