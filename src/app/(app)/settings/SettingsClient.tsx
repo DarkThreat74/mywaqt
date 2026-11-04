@@ -2699,7 +2699,7 @@ function SwVersionTag() {
     const fallback = setTimeout(() => {
       setVersion((v) => {
         if (v) return v;
-        fetch("/sw.js", { cache: "no-store" })
+        fetch(`/sw.js?probe=${Date.now()}`, { cache: "no-store" })
           .then((r) => r.text())
           .then((t) => setVersion(t.match(/CACHE_VERSION\s*=\s*"([^"]+)"/)?.[1] ?? null))
           .catch(() => {});

@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { isNativeApp } from "@/lib/native-bridge";
 
+const EXPECTED_SW_VERSION = "waqt-v105";
+
 /**
  * Registers the service worker and handles:
  * 1. Auto-reload on update (clears old caches, hard reloads)
@@ -106,6 +108,18 @@ export default function ServiceWorkerRegister() {
           // SW_UPDATED is sent from activate — only reload if we had a previous SW
           if (navigator.serviceWorker.controller && wasControlled) {
             handleControllerChange();
+          }
+          break;
+        case "SW_VERSION":
+          // A stale active worker can survive ordinary reloads. If it reports
+          // an older build, remove that registration and reload into the
+          // network page so the versioned registration can claim the origin.
+          if (data.version && data.version !== EXPECTED_SW_VERSION) {
+            void navigator.serviceWorker.getRegistration().then(async (reg) => {
+              if (!reg) return;
+              await reg.unregister();
+              window.location.reload();
+            }).catch(() => {});
           }
           break;
         case "EVENT_QUEUED_OFFLINE":
