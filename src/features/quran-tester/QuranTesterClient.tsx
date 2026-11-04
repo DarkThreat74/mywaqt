@@ -994,7 +994,7 @@ export default function QuranTesterClient() {
       const v = ev.value as number;
       levelRef.current = v;
       const now = nowMs();
-      if (now - lastLevelUiRef.current >= 100) {
+      if (now - lastLevelUiRef.current >= 250) {
         lastLevelUiRef.current = now;
         setLevel(v);
       }

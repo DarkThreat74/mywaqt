@@ -442,10 +442,10 @@ async function init(sampleRate: number) {
       // 15 (0.6s) judged the cursor word mid-madd — a held vowel produces no
       // new chars, so `settled` fired while still being pronounced and the
       // stretched slice judged wrong. 20 still flags ~0.8s behind voice.
-      settleFrames: 20,
+      settleFrames: 14,
       // Tail-dwell before a non-settled verdict commits: 6 heard chars let a
       // single fluttered token paint `wrong` on correct words.
-      commitDwell: 10,
+      commitDwell: 7,
       // A real mistake spikes alignment cost — if relocation triggers too
       // eagerly, a wrong WORD reads as "you moved", the tracker abandons
       // the passage on ~1 word of evidence, and the correction observer
@@ -479,7 +479,9 @@ async function init(sampleRate: number) {
     // skipped ayahs (ayahOrder, guarded mode) and look-alike-verse swaps
     // (similarVerse — the mutashabihat case the word rules can't see).
     structural: { ayahOrder: "guarded", similarVerse: true, timing: "pause" },
-    debug: true,
+    // Debug/raw-transcript events update the React status line continuously
+    // and compete with WASM decode. Keep them off in the live path.
+    debug: false,
   } as Parameters<typeof createRecognitionSession>[0]);
   // Correction mode: word-level suspects (omission / substitution / vowel /
   // repetition / skipped ayah) stream out as `correction` events. The page
