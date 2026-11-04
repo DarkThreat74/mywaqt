@@ -1047,7 +1047,8 @@ self.addEventListener("fetch", (event) => {
               url.pathname === "/api/subscriptions" ||
               url.pathname === "/api/birthdays" ||
               url.pathname === "/api/birthday-categories" ||
-              url.pathname === "/api/blocks");
+              url.pathname === "/api/blocks" ||
+              url.pathname === "/api/workout/sessions");
           const tempId = isEntityPost && body
             ? (() => {
                 const uuid = crypto.randomUUID();
@@ -1210,6 +1211,15 @@ self.addEventListener("fetch", (event) => {
               Object.assign(responseData, body);
               responseData.id = tempId;
               responseData._pending = true;
+            } else if (url.pathname === "/api/workout/sessions") {
+              responseData.session = {
+                id: tempId,
+                dayId: body.dayId || null,
+                dayName: body.dayName || "Workout",
+                startedAt: new Date().toISOString(),
+                endedAt: null,
+              };
+              responseData.sets = [];
             }
           }
 

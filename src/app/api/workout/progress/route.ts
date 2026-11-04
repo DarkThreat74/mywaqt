@@ -3,11 +3,12 @@ import { eq, and, desc, isNotNull, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
+import { estimateE1rm, recommendLoadKg } from "@/lib/workout/recommend";
 
 export const dynamic = "force-dynamic";
 
 // e1RM via Epley: w * (1 + r/30); bodyweight/no-weight rows excluded.
-const e1rm = (w: number, r: number) => r > 1 ? w * (1 + r / 30) : w;
+const e1rm = estimateE1rm;
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -21,10 +22,13 @@ export async function GET(request: NextRequest) {
         rir: schema.workoutSets.rir,
         setType: schema.workoutSets.setType,
         variation: schema.workoutSets.variation,
+        side: schema.workoutSets.side,
         done: schema.workoutSets.done,
         at: schema.workoutSessions.startedAt,
+        loggedAt: schema.workoutSets.loggedAt,
         sessionId: schema.workoutSessions.id,
         dayId: schema.workoutSessions.dayId,
+        exerciseOrder: schema.workoutSessions.exerciseOrder,
       })
       .from(schema.workoutSets)
       .innerJoin(schema.workoutSessions, eq(schema.workoutSets.sessionId, schema.workoutSessions.id))
@@ -44,6 +48,7 @@ export async function GET(request: NextRequest) {
       for (const dx of dex) posMap.set(`${dx.dayId}:${dx.slug}`, dx.sortOrder);
     }
     const sessionDay = new Map(rows.map((r) => [r.sessionId, r.dayId]));
+    const sessionOrder = new Map(rows.map((r) => [r.sessionId, r.exerciseOrder as Record<string, number> | null]));
     let totalTonnage = 0;
     for (const row of rows) {
       if (!row.done) continue;
@@ -51,9 +56,12 @@ export async function GET(request: NextRequest) {
       const r = row.reps || 0;
       if (!w || !r) continue;
       const e = bySlug.get(row.slug) || { points: [], last: null, sessions: 0, tonnage: 0, best: 0, positions: [] };
-      const val = e1rm(w, r);
-      const hand = row.variation === "hand:left" ? "left" : row.variation === "hand:right" ? "right" : row.variation === "hand:both" ? "both" : null;
-      if (hand) {
+      const validE1 = r <= 12;
+      const val = validE1 ? e1rm(w, r) : w;
+      const hand = row.side === "left" || row.variation === "hand:left" ? "left"
+        : row.side === "right" || row.variation === "hand:right" ? "right"
+          : row.side === "both" || row.variation === "hand:both" ? "both" : null;
+      if (hand && validE1) {
         const limbs = limbBySlug.get(row.slug) || new Map();
         const limb = limbs.get(hand) || { best: 0, first: val, last: val, points: [] };
         limb.best = Math.max(limb.best, val);
@@ -62,23 +70,24 @@ export async function GET(request: NextRequest) {
         limbs.set(hand, limb);
         limbBySlug.set(row.slug, limbs);
       }
-      const pos = posMap.get(`${sessionDay.get(row.sessionId)}:${row.slug}`);
+      const snapshotPos = sessionOrder.get(row.sessionId)?.[row.slug];
+      const pos = snapshotPos ?? posMap.get(`${sessionDay.get(row.sessionId)}:${row.slug}`);
       if (pos !== undefined && !e.positions.includes(pos)) e.positions.push(pos);
-      if (!e.points.find((p) => p.at === row.at.toISOString())) {
-        e.points.push({ at: row.at.toISOString(), e1: val, pos });
-      } else {
-        const p = e.points.find((p) => p.at === row.at.toISOString())!;
+      if (validE1 && !e.points.find((p) => p.at === row.loggedAt.toISOString())) {
+        e.points.push({ at: row.loggedAt.toISOString(), e1: val, pos });
+      } else if (validE1) {
+        const p = e.points.find((p) => p.at === row.loggedAt.toISOString())!;
         if (val > p.e1) p.e1 = val;
       }
       // "last" = latest session's best set — prefer working/failure over
       // warmups so the "try X" hint suggests a real working weight.
       if (!e.last || row.setType !== "warmup") {
-        if (!e.last) e.last = { w, r, rir: row.rir, at: row.at.toISOString(), pos };
-        else if (row.setType !== "warmup" && val > e1rm(e.last.w, e.last.r)) e.last = { w, r, rir: row.rir, at: row.at.toISOString(), pos };
+        if (!e.last) e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos };
+        else if (row.setType !== "warmup" && (r > 12 || val > e1rm(e.last.w, e.last.r))) e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos };
       }
       e.sessions++;
       e.tonnage += w * r;
-      if (val > e.best) e.best = val;
+      if (validE1 && val > e.best) e.best = val;
       totalTonnage += w * r;
       bySlug.set(row.slug, e);
     }
@@ -102,19 +111,8 @@ export async function GET(request: NextRequest) {
       // Conservative next-load recommendation. RIR 3+ means hold; RIR 2
       // earns a small jump; RIR 0-1 earns a larger jump only when the set
       // was not already a late-session fatigue-affected effort.
-      recommendedKg: v.last
-        ? Math.round(v.last.w * (
-          v.last.rir != null && v.last.rir >= 3 ? 1
-            : v.last.rir === 2 ? 1.025
-              : (v.last.pos ?? 0) >= 2 ? 1 : 1.05
-        ) * 10) / 10
-        : null,
-      recommendationReason: v.last
-        ? (v.last.rir != null && v.last.rir >= 3 ? "hold — high RIR"
-          : (v.last.pos ?? 0) >= 2 && (v.last.rir ?? 0) <= 1
-            ? "hold — late-session fatigue"
-            : "progress — effort supports a small increase")
-        : null,
+      recommendedKg: v.last ? Math.round(recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).kg * 10) / 10 : null,
+      recommendationReason: v.last ? recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).reason : null,
       limbs: Object.fromEntries([...((limbBySlug.get(slug) || new Map()).entries())].map(([hand, l]) => [hand, {
         bestE1: Math.round(l.best * 10) / 10,
         // Rows arrive newest-first; reverse the observed points for growth.

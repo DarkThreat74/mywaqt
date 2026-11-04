@@ -72,6 +72,15 @@ async function updatePrefs(request: NextRequest) {
 
   const prefs = { ...(row?.uiPrefs ?? {}), ...patch };
   await db.update(schema.users).set({ uiPrefs: prefs }).where(eq(schema.users.id, session.userId));
+  // Keep a dated measurement history for time-correct strength/BMI analysis;
+  // the roaming preference remains the current display value.
+  if (bw !== undefined) {
+    await db.insert(schema.bodyMetrics).values({
+      userId: session.userId,
+      weightKg: String(bw),
+      bodyfatPct: bf !== undefined ? String(bf) : null,
+    });
+  }
 
   return NextResponse.json({ ok: true, prefs });
 }

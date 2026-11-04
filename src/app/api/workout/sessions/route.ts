@@ -3,6 +3,8 @@ import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
+import { isValidUUID } from "@/lib/validation";
+import { recommendLoadKg } from "@/lib/workout/recommend";
 
 export const dynamic = "force-dynamic";
 
@@ -63,9 +65,9 @@ export async function GET(request: NextRequest) {
     if (!(weight > 0) || !(set.reps && set.reps > 0)) continue;
     const exercises = bySession.get(set.sessionId) || new Map<string, { setCount: number; recommendedWeightKg: number }>();
     const previous = exercises.get(set.slug) || { setCount: 0, recommendedWeightKg: 0 };
-    const bump = set.rir != null && set.rir >= 3 ? 0 : set.rir === 2 ? 0.025 : 0.05;
+    const recommendation = recommendLoadKg(weight, set.rir);
     previous.setCount += 1;
-    previous.recommendedWeightKg = Math.max(previous.recommendedWeightKg, weight * (1 + bump));
+    previous.recommendedWeightKg = Math.max(previous.recommendedWeightKg, recommendation.kg);
     exercises.set(set.slug, previous);
     bySession.set(set.sessionId, exercises);
   }
@@ -87,7 +89,7 @@ export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const { dayId, dayName } = await request.json() as { dayId?: string; dayName?: string };
+    const { dayId, dayName, clientId, exerciseOrder, readiness } = await request.json() as { dayId?: string; dayName?: string; clientId?: string; exerciseOrder?: Record<string, number>; readiness?: { sleepHours?: number; energy?: number; soreness?: number; stress?: number } };
     if (!dayId || !dayName) return NextResponse.json({ error: "dayId + dayName required." }, { status: 400 });
     // Reuse an unfinished session for the same day — a crash/refresh resumes it.
     const [open] = await db.select().from(schema.workoutSessions)
@@ -98,7 +100,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ session: open, sets, resumed: true });
     }
     const [sess] = await db.insert(schema.workoutSessions).values({
+      ...(clientId && isValidUUID(clientId) ? { id: clientId } : {}),
       userId: session.userId, dayId, dayName: String(dayName).slice(0, 60),
+      exerciseOrder: exerciseOrder && typeof exerciseOrder === "object" ? exerciseOrder : null,
+      readiness: readiness && typeof readiness === "object" ? readiness : null,
     }).returning();
     return NextResponse.json({ session: sess, sets: [] }, { status: 201 });
   } catch (e) { logError(e, { route: "workout/sessions POST" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }

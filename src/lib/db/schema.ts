@@ -40,6 +40,7 @@ export interface UiPrefs {
   unitHeight?: 'cm' | 'ft';
   sex?: 'm' | 'f';          // needed for Wilks/DOTS coefficients
   bodyfatPct?: number;      // optional — enables FFMI
+  birthYear?: number;      // age-aware recovery/standards without storing DOB
   // Where the user left off reading — syncs across devices.
   quranPosition?: { surah: number; ayah: number; updatedAt?: string };
 }
@@ -1473,6 +1474,10 @@ export const workoutSessions = pgTable('workout_sessions', {
   dayName: text('day_name').notNull(),
   startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
   endedAt: timestamp('ended_at', { withTimezone: true }),
+  exerciseOrder: jsonb('exercise_order').$type<Record<string, number>>(),
+  readiness: jsonb('readiness').$type<{ sleepHours?: number; energy?: number; soreness?: number; stress?: number }>(),
+  pausedSec: integer('paused_sec').default(0).notNull(),
+  endedReason: text('ended_reason'), // completed | abandoned | backfilled
 });
 
 export const workoutSets = pgTable('workout_sets', {
@@ -1485,6 +1490,12 @@ export const workoutSets = pgTable('workout_sets', {
   rir: integer('rir'),
   setType: text('set_type').default('working').notNull(), // warmup | working | failure
   variation: text('variation'), // toe/grip/attachment position — see VARIATIONS
+  side: text('side'), // left | right | both; separate from positional variation
+  loggedAt: timestamp('logged_at', { withTimezone: true }).defaultNow().notNull(),
+  restAfterSec: integer('rest_after_sec'),
+  pain: integer('pain'),
+  techniqueFlag: text('technique_flag'),
+  isPartial: boolean('is_partial').default(false).notNull(),
   done: boolean('done').default(false).notNull(),
 }, (table) => ({
   uniq: uniqueIndex('workout_sets_session_slug_idx').on(table.sessionId, table.slug, table.setIndex),
@@ -1494,3 +1505,13 @@ export type WorkoutDay = typeof workoutDays.$inferSelect;
 export type WorkoutDayExercise = typeof workoutDayExercises.$inferSelect;
 export type WorkoutSession = typeof workoutSessions.$inferSelect;
 export type WorkoutSet = typeof workoutSets.$inferSelect;
+
+export const bodyMetrics = pgTable('body_metrics', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  measuredAt: timestamp('measured_at', { withTimezone: true }).defaultNow().notNull(),
+  weightKg: numeric('weight_kg', { precision: 7, scale: 2 }).notNull(),
+  bodyfatPct: numeric('bodyfat_pct', { precision: 5, scale: 2 }),
+}, (table) => ({
+  userDate: index('body_metrics_user_date_idx').on(table.userId, table.measuredAt),
+}));

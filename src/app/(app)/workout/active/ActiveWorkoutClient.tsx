@@ -9,7 +9,7 @@ import { SCIENCE } from "@/lib/workout/science";
 import { estimateE1, EQUIP_NOTES, VARIATIONS, HANDED } from "@/lib/workout/ratios";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
-interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; variation?: string | null; done: boolean; }
+interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; variation?: string | null; side?: "left" | "right" | "both" | null; loggedAt?: string; done: boolean; }
 type Unit = "kg" | "lb";
 type HandMode = "both" | "one";
 
@@ -19,6 +19,7 @@ function fmt(s: number) {
   const m = Math.floor(s / 60), sec = s % 60;
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
+function nowMs() { return Date.now(); }
 
 function ActiveInner() {
   const params = useSearchParams();
@@ -35,6 +36,7 @@ function ActiveInner() {
   const [lastPos, setLastPos] = useState<Map<string, number>>(new Map());
   const [lastAt, setLastAt] = useState<Map<string, number>>(new Map());
   const [stalled, setStalled] = useState<Set<string>>(new Set());
+  const [setCounts, setSetCounts] = useState<Record<string, number>>({});
   const [elapsed, setElapsed] = useState(0);
   // Live-pill flag — keyed on the session existing, not mount ordering, so it
   // always fires for both fresh and resumed sessions.
@@ -55,6 +57,7 @@ function ActiveInner() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const lastSetAtRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -69,10 +72,15 @@ function ActiveInner() {
       if (!d || cancelled) return;
       setDayName(d.name);
       setExercises(d.exercises || []);
+      setSetCounts(Object.fromEntries((d.exercises || []).map((exercise: DayExercise) => [exercise.slug, Math.max(1, exercise.sets || 1)])));
       // Start/resume session
       const sres = await fetch("/api/workout/sessions", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dayId: d.id, dayName: d.name }),
+        body: JSON.stringify({
+          dayId: d.id,
+          dayName: d.name,
+          exerciseOrder: Object.fromEntries((d.exercises || []).map((exercise: DayExercise, index: number) => [exercise.slug, index])),
+        }),
       }).catch(() => null);
       if (!sres?.ok || cancelled) return;
       const sdata = await sres.json();
@@ -86,7 +94,7 @@ function ActiveInner() {
       const rows: Record<string, SetRow[]> = {};
       for (const s of sdata.sets || []) {
         rows[s.slug] = rows[s.slug] || [];
-        rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps, rir: s.rir, setType: s.setType, variation: s.variation, done: s.done };
+        rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps, rir: s.rir, setType: s.setType, variation: s.variation, side: s.side, loggedAt: s.loggedAt, done: s.done };
       }
       setSetRows(rows);
       const modes: Record<string, HandMode> = {};
@@ -156,7 +164,13 @@ function ActiveInner() {
     const automaticHand = HANDED.has(slug)
       ? mode === "one" ? (idx % 2 === 0 ? "hand:left" : "hand:right") : "hand:both"
       : undefined;
-    const next = { ...prev, ...patch, variation: patch.variation ?? prev.variation ?? automaticHand };
+    const loggedNow = nowMs();
+    const restAfterSec = patch.done
+      ? (lastSetAtRef.current[slug] ? Math.max(0, Math.round((loggedNow - lastSetAtRef.current[slug]) / 1000)) : null)
+      : null;
+    if (patch.done) lastSetAtRef.current[slug] = loggedNow;
+    const next = { ...prev, ...patch, loggedAt: patch.done ? new Date(loggedNow).toISOString() : prev.loggedAt, variation: patch.variation ?? prev.variation ?? automaticHand,
+      side: patch.side ?? prev.side ?? (automaticHand === "hand:left" ? "left" : automaticHand === "hand:right" ? "right" : automaticHand === "hand:both" ? "both" : null) };
     setSetRows((m) => {
       const arr = [...(m[slug] || [])];
       arr[idx] = next;
@@ -165,7 +179,7 @@ function ActiveInner() {
     if (sessionId) {
       await fetch("/api/workout/sets", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, done: next.done }),
+        body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, side: next.side, loggedAt: next.loggedAt, restAfterSec, done: next.done }),
       }).catch(() => {});
     }
     if (patch.done && !finishing.current) rest();
@@ -220,7 +234,6 @@ function ActiveInner() {
       if (d?.prefs?.unitWeight === "lb" || d?.prefs?.unitWeight === "kg") setUnits(d.prefs.unitWeight);
     }).catch(() => {});
   }, []);
-  const [setCounts, setSetCounts] = useState<Record<string, number>>({});
   const [view, setView] = useState<Exercise | null>(null);
   const [openRir, setOpenRir] = useState<string | null>(null);
   const [leaveAsk, setLeaveAsk] = useState(false);
