@@ -104,7 +104,10 @@ function ActiveInner() {
         return;
       }
       setSessionId(sdata.session.id);
-      startRef.current = Date.now() - (sdata.resumed ? Date.now() - new Date(sdata.session.startedAt).getTime() : 0);
+      const parsedStart = Date.parse(sdata.session.startedAt ?? "");
+      const safeStart = Number.isFinite(parsedStart) && parsedStart <= Date.now() ? parsedStart : Date.now();
+      startRef.current = safeStart;
+      setElapsed(Math.max(0, Math.floor((Date.now() - safeStart) / 1000)));
       try {
         const startedMs = Date.parse(sdata.session.startedAt ?? "") || Date.now();
         localStorage.setItem("waqt:workout-live", JSON.stringify({ dayId: d.id, name: d.name, startedAt: startedMs }));
@@ -260,6 +263,8 @@ function ActiveInner() {
   const [leaveAsk, setLeaveAsk] = useState(false);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [readiness, setReadiness] = useState({ sleepHours: "", energy: "", soreness: "", stress: "" });
+  const [readinessSaving, setReadinessSaving] = useState(false);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
   const router = useRouter();
 
   const unitToKg = (v: string) => (units === "lb" ? String(Math.round(parseFloat(v) / 2.205 * 10) / 10) : v);
@@ -339,7 +344,9 @@ function ActiveInner() {
 
   const saveReadiness = async () => {
     if (!sessionId) return;
-    await fetch("/api/workout/sessions", {
+    setReadinessSaving(true);
+    setReadinessError(null);
+    const response = await fetch("/api/workout/sessions", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -351,7 +358,13 @@ function ActiveInner() {
           stress: Number(readiness.stress) || undefined,
         },
       }),
-    }).catch(() => {});
+    }).catch(() => null);
+    if (!response?.ok) {
+      setReadinessError("Could not save. Check your connection and try again.");
+      setReadinessSaving(false);
+      return;
+    }
+    setReadinessSaving(false);
     setReadinessOpen(false);
   };
 
@@ -439,24 +452,29 @@ function ActiveInner() {
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {([
-                ["sleepHours", "Sleep hours", "0-14"],
-                ["energy", "Energy 1-5", "1-5"],
-                ["soreness", "Soreness 1-5", "1-5"],
-                ["stress", "Stress 1-5", "1-5"],
-              ] as const).map(([key, label, placeholder]) => (
-                <label key={key} className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                  {label}
-                  <input inputMode="decimal" placeholder={placeholder} value={readiness[key]}
-                    onChange={(e) => setReadiness((r) => ({ ...r, [key]: e.target.value }))}
-                    className="mt-1 w-full rounded-lg border px-2.5 py-2 text-xs"
-                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
-                </label>
-              ))}
+                ["sleepHours", "Sleep", 0, 12, 0.5, "0 = none · 8 = usually restorative"],
+                ["energy", "Energy", 1, 10, 1, "1 = exhausted · 10 = exceptional"],
+                ["soreness", "Soreness", 1, 10, 1, "1 = none · 10 = severe/limiting movement"],
+                ["stress", "Stress", 1, 10, 1, "1 = calm · 10 = overwhelmed"],
+              ] as const).map(([key, label, min, max, step, meaning]) => {
+                const value = readiness[key] || (key === "sleepHours" ? "8" : "5");
+                return (
+                  <label key={key} className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    <span className="flex items-center justify-between"><span>{label}</span><b style={{ color: "var(--color-ink)" }}>{value}</b></span>
+                    <input type="range" min={min} max={max} step={step} value={value}
+                      onChange={(e) => setReadiness((r) => ({ ...r, [key]: e.target.value }))}
+                      className="mt-2 w-full accent-[var(--color-accent)]" />
+                    <span className="mt-0.5 block text-[9px]" style={{ color: "var(--color-ink-faint)" }}>{meaning}</span>
+                  </label>
+                );
+              })}
             </div>
+            {readinessError && <p className="mt-2 text-xs" style={{ color: "var(--color-error)" }}>{readinessError}</p>}
             <button type="button" onClick={() => void saveReadiness()}
+              disabled={readinessSaving}
               className="mt-3 w-full rounded-xl px-3 py-2.5 text-sm font-semibold"
-              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
-              Save context
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: readinessSaving ? 0.6 : 1 }}>
+              {readinessSaving ? "Saving…" : "Save context"}
             </button>
           </div>
         </div>
