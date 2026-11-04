@@ -27,6 +27,7 @@ function ActiveInner() {
   const dayId = params.get("day");
   const [dayName, setDayName] = useState("");
   const [exercises, setExercises] = useState<DayExercise[]>([]);
+  const [availableExercises, setAvailableExercises] = useState<DayExercise[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [setRows, setSetRows] = useState<Record<string, SetRow[]>>({});
   const [handModes, setHandModes] = useState<Record<string, HandMode>>({});
@@ -75,13 +76,12 @@ function ActiveInner() {
         : days.find((x: { weekday: number }) => x.weekday === new Date().getDay());
       if (!d || cancelled) return;
       setDayName(d.name);
-      setExercises(d.exercises || []);
-      setSetCounts(Object.fromEntries((d.exercises || []).map((exercise: DayExercise) => [exercise.slug, Math.max(1, exercise.sets || 1)])));
+      setAvailableExercises(d.exercises || []);
       // Start/resume session
       const startBody = {
         dayId: d.id,
         dayName: d.name,
-        exerciseOrder: Object.fromEntries((d.exercises || []).map((exercise: DayExercise, index: number) => [exercise.slug, index])),
+        exerciseOrder: {},
       };
       let sres = await fetch(`/api/workout/sessions?start=${Date.now()}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -134,6 +134,11 @@ function ActiveInner() {
         rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps, rir: s.rir, setType: s.setType, variation: s.variation, side: s.side, loggedAt: s.loggedAt, done: s.done };
       }
       setSetRows(rows);
+      const resumedExercises = sdata.resumed
+        ? (d.exercises || []).filter((exercise: DayExercise) => rows[exercise.slug])
+        : [];
+      setExercises(resumedExercises);
+      setSetCounts(Object.fromEntries(resumedExercises.map((exercise: DayExercise) => [exercise.slug, Math.max(1, exercise.sets || 1)])));
       const modes: Record<string, HandMode> = {};
       for (const [slug, sets] of Object.entries(rows)) {
         if (sets.some((set) => set?.variation === "hand:left" || set?.variation === "hand:right")) modes[slug] = "one";
@@ -281,6 +286,7 @@ function ActiveInner() {
   const [readinessSaving, setReadinessSaving] = useState(false);
   const [readinessError, setReadinessError] = useState<string | null>(null);
   const [exercisePickerOpen, setExercisePickerOpen] = useState(false);
+  const [pickerMode, setPickerMode] = useState<"routine" | "library">("routine");
   const [customExerciseOpen, setCustomExerciseOpen] = useState(false);
   const [exerciseQuery, setExerciseQuery] = useState("");
   const [customExerciseName, setCustomExerciseName] = useState("");
@@ -354,10 +360,15 @@ function ActiveInner() {
   // IS the position the algorithm reads, so arrows teach it the real order.
   const persistOrder = async (ordered: DayExercise[]) => {
     if (!dayId) return;
-    await fetch("/api/workout/days", {
+    const profileSave = fetch("/api/workout/days", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: dayId, exercises: ordered }),
-    }).catch(() => {});
+    }).catch(() => null);
+    const sessionSave = sessionId ? fetch("/api/workout/sessions", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: sessionId, exerciseOrder: Object.fromEntries(ordered.map((exercise, index) => [exercise.slug, index])) }),
+    }).catch(() => null) : Promise.resolve(null);
+    await Promise.all([profileSave, sessionSave]);
   };
 
   const cancel = async () => {
@@ -494,7 +505,7 @@ function ActiveInner() {
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: sessionId ? 1 : 0.45 }}>
             Finish
           </button>
-          <button type="button" onClick={() => setExercisePickerOpen(true)}
+          <button type="button" onClick={() => { setPickerMode("routine"); setExercisePickerOpen(true); }}
             className="flex h-8 w-8 items-center justify-center rounded-full border"
             style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
             title="Add exercise" aria-label="Add exercise">
@@ -841,7 +852,7 @@ function ActiveInner() {
         Finish workout
       </button>
 
-      <button type="button" onClick={() => setExercisePickerOpen(true)}
+      <button type="button" onClick={() => { setPickerMode("routine"); setExercisePickerOpen(true); }}
         className="mx-auto mt-3 flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold"
         style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
         <Plus className="h-3.5 w-3.5" /> Add another exercise
@@ -873,27 +884,39 @@ function ActiveInner() {
                   className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                   style={{ color: "var(--color-ink)" }} />
               </label>
-              <button type="button" onClick={() => { setExercisePickerOpen(false); setCustomExerciseOpen(true); }}
-                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-2.5 text-xs font-semibold"
-                style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
-                <Plus className="h-3.5 w-3.5" /> Other — add a custom exercise
-              </button>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setPickerMode("library")}
+                  className="rounded-xl border px-3 py-2.5 text-xs font-semibold"
+                  style={{ borderColor: pickerMode === "library" ? "var(--color-accent)" : "var(--color-paper-3)", color: pickerMode === "library" ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+                  Other movements
+                </button>
+                <button type="button" onClick={() => { setExercisePickerOpen(false); setCustomExerciseOpen(true); }}
+                  className="rounded-xl border border-dashed px-3 py-2.5 text-xs font-semibold"
+                  style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+                  <Plus className="mr-1 inline h-3.5 w-3.5" /> Other custom
+                </button>
+              </div>
             </div>
             <div className="max-h-[52vh] overflow-y-auto p-3">
               <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                {EXERCISES
+                {(() => {
+                  const items = pickerMode === "routine"
+                    ? availableExercises.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: "", equip: "", sets: exercise.sets, reps: exercise.reps }))
+                    : EXERCISES.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: exercise.muscle, equip: exercise.equip, sets: 1, reps: "8-12" }));
+                  return items
                   .filter((exercise) => !exercises.some((item) => item.slug === exercise.slug))
                   .filter((exercise) => !exerciseQuery.trim() || `${exercise.name} ${exercise.muscle} ${exercise.equip}`.toLowerCase().includes(exerciseQuery.toLowerCase()))
                   .slice(0, 60)
                   .map((exercise) => (
                     <button key={exercise.slug} type="button"
-                      onClick={() => addExercise({ slug: exercise.slug, name: exercise.name, sets: 1, reps: "8-12", supersetGroup: null })}
+                      onClick={() => addExercise({ slug: exercise.slug, name: exercise.name, sets: exercise.sets, reps: exercise.reps, supersetGroup: null })}
                       className="flex items-center justify-between rounded-xl border px-3 py-2.5 text-left"
                       style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
                       <span className="min-w-0 truncate text-xs">{exercise.name}</span>
                       <Plus className="ml-2 h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />
                     </button>
-                  ))}
+                  ));
+                })()}
               </div>
             </div>
           </div>

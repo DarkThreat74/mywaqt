@@ -127,7 +127,7 @@ export async function PATCH(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const { id, end, endAt, readiness } = await request.json() as { id?: string; end?: boolean; endAt?: string; readiness?: { sleepHours?: number; energy?: number; soreness?: number; stress?: number } };
+    const { id, end, endAt, readiness, exerciseOrder } = await request.json() as { id?: string; end?: boolean; endAt?: string; readiness?: { sleepHours?: number; energy?: number; soreness?: number; stress?: number }; exerciseOrder?: Record<string, number> };
     if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });
     const endDate = endAt && !Number.isNaN(Date.parse(endAt)) ? new Date(endAt) : new Date();
     const [owned] = await db.select({ id: schema.workoutSessions.id })
@@ -139,6 +139,7 @@ export async function PATCH(request: NextRequest) {
       .set({
         ...(end ? { endedAt: endDate, endedReason: "completed" } : {}),
         ...(readiness && typeof readiness === "object" ? { readiness } : {}),
+        ...(exerciseOrder && typeof exerciseOrder === "object" ? { exerciseOrder } : {}),
       })
       .where(and(eq(schema.workoutSessions.id, id!), eq(schema.workoutSessions.userId, session.userId)));
     return NextResponse.json({ ok: true });
