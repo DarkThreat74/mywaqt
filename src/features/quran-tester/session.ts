@@ -49,6 +49,7 @@ let warmWatchdog: ReturnType<typeof setTimeout> | null = null;
 // O(n) copying per second on the main thread.
 let micChunks: Float32Array[] = [];
 let micLen = 0;
+let audioRing: { sab: SharedArrayBuffer; header: Int32Array; samples: Float32Array; capacity: number } | null = null;
 function drainMicChunks(): Float32Array | null {
   if (!micLen) return null;
   const out = new Float32Array(micLen);
@@ -686,14 +687,28 @@ export async function startQt(): Promise<void> {
     return;
   }
   const src = ctx.createMediaStreamSource(stream);
-  const node = new AudioWorkletNode(ctx, "qt-capture");
+    const ringEnabled = crossOriginIsolated && typeof SharedArrayBuffer !== "undefined";
+    if (ringEnabled) {
+      const capacity = Math.ceil(ctx.sampleRate * 2);
+      const sab = new SharedArrayBuffer(8 + capacity * Float32Array.BYTES_PER_ELEMENT);
+      audioRing = { sab, header: new Int32Array(sab, 0, 2), samples: new Float32Array(sab, 8), capacity };
+    } else {
+      audioRing = null;
+    }
+    const node = new AudioWorkletNode(ctx, "qt-capture", {
+      processorOptions: audioRing ? { audioRing: audioRing.sab } : undefined,
+    });
   // Muted gain into destination keeps process() pulling frames without any
   // chance of a monitor path feeding back into the mic.
   const mute = ctx.createGain();
   mute.gain.value = 0;
   let lastLevelAt = 0;
-  node.port.onmessage = (e) => {
-    const chunk: Float32Array = e.data;
+    node.port.onmessage = (e) => {
+      if (e.data?.type === "audio-ring") {
+        worker?.postMessage({ type: "audio-ring" });
+        return;
+      }
+      const chunk: Float32Array = e.data;
     micChunks.push(chunk);
     micLen += chunk.length;
     // Keep transport chunks short enough to reduce cursor latency without
@@ -735,7 +750,12 @@ export async function startQt(): Promise<void> {
 
   emit({ type: "ui-status", message: "Warming up the engine…" });
   workerRate = ctx.sampleRate;
-  worker?.postMessage({ type: "init", sampleRate: ctx.sampleRate });
+  worker?.postMessage({
+    type: "init",
+    sampleRate: ctx.sampleRate,
+    audioRing: audioRing?.sab ?? null,
+    ringCapacity: audioRing?.capacity ?? 0,
+  });
   // Watchdog: if neither `ready` nor `error` arrives (wasm deadlock, hung
   // init), the UI would spin "Warming up…" forever. 120s matches the
   // dedicated-worker guard in deepGrade.

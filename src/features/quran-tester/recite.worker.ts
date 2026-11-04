@@ -92,6 +92,7 @@ let feeding = false;
 let audioPending: { samples: Float32Array; rate: number }[] = [];
 let pendingCtl = 0;
 const MAX_BACKLOG_SEC = 1.0;
+let audioRing: { header: Int32Array; samples: Float32Array; capacity: number } | null = null;
 
 // ── Mutashabihat divergence watcher ─────────────────────────────────────
 // Filled at init from structuralRules.looks. `muta_approach` fires once per
@@ -314,9 +315,30 @@ async function pumpAudio() {
   }
 }
 
+function drainAudioRing(): Float32Array | null {
+  if (!audioRing) return null;
+  const { header, samples, capacity } = audioRing;
+  const read = Atomics.load(header, 0);
+  const write = Atomics.load(header, 1);
+  if (read === write) return null;
+  const count = write > read ? write - read : capacity - read + write;
+  const out = new Float32Array(count);
+  if (write > read) {
+    out.set(samples.subarray(read, write));
+  } else {
+    const first = capacity - read;
+    out.set(samples.subarray(read), 0);
+    out.set(samples.subarray(0, write), first);
+  }
+  Atomics.store(header, 0, write);
+  return out;
+}
+
 /** Drain every buffered chunk into the engine (used by stop — the tail of
  *  the take must be judged too, never silently dropped). */
 async function drainAudio() {
+  const ringTail = drainAudioRing();
+  if (ringTail) await session?.feed(ringTail);
   while (audioPending.length && session) {
     const chunks = audioPending.splice(0);
     const parts = chunks.map((c) => resample(c.samples, c.rate));
@@ -569,11 +591,18 @@ self.onmessage = (e: MessageEvent) => {
   const m = e.data;
   // Control messages interrupt the audio drain — count them while they wait
   // so pumpAudio yields instead of starving stop/reset behind a live stream.
-  if (m.type !== "audio" && m.type !== "init") pendingCtl++;
+  if (m.type !== "audio" && m.type !== "audio-ring" && m.type !== "init") pendingCtl++;
   // Serialize work — feed() and init() must never interleave.
   queue = queue.then(async () => {
     try {
       if (m.type === "init") {
+        audioRing = m.audioRing && m.ringCapacity
+          ? {
+              header: new Int32Array(m.audioRing, 0, 2),
+              samples: new Float32Array(m.audioRing, 8, m.ringCapacity),
+              capacity: m.ringCapacity,
+            }
+          : null;
         await init(m.sampleRate);
       } else if (m.type === "audio") {
         // Capture the rate at enqueue — the engine's sourceRate can change
@@ -594,6 +623,12 @@ self.onmessage = (e: MessageEvent) => {
         }
         if (dropped) post({ type: "audio-gap", seconds: dropped / sourceRate });
         queue = queue.then(pumpAudio);
+      } else if (m.type === "audio-ring") {
+        const out = drainAudioRing();
+        if (out) {
+          audioPending.push({ samples: out, rate: sourceRate });
+          queue = queue.then(pumpAudio);
+        }
       } else if (m.type === "audio-sync" && session) {
         // Offline replay (recite-coach deep grade): every chunk MUST decode —
         // the realtime pump drops backlog, which corrupts the heard stream
@@ -687,7 +722,7 @@ self.onmessage = (e: MessageEvent) => {
     } catch (err) {
       void reportErr(err);
     } finally {
-      if (m.type !== "audio" && m.type !== "init") pendingCtl--;
+      if (m.type !== "audio" && m.type !== "audio-ring" && m.type !== "init") pendingCtl--;
       // A control message may have paused the drain — resume feeding.
       if (audioPending.length) queue = queue.then(pumpAudio);
     }
