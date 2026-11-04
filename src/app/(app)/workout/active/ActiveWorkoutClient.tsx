@@ -83,19 +83,14 @@ function ActiveInner() {
         dayName: d.name,
         exerciseOrder: {},
       };
-      let sres = await fetch(`/api/workout/sessions?start=${Date.now()}`, {
+      let sres = await fetch(`/workout-session?start=${Date.now()}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(startBody),
       }).catch(() => null);
-      // A pre-update service worker may return an old synthetic response or a
-      // stale server error. Retry through the direct same-origin alias, which
-      // is outside the worker's /api mutation interception path.
-      const responseProbe = sres?.ok ? await sres.clone().json().catch(() => null) : null;
-      if (sres && (!sres.ok || !responseProbe?.session?.id)) {
-        if ("serviceWorker" in navigator) {
-          await navigator.serviceWorker.getRegistration().then((registration) => registration?.unregister()).catch(() => {});
-        }
-        sres = await fetch("/workout-session", {
+      // Direct route first. If offline, the /api fallback lets the service
+      // worker queue the session for later replay.
+      if (!sres || !sres.ok) {
+        sres = await fetch(`/api/workout/sessions?start=${Date.now()}&offline-fallback=1`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(startBody),
         }).catch(() => null);
       }
@@ -219,10 +214,16 @@ function ActiveInner() {
       return { ...m, [slug]: arr };
     });
     if (sessionId) {
-      const response = await fetch("/api/workout/sets", {
+      let response = await fetch("/workout-set", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, side: next.side, loggedAt: next.loggedAt, restAfterSec, done: next.done }),
       }).catch(() => null);
+      if (!response || !response.ok) {
+        response = await fetch("/api/workout/sets", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, side: next.side, loggedAt: next.loggedAt, restAfterSec, done: next.done }),
+        }).catch(() => null);
+      }
       if (!response?.ok) return false;
     }
     if (patch.done && !finishing.current) rest();
@@ -337,10 +338,17 @@ function ActiveInner() {
       // <5min with data = probably backfilling an old workout — save the sets
       // but don't inflate the duration stat.
       const quick = elapsed < 300;
-      const ended = await fetch("/api/workout/sessions", {
+      let endedResponse = await fetch("/workout-session", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: sessionId, end: true, endAt: quick ? new Date(startRef.current + 60000).toISOString() : undefined }),
-      }).then((response) => response.ok).catch(() => false);
+      }).catch(() => null);
+      if (!endedResponse || !endedResponse.ok) {
+        endedResponse = await fetch("/api/workout/sessions", {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: sessionId, end: true, endAt: quick ? new Date(startRef.current + 60000).toISOString() : undefined }),
+        }).catch(() => null);
+      }
+      const ended = Boolean(endedResponse?.ok);
       if (!ended || !allSetsSaved) {
         setFinishError("The workout could not fully save. Check your connection and try Finish again.");
         return;
@@ -372,7 +380,10 @@ function ActiveInner() {
   };
 
   const cancel = async () => {
-    if (sessionId) await fetch(`/api/workout/sessions?id=${sessionId}`, { method: "DELETE" }).catch(() => {});
+    if (sessionId) {
+      let deleted = await fetch(`/workout-session?id=${encodeURIComponent(sessionId)}`, { method: "DELETE" }).catch(() => null);
+      if (!deleted?.ok) deleted = await fetch(`/api/workout/sessions?id=${encodeURIComponent(sessionId)}`, { method: "DELETE" }).catch(() => null);
+    }
     try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ }
     window.dispatchEvent(new Event("waqt:workout-live-changed"));
     router.push("/workout");
