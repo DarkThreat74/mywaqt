@@ -299,18 +299,25 @@ export function estimateE1(
     const weeks = (now - at) / 604800000;
     return Math.max(0.4, Math.exp(-weeks / 12));
   };
-  // Sibling transfer: a logged pair elsewhere in the same family calibrates
-  // the user's personal deviation from the population ratio.
-  const familyAdj = (() => {
-    for (const [sib, sl] of Object.entries(RATIOS)) {
-      const se = bestBySlug.get(sib), pe = sl.from.map((f) => bestBySlug.get(f)).find((v) => v && v > 0);
-      if (se && se > 0 && pe && pe > 0) return (se / pe) / sl.r; // e.g. user inclines 0.72 not 0.78
-    }
-    return 1;
-  })();
   for (const parent of link.from) {
     const pe = bestBySlug.get(parent);
     if (pe && pe > 0) {
+      // Calibrate only from siblings sharing this parent family. The old
+      // implementation used the first pair in the entire table, so a curl
+      // ratio could silently alter squat or deadlift estimates.
+      const siblingAdjustments = Object.entries(RATIOS)
+        .filter(([, sibling]) => sibling.from.includes(parent))
+        .map(([siblingSlug, sibling]) => {
+          const siblingE = bestBySlug.get(siblingSlug);
+          return siblingE && siblingE > 0 && sibling.r > 0
+            ? { adjustment: (siblingE / pe) / sibling.r, weight: sibling.conf }
+            : null;
+        })
+        .filter((x): x is { adjustment: number; weight: number } => x !== null)
+        .filter((x) => x.adjustment >= 0.7 && x.adjustment <= 1.4);
+      const familyAdj = siblingAdjustments.length
+        ? Math.max(0.7, Math.min(1.4, siblingAdjustments.reduce((sum, x) => sum + x.adjustment * x.weight, 0) / siblingAdjustments.reduce((sum, x) => sum + x.weight, 0)))
+        : 1;
       let r = link.r * familyAdj, personal = familyAdj !== 1;
       if (myE && myE > 0) {
         r = (myE / pe) * 0.5 + r * 0.5;
