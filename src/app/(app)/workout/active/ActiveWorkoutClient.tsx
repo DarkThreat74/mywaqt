@@ -8,6 +8,7 @@ import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 import { estimateE1, EQUIP_NOTES, VARIATIONS, HANDED } from "@/lib/workout/ratios";
+import { getOfflineDB, type LocalWorkoutSession, type LocalWorkoutSet } from "@/lib/offline/db";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; variation?: string | null; side?: "left" | "right" | "both" | null; loggedAt?: string; done: boolean; }
@@ -64,13 +65,43 @@ function ActiveInner() {
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const lastSetAtRef = useRef<Record<string, number>>({});
 
+  const syncLocalWorkout = async (id: string) => {
+    try {
+      const db = getOfflineDB();
+      const session = await db.workoutSessions.get(id);
+      if (!session) return false;
+      const sets = await db.workoutSets.where("sessionId").equals(id).toArray();
+      const response = await fetch("/api/workout/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session, sets }),
+      });
+      await db.workoutSessions.update(id, { syncState: response.ok ? "synced" : "error", updatedAt: new Date().toISOString() });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Find today's day + exercises
+      // Find today's day + exercises. Cache the last successful response so
+      // the session can still start with no network at all.
       const res = await fetch("/api/workout/days").catch(() => null);
-      if (!res?.ok || cancelled) return;
-      const { days } = await res.json();
+      let days: Array<{ id: string; name: string; weekday: number; exercises?: DayExercise[] }> = [];
+      if (res?.ok) {
+        const body = await res.json();
+        days = body.days || [];
+        try { localStorage.setItem("waqt:workout-days", JSON.stringify(days)); } catch { /* noop */ }
+      } else {
+        try { days = JSON.parse(localStorage.getItem("waqt:workout-days") || "[]"); } catch { /* noop */ }
+      }
+      if (cancelled) return;
+      if (!days.length) {
+        setSessionError("Your workout plan could not be loaded. Connect once to sync it, then it works offline.");
+        return;
+      }
       const d = dayId
         ? days.find((x: { id: string }) => x.id === dayId)
         : days.find((x: { weekday: number }) => x.weekday === new Date().getDay());
@@ -78,7 +109,23 @@ function ActiveInner() {
       setDayName(d.name);
       setAvailableExercises(d.exercises || []);
       // Start/resume session
+      const localSessionId = crypto.randomUUID();
+      const localStartedAt = new Date().toISOString();
+      try {
+        await getOfflineDB().workoutSessions.put({
+          id: localSessionId,
+          userId: null,
+          dayId: d.id,
+          dayName: d.name,
+          startedAt: localStartedAt,
+          endedAt: null,
+          exerciseOrder: {},
+          syncState: "pending",
+          updatedAt: localStartedAt,
+        });
+      } catch { /* browser storage may be unavailable; server path remains */ }
       const startBody = {
+        clientId: localSessionId,
         dayId: d.id,
         dayName: d.name,
         exerciseOrder: {},
@@ -94,22 +141,22 @@ function ActiveInner() {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(startBody),
         }).catch(() => null);
       }
-      if (!sres?.ok || cancelled) {
-        let detail = "The workout session could not be created.";
-        if (sres) {
-          try {
-            const body = await sres.json() as { error?: string };
-            if (body.error) detail = body.error;
-          } catch { /* non-JSON failure */ }
-        } else {
-          detail = "The workout session request could not reach the server.";
-        }
-        setSessionError(detail);
-        return;
+      let sdata: {
+        session?: { id?: string; startedAt?: string };
+        sets?: Array<{ slug: string; setIndex: number; weight?: string | null; reps?: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; variation?: string | null; side?: "left" | "right" | "both" | null; loggedAt?: string; done?: boolean }>;
+        resumed?: boolean;
+      };
+      if (!sres?.ok) {
+        // The phone owns the active session when the network is unavailable.
+        sdata = { session: { id: localSessionId, startedAt: localStartedAt }, sets: [], resumed: false };
+      } else {
+        sdata = await sres.json();
       }
-      const sdata = await sres.json();
+      if (cancelled) return;
       if (!sdata?.session?.id) {
-        setSessionError("The server returned no workout session ID. Reload the app once and try again.");
+        let detail = "The workout session could not be created.";
+        if (sres) detail = "The server returned no workout session ID.";
+        setSessionError(detail);
         return;
       }
       setSessionId(sdata.session.id);
@@ -117,6 +164,23 @@ function ActiveInner() {
       const safeStart = Number.isFinite(parsedStart) && parsedStart <= Date.now() ? parsedStart : Date.now();
       startRef.current = safeStart;
       setElapsed(Math.max(0, Math.floor((Date.now() - safeStart) / 1000)));
+      try {
+        const db = getOfflineDB();
+        // Server resumed a different session (or made its own ID): the local
+        // draft we just created is obsolete — the server ID wins.
+        if (sdata.session.id !== localSessionId) await db.workoutSessions.delete(localSessionId);
+        await db.workoutSessions.put({
+          id: sdata.session.id,
+          userId: null,
+          dayId: d.id,
+          dayName: d.name,
+          startedAt: new Date(safeStart).toISOString(),
+          endedAt: null,
+          exerciseOrder: startBody.exerciseOrder,
+          syncState: "synced",
+          updatedAt: new Date().toISOString(),
+        } satisfies LocalWorkoutSession);
+      } catch { /* local-first cache is best effort during upgrade */ }
       try {
         const startedMs = Date.parse(sdata.session.startedAt ?? "") || Date.now();
         localStorage.setItem("waqt:workout-live", JSON.stringify({ dayId: d.id, name: d.name, startedAt: startedMs }));
@@ -126,9 +190,30 @@ function ActiveInner() {
       const rows: Record<string, SetRow[]> = {};
       for (const s of sdata.sets || []) {
         rows[s.slug] = rows[s.slug] || [];
-        rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps, rir: s.rir, setType: s.setType, variation: s.variation, side: s.side, loggedAt: s.loggedAt, done: s.done };
+        rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps ?? null, rir: s.rir, setType: s.setType, variation: s.variation, side: s.side, loggedAt: s.loggedAt, done: s.done ?? false };
       }
       setSetRows(rows);
+      // Mirror resumed server sets into the local store so the device remains
+      // the active-workout source of truth after a cross-device resume.
+      try {
+        const db = getOfflineDB();
+        const now = new Date().toISOString();
+        await db.workoutSets.bulkPut((sdata.sets || []).map((s) => ({
+          id: `${sdata.session!.id}:${s.slug}:${s.setIndex}`,
+          sessionId: sdata.session!.id!,
+          slug: s.slug,
+          setIndex: s.setIndex,
+          weight: s.weight ?? "",
+          reps: s.reps ?? null,
+          rir: s.rir ?? null,
+          setType: s.setType ?? "working",
+          variation: s.variation ?? null,
+          side: s.side ?? null,
+          loggedAt: s.loggedAt,
+          done: s.done ?? false,
+          updatedAt: now,
+        })));
+      } catch { /* best effort */ }
       const resumedExercises = sdata.resumed
         ? (d.exercises || []).filter((exercise: DayExercise) => rows[exercise.slug])
         : [];
@@ -213,7 +298,29 @@ function ActiveInner() {
       arr[idx] = next;
       return { ...m, [slug]: arr };
     });
+    let localSaved = false;
     if (sessionId) {
+      const localSet: LocalWorkoutSet = {
+        id: `${sessionId}:${slug}:${idx}`,
+        sessionId,
+        slug,
+        setIndex: idx,
+        weight: next.weight,
+        reps: next.reps,
+        rir: next.rir,
+        setType: next.setType,
+        variation: next.variation,
+        side: next.side,
+        loggedAt: next.loggedAt,
+        restAfterSec,
+        done: next.done,
+        updatedAt: new Date(loggedNow).toISOString(),
+      };
+      try {
+        await getOfflineDB().workoutSets.put(localSet);
+        localSaved = true;
+        void syncLocalWorkout(sessionId);
+      } catch { /* network path below still attempts the server */ }
       let response = await fetch("/workout-set", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, side: next.side, loggedAt: next.loggedAt, restAfterSec, done: next.done }),
@@ -224,7 +331,7 @@ function ActiveInner() {
           body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, side: next.side, loggedAt: next.loggedAt, restAfterSec, done: next.done }),
         }).catch(() => null);
       }
-      if (!response?.ok) return false;
+      if (!response?.ok) return localSaved;
     }
     if (patch.done && !finishing.current) rest();
     return true;
@@ -337,20 +444,31 @@ function ActiveInner() {
       }
       // <5min with data = probably backfilling an old workout — save the sets
       // but don't inflate the duration stat.
-      const quick = elapsed < 300;
+      const quick = wallSeconds < 300;
+      const localEndedAt = new Date(startRef.current + (quick ? 60000 : wallSeconds * 1000)).toISOString();
+      try {
+        const db = getOfflineDB();
+        await db.workoutSessions.update(sessionId, {
+          endedAt: localEndedAt,
+          endedReason: "completed",
+          syncState: "pending",
+          updatedAt: new Date().toISOString(),
+        });
+        void syncLocalWorkout(sessionId);
+      } catch { /* local session may not be available during an upgrade */ }
       let endedResponse = await fetch("/workout-session", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: sessionId, end: true, endAt: quick ? new Date(startRef.current + 60000).toISOString() : undefined }),
+        body: JSON.stringify({ id: sessionId, end: true, endAt: localEndedAt }),
       }).catch(() => null);
       if (!endedResponse || !endedResponse.ok) {
         endedResponse = await fetch("/api/workout/sessions", {
           method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: sessionId, end: true, endAt: quick ? new Date(startRef.current + 60000).toISOString() : undefined }),
+          body: JSON.stringify({ id: sessionId, end: true, endAt: localEndedAt }),
         }).catch(() => null);
       }
       const ended = Boolean(endedResponse?.ok);
-      if (!ended || !allSetsSaved) {
-        setFinishError("The workout could not fully save. Check your connection and try Finish again.");
+      if (!ended && !allSetsSaved) {
+        setFinishError("The workout could not save locally or online. Check storage/connection and try Finish again.");
         return;
       }
       setFinalDuration(quick ? 60 : wallSeconds);

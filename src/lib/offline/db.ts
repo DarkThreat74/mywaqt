@@ -169,6 +169,40 @@ export interface CachedTalkDownload {
   lastPlayedAt: number;   // timestamp — for LRU eviction
 }
 
+export interface LocalWorkoutSession {
+  id: string;
+  userId?: string | null;
+  dayId: string | null;
+  dayName: string;
+  startedAt: string;
+  endedAt?: string | null;
+  endedReason?: string | null;
+  exerciseOrder?: Record<string, number>;
+  readiness?: { sleepHours?: number; energy?: number; soreness?: number; stress?: number };
+  syncState: "pending" | "synced" | "error";
+  updatedAt: string;
+}
+
+export interface LocalWorkoutSet {
+  id: string; // sessionId:slug:setIndex
+  sessionId: string;
+  slug: string;
+  setIndex: number;
+  weight: string;
+  reps: number | null;
+  rir?: number | null;
+  setType?: "warmup" | "working" | "failure";
+  variation?: string | null;
+  side?: "left" | "right" | "both" | null;
+  loggedAt?: string;
+  restAfterSec?: number | null;
+  pain?: number | null;
+  techniqueFlag?: string | null;
+  isPartial?: boolean;
+  done: boolean;
+  updatedAt: string;
+}
+
 class WaqtOfflineDB extends Dexie {
   events!: Table<CachedEvent, string>;
   prayerLogs!: Table<CachedPrayerLog, string>;
@@ -184,6 +218,8 @@ class WaqtOfflineDB extends Dexie {
   habitLogs!: Table<CachedHabitLog, string>;
   notes!: Table<CachedNote, string>;
   talkDownloads!: Table<CachedTalkDownload, string>;
+  workoutSessions!: Table<LocalWorkoutSession, string>;
+  workoutSets!: Table<LocalWorkoutSet, string>;
 
   constructor() {
     super("waqt-offline-data");
@@ -252,6 +288,26 @@ class WaqtOfflineDB extends Dexie {
       // cacheKey is primary key, talkId for lookup, cachedAt/lastPlayedAt for LRU eviction
       talkDownloads: "cacheKey, talkId, cachedAt, lastPlayedAt",
     });
+    // v5: device-first active workout state. The server becomes a sync target,
+    // not a prerequisite for starting/logging a workout.
+    this.version(5).stores({
+      events: "id, _dateKey, userId",
+      prayerLogs: "id, date, userId, prayerName",
+      prayerTimes: "date",
+      analytics: "id",
+      friends: "id",
+      qadaa: "id",
+      sunnahLogs: "id, date",
+      goals: "id, parentId, userId",
+      homework: "id, dueDate, status, classId",
+      classes: "id, sortOrder",
+      habits: "id, sortOrder, archived",
+      habitLogs: "id, habitId, date, [habitId+date]",
+      notes: "id, updatedAt, pinned",
+      talkDownloads: "cacheKey, talkId, cachedAt, lastPlayedAt",
+      workoutSessions: "id, dayId, startedAt, syncState, updatedAt",
+      workoutSets: "id, sessionId, slug, [sessionId+slug], updatedAt",
+    });
     // Another tab upgraded the schema — release our connection so its
     // open() doesn't hang in `blocked` forever (which would stall the whole
     // data path, including the API fetch that follows the IDB read).
@@ -298,6 +354,8 @@ export async function clearOfflineCache(): Promise<void> {
       db.habitLogs.clear(),
       db.notes.clear(),
       db.talkDownloads.clear(),
+      db.workoutSessions.clear(),
+      db.workoutSets.clear(),
     ]);
   } catch {
     // non-critical
