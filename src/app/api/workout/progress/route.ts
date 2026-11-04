@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
 import { estimateE1rm, recommendLoadKg } from "@/lib/workout/recommend";
+import { buildAlgorithmSignals, forecastGrowth } from "@/lib/workout/forecast";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,8 @@ export async function GET(request: NextRequest) {
         setType: schema.workoutSets.setType,
         variation: schema.workoutSets.variation,
         side: schema.workoutSets.side,
+        restAfterSec: schema.workoutSets.restAfterSec,
+        pain: schema.workoutSets.pain,
         done: schema.workoutSets.done,
         at: schema.workoutSessions.startedAt,
         loggedAt: schema.workoutSets.loggedAt,
@@ -131,6 +134,7 @@ export async function GET(request: NextRequest) {
       gainPct: v.points.length >= 2 && v.points[0].e1 > 0
         ? Math.round(((v.points[v.points.length - 1].e1 - v.points[0].e1) / v.points[0].e1) * 1000) / 10
         : null,
+      growthForecast: forecastGrowth(v.points),
     }));
 
     // ── Muscle-growth model ──
@@ -206,12 +210,17 @@ export async function GET(request: NextRequest) {
     });
     // Weekly volume trend — last 7d vs prior 7d (Hevy-style stat).
     let tonWeek = 0, tonPrevWeek = 0;
+    let failureSets = 0, weightedSets = 0, restTotal = 0, restCount = 0, painSets = 0;
     for (const row of rows) {
       if (!row.done) continue;
       const w = parseFloat(row.weight || "");
       if (!w || !row.reps) continue;
       const age = nowMs - row.at.getTime();
       const vol = w * row.reps;
+      weightedSets++;
+      if (row.setType === "failure") failureSets++;
+      if (row.restAfterSec != null) { restTotal += row.restAfterSec; restCount++; }
+      if (row.pain != null && row.pain >= 5) painSets++;
       if (age <= weekMs) tonWeek += vol;
       else if (age <= 2 * weekMs) tonPrevWeek += vol;
     }
@@ -220,6 +229,22 @@ export async function GET(request: NextRequest) {
       tonWeek: Math.round(tonWeek), tonPrevWeek: Math.round(tonPrevWeek),
       // ACWR-style flag — >30% weekly load jump is the documented injury-risk line
       volumeSpike: tonPrevWeek > 0 && tonWeek > tonPrevWeek * 1.3,
+      algorithmSignals: buildAlgorithmSignals({
+        sessions: sessCount,
+        sets: weightedSets,
+        tonnage: totalTonnage,
+        weeklyTonnage: tonWeek,
+        previousWeeklyTonnage: tonPrevWeek,
+        averageRir: null,
+        failureRate: weightedSets ? failureSets / weightedSets : null,
+        averageRestSec: restCount ? restTotal / restCount : null,
+        latestBodyweightKg: null,
+        bodyweightChangeKg: null,
+        sleepHours: null,
+        soreness: null,
+        energy: null,
+        painRate: weightedSets ? painSets / weightedSets : null,
+      }),
     });
   } catch (e) { logError(e, { route: "workout/progress GET" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }
 }
