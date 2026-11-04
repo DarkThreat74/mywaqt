@@ -191,7 +191,7 @@ function ActiveInner() {
       ? (lastSetAtRef.current[slug] ? Math.max(0, Math.round((loggedNow - lastSetAtRef.current[slug]) / 1000)) : null)
       : null;
     if (patch.done) lastSetAtRef.current[slug] = loggedNow;
-    const next = { ...prev, ...patch, loggedAt: patch.done ? new Date(loggedNow).toISOString() : prev.loggedAt, variation: patch.variation ?? prev.variation ?? automaticHand,
+    const next = { ...prev, ...patch, loggedAt: patch.done ? (prev.loggedAt ?? new Date(loggedNow).toISOString()) : prev.loggedAt, variation: patch.variation ?? prev.variation ?? automaticHand,
       side: patch.side ?? prev.side ?? (automaticHand === "hand:left" ? "left" : automaticHand === "hand:right" ? "right" : automaticHand === "hand:both" ? "both" : null) };
     setSetRows((m) => {
       const arr = [...(m[slug] || [])];
@@ -295,7 +295,7 @@ function ActiveInner() {
       for (const [slug, arr] of Object.entries(setRows)) {
         for (let i = 0; i < arr.length; i++) {
           const r = arr[i];
-          if (r && !r.done && r.reps != null && r.reps > 0 && parseFloat(r.weight) > 0) {
+          if (r && r.reps != null && r.reps > 0 && parseFloat(r.weight) > 0) {
             const saved = await logSet(slug, i, {
               done: true,
               ...(HANDED.has(slug) && handModes[slug] === "one" && !r.variation ? { variation: "hand:left" } : {}),
