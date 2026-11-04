@@ -469,13 +469,15 @@ export default function WorkoutClient() {
           <div className="mt-2 grid grid-cols-2 gap-2">
             <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               weight
-              <input value={bodyWeight} onChange={(e) => { setBodyWeight(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bodyWeightKg: v, weightUpdatedAt: new Date().toISOString() }) }).catch(() => {}); }}
+              <input value={bodyWeight} onChange={(e) => setBodyWeight(e.target.value)}
+                onBlur={() => { const v = parseFloat(bodyWeight); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bodyWeightKg: v, weightUpdatedAt: new Date().toISOString() }) }).catch(() => {}); }}
                 placeholder="kg" className="w-14 rounded border px-1.5 py-1 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
               kg
             </label>
             <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               height
-              <input value={heightCm} onChange={(e) => { setHeightCm(e.target.value); const v = parseFloat(e.target.value); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ heightCm: v }) }).catch(() => {}); }}
+              <input value={heightCm} onChange={(e) => setHeightCm(e.target.value)}
+                onBlur={() => { const v = parseFloat(heightCm); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ heightCm: v }) }).catch(() => {}); }}
                 placeholder="cm" className="w-14 rounded border px-1.5 py-1 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
               cm
             </label>
