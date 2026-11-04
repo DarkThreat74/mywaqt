@@ -286,6 +286,10 @@ function ActiveInner() {
     [setRows],
   );
   const totalPlanned = exercises.reduce((s, x) => s + (setCounts[x.slug] ?? 1), 0);
+  const activeExerciseIndex = exercises.findIndex((exercise) => {
+    const planned = setCounts[exercise.slug] ?? 1;
+    return (setRows[exercise.slug] || []).filter((row) => row?.done).length < planned;
+  });
 
   const finish = async () => {
     setFinishError(null);
@@ -529,6 +533,12 @@ function ActiveInner() {
       <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
         {totalDone}/{totalPlanned} sets · {restLeft > 0 ? `rest ${fmt(restLeft)}` : "rest timer starts after a set"}
       </p>
+      <div className="mt-2 flex gap-1" aria-label={`${totalDone} of ${totalPlanned} sets complete`}>
+        {Array.from({ length: Math.max(totalPlanned, 1) }, (_, index) => (
+          <span key={index} className="h-1 flex-1 rounded-full"
+            style={{ backgroundColor: index < totalDone ? "var(--color-accent)" : "var(--color-paper-3)" }} />
+        ))}
+      </div>
       {exercises.some((x) => stalled.has(x.slug)) && (
         <div className="mt-2 rounded-lg border px-3 py-2 text-[11px]"
           style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>
@@ -547,7 +557,19 @@ function ActiveInner() {
           const ex: Exercise | undefined = EXERCISES.find((e) => e.slug === x.slug);
           const rows = setRows[x.slug] || [];
           return (
-            <div key={x.slug} className="rounded-xl border p-3" style={{ borderColor: x.supersetGroup != null ? "var(--color-accent)" : "var(--color-paper-3)" }}>
+            <div key={x.slug} className="overflow-hidden rounded-2xl border shadow-sm"
+              style={{
+                borderColor: x.supersetGroup != null || xi === activeExerciseIndex ? "var(--color-accent)" : "var(--color-paper-3)",
+                backgroundColor: xi === activeExerciseIndex ? "color-mix(in oklab, var(--color-accent) 3%, var(--color-paper))" : "var(--color-paper)",
+              }}>
+              {xi === activeExerciseIndex && (
+                <div className="flex items-center gap-2 border-b px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.16em]"
+                  style={{ borderColor: "color-mix(in oklab, var(--color-accent) 25%, transparent)", color: "var(--color-accent)" }}>
+                  <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ backgroundColor: "var(--color-accent)" }} />
+                  Next movement
+                </div>
+              )}
+              <div className="p-3">
               {x.supersetGroup != null && (
                 <p className="mb-2 text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-accent)" }}>superset</p>
               )}
@@ -716,7 +738,7 @@ function ActiveInner() {
                         className="w-16 rounded border px-2 py-1.5 text-center text-xs"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: row.done ? 0.6 : 1 }}
                       />
-                      <button
+              <button
                         type="button"
                         onClick={() => {
                           const order = ["warmup", "working", "failure"] as const;
@@ -787,9 +809,10 @@ function ActiveInner() {
                   onClick={() => setSetCounts((c) => ({ ...c, [x.slug]: (c[x.slug] ?? 1) + 1 }))}
                   className="mt-1.5 w-full rounded-lg border border-dashed px-3 py-1.5 text-[11px] font-medium"
                   style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-                >
-                  + Add set
-                </button>
+              >
+                + Add set
+              </button>
+              </div>
               </div>
             </div>
           );
