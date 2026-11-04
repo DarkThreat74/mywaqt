@@ -87,17 +87,17 @@ function ActiveInner() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(startBody),
       }).catch(() => null);
-      // A pre-update service worker may return the old synthetic offline
-      // response without a session object. Remove that registration once and
-      // retry against the network before failing the workout.
-      if (sres?.ok) {
-        const probe = await sres.clone().json().catch(() => null);
-        if (!probe?.session?.id && "serviceWorker" in navigator) {
+      // A pre-update service worker may return an old synthetic response or a
+      // stale server error. Retry through the direct same-origin alias, which
+      // is outside the worker's /api mutation interception path.
+      const responseProbe = sres?.ok ? await sres.clone().json().catch(() => null) : null;
+      if (sres && (!sres.ok || !responseProbe?.session?.id)) {
+        if ("serviceWorker" in navigator) {
           await navigator.serviceWorker.getRegistration().then((registration) => registration?.unregister()).catch(() => {});
-          sres = await fetch(`/api/workout/sessions?start=${Date.now()}&retry=1`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(startBody),
-          }).catch(() => null);
         }
+        sres = await fetch("/workout-session", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(startBody),
+        }).catch(() => null);
       }
       if (!sres?.ok || cancelled) {
         let detail = "The workout session could not be created.";
