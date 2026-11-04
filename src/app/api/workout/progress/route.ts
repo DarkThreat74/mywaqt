@@ -99,6 +99,22 @@ export async function GET(request: NextRequest) {
       posMode: v.positions.length
         ? v.positions.sort((a, b) => a - b)[0] // earliest slot it usually runs
         : null,
+      // Conservative next-load recommendation. RIR 3+ means hold; RIR 2
+      // earns a small jump; RIR 0-1 earns a larger jump only when the set
+      // was not already a late-session fatigue-affected effort.
+      recommendedKg: v.last
+        ? Math.round(v.last.w * (
+          v.last.rir != null && v.last.rir >= 3 ? 1
+            : v.last.rir === 2 ? 1.025
+              : (v.last.pos ?? 0) >= 2 ? 1 : 1.05
+        ) * 10) / 10
+        : null,
+      recommendationReason: v.last
+        ? (v.last.rir != null && v.last.rir >= 3 ? "hold — high RIR"
+          : (v.last.pos ?? 0) >= 2 && (v.last.rir ?? 0) <= 1
+            ? "hold — late-session fatigue"
+            : "progress — effort supports a small increase")
+        : null,
       limbs: Object.fromEntries([...((limbBySlug.get(slug) || new Map()).entries())].map(([hand, l]) => [hand, {
         bestE1: Math.round(l.best * 10) / 10,
         // Rows arrive newest-first; reverse the observed points for growth.

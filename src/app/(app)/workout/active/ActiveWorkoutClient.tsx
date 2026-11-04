@@ -30,6 +30,7 @@ function ActiveInner() {
   const [handModes, setHandModes] = useState<Record<string, HandMode>>({});
   const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
   const [bestE1, setBestE1] = useState<Map<string, number>>(new Map());
+  const [recommendedKg, setRecommendedKg] = useState<Map<string, number>>(new Map());
   const [retained, setRetained] = useState<Map<string, { d: number; r: number }>>(new Map());
   const [lastPos, setLastPos] = useState<Map<string, number>>(new Map());
   const [lastAt, setLastAt] = useState<Map<string, number>>(new Map());
@@ -111,6 +112,7 @@ function ActiveInner() {
       if (p2?.ok && !cancelled) {
         const d2 = await p2.json();
         setBestE1(new Map((d2.progress || []).map((p: { slug: string; bestE1?: number }) => [p.slug, p.bestE1 || 0])));
+        setRecommendedKg(new Map((d2.progress || []).map((p: { slug: string; recommendedKg?: number | null }) => [p.slug, p.recommendedKg || 0])));
         const at = new Map<string, number>(), stall = new Set<string>(), ret = new Map<string, { d: number; r: number }>(), pos = new Map<string, number>();
         for (const p of d2.progress || []) {
           if (p.daysSince != null && p.retained != null) ret.set(p.slug, { d: p.daysSince, r: p.retained });
@@ -414,7 +416,13 @@ function ActiveInner() {
                           </span>
                         )}
                         {hitTop && lastW > 0 && (
-                          <span style={{ color: "var(--color-warmth)" }}> · try {dispW((lastW + (isLower ? 5 : 2.5)) * (retained.get(x.slug)?.r ?? 1))}{units}</span>
+                          <span style={{ color: "var(--color-warmth)" }}>
+                            {" · try "}
+                            {recommendedKg.get(x.slug)
+                              ? dispW(recommendedKg.get(x.slug)! * (retained.get(x.slug)?.r ?? 1))
+                              : dispW((lastW + (isLower ? 5 : 2.5)) * (retained.get(x.slug)?.r ?? 1))}
+                            {units}
+                          </span>
                         )}
                         {(() => {
                           const rw = retained.get(x.slug);
