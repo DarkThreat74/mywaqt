@@ -237,6 +237,8 @@ function ActiveInner() {
   const [view, setView] = useState<Exercise | null>(null);
   const [openRir, setOpenRir] = useState<string | null>(null);
   const [leaveAsk, setLeaveAsk] = useState(false);
+  const [readinessOpen, setReadinessOpen] = useState(false);
+  const [readiness, setReadiness] = useState({ sleepHours: "", energy: "", soreness: "", stress: "" });
   const router = useRouter();
 
   const unitToKg = (v: string) => (units === "lb" ? String(Math.round(parseFloat(v) / 2.205 * 10) / 10) : v);
@@ -302,6 +304,24 @@ function ActiveInner() {
     router.push("/workout");
   };
 
+  const saveReadiness = async () => {
+    if (!sessionId) return;
+    await fetch("/api/workout/sessions", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: sessionId,
+        readiness: {
+          sleepHours: Number(readiness.sleepHours) || undefined,
+          energy: Number(readiness.energy) || undefined,
+          soreness: Number(readiness.soreness) || undefined,
+          stress: Number(readiness.stress) || undefined,
+        },
+      }),
+    }).catch(() => {});
+    setReadinessOpen(false);
+  };
+
   if (!dayId && exercises.length === 0 && !dayName) {
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center">
@@ -332,6 +352,11 @@ function ActiveInner() {
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{dayName || "Workout"}</h1>
         <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setReadinessOpen(true)}
+            className="rounded-full border px-2.5 py-1 text-[10px] font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+            Readiness
+          </button>
           <button type="button" onClick={() => {
             const next = units === "kg" ? "lb" : "kg";
             setUnits(next);
@@ -358,6 +383,40 @@ function ActiveInner() {
           </button>
         </div>
       </div>
+      {readinessOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+          style={{ backgroundColor: "rgba(0,0,0,0.45)" }} onClick={() => setReadinessOpen(false)}>
+          <div className="w-full max-w-sm rounded-t-2xl border p-4 sm:rounded-2xl"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+            onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Today&apos;s training context</p>
+            <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+              These inputs adjust recommendations; they do not judge the session.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {([
+                ["sleepHours", "Sleep hours", "0-14"],
+                ["energy", "Energy 1-5", "1-5"],
+                ["soreness", "Soreness 1-5", "1-5"],
+                ["stress", "Stress 1-5", "1-5"],
+              ] as const).map(([key, label, placeholder]) => (
+                <label key={key} className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                  {label}
+                  <input inputMode="decimal" placeholder={placeholder} value={readiness[key]}
+                    onChange={(e) => setReadiness((r) => ({ ...r, [key]: e.target.value }))}
+                    className="mt-1 w-full rounded-lg border px-2.5 py-2 text-xs"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+                </label>
+              ))}
+            </div>
+            <button type="button" onClick={() => void saveReadiness()}
+              className="mt-3 w-full rounded-xl px-3 py-2.5 text-sm font-semibold"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+              Save context
+            </button>
+          </div>
+        </div>
+      )}
       <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
         {totalDone}/{totalPlanned} sets · {restLeft > 0 ? `rest ${fmt(restLeft)}` : "rest timer starts after a set"}
       </p>

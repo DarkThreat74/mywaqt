@@ -113,11 +113,14 @@ export async function PATCH(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const { id, end, endAt } = await request.json() as { id?: string; end?: boolean; endAt?: string };
+    const { id, end, endAt, readiness } = await request.json() as { id?: string; end?: boolean; endAt?: string; readiness?: { sleepHours?: number; energy?: number; soreness?: number; stress?: number } };
     if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });
     const endDate = endAt && !Number.isNaN(Date.parse(endAt)) ? new Date(endAt) : new Date();
     await db.update(schema.workoutSessions)
-      .set(end ? { endedAt: endDate } : {})
+      .set({
+        ...(end ? { endedAt: endDate, endedReason: "completed" } : {}),
+        ...(readiness && typeof readiness === "object" ? { readiness } : {}),
+      })
       .where(and(eq(schema.workoutSessions.id, id!), eq(schema.workoutSessions.userId, session.userId)));
     return NextResponse.json({ ok: true });
   } catch (e) { logError(e, { route: "workout/sessions PATCH" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }

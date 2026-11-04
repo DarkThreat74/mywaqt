@@ -47,6 +47,8 @@ export default function WorkoutProfilePage() {
   const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
   const [growth, setGrowth] = useState<{ name: string; first: number; last: number; gainPct: number | null; points: { e1: number }[] }[]>([]);
   const [limbStats, setLimbStats] = useState<{ name: string; left: number; right: number; gap: number | null }[]>([]);
+  const [forecasts, setForecasts] = useState<{ name: string; status: string; change: number | null; range: [number, number] | null; confidence: number; limiting: string[] }[]>([]);
+  const [algorithmSignals, setAlgorithmSignals] = useState<Record<string, { value: number | null; status: string; confidence: number; source: string }>>({});
   const router = useRouter();
 
   useEffect(() => {
@@ -121,6 +123,19 @@ export default function WorkoutProfilePage() {
           })
           .sort((a: { gap: number | null }, b: { gap: number | null }) => (b.gap || 0) - (a.gap || 0))
           .slice(0, 8));
+        setForecasts((d.progress || [])
+          .filter((x: { growthForecast?: { status: string } }) => x.growthForecast)
+          .map((x: { slug: string; growthForecast: { status: string; monthlyE1rmChangePct: number | null; expectedMonthlyRangePct: [number, number] | null; confidence: number; limitingSignals: string[] } }) => ({
+            name: x.slug.replace(/-/g, " "),
+            status: x.growthForecast.status,
+            change: x.growthForecast.monthlyE1rmChangePct,
+            range: x.growthForecast.expectedMonthlyRangePct,
+            confidence: x.growthForecast.confidence,
+            limiting: x.growthForecast.limitingSignals,
+          }))
+          .sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)
+          .slice(0, 8));
+        setAlgorithmSignals(d.algorithmSignals || {});
       }
       setLoaded(true);
     }).catch(() => setLoaded(true));
@@ -289,6 +304,36 @@ export default function WorkoutProfilePage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Growth forecast</p>
+              <span className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>e1RM trend, not muscle mass</span>
+            </div>
+            {forecasts.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Need at least three sessions across two weeks before forecasting.</p>}
+            <div className="mt-2 space-y-2">
+              {forecasts.map((f) => (
+                <div key={f.name} className="flex items-center gap-2">
+                  <span className="w-28 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{f.name}</span>
+                  <span className="flex-1 text-[9px]" style={{ color: f.status === "forecast" ? "var(--color-success)" : "var(--color-ink-muted)" }}>
+                    {f.change !== null && f.range ? `${f.change >= 0 ? "+" : ""}${f.change}% / month (${f.range[0]}–${f.range[1]}%)` : f.status}
+                  </span>
+                  <span className="text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{Math.round(f.confidence * 100)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>What the model actually knows</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {Object.entries(algorithmSignals).map(([key, value]) => (
+                <span key={key} className="rounded-full border px-2 py-1 text-[9px]"
+                  title={`${value.source} · confidence ${Math.round(value.confidence * 100)}%`}
+                  style={{ borderColor: value.status === "missing" ? "var(--color-paper-3)" : "var(--color-accent)", color: value.status === "missing" ? "var(--color-ink-faint)" : "var(--color-ink-muted)" }}>
+                  {key}: {value.value === null ? "missing" : typeof value.value === "number" ? Math.round(value.value * 10) / 10 : value.value}
+                </span>
+              ))}
             </div>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
