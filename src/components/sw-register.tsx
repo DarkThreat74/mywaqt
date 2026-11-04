@@ -45,6 +45,7 @@ export default function ServiceWorkerRegister() {
         // update so cache-version changes (v103 → v105, etc.) activate after
         // deployment instead of waiting for browser heuristics.
         void registration.update().catch(() => {});
+        registration.active?.postMessage({ type: "GET_VERSION" });
         const refreshWorker = () => { void registration.update().catch(() => {}); };
         window.addEventListener("focus", refreshWorker);
         document.addEventListener("visibilitychange", refreshWorker);
