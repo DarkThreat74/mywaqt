@@ -53,6 +53,8 @@ function ActiveInner() {
   }, [sessionId, dayId, dayName]);
   const [restLeft, setRestLeft] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
+  const [finalDuration, setFinalDuration] = useState(0);
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0);
@@ -158,7 +160,7 @@ function ActiveInner() {
   };
 
   const finishing = useRef(false);
-  const logSet = async (slug: string, idx: number, patch: Partial<SetRow>) => {
+  const logSet = async (slug: string, idx: number, patch: Partial<SetRow>): Promise<boolean> => {
     const prev = setRows[slug]?.[idx] || { weight: "", reps: null, done: false };
     const mode = handModes[slug] ?? "both";
     const automaticHand = HANDED.has(slug)
@@ -177,12 +179,14 @@ function ActiveInner() {
       return { ...m, [slug]: arr };
     });
     if (sessionId) {
-      await fetch("/api/workout/sets", {
+      const response = await fetch("/api/workout/sets", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, side: next.side, loggedAt: next.loggedAt, restAfterSec, done: next.done }),
-      }).catch(() => {});
+      }).catch(() => null);
+      if (!response?.ok) return false;
     }
     if (patch.done && !finishing.current) rest();
+    return true;
   };
 
   // Text inputs save after the user pauses, preventing an older keystroke
@@ -257,31 +261,43 @@ function ActiveInner() {
   const totalPlanned = exercises.reduce((s, x) => s + (setCounts[x.slug] ?? 1), 0);
 
   const finish = async () => {
+    setFinishError(null);
+    const wallSeconds = Math.max(0, Math.floor((nowMs() - startRef.current) / 1000));
     if (sessionId) {
       finishing.current = true; // don't fire the rest timer per flushed row
       for (const timer of Object.values(saveTimers.current)) clearTimeout(timer);
       saveTimers.current = {};
       // Flush every row that has data but was never marked done — a partial
       // workout still counts; typed numbers shouldn't vanish on finish.
+      let allSetsSaved = true;
       for (const [slug, arr] of Object.entries(setRows)) {
         for (let i = 0; i < arr.length; i++) {
           const r = arr[i];
           if (r && !r.done && r.reps != null && r.reps > 0 && parseFloat(r.weight) > 0) {
-            await logSet(slug, i, {
+            const saved = await logSet(slug, i, {
               done: true,
               ...(HANDED.has(slug) && handModes[slug] === "one" && !r.variation ? { variation: "hand:left" } : {}),
               ...(HANDED.has(slug) && (handModes[slug] ?? "both") === "both" && !r.variation ? { variation: "hand:both" } : {}),
             });
+            if (!saved) allSetsSaved = false;
           }
         }
       }
       // <5min with data = probably backfilling an old workout — save the sets
       // but don't inflate the duration stat.
       const quick = elapsed < 300;
-      await fetch("/api/workout/sessions", {
+      const ended = await fetch("/api/workout/sessions", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: sessionId, end: true, endAt: quick ? new Date(startRef.current + 60000).toISOString() : undefined }),
-      }).catch(() => {});
+      }).then((response) => response.ok).catch(() => false);
+      if (!ended || !allSetsSaved) {
+        setFinishError("The workout could not fully save. Check your connection and try Finish again.");
+        return;
+      }
+      setFinalDuration(quick ? 60 : wallSeconds);
+    } else {
+      setFinishError("No workout session was created, so this workout was not saved. Check your connection and restart it.");
+      return;
     }
     try { localStorage.removeItem("waqt:workout-live"); } catch { /* noop */ }
     setFinished(true);
@@ -338,8 +354,9 @@ function ActiveInner() {
       <div className="mx-auto max-w-md px-4 py-16 text-center">
         <h1 className="text-xl font-semibold" style={{ color: "var(--color-ink)" }}>{dayName} — done.</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--color-ink-muted)" }}>
-          {totalDone} sets in {fmt(elapsed)}.
+          {totalDone} sets in {fmt(finalDuration || elapsed)}.
         </p>
+        {finishError && <p className="mt-2 text-xs" style={{ color: "var(--color-error)" }}>{finishError}</p>}
         <Link href="/workout" className="mt-6 inline-block rounded-lg px-6 py-3 text-sm font-semibold" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
           Back to workouts
         </Link>
@@ -349,6 +366,11 @@ function ActiveInner() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6 pb-24">
+      {finishError && (
+        <div className="mb-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }}>
+          {finishError}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{dayName || "Workout"}</h1>
         <div className="flex items-center gap-2">
