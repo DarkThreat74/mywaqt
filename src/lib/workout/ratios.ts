@@ -202,6 +202,14 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
   "wide-grip-pulldown": [
     { key: "wide", label: "wide overhand", note: "lats + teres" },
     { key: "underhand", label: "wide underhand", note: "lower lats + biceps" },
+    { key: "close", label: "close grip", note: "more elbow flexion + lower lats" },
+    { key: "vbar", label: "V-grip", note: "neutral wrists, strong mid-lat line" },
+  ],
+  "chest-supported-row": [
+    { key: "wide-overhand", label: "wide overhand", note: "upper back + rear delts" },
+    { key: "neutral", label: "neutral handles", note: "balanced mid-back and lats" },
+    { key: "close-underhand", label: "close underhand", note: "lower lats + biceps" },
+    { key: "elbows-out", label: "elbows out", note: "more rear delt + upper back" },
   ],
   "rope-face-pull": [
     { key: "rope", label: "rope", note: "ends pulled apart — rear delt + rotation" },

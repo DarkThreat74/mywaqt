@@ -582,6 +582,7 @@ function ActiveInner() {
       <div className="mt-5 space-y-4">
         {exercises.map((x, xi) => {
           const ex: Exercise | undefined = EXERCISES.find((e) => e.slug === x.slug);
+          const displayName = ex?.name || x.name;
           const rows = setRows[x.slug] || [];
           return (
             <div key={x.slug} className="overflow-hidden rounded-2xl border shadow-sm"
@@ -623,7 +624,7 @@ function ActiveInner() {
                     <span className="rounded-full border px-1.5 py-0.5 text-[9px] tabular-nums" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-faint)" }}>
                       {xi + 1}/{exercises.length}
                     </span>
-                    <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{x.name}</span>
+                    <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{displayName}</span>
                     {ex?.tier && (
                       <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[ex.tier], color: "#fff" }}>
                         {ex.tier}

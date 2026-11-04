@@ -248,7 +248,7 @@ export const EXERCISES: Exercise[] = [
   e("decline-bench-press", "Decline Bench Press", "lower_chest", "horizontal_push", "barbell", "B", "Legs hooked, slight decline, bar to lower chest.", true,
     { howto: "Hook legs under the pads on a decline bench, grip outside shoulders. Lower the bar to the lower chest, press back up.", pros: "Shifts emphasis to the sternal/lower pec fibers; often stronger than flat.", cons: "Setup and spotting are awkward; blood rushes to the head.", source: "Trebs et al. incline/decline EMG" }),
   // ── BACK: LATS ──
-  e("wide-grip-pulldown", "Wide-Grip Pulldown", "lats", "vertical_pull", "cable", "S", "Drive elbows down and out, slight lean back, full stretch at the top.", true,
+  e("wide-grip-pulldown", "Lat Pulldown", "lats", "vertical_pull", "cable", "S", "Drive elbows down and out, slight lean back, full stretch at the top.", true,
     { howto: "Grip the bar wide, thighs pinned, slight lean back. Drive elbows down and out to the upper chest, control to a full overhead stretch.", pros: "Heaviest lat isolation loading; easy progression.", cons: "Wide grip shortens the range; less stretch than neutral.", source: "Nippard back tier list" }),
   e("neutral-grip-pulldown", "Neutral-Grip Pulldown", "lats", "vertical_pull", "cable", "S", "Shoulders down first, elbows to the ribs, control the release.", true,
     { howto: "Use a V-handle, set the shoulders down first, sit tall. Pull the elbows to the ribs, then reach fully overhead each rep.", pros: "Neutral grip allows the deepest lat stretch and longest range.", cons: "Load limited by handle comfort vs a straight bar.", source: "Israetel/RP; Nippard" }),
