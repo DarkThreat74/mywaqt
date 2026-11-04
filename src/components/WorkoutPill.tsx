@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { syncPendingWorkouts } from "@/lib/workout/sync";
 
 const KEY = "waqt:workout-live";
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -47,11 +48,15 @@ export default function WorkoutPill() {
     };
     void dbTick();
     const t2 = setInterval(() => void dbTick(), 10 * 1000);
+    // Sweep pending offline workouts on mount + every reconnect. Idempotent.
+    void syncPendingWorkouts();
+    window.addEventListener("online", syncPendingWorkouts);
     return () => {
       clearInterval(t1);
       clearInterval(t2);
       window.removeEventListener("waqt:workout-live-changed", clearLive);
       window.removeEventListener("storage", clearLive);
+      window.removeEventListener("online", syncPendingWorkouts);
     };
   }, []);
 

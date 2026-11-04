@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { EXERCISES, MUSCLE_GROUP, GROUPS, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
+import { getOfflineDB } from "@/lib/offline/db";
+import { syncPendingWorkouts } from "@/lib/workout/sync";
+import { recommendLoadKg } from "@/lib/workout/recommend";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface WDay { id: string; weekday: number | null; name: string; exercises: DayExercise[]; }
@@ -32,7 +35,7 @@ export default function WorkoutClient() {
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<Array<{
-    id: string; dayId?: string; dayName: string; startedAt: string; endedAt: string | null;
+    id: string; dayId?: string; dayName: string; startedAt: string; endedAt: string | null; syncPending?: boolean;
     completedExercises?: Array<{ slug: string; setCount: number; recommendedWeightKg: number }>;
   }>>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -68,10 +71,53 @@ export default function WorkoutClient() {
         if (!p?.bodyWeightKg || !p?.heightCm) router.push("/workout/profile");
       }
     }
+    // Push any pending offline drafts first so the server answer is current.
+    await syncPendingWorkouts();
     const hr = await fetch("/api/workout/sessions", { cache: "no-store" }).catch(() => null);
+    let serverHistory: typeof history = [];
     if (hr?.ok) {
       const data = await hr.json();
-      setHistory((data.sessions || []).slice(0, 10));
+      serverHistory = data.sessions || [];
+    }
+    // Merge locally-held sessions: offline-finished workouts appear
+    // immediately, marked unsynced until the sweep confirms them.
+    try {
+      const db = getOfflineDB();
+      const [localSessions, localSets] = await Promise.all([
+        db.workoutSessions.toArray(),
+        db.workoutSets.toArray(),
+      ]);
+      const serverIds = new Set(serverHistory.map((s) => s.id));
+      const localEntries = localSessions
+        .filter((s) => !serverIds.has(s.id))
+        .map((s) => {
+          const bySlug = new Map<string, { setCount: number; recommendedWeightKg: number }>();
+          for (const set of localSets.filter((x) => x.sessionId === s.id && x.done)) {
+            const weight = parseFloat(set.weight || "");
+            if (!(weight > 0) || !(set.reps && set.reps > 0)) continue;
+            const prev = bySlug.get(set.slug) || { setCount: 0, recommendedWeightKg: 0 };
+            prev.setCount += 1;
+            prev.recommendedWeightKg = Math.max(prev.recommendedWeightKg, recommendLoadKg(weight, set.rir ?? null).kg);
+            bySlug.set(set.slug, prev);
+          }
+          return {
+            id: s.id,
+            dayId: s.dayId ?? undefined,
+            dayName: s.dayName,
+            startedAt: s.startedAt,
+            endedAt: s.endedAt ?? null,
+            syncPending: s.syncState !== "synced",
+            completedExercises: [...bySlug].map(([slug, v]) => ({
+              slug, setCount: v.setCount,
+              recommendedWeightKg: Math.round(v.recommendedWeightKg * 10) / 10,
+            })),
+          };
+        });
+      setHistory([...serverHistory, ...localEntries]
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+        .slice(0, 10));
+    } catch {
+      setHistory(serverHistory.slice(0, 10));
     }
   }
   useEffect(() => { Promise.resolve().then(() => { void load(); setNow(Date.now()); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only
@@ -661,12 +707,20 @@ export default function WorkoutClient() {
                 {s.endedAt
                   ? `${Math.round((new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()) / 60000)}m`
                   : "in progress"}
+                {s.syncPending && (
+                  <span style={{ color: "var(--color-accent, #b45309)" }} title="Saved on this device — syncs when back online">· unsynced</span>
+                )}
                 {!s.endedAt && (
                   <a href={`/workout/active?day=${s.dayId}`} style={{ color: "var(--color-accent)" }} className="font-medium">Resume →</a>
                 )}
                 <button type="button" aria-label="Delete session"
                   onClick={async () => {
                     await fetch(`/api/workout/sessions?id=${s.id}`, { method: "DELETE" }).catch(() => {});
+                    try {
+                      const db = getOfflineDB();
+                      await db.workoutSessions.delete(s.id);
+                      await db.workoutSets.where("sessionId").equals(s.id).delete();
+                    } catch { /* noop */ }
                     setHistory((h) => h.filter((x) => x.id !== s.id));
                   }}
                   className="text-[11px]" style={{ color: "var(--color-error)" }}>✕</button>

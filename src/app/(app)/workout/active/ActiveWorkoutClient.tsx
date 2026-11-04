@@ -9,6 +9,7 @@ import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 import { estimateE1, EQUIP_NOTES, VARIATIONS, HANDED } from "@/lib/workout/ratios";
 import { getOfflineDB, type LocalWorkoutSession, type LocalWorkoutSet } from "@/lib/offline/db";
+import { syncPendingWorkouts } from "@/lib/workout/sync";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; variation?: string | null; side?: "left" | "right" | "both" | null; loggedAt?: string; done: boolean; }
@@ -65,22 +66,9 @@ function ActiveInner() {
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const lastSetAtRef = useRef<Record<string, number>>({});
 
-  const syncLocalWorkout = async (id: string) => {
-    try {
-      const db = getOfflineDB();
-      const session = await db.workoutSessions.get(id);
-      if (!session) return false;
-      const sets = await db.workoutSets.where("sessionId").equals(id).toArray();
-      const response = await fetch("/api/workout/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session, sets }),
-      });
-      await db.workoutSessions.update(id, { syncState: response.ok ? "synced" : "error", updatedAt: new Date().toISOString() });
-      return response.ok;
-    } catch {
-      return false;
-    }
+  const markPending = async () => {
+    if (!sessionId) return;
+    try { await getOfflineDB().workoutSessions.update(sessionId, { syncState: "pending" }); } catch { /* noop */ }
   };
 
   useEffect(() => {
@@ -319,7 +307,7 @@ function ActiveInner() {
       try {
         await getOfflineDB().workoutSets.put(localSet);
         localSaved = true;
-        void syncLocalWorkout(sessionId);
+        void syncPendingWorkouts();
       } catch { /* network path below still attempts the server */ }
       let response = await fetch("/workout-set", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -331,7 +319,12 @@ function ActiveInner() {
           body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, side: next.side, loggedAt: next.loggedAt, restAfterSec, done: next.done }),
         }).catch(() => null);
       }
-      if (!response?.ok) return localSaved;
+      if (!response?.ok) {
+        // Both network paths failed — flag the session pending so the
+        // reconnect sweeper pushes it via /api/workout/sync later.
+        void markPending();
+        return localSaved;
+      }
     }
     if (patch.done && !finishing.current) rest();
     return true;
@@ -454,7 +447,7 @@ function ActiveInner() {
           syncState: "pending",
           updatedAt: new Date().toISOString(),
         });
-        void syncLocalWorkout(sessionId);
+        void syncPendingWorkouts();
       } catch { /* local session may not be available during an upgrade */ }
       let endedResponse = await fetch("/workout-session", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
