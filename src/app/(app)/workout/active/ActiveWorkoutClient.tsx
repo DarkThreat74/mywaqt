@@ -54,6 +54,7 @@ function ActiveInner() {
   const [restLeft, setRestLeft] = useState(0);
   const [finished, setFinished] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [finalDuration, setFinalDuration] = useState(0);
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -76,7 +77,7 @@ function ActiveInner() {
       setExercises(d.exercises || []);
       setSetCounts(Object.fromEntries((d.exercises || []).map((exercise: DayExercise) => [exercise.slug, Math.max(1, exercise.sets || 1)])));
       // Start/resume session
-      const sres = await fetch("/api/workout/sessions", {
+      const sres = await fetch(`/api/workout/sessions?start=${Date.now()}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           dayId: d.id,
@@ -84,8 +85,24 @@ function ActiveInner() {
           exerciseOrder: Object.fromEntries((d.exercises || []).map((exercise: DayExercise, index: number) => [exercise.slug, index])),
         }),
       }).catch(() => null);
-      if (!sres?.ok || cancelled) return;
+      if (!sres?.ok || cancelled) {
+        let detail = "The workout session could not be created.";
+        if (sres) {
+          try {
+            const body = await sres.json() as { error?: string };
+            if (body.error) detail = body.error;
+          } catch { /* non-JSON failure */ }
+        } else {
+          detail = "The workout session request could not reach the server.";
+        }
+        setSessionError(detail);
+        return;
+      }
       const sdata = await sres.json();
+      if (!sdata?.session?.id) {
+        setSessionError("The server returned no workout session ID. Reload the app once and try again.");
+        return;
+      }
       setSessionId(sdata.session.id);
       startRef.current = Date.now() - (sdata.resumed ? Date.now() - new Date(sdata.session.startedAt).getTime() : 0);
       try {
@@ -366,6 +383,11 @@ function ActiveInner() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6 pb-24">
+      {sessionError && (
+        <div className="mb-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }}>
+          {sessionError}
+        </div>
+      )}
       {finishError && (
         <div className="mb-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }}>
           {finishError}
