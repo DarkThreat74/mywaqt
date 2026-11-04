@@ -97,7 +97,14 @@ export async function POST(request: NextRequest) {
       .orderBy(desc(schema.workoutSessions.startedAt)).limit(1);
     if (open && !open.endedAt) {
       const sets = await db.select().from(schema.workoutSets).where(eq(schema.workoutSets.sessionId, open.id));
-      return NextResponse.json({ session: open, sets, resumed: true });
+      const stale = Date.now() - open.startedAt.getTime() > 30 * 60000;
+      const hasCompletedSets = sets.some((set) => set.done);
+      if (!stale || hasCompletedSets) {
+        return NextResponse.json({ session: open, sets, resumed: true });
+      }
+      // Empty abandoned sessions must not trap the next workout into resuming
+      // a dead timer forever.
+      await db.delete(schema.workoutSessions).where(eq(schema.workoutSessions.id, open.id));
     }
     const [sess] = await db.insert(schema.workoutSessions).values({
       ...(clientId && isValidUUID(clientId) ? { id: clientId } : {}),
@@ -116,6 +123,11 @@ export async function PATCH(request: NextRequest) {
     const { id, end, endAt, readiness } = await request.json() as { id?: string; end?: boolean; endAt?: string; readiness?: { sleepHours?: number; energy?: number; soreness?: number; stress?: number } };
     if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });
     const endDate = endAt && !Number.isNaN(Date.parse(endAt)) ? new Date(endAt) : new Date();
+    const [owned] = await db.select({ id: schema.workoutSessions.id })
+      .from(schema.workoutSessions)
+      .where(and(eq(schema.workoutSessions.id, id), eq(schema.workoutSessions.userId, session.userId)))
+      .limit(1);
+    if (!owned) return NextResponse.json({ error: "Workout session not found." }, { status: 404 });
     await db.update(schema.workoutSessions)
       .set({
         ...(end ? { endedAt: endDate, endedReason: "completed" } : {}),
