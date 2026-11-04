@@ -113,7 +113,14 @@ export async function POST(request: NextRequest) {
       readiness: readiness && typeof readiness === "object" ? readiness : null,
     }).returning();
     return NextResponse.json({ session: sess, sets: [] }, { status: 201 });
-  } catch (e) { logError(e, { route: "workout/sessions POST" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }
+  } catch (e) {
+    logError(e, { route: "workout/sessions POST" });
+    const message = e instanceof Error ? e.message : "";
+    if (/column .* does not exist|relation .* does not exist/i.test(message)) {
+      return NextResponse.json({ error: "Workout database migration 0099 is not applied on this deployment.", code: "WORKOUT_MIGRATION_REQUIRED" }, { status: 500 });
+    }
+    return NextResponse.json({ error: "Workout session could not be created.", code: "WORKOUT_SESSION_CREATE_FAILED" }, { status: 500 });
+  }
 }
 
 export async function PATCH(request: NextRequest) {
