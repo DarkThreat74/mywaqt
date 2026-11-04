@@ -406,8 +406,15 @@ function ActiveInner() {
           {finishError}
         </div>
       )}
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{dayName || "Workout"}</h1>
+      <div className="sticky top-2 z-30 rounded-2xl border p-3 shadow-sm backdrop-blur"
+        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)" }}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{dayName || "Workout"}</h1>
+            <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+              {sessionId ? `${totalDone}/${totalPlanned} sets logged` : "Starting your session…"}
+            </p>
+          </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setReadinessOpen(true)}
             className="rounded-full border px-2.5 py-1 text-[10px] font-medium"
@@ -431,14 +438,20 @@ function ActiveInner() {
             title="Switch units — values convert">
             {units}
           </button>
-          <span className="rounded-full border px-3 py-1 text-xs tabular-nums" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+          <span className="rounded-full border px-3 py-1 text-xs font-semibold tabular-nums" style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)", color: "var(--color-ink)" }}>
             {fmt(elapsed)}
           </span>
+          <button type="button" onClick={() => void finish()} disabled={!sessionId}
+            className="hidden rounded-full px-3 py-1.5 text-[10px] font-semibold sm:inline-block"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: sessionId ? 1 : 0.45 }}>
+            Finish
+          </button>
           <button type="button" onClick={() => setLeaveAsk(true)} className="rounded-full border px-2 py-1 text-[10px]"
             style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }} title="Leave — deletes this session">
             ✕
           </button>
         </div>
+      </div>
       </div>
       {readinessOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
@@ -524,6 +537,9 @@ function ActiveInner() {
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
+                    <span className="rounded-full border px-1.5 py-0.5 text-[9px] tabular-nums" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-faint)" }}>
+                      {xi + 1}/{exercises.length}
+                    </span>
                     <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{x.name}</span>
                     {ex?.tier && (
                       <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[ex.tier], color: "#fff" }}>
