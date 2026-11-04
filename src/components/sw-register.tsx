@@ -15,6 +15,10 @@ import { isNativeApp } from "@/lib/native-bridge";
  */
 export default function ServiceWorkerRegister() {
   useEffect(() => {
+    // Version the registration URL itself. A stale controlled page can keep
+    // an old /sw.js registration alive even when its response changed; the
+    // query key forces the browser to create/update the new worker script.
+    const SW_BUILD = "105";
     // Skip SW registration inside native app — it caches stale assets in the WebView.
     // Also unregister any worker that ever got registered on this origin in the
     // WebView (earlier build, future WebView gaining SW support) — a lingering
@@ -33,7 +37,7 @@ export default function ServiceWorkerRegister() {
     // updateViaCache: 'none' ensures the browser always fetches a fresh sw.js
     // from the network, never from the HTTP cache — critical for SW updates.
     navigator.serviceWorker
-      .register("/sw.js", { scope: "/", updateViaCache: "none" })
+      .register(`/sw.js?build=${SW_BUILD}`, { scope: "/", updateViaCache: "none" })
       .then((registration) => {
         // Browsers may defer the normal 24-hour update check. Explicitly
         // update so cache-version changes (v103 → v105, etc.) activate after
