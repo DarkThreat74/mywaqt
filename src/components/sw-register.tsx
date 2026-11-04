@@ -35,6 +35,13 @@ export default function ServiceWorkerRegister() {
     navigator.serviceWorker
       .register("/sw.js", { scope: "/", updateViaCache: "none" })
       .then((registration) => {
+        // Browsers may defer the normal 24-hour update check. Explicitly
+        // update so cache-version changes (v103 → v105, etc.) activate after
+        // deployment instead of waiting for browser heuristics.
+        void registration.update().catch(() => {});
+        const refreshWorker = () => { void registration.update().catch(() => {}); };
+        window.addEventListener("focus", refreshWorker);
+        document.addEventListener("visibilitychange", refreshWorker);
         // Listen for new SW updates
         registration.addEventListener("updatefound", () => {
           const newWorker = registration.installing;
