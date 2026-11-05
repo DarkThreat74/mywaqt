@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Search, X } from "lucide-react";
-import { EXERCISES, type Exercise } from "@/lib/workout/exercises";
+import { EXERCISES, isUnilateralExercise, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 import { estimateE1, EQUIP_NOTES, VARIATIONS, HANDED } from "@/lib/workout/ratios";
@@ -18,11 +18,7 @@ type HandMode = "both" | "one";
 
 // Exercises that are inherently one-side-at-a-time (Single-Arm X, One-Arm Y)
 // default to paired L/R rows instead of requiring the manual 1-hand toggle.
-const unilateralByDefault = (slug: string) => {
-  const name = (EXERCISES.find((e) => e.slug === slug)?.name || slug).toLowerCase();
-  return /single-arm|one-arm|single-leg|unilateral/.test(name) || /^(single-arm|one-arm|single-leg)/.test(slug);
-};
-const handedCapable = (slug: string) => HANDED.has(slug) || unilateralByDefault(slug);
+const handedCapable = (slug: string) => HANDED.has(slug) || isUnilateralExercise(slug);
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
@@ -41,7 +37,7 @@ function ActiveInner() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [setRows, setSetRows] = useState<Record<string, SetRow[]>>({});
   const [handModes, setHandModes] = useState<Record<string, HandMode>>({});
-  const handModeOf = (slug: string) => handModes[slug] ?? (unilateralByDefault(slug) ? "one" : "both");
+  const handModeOf = (slug: string) => handModes[slug] ?? (isUnilateralExercise(slug) ? "one" : "both");
   const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
   const [bestE1, setBestE1] = useState<Map<string, number>>(new Map());
   const [recommendedKg, setRecommendedKg] = useState<Map<string, number>>(new Map());

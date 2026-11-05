@@ -1006,6 +1006,14 @@ export const EXERCISES: Exercise[] = [
     { howto: "Bridge on the head and feet — the classic wrestler's neck isometric.", pros: "Heaviest neck isometric you can do without equipment.", cons: "Loaded cervical compression — real injury risk; only for adapted necks, light and brief.", source: "Wrestling tradition; CAUTION — spinal compression risk" }),
 ].map((x) => ({ ...x, head: HEAD_OF[x.slug] ?? ({ upper_chest: "upper", lower_chest: "lower", chest: "mid", abs: "all_abs" } as Record<string, string>)[x.muscle] }));
 
+// Inherently one-side-at-a-time movements (Single-Arm X, One-Arm Y, Single-Leg
+// Z). Used for paired L/R set rows by default, and so legacy sets logged
+// before side tracking still count toward each arm's history.
+export const isUnilateralExercise = (slug: string) => {
+  const name = (EXERCISES.find((e) => e.slug === slug)?.name || slug).toLowerCase();
+  return /single-arm|one-arm|single-leg|unilateral/.test(name) || /^(single-arm|one-arm|single-leg)/.test(slug);
+};
+
 export const MUSCLES = [
   { key: "chest", label: "Chest" }, { key: "upper_chest", label: "Upper chest" },
   { key: "lower_chest", label: "Lower chest" }, { key: "lats", label: "Lats" },

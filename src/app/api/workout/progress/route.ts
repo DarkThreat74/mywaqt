@@ -5,6 +5,7 @@ import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
 import { estimateE1rm, recommendLoadKg } from "@/lib/workout/recommend";
 import { buildAlgorithmSignals, forecastGrowth } from "@/lib/workout/forecast";
+import { isUnilateralExercise } from "@/lib/workout/exercises";
 
 export const dynamic = "force-dynamic";
 
@@ -64,13 +65,20 @@ export async function GET(request: NextRequest) {
       const hand = row.side === "left" || row.variation === "hand:left" ? "left"
         : row.side === "right" || row.variation === "hand:right" ? "right"
           : row.side === "both" || row.variation === "hand:both" ? "both" : null;
-      if (hand && validE1) {
+      // Legacy sets logged before side tracking on unilateral exercises were
+      // done one arm at a time — credit each limb so per-arm history exists.
+      const hands: Array<"left" | "right" | "both"> = hand
+        ? [hand]
+        : isUnilateralExercise(row.slug) ? ["left", "right"] : [];
+      if (hands.length && validE1) {
         const limbs = limbBySlug.get(row.slug) || new Map();
-        const limb = limbs.get(hand) || { best: 0, first: val, last: val, points: [] };
-        limb.best = Math.max(limb.best, val);
-        limb.last = val;
-        limb.points.push(val);
-        limbs.set(hand, limb);
+        for (const h of hands) {
+          const limb = limbs.get(h) || { best: 0, first: val, last: val, points: [] };
+          limb.best = Math.max(limb.best, val);
+          limb.last = val;
+          limb.points.push(val);
+          limbs.set(h, limb);
+        }
         limbBySlug.set(row.slug, limbs);
       }
       const snapshotPos = sessionOrder.get(row.sessionId)?.[row.slug];
