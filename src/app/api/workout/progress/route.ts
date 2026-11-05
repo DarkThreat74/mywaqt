@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(schema.workoutSessions.startedAt));
     const nowMs = Date.now();
     // Group per slug → history points (best e1RM per session) + last-session detail
-    const bySlug = new Map<string, { points: { at: string; e1: number; pos?: number }[]; last: { w: number; r: number; rir: number | null; at: string; pos?: number } | null; sessions: number; tonnage: number; best: number; positions: number[] }>();
+    const bySlug = new Map<string, { points: { at: string; e1: number; pos?: number }[]; last: { w: number; r: number; rir: number | null; at: string; pos?: number } | null; sessionIds: Set<string>; tonnage: number; best: number; positions: number[] }>();
     const limbBySlug = new Map<string, Map<"left" | "right" | "both", { best: number; first: number; last: number; points: number[] }>>();
     // Variation-keyed rollups — every grip/attachment/stance tracked
     // independently within its parent exercise.
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       const w = parseFloat(row.weight || "");
       const r = row.reps || 0;
       if (!w || !r) continue;
-      const e = bySlug.get(row.slug) || { points: [], last: null, sessions: 0, tonnage: 0, best: 0, positions: [] };
+      const e = bySlug.get(row.slug) || { points: [], last: null, sessionIds: new Set<string>(), tonnage: 0, best: 0, positions: [] };
       const validE1 = r <= 12;
       // RIR-adjusted e1RM (Zourdos/Helms): effective reps = performed + in
       // reserve — a set stopped at RIR 2 undercounts true strength.
@@ -101,10 +101,13 @@ export async function GET(request: NextRequest) {
       const snapshotPos = sessionOrder.get(row.sessionId)?.[row.slug];
       const pos = snapshotPos ?? posMap.get(`${sessionDay.get(row.sessionId)}:${row.slug}`);
       if (pos !== undefined && !e.positions.includes(pos)) e.positions.push(pos);
-      if (validE1 && !e.points.find((p) => p.at === row.loggedAt.toISOString())) {
-        e.points.push({ at: row.loggedAt.toISOString(), e1: val, pos });
+      // One point per training day/session. Sets within one workout are not
+      // separate progress observations.
+      const sessionAt = row.at.toISOString();
+      if (validE1 && !e.points.find((p) => p.at === sessionAt)) {
+        e.points.push({ at: sessionAt, e1: val, pos });
       } else if (validE1) {
-        const p = e.points.find((p) => p.at === row.loggedAt.toISOString())!;
+        const p = e.points.find((p) => p.at === sessionAt)!;
         if (val > p.e1) p.e1 = val;
       }
       // "last" = latest session's best set — prefer working/failure over
@@ -113,7 +116,7 @@ export async function GET(request: NextRequest) {
         if (!e.last) e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos };
         else if (row.setType !== "warmup" && (r > 12 || val > e1rm(e.last.w, e.last.r))) e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos };
       }
-      e.sessions++;
+      e.sessionIds.add(row.sessionId);
       e.tonnage += w * r;
       if (validE1 && val > e.best) e.best = val;
       totalTonnage += w * r;
@@ -137,7 +140,7 @@ export async function GET(request: NextRequest) {
       slug,
       points: v.points.reverse(), // oldest → newest
       last: v.last,
-      sets: v.sessions,
+      sets: v.sessionIds.size,
       bestE1: Math.round(v.best * 10) / 10,
       firstE1: v.points.length ? Math.round(v.points[0].e1 * 10) / 10 : null,
       lastE1: v.points.length ? Math.round(v.points[v.points.length - 1].e1 * 10) / 10 : null,
@@ -273,8 +276,7 @@ export async function GET(request: NextRequest) {
     }
     const lastTrained = new Map<string, number>();
     for (const row of rows) {
-      const muscle = muscleOf.get(row.slug);
-      if (!muscle) continue;
+      const muscle = muscleOf.get(row.slug) || "other";
       const t = row.at.getTime();
       if (!lastTrained.get(muscle) || t > lastTrained.get(muscle)!) lastTrained.set(muscle, t);
     }
