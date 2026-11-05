@@ -73,10 +73,10 @@ export async function GET(request: NextRequest) {
       if (hands.length && validE1) {
         const limbs = limbBySlug.get(row.slug) || new Map();
         for (const h of hands) {
-          const limb = limbs.get(h) || { best: 0, first: val, last: val, points: [] };
+          const limb = limbs.get(h) || { best: 0, first: val, last: val, points: [] as { d: string; v: number }[] };
           limb.best = Math.max(limb.best, val);
           limb.last = val;
-          limb.points.push(val);
+          limb.points.push({ d: row.loggedAt.toISOString().slice(0, 10), v: val });
           limbs.set(h, limb);
         }
         limbBySlug.set(row.slug, limbs);
@@ -127,11 +127,18 @@ export async function GET(request: NextRequest) {
       limbs: Object.fromEntries([...((limbBySlug.get(slug) || new Map()).entries())].map(([hand, l]) => [hand, {
         bestE1: Math.round(l.best * 10) / 10,
         // Rows arrive newest-first; reverse the observed points for growth.
-        firstE1: Math.round((l.points[l.points.length - 1] || l.first) * 10) / 10,
-        lastE1: Math.round((l.points[0] || l.last) * 10) / 10,
-        gainPct: (l.points[l.points.length - 1] || l.first) > 0
-          ? Math.round((((l.points[0] || l.last) - (l.points[l.points.length - 1] || l.first)) / (l.points[l.points.length - 1] || l.first)) * 1000) / 10
-          : null,
+        firstE1: Math.round((l.points[l.points.length - 1]?.v ?? l.first) * 10) / 10,
+        lastE1: Math.round((l.points[0]?.v ?? l.last) * 10) / 10,
+        // Same session-day rule as the top-level gain: sets within one
+        // session are not progress.
+        gainPct: (() => {
+          const byDay = new Map<string, number>();
+          for (const pt of l.points) byDay.set(pt.d, Math.max(byDay.get(pt.d) || 0, pt.v));
+          const days = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+          return days.length >= 2 && days[0][1] > 0
+            ? Math.round(((days[days.length - 1][1] - days[0][1]) / days[0][1]) * 1000) / 10
+            : null;
+        })(),
       }])),
       // Detraining model — strength holds ~4wk, then fades ~5%/wk of past-peak,
       // floored at 70% (muscle memory: myonuclei persist, regaining is fast).

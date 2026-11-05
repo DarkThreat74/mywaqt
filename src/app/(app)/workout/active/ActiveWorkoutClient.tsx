@@ -494,9 +494,9 @@ function ActiveInner() {
       }
       // <5min with data = probably backfilling an old workout — save the sets
       // but don't inflate the duration stat.
-      // Real elapsed duration — no artificial floor; a 45-second backfill is
-      // 45 seconds, not a fake minute.
-      const localEndedAt = new Date(startRef.current + wallSeconds * 1000).toISOString();
+      // <5min = backfilled/quick entry — save the sets but don't record a
+      // duration (endedAt = startedAt → 0 length, not a fake minute).
+      const localEndedAt = new Date(startRef.current + (wallSeconds < 300 ? 0 : wallSeconds * 1000)).toISOString();
       try {
         const db = getOfflineDB();
         await db.workoutSessions.update(sessionId, {
