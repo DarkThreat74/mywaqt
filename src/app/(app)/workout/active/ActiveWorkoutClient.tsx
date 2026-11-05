@@ -47,6 +47,7 @@ function ActiveInner() {
   const [stalled, setStalled] = useState<Set<string>>(new Set());
   const [setCounts, setSetCounts] = useState<Record<string, number>>({});
   const [elapsed, setElapsed] = useState(0);
+  const [sessionDate, setSessionDate] = useState(""); // yyyy-mm-dd the workout belongs to
   // Live-pill flag — keyed on the session existing, not mount ordering, so it
   // always fires for both fresh and resumed sessions.
   useEffect(() => {
@@ -68,6 +69,7 @@ function ActiveInner() {
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0);
+  const recordedStartRef = useRef(0); // the day the session belongs to (may be backdated)
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const lastSetAtRef = useRef<Record<string, number>>({});
 
@@ -193,6 +195,8 @@ function ActiveInner() {
       const parsedStart = Date.parse(sdata.session.startedAt ?? "");
       const safeStart = Number.isFinite(parsedStart) && parsedStart <= Date.now() ? parsedStart : Date.now();
       startRef.current = safeStart;
+      recordedStartRef.current = safeStart;
+      setSessionDate(new Date(safeStart).toISOString().slice(0, 10));
       setElapsed(Math.max(0, Math.floor((Date.now() - safeStart) / 1000)));
       try {
         const db = getOfflineDB();
@@ -312,7 +316,7 @@ function ActiveInner() {
 
   useEffect(() => {
     if (!sessionId) return;
-    timerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startRef.current) / 1000)), 1000);
+    timerRef.current = setInterval(() => setElapsed(Math.max(0, Math.floor((Date.now() - startRef.current) / 1000))), 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [sessionId]);
 
@@ -496,7 +500,7 @@ function ActiveInner() {
       // but don't inflate the duration stat.
       // <5min = backfilled/quick entry — save the sets but don't record a
       // duration (endedAt = startedAt → 0 length, not a fake minute).
-      const localEndedAt = new Date(startRef.current + (wallSeconds < 300 ? 0 : wallSeconds * 1000)).toISOString();
+      const localEndedAt = new Date((recordedStartRef.current || startRef.current) + (wallSeconds < 300 ? 0 : wallSeconds * 1000)).toISOString();
       try {
         const db = getOfflineDB();
         await db.workoutSessions.update(sessionId, {
@@ -535,6 +539,18 @@ function ActiveInner() {
   // Cancel = delete the session entirely — no history entry, no sets saved.
   // Persist the in-session reorder back to the profile — the day's sortOrder
   // IS the position the algorithm reads, so arrows teach it the real order.
+  const changeSessionDate = (v: string) => {
+    if (!v) return;
+    setSessionDate(v);
+    const [y, m, dd] = v.split("-").map(Number);
+    const d0 = new Date(recordedStartRef.current || Date.now());
+    d0.setFullYear(y, m - 1, dd);
+    recordedStartRef.current = d0.getTime();
+    const iso = d0.toISOString();
+    if (sessionId) void getOfflineDB().workoutSessions.update(sessionId, { startedAt: iso, syncState: "pending", updatedAt: iso }).catch(() => {});
+    void fetch("/workout-session", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sessionId, startedAt: iso }) }).catch(() => null);
+  };
+
   const persistOrder = async (ordered: DayExercise[]) => {
     // Session-scoped only — adding/removing exercises mid-workout must NOT
     // rewrite the day profile. The template is edited from /workout, not here.
@@ -664,6 +680,14 @@ function ActiveInner() {
             <h1 className="truncate text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{dayName || "Workout"}</h1>
             <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               {sessionId ? `${totalDone}/${totalPlanned} sets logged` : "Starting your session…"}
+              {" · "}
+              <label className="inline-flex items-center gap-1">
+                for
+                <input type="date" value={sessionDate}
+                  onChange={(e) => changeSessionDate(e.target.value)}
+                  className="w-[7.5rem] rounded border px-1 py-0.5 text-[10px]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+              </label>
             </p>
           </div>
         <div className="flex items-center gap-2">
