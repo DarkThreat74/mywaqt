@@ -42,6 +42,9 @@ export async function GET(request: NextRequest) {
     // Group per slug → history points (best e1RM per session) + last-session detail
     const bySlug = new Map<string, { points: { at: string; e1: number; pos?: number }[]; last: { w: number; r: number; rir: number | null; at: string; pos?: number } | null; sessions: number; tonnage: number; best: number; positions: number[] }>();
     const limbBySlug = new Map<string, Map<"left" | "right" | "both", { best: number; first: number; last: number; points: number[] }>>();
+    // Variation-keyed rollups — every grip/attachment/stance tracked
+    // independently within its parent exercise.
+    const varBySlug = new Map<string, Map<string, { best: number; last: number; sets: number; first: number }>>();
     // Exercise position per session — same-day order from workout_day_exercises
     // sortOrder. A set logged as exercise #3 can't fairly compare to exercise #1.
     const dayIds = [...new Set(rows.map((r) => r.dayId).filter(Boolean))] as string[];
@@ -82,6 +85,16 @@ export async function GET(request: NextRequest) {
           limbs.set(h, limb);
         }
         limbBySlug.set(row.slug, limbs);
+      }
+      if (validE1) {
+        const varKey = row.variation || "standard";
+        const vm = varBySlug.get(row.slug) || new Map();
+        const vv = vm.get(varKey) || { best: 0, last: val, sets: 0, first: val };
+        vv.best = Math.max(vv.best, val);
+        vv.last = val;
+        vv.sets += 1;
+        vm.set(varKey, vv);
+        varBySlug.set(row.slug, vm);
       }
       const snapshotPos = sessionOrder.get(row.sessionId)?.[row.slug];
       const pos = snapshotPos ?? posMap.get(`${sessionDay.get(row.sessionId)}:${row.slug}`);
@@ -174,6 +187,13 @@ export async function GET(request: NextRequest) {
           : null;
       })(),
       growthForecast: forecastGrowth(v.points),
+      // Every tracked variation of this exercise — independent e1RM curves.
+      variations: [...(varBySlug.get(slug) || new Map()).entries()].map(([key, vv]) => ({
+        key,
+        sets: vv.sets,
+        bestE1: Math.round(vv.best * 10) / 10,
+        lastE1: Math.round(vv.last * 10) / 10,
+      })),
     }));
 
     // ── Movement-family rollup ──

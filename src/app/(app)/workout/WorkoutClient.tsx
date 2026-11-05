@@ -24,6 +24,7 @@ export default function WorkoutClient() {
   const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null; carryoverKg?: number; carryoverFrom?: string; familyVariations?: number; familyBestE1?: number;
     daysSince?: number | null; retained?: number; recommendedKg?: number | null; recommendationReason?: string | null;
     limbs?: Record<string, { bestE1?: number; lastE1?: number; gainPct?: number | null }>;
+    variations?: Array<{ key: string; sets: number; bestE1: number; lastE1: number }>;
     growthForecast?: { status: string; monthlyE1rmChangePct: number | null; confidence: number } }>>([]);
   const [tonnage, setTonnage] = useState(0);
   const [tonWeek, setTonWeek] = useState(0);
@@ -714,6 +715,11 @@ export default function WorkoutClient() {
                     {units}
                   </span>
                 </div>
+                {(p.variations || []).length > 1 && (
+                  <p className="mt-1 text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                    {p.variations!.map((v) => `${v.key === "standard" ? "std" : v.key.replace(/^hand:/, "")} ${dispW(v.lastE1)}${units}`).join(" · ")}
+                  </p>
+                )}
                 {(limbPairs.length > 0 || (forecast && forecast.status === "forecast")) && (
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t pt-1.5 text-[9px]"
                     style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
