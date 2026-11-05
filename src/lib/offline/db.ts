@@ -201,6 +201,9 @@ export interface LocalWorkoutSet {
   techniqueFlag?: string | null;
   isPartial?: boolean;
   done: boolean;
+  /** Set when `weight` is guaranteed to be canonical kg. Legacy drafts stored
+   * raw display-unit input; the sync sweeper converts those before pushing. */
+  wKg?: boolean;
   updatedAt: string;
 }
 

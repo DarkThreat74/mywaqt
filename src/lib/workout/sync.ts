@@ -30,10 +30,28 @@ export async function syncPendingWorkouts(): Promise<void> {
     }
     for (const session of pending) {
       const sets = await db.workoutSets.where("sessionId").equals(session.id).toArray();
+      // Legacy drafts stored the raw display-unit value (e.g. "145" typed in
+      // lb mode) — convert to canonical kg before pushing or the server treats
+      // it as kg and inflates every number ~2.2×.
+      let lbMode: boolean | null = null;
+      const normalized = await Promise.all(sets.map(async (s) => {
+        if (s.wKg || !s.weight) return s;
+        if (lbMode === null) {
+          const pr = await fetch("/api/settings/prefs").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+          lbMode = pr?.prefs?.unitWeight === "lb";
+        }
+        if (!lbMode) return s;
+        const w = parseFloat(s.weight);
+        if (!(w > 0)) return s;
+        return { ...s, weight: String(Math.round((w / 2.205) * 10) / 10), wKg: true as const };
+      }));
+      if (normalized.some((s, i) => s.wKg !== sets[i].wKg)) {
+        await db.workoutSets.bulkPut(normalized);
+      }
       const res = await fetch("/workout-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session, sets }),
+        body: JSON.stringify({ session, sets: normalized }),
       }).catch(() => null);
       // Keep the real server error so the UI can show exactly why a draft is
       // stuck instead of silently staying "unsynced" forever.
