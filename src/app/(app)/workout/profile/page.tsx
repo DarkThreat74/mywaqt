@@ -79,8 +79,8 @@ export default function WorkoutProfilePage() {
         // different curves, not one bodyweight ratio.
         const sexKey = (p?.sex === "f" ? "f" : "m") as "m" | "f";
         const LIFT_ROWS_DEF: [keyof typeof LIFT_SLUGS, string][] = [
-          ["squat", "squat"], ["deadlift", "pull"], ["bench", "press"],
-          ["ohp", "ohp"], ["row", "row/pull"],
+          ["squat", "squat"], ["deadlift", "deadlift"], ["bench", "press"],
+          ["ohp", "ohp"], ["row", "row"],
         ];
         const lifts = bwKg > 0 ? LIFT_ROWS_DEF.map(([key, name]) => {
           const slugs = LIFT_SLUGS[key];
@@ -92,14 +92,14 @@ export default function WorkoutProfilePage() {
         const score = lifts.length > 0 ? Math.round(lifts.reduce((s, l) => s + l.ratio, 0) / (LIFT_ROWS_DEF.length * 2.2) * 100) : null;
         // Powerlifting total = squat + bench + deadlift e1RMs (the big three).
         const get = (n: string) => lifts.find((l) => l.name === n)?.e1 || 0;
-        const total = get("squat") + get("press") + get("pull");
+        const total = get("squat") + get("press") + get("deadlift");
         setStats({
           tonnage: d.totalTonnage || 0, tonWeek: d.tonWeek || 0,
           prs: (d.progress || []).filter((x: { bestE1?: number }) => (x.bestE1 || 0) > 0).length,
           sessions: d.totalSessions || 0,
           lifts, score, total,
           wilks: bwKg > 0 && total > 0 ? Math.round(total * wilks(bwKg, p?.sex === "f" ? "f" : "m")) : null,
-          pushPull: get("press") > 0 && get("row/pull") > 0 ? get("press") / get("row/pull") : null,
+          pushPull: get("press") > 0 && get("row") > 0 ? get("press") / get("row") : null,
           upperLower: get("press") > 0 && get("squat") > 0 ? get("press") / get("squat") : null,
           scoreLabel: score === null ? null : score >= 90 ? "elite" : score >= 60 ? "advanced" : score >= 40 ? "intermediate" : score >= 20 ? "novice" : "beginner",
         });
@@ -173,7 +173,7 @@ export default function WorkoutProfilePage() {
 
       {!loaded && <p className="mt-8 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>}
       {loaded && !editing && (() => {
-        const LIFT_ROWS = ["squat", "pull", "press", "ohp", "row/pull"].map((n) =>
+        const LIFT_ROWS = ["squat", "deadlift", "press", "ohp", "row"].map((n) =>
           stats?.lifts.find((l) => l.name === n) ?? { name: n, ratio: 0, level: "—", nextLevel: null, nextKg: null, pctToNext: null, e1: 0, gainPct: null });
         const disp = (kg: number) => wUnit === "lb" ? Math.round(kg * 2.205) : Math.round(kg);
         return (
@@ -212,8 +212,8 @@ export default function WorkoutProfilePage() {
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Total (S+B+D)</p>
-                <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats && stats.total > 0 ? Math.round(stats.total) : "—"}</p>
-                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>kg e1RM</p>
+                <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats && stats.total > 0 ? disp(stats.total) : "—"}</p>
+                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{wUnit} e1RM</p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Wilks</p>
@@ -301,7 +301,7 @@ export default function WorkoutProfilePage() {
                         points={[g.first, ...vals].map((v, i, a) => `${(i / Math.max(a.length - 1, 1)) * 58},${15 - ((v - min) / span) * 13}`).join(" ")} />
                     </svg>
                     <span className="w-24 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                      {Math.round(g.first)}→{Math.round(g.last)}kg
+                      {disp(g.first)}→{disp(g.last)}{wUnit}
                     </span>
                     <span className="w-12 text-right text-[9px] font-semibold tabular-nums"
                       style={{ color: g.gainPct === null ? "var(--color-ink-muted)" : g.gainPct >= 0 ? "var(--color-success)" : "var(--color-error)" }}>
@@ -331,7 +331,7 @@ export default function WorkoutProfilePage() {
                       <span className="rounded-full" style={{ width: `${(l.left / max) * 50}%`, backgroundColor: "var(--color-accent)" }} />
                       <span className="rounded-full" style={{ width: `${(l.right / max) * 50}%`, backgroundColor: "var(--color-warmth)" }} />
                     </div>
-                    <span className="text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>L {l.left ? `${l.left.toFixed(1)}kg` : "—"} · R {l.right ? `${l.right.toFixed(1)}kg` : "—"}</span>
+                    <span className="text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>L {l.left ? `${disp(l.left)}${wUnit}` : "—"} · R {l.right ? `${disp(l.right)}${wUnit}` : "—"}</span>
                   </div>
                 );
               })}

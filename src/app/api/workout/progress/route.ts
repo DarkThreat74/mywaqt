@@ -139,9 +139,19 @@ export async function GET(request: NextRequest) {
       retained: v.last
         ? Math.max(0.7, 1 - 0.05 * Math.max(0, (nowMs - new Date(v.last.at).getTime()) / 604800000 - 4))
         : 1,
-      gainPct: v.points.length >= 2 && v.points[0].e1 > 0
-        ? Math.round(((v.points[v.points.length - 1].e1 - v.points[0].e1) / v.points[0].e1) * 1000) / 10
-        : null,
+      // Growth compares the best set of the FIRST session day vs the LAST —
+      // two sets within one session are reps, not progress.
+      gainPct: (() => {
+        const byDay = new Map<string, number>();
+        for (const pt of v.points) {
+          const d = pt.at.slice(0, 10);
+          byDay.set(d, Math.max(byDay.get(d) || 0, pt.e1));
+        }
+        const days = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        return days.length >= 2 && days[0][1] > 0
+          ? Math.round(((days[days.length - 1][1] - days[0][1]) / days[0][1]) * 1000) / 10
+          : null;
+      })(),
       growthForecast: forecastGrowth(v.points),
     }));
 

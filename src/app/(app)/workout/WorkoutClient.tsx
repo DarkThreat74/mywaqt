@@ -75,8 +75,9 @@ export default function WorkoutClient() {
       const prefs = await fetch("/api/settings/prefs").catch(() => null);
       if (prefs?.ok) {
         const { prefs: p } = await prefs.json();
-        if (p?.unitWeight === "lb" || p?.unitWeight === "kg") setUnits(p.unitWeight);
-        if (p?.bodyWeightKg) setBodyWeight(String(p.bodyWeightKg));
+        const uw = p?.unitWeight === "lb" ? "lb" : "kg";
+        setUnits(uw);
+        if (p?.bodyWeightKg) setBodyWeight(String(uw === "lb" ? Math.round(p.bodyWeightKg * 2.205) : p.bodyWeightKg));
         if (p?.heightCm) setHeightCm(String(p.heightCm));
         if (!p?.bodyWeightKg || !p?.heightCm) router.push("/workout/profile");
       }
@@ -773,7 +774,7 @@ export default function WorkoutClient() {
                 {new Date(s.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 {" · "}
                 {s.endedAt
-                  ? `${Math.round((new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()) / 60000)}m`
+                  ? (() => { const m = Math.round((new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()) / 60000); return m < 1 ? "<1m" : `${m}m`; })()
                   : "in progress"}
                 {s.syncPending && (
                   <span style={{ color: "var(--color-accent, #b45309)" }}

@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const { dayId, dayName, clientId, exerciseOrder, readiness } = await request.json() as { dayId?: string; dayName?: string; clientId?: string; exerciseOrder?: Record<string, number>; readiness?: { sleepHours?: number; energy?: number; soreness?: number; stress?: number } };
+    const { dayId, dayName, clientId, exerciseOrder, readiness, startedAt } = await request.json() as { dayId?: string; dayName?: string; clientId?: string; exerciseOrder?: Record<string, number>; readiness?: { sleepHours?: number; energy?: number; soreness?: number; stress?: number }; startedAt?: string };
     if (!dayId || !dayName) return NextResponse.json({ error: "dayId + dayName required." }, { status: 400 });
     // Reuse an unfinished session for the same day — a crash/refresh resumes it.
     const [open] = await db.select().from(schema.workoutSessions)
@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
       userId: session.userId, dayId, dayName: String(dayName).slice(0, 60),
       exerciseOrder: exerciseOrder && typeof exerciseOrder === "object" ? exerciseOrder : null,
       readiness: readiness && typeof readiness === "object" ? readiness : null,
+      ...(startedAt && !Number.isNaN(Date.parse(startedAt)) ? { startedAt: new Date(startedAt) } : {}),
     }).returning();
     return NextResponse.json({ session: sess, sets: [] }, { status: 201 });
   } catch (e) {

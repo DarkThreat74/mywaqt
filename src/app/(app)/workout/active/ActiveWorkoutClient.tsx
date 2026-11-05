@@ -105,12 +105,23 @@ function ActiveInner() {
       // the network is down — creating it unconditionally left empty open
       // sessions that synced to the server and resurrected the workout pill.
       const localSessionId = crypto.randomUUID();
-      const localStartedAt = new Date().toISOString();
+      // Backfilled workouts record the day they were FOR, not the moment they
+      // were logged — a Monday workout entered Thursday is a Monday workout.
+      const sessionStart = (() => {
+        const now = new Date();
+        if (typeof d.weekday === "number" && d.weekday !== now.getDay()) {
+          const back = (now.getDay() - d.weekday + 7) % 7;
+          now.setDate(now.getDate() - back);
+        }
+        return now.toISOString();
+      })();
+      const localStartedAt = sessionStart;
       const startBody = {
         clientId: localSessionId,
         dayId: d.id,
         dayName: d.name,
         exerciseOrder: {},
+        startedAt: sessionStart,
       };
       let sres = await fetch(`/workout-session?start=${Date.now()}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -483,8 +494,9 @@ function ActiveInner() {
       }
       // <5min with data = probably backfilling an old workout — save the sets
       // but don't inflate the duration stat.
-      const quick = wallSeconds < 300;
-      const localEndedAt = new Date(startRef.current + (quick ? 60000 : wallSeconds * 1000)).toISOString();
+      // Real elapsed duration — no artificial floor; a 45-second backfill is
+      // 45 seconds, not a fake minute.
+      const localEndedAt = new Date(startRef.current + wallSeconds * 1000).toISOString();
       try {
         const db = getOfflineDB();
         await db.workoutSessions.update(sessionId, {
@@ -510,7 +522,7 @@ function ActiveInner() {
         setFinishError("The workout could not save locally or online. Check storage/connection and try Finish again.");
         return;
       }
-      setFinalDuration(quick ? 60 : wallSeconds);
+      setFinalDuration(wallSeconds);
     } else {
       setFinishError("No workout session was created, so this workout was not saved. Check your connection and restart it.");
       return;
