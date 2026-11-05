@@ -102,7 +102,9 @@ export async function GET(request: NextRequest) {
           const limb = limbs.get(h) || { best: 0, first: val, last: val, points: [] as { d: string; v: number }[] };
           limb.best = Math.max(limb.best, val);
           limb.last = val;
-          limb.points.push({ d: row.loggedAt.toISOString().slice(0, 10), v: val });
+          // Recovery and growth belong to the workout date, not the later
+          // moment the user happened to sync or edit the set.
+          limb.points.push({ d: row.at.toISOString().slice(0, 10), v: val });
           limbs.set(h, limb);
         }
         limbBySlug.set(row.slug, limbs);
@@ -132,9 +134,9 @@ export async function GET(request: NextRequest) {
       // "last" = latest session's best set — prefer working/failure over
       // warmups so the "try X" hint suggests a real working weight.
       if (row.setType !== "warmup") {
-        if (!e.last) e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos, sessionId: row.sessionId, readiness: row.readiness };
+        if (!e.last) e.last = { w, r, rir: row.rir, at: row.at.toISOString(), pos, sessionId: row.sessionId, readiness: row.readiness };
         else if (row.sessionId === e.last.sessionId && (r > 12 || val > e1rm(e.last.w, e.last.r))) {
-          e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos, sessionId: row.sessionId, readiness: row.readiness };
+          e.last = { w, r, rir: row.rir, at: row.at.toISOString(), pos, sessionId: row.sessionId, readiness: row.readiness };
         }
       }
       e.sessionIds.add(row.sessionId);
@@ -399,7 +401,6 @@ export async function GET(request: NextRequest) {
         status,
         freshness,
         advice,
-        volumeConfidence: Math.min(0.95, Math.round((directWeek.has(muscle) ? 0.75 : 0.45) * 100) / 100),
       };
     });
     // Weekly volume trend — last 7d vs prior 7d (Hevy-style stat).

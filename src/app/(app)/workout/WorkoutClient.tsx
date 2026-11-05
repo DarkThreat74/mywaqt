@@ -39,7 +39,7 @@ export default function WorkoutClient() {
 
   const [actionDay, setActionDay] = useState<WDay | null>(null);
   const router = useRouter();
-  const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; directSetsWeek?: number; indirectSetsWeek?: number; landmark: [number, number]; slopePct: number; status: string; freshness: number; advice?: string | null; volumeConfidence?: number }>>([]);
+  const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; directSetsWeek?: number; indirectSetsWeek?: number; landmark: [number, number]; slopePct: number; status: string; freshness: number; advice?: string | null }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<Array<{
@@ -656,8 +656,7 @@ export default function WorkoutClient() {
                   )}
                   <p className="w-full pl-[5.5rem] -mt-0.5 text-[9px]" style={{ color: "var(--color-ink-faint)" }}>
                     {m.directSetsWeek ?? m.effSetsWeek} direct
-                    {(m.indirectSetsWeek ?? 0) > 0 ? ` · ${(m.indirectSetsWeek ?? 0).toFixed(1)} indirect` : ""}
-                    {m.volumeConfidence != null ? ` · ${Math.round(m.volumeConfidence * 100)}% confidence` : ""}
+                    {(m.indirectSetsWeek ?? 0) > 0 ? ` · ${(m.indirectSetsWeek ?? 0).toFixed(1)} indirect estimate` : ""}
                   </p>
                 </div>
               );
