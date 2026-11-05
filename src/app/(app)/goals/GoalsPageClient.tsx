@@ -47,6 +47,7 @@ const GOAL_HORIZONS: { key: GoalHorizon; label: string }[] = [
   { key: "week", label: "Week" },
   { key: "month", label: "Month" },
   { key: "year", label: "Year" },
+  { key: "bucket", label: "Bucket list" },
   { key: "all_time", label: "Deadlines" },
   { key: "rules", label: "Rules" },
 ];

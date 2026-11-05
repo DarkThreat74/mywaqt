@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // Goal horizons: week | month | year | all_time | rules.
 // Legacy long_term/short_term values from older clients (incl. the offline
 // write queue) map forward so queued writes don't die after the rebrand.
-const GOAL_TYPES = new Set(["week", "month", "year", "all_time", "rules"]);
+const GOAL_TYPES = new Set(["week", "month", "year", "all_time", "bucket", "rules"]);
 const LEGACY_GOAL_TYPE: Record<string, string> = { long_term: "year", short_term: "month" };
 function normalizeGoalType(v: string | undefined): string {
   if (!v) return "month";

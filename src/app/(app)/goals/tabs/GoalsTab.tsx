@@ -27,12 +27,13 @@ const QUANTITY_TAGS: Record<string, { label: string; placeholder: string }> = {
   save: { label: "How much do you want to save?", placeholder: "e.g. 5000" },
 };
 
-export type GoalHorizon = "week" | "month" | "year" | "all_time" | "rules";
+export type GoalHorizon = "week" | "month" | "year" | "all_time" | "bucket" | "rules";
 
 // Rules are principles — never completable, never dated, never quantified.
 // All-time goals aren't "checked off" but CAN carry a target date (MCAT day,
 // matriculation) — shown as a countdown, not a deadline.
-const COMPLETABLE: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year"]);
+// Bucket-list dreams are completable but timeless — no deadline, no pace line.
+const COMPLETABLE: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year", "bucket"]);
 const DATED: ReadonlySet<GoalHorizon> = new Set(["week", "month", "year", "all_time"]);
 
 const HORIZON_LABELS: Record<GoalHorizon, { title: string; sub: string; singular: string }> = {
@@ -40,6 +41,7 @@ const HORIZON_LABELS: Record<GoalHorizon, { title: string; sub: string; singular
   month:    { title: "This Month",       sub: "Milestones for the month ahead",     singular: "monthly goal" },
   year:     { title: "This Year",        sub: "The big things you're working toward", singular: "yearly goal" },
   all_time: { title: "All-time",         sub: "Life goals & fixed dates — MCAT, matriculation, milestones", singular: "life goal" },
+  bucket:   { title: "Bucket list",      sub: "Dreams to chase in this lifetime — no deadline, just a list of someday", singular: "dream" },
   rules:    { title: "Rules to Live By", sub: "Principles you hold yourself to",     singular: "rule" },
 };
 
@@ -329,7 +331,7 @@ export default function GoalsTab({
               if (e.key === "Enter") { void createGoal(newTitle, null, newDescription, newTargetDate); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); setAddingRoot(false); }
               if (e.key === "Escape") { setAddingRoot(false); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); }
             }}
-            placeholder={goalType === "rules" ? "A principle you hold yourself to..." : `What do you want to achieve?`}
+            placeholder={goalType === "rules" ? "A principle you hold yourself to..." : goalType === "bucket" ? "Something you dream of doing one day..." : `What do you want to achieve?`}
             className="rounded-lg border px-3 py-2 text-sm outline-none"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
           />
