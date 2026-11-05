@@ -645,10 +645,13 @@ export default function WorkoutClient() {
                   <span className="w-14 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                     {m.effSetsWeek}/{lo}–{hi} {m.slopePct > 0.3 ? `+${m.slopePct}%` : m.slopePct < -0.3 ? `${m.slopePct}%` : ""}
                   </span>
-                  <span className="text-right text-[9px] tabular-nums" title={m.advice || "Recovered — Fitbod-style freshness"}
-                    style={{ color: m.advice ? "var(--color-accent)" : m.freshness >= 90 ? "var(--color-success)" : m.freshness >= 50 ? "var(--color-warmth)" : "var(--color-error)", minWidth: m.advice ? "auto" : undefined, width: m.advice ? "auto" : "2.25rem" }}>
-                    {m.advice || `${m.freshness}%`}
+                  <span className="w-9 shrink-0 text-right text-[9px] tabular-nums" title="Recovered — Fitbod-style freshness"
+                    style={{ color: m.freshness >= 90 ? "var(--color-success)" : m.freshness >= 50 ? "var(--color-warmth)" : "var(--color-error)" }}>
+                    {m.freshness}%
                   </span>
+                  {m.advice && (
+                    <p className="w-full pl-[5.5rem] -mt-0.5 text-[9px]" style={{ color: "var(--color-accent)" }}>{m.advice}</p>
+                  )}
                 </div>
               );
             })}
