@@ -48,15 +48,22 @@ export default function WorkoutPill() {
     };
     void dbTick();
     const t2 = setInterval(() => void dbTick(), 10 * 1000);
-    // Sweep pending offline workouts on mount + every reconnect. Idempotent.
+    // Sweep pending offline workouts on mount, every reconnect, and whenever
+    // the app regains focus — so an "unsynced" entry always gets retried even
+    // if the browser never fires an `online` event. Idempotent upserts.
     void syncPendingWorkouts();
+    const syncOnFocus = () => { if (document.visibilityState === "visible") void syncPendingWorkouts(); };
     window.addEventListener("online", syncPendingWorkouts);
+    window.addEventListener("focus", syncPendingWorkouts);
+    document.addEventListener("visibilitychange", syncOnFocus);
     return () => {
       clearInterval(t1);
       clearInterval(t2);
       window.removeEventListener("waqt:workout-live-changed", clearLive);
       window.removeEventListener("storage", clearLive);
       window.removeEventListener("online", syncPendingWorkouts);
+      window.removeEventListener("focus", syncPendingWorkouts);
+      document.removeEventListener("visibilitychange", syncOnFocus);
     };
   }, []);
 
