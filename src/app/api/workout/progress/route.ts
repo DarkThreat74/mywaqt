@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
         sessionId: schema.workoutSessions.id,
         dayId: schema.workoutSessions.dayId,
         exerciseOrder: schema.workoutSessions.exerciseOrder,
+        readiness: schema.workoutSessions.readiness,
       })
       .from(schema.workoutSets)
       .innerJoin(schema.workoutSessions, eq(schema.workoutSets.sessionId, schema.workoutSessions.id))
@@ -40,7 +41,18 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(schema.workoutSessions.startedAt));
     const nowMs = Date.now();
     // Group per slug → history points (best e1RM per session) + last-session detail
-    const bySlug = new Map<string, { points: { at: string; e1: number; pos?: number }[]; last: { w: number; r: number; rir: number | null; at: string; pos?: number } | null; sessionIds: Set<string>; tonnage: number; best: number; positions: number[] }>();
+    const bySlug = new Map<string, {
+      points: { at: string; e1: number; pos?: number }[];
+      last: { w: number; r: number; rir: number | null; at: string; pos?: number; sessionId: string; readiness: typeof rows[number]["readiness"] } | null;
+      sessionIds: Set<string>;
+      tonnage: number;
+      best: number;
+      positions: number[];
+      rirSum: number;
+      rirCount: number;
+      repSum: number;
+      repCount: number;
+    }>();
     const limbBySlug = new Map<string, Map<"left" | "right" | "both", { best: number; first: number; last: number; points: number[] }>>();
     // Variation-keyed rollups — every grip/attachment/stance tracked
     // independently within its parent exercise.
@@ -62,7 +74,10 @@ export async function GET(request: NextRequest) {
       const w = parseFloat(row.weight || "");
       const r = row.reps || 0;
       if (!w || !r) continue;
-      const e = bySlug.get(row.slug) || { points: [], last: null, sessionIds: new Set<string>(), tonnage: 0, best: 0, positions: [] };
+      const e = bySlug.get(row.slug) || {
+        points: [], last: null, sessionIds: new Set<string>(), tonnage: 0, best: 0,
+        positions: [], rirSum: 0, rirCount: 0, repSum: 0, repCount: 0,
+      };
       const validE1 = r <= 12;
       // RIR-adjusted e1RM (Zourdos/Helms): effective reps = performed + in
       // reserve — a set stopped at RIR 2 undercounts true strength.
@@ -72,11 +87,12 @@ export async function GET(request: NextRequest) {
           : row.side === "both" || row.variation === "hand:both" ? "both" : null;
       // Legacy sets logged before side tracking on unilateral exercises were
       // done one arm at a time — credit each limb so per-arm history exists.
-      // "both" = this set covered both sides — credit each arm. An untagged
-      // set on a single-arm exercise is assumed done on both sides.
+      // "both" = both arms only for a genuinely unilateral exercise. A
+      // bilateral row/press must never become fake left/right data.
+      const unilateral = isUnilateralExercise(row.slug);
       const hands: Array<"left" | "right"> = hand === "left" || hand === "right"
         ? [hand]
-        : hand === "both" || isUnilateralExercise(row.slug) ? ["left", "right"] : [];
+        : unilateral && (hand === "both" || !hand) ? ["left", "right"] : [];
       if (hands.length && validE1) {
         const limbs = limbBySlug.get(row.slug) || new Map();
         for (const h of hands) {
@@ -112,29 +128,27 @@ export async function GET(request: NextRequest) {
       }
       // "last" = latest session's best set — prefer working/failure over
       // warmups so the "try X" hint suggests a real working weight.
-      if (!e.last || row.setType !== "warmup") {
-        if (!e.last) e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos };
-        else if (row.setType !== "warmup" && (r > 12 || val > e1rm(e.last.w, e.last.r))) e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos };
+      if (row.setType !== "warmup") {
+        if (!e.last) e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos, sessionId: row.sessionId, readiness: row.readiness };
+        else if (row.sessionId === e.last.sessionId && (r > 12 || val > e1rm(e.last.w, e.last.r))) {
+          e.last = { w, r, rir: row.rir, at: row.loggedAt.toISOString(), pos, sessionId: row.sessionId, readiness: row.readiness };
+        }
       }
       e.sessionIds.add(row.sessionId);
+      if (row.rir != null) { e.rirSum += row.rir; e.rirCount += 1; }
+      e.repSum += r;
+      e.repCount += 1;
       e.tonnage += w * r;
       if (validE1 && val > e.best) e.best = val;
       totalTonnage += w * r;
       bySlug.set(row.slug, e);
     }
-    // sessions-between: count distinct sessions overall for context
-    // Readiness scaling — last check-in's sleep/energy/soreness/stress scales
-    // every load suggestion (autoregulation: a wrecked day gets ×0.85-0.95).
-    let readinessFactor = 1;
-    const [latestReady] = await db.select({ readiness: schema.workoutSessions.readiness })
-      .from(schema.workoutSessions)
-      .where(and(eq(schema.workoutSessions.userId, session.userId), isNotNull(schema.workoutSessions.readiness)))
-      .orderBy(desc(schema.workoutSessions.startedAt)).limit(1);
-    const r0 = latestReady?.readiness as { sleepHours?: number; energy?: number; soreness?: number; stress?: number } | null;
-    if (r0 && (r0.energy || r0.soreness || r0.stress || r0.sleepHours)) {
+    const readinessFactor = (raw: typeof rows[number]["readiness"]) => {
+      const r0 = raw as { sleepHours?: number; energy?: number; soreness?: number; stress?: number } | null;
+      if (!r0 || !Object.values(r0).some((v) => typeof v === "number")) return 1;
       const score = ((r0.energy ?? 7) + (10 - (r0.soreness ?? 3)) + (10 - (r0.stress ?? 4)) + Math.min(((r0.sleepHours ?? 7) / 8) * 10, 10)) / 4;
-      readinessFactor = Math.round(Math.min(1.05, Math.max(0.85, 0.9 + score * 0.015)) * 100) / 100;
-    }
+      return Math.round(Math.min(1.05, Math.max(0.85, 0.9 + score * 0.015)) * 100) / 100;
+    };
     const sessCount = new Set(rows.map((r) => r.sessionId)).size;
     const out = [...bySlug.entries()].map(([slug, v]) => ({
       slug,
@@ -154,8 +168,20 @@ export async function GET(request: NextRequest) {
       // Conservative next-load recommendation. RIR 3+ means hold; RIR 2
       // earns a small jump; RIR 0-1 earns a larger jump only when the set
       // was not already a late-session fatigue-affected effort.
-      recommendedKg: v.last ? Math.round(recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).kg * readinessFactor * 10) / 10 : null,
-      recommendationReason: v.last ? `${recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).reason}${readinessFactor !== 1 ? ` · readiness ×${readinessFactor}` : ""}` : null,
+      recommendedKg: v.last ? Math.round(recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).kg * readinessFactor(v.last.readiness) * 10) / 10 : null,
+      recommendationReason: v.last ? `${recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).reason}${readinessFactor(v.last.readiness) !== 1 ? ` · readiness ×${readinessFactor(v.last.readiness)}` : ""}` : null,
+      averageRir: v.rirCount ? Math.round((v.rirSum / v.rirCount) * 10) / 10 : null,
+      averageReps: v.repCount ? Math.round((v.repSum / v.repCount) * 10) / 10 : null,
+      predictionConfidence: Math.round(Math.min(0.95,
+        Math.max(0.25, Math.min(v.sessionIds.size, 8) / 8 * 0.6
+          + (v.rirCount / Math.max(v.repCount, 1)) * 0.2
+          + (v.repCount ? (v.repSum / v.repCount <= 8 ? 0.2 : v.repSum / v.repCount <= 12 ? 0.12 : 0.05) : 0))) * 100) / 100,
+      plateau: (() => {
+        const recent = v.points.slice(-3).map((p) => p.e1);
+        if (recent.length < 3) return false;
+        const low = Math.min(...recent), high = Math.max(...recent);
+        return low > 0 && (high - low) / low <= 0.02;
+      })(),
       limbs: Object.fromEntries([...((limbBySlug.get(slug) || new Map()).entries())].map(([hand, l]) => [hand, {
         bestE1: Math.round(l.best * 10) / 10,
         // Rows arrive newest-first; reverse the observed points for growth.
@@ -234,6 +260,7 @@ export async function GET(request: NextRequest) {
     // + e1RM slope over the window = the growth signal.
     const { EXERCISES } = await import("@/lib/workout/exercises");
     const muscleOf = new Map(EXERCISES.map((e) => [e.slug, e.muscle]));
+    const compoundOf = new Map(EXERCISES.map((e) => [e.slug, Boolean(e.compound)]));
     const LANDMARKS: Record<string, [number, number]> = {
       chest: [8, 16], upper_chest: [6, 12], lower_chest: [4, 10], lats: [10, 18], mid_back: [8, 14],
       rear_delts: [6, 12], erectors: [4, 8], front_delts: [3, 8], side_delts: [8, 16],
@@ -263,7 +290,10 @@ export async function GET(request: NextRequest) {
         // Synergist credit (~0.3): pulldowns/rows also grow biceps, presses
         // grow triceps/front delts — RP fractional-volume model.
         const SYN: Record<string, string[]> = { lats: ["biceps", "forearms"], mid_back: ["biceps", "rear_delts", "forearms"], rear_delts: ["upper_traps"], chest: ["triceps", "front_delts"], upper_chest: ["front_delts", "triceps"], lower_chest: ["triceps"], quads: ["glutes", "adductors"], hamstrings: ["glutes"], front_delts: ["triceps", "side_delts"], side_delts: ["upper_traps"], glutes: ["hamstrings"], biceps: ["forearms"], back: ["biceps"] };
-        for (const m2 of SYN[muscle] || []) effWeek.set(m2, (effWeek.get(m2) || 0) + weight * 0.3);
+        // Synergy is a confidence-weighted estimate, not a full set: compounds
+        // get 0.30 credit, isolation work only 0.15.
+        const synergy = compoundOf.get(row.slug) ? 0.3 : 0.15;
+        for (const m2 of SYN[muscle] || []) effWeek.set(m2, (effWeek.get(m2) || 0) + weight * synergy);
       }
     }
     // e1RM slope per muscle (best point per week, linear over ≤8wks)
@@ -281,7 +311,15 @@ export async function GET(request: NextRequest) {
       if (!lastTrained.get(muscle) || t > lastTrained.get(muscle)!) lastTrained.set(muscle, t);
     }
     const muscles = [...new Set([...effWeek.keys(), ...musclePoints.keys()])].map((muscle) => {
-      const pts = (musclePoints.get(muscle) || []).sort((a, b) => a.t - b.t);
+      // One best observation per muscle-week prevents a high-volume workout
+      // from overpowering the trend simply because it had more sets.
+      const weekly = new Map<number, { t: number; e: number }>();
+      for (const point of musclePoints.get(muscle) || []) {
+        const week = Math.floor(point.t / weekMs);
+        const current = weekly.get(week);
+        if (!current || point.e > current.e) weekly.set(week, point);
+      }
+      const pts = [...weekly.values()].sort((a, b) => a.t - b.t);
       let slope = 0;
       if (pts.length >= 2) {
         const span = Math.max((pts[pts.length - 1].t - pts[0].t) / weekMs, 1);
@@ -312,7 +350,7 @@ export async function GET(request: NextRequest) {
     });
     // Weekly volume trend — last 7d vs prior 7d (Hevy-style stat).
     let tonWeek = 0, tonPrevWeek = 0;
-    let failureSets = 0, weightedSets = 0, restTotal = 0, restCount = 0, painSets = 0;
+    let failureSets = 0, weightedSets = 0, restTotal = 0, restCount = 0, painSets = 0, rirTotal = 0, rirCount = 0;
     for (const row of rows) {
       if (!row.done) continue;
       const w = parseFloat(row.weight || "");
@@ -321,11 +359,13 @@ export async function GET(request: NextRequest) {
       const vol = w * row.reps;
       weightedSets++;
       if (row.setType === "failure") failureSets++;
+      if (row.rir != null) { rirTotal += row.rir; rirCount += 1; }
       if (row.restAfterSec != null) { restTotal += row.restAfterSec; restCount++; }
       if (row.pain != null && row.pain >= 5) painSets++;
       if (age <= weekMs) tonWeek += vol;
       else if (age <= 2 * weekMs) tonPrevWeek += vol;
     }
+    const latestReadiness = rows.find((row) => row.readiness)?.readiness as { sleepHours?: number; soreness?: number; energy?: number; stress?: number } | null;
     return NextResponse.json({
       progress: out, totalSessions: sessCount, muscles, totalTonnage: Math.round(totalTonnage),
       tonWeek: Math.round(tonWeek), tonPrevWeek: Math.round(tonPrevWeek),
@@ -337,14 +377,14 @@ export async function GET(request: NextRequest) {
         tonnage: totalTonnage,
         weeklyTonnage: tonWeek,
         previousWeeklyTonnage: tonPrevWeek,
-        averageRir: null,
+        averageRir: rirCount ? rirTotal / rirCount : null,
         failureRate: weightedSets ? failureSets / weightedSets : null,
         averageRestSec: restCount ? restTotal / restCount : null,
         latestBodyweightKg: null,
         bodyweightChangeKg: null,
-        sleepHours: null,
-        soreness: null,
-        energy: null,
+        sleepHours: latestReadiness?.sleepHours ?? null,
+        soreness: latestReadiness?.soreness ?? null,
+        energy: latestReadiness?.energy ?? null,
         painRate: weightedSets ? painSets / weightedSets : null,
       }),
     });

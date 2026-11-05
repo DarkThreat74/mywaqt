@@ -22,7 +22,7 @@ export default function WorkoutClient() {
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null; carryoverKg?: number; carryoverFrom?: string; familyVariations?: number; familyBestE1?: number;
-    daysSince?: number | null; retained?: number; recommendedKg?: number | null; recommendationReason?: string | null;
+    daysSince?: number | null; retained?: number; recommendedKg?: number | null; recommendationReason?: string | null; averageRir?: number | null; averageReps?: number | null; predictionConfidence?: number; plateau?: boolean;
     limbs?: Record<string, { bestE1?: number; lastE1?: number; gainPct?: number | null }>;
     variations?: Array<{ key: string; sets: number; bestE1: number; lastE1: number }>;
     growthForecast?: { status: string; monthlyE1rmChangePct: number | null; confidence: number } }>>([]);
@@ -695,6 +695,12 @@ export default function WorkoutClient() {
                 {p.carryoverKg != null && p.carryoverFrom && (
                   <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-accent)" }}>
                     New variation — family history suggests ~{dispW(p.carryoverKg)}{units} from {exerciseName(p.carryoverFrom)}
+                  </p>
+                )}
+                {(p.predictionConfidence != null || p.plateau) && (
+                  <p className="mt-1 text-[9px]" style={{ color: p.plateau ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
+                    {p.plateau ? "Plateau signal · " : ""}
+                    {p.predictionConfidence != null ? `${Math.round(p.predictionConfidence * 100)}% estimate confidence` : ""}
                   </p>
                 )}
                 <svg viewBox="0 0 100 18" className="mt-2 h-5 w-full" preserveAspectRatio="none" aria-hidden="true">
