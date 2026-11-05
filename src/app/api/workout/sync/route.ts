@@ -104,6 +104,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     logError(error, { route: "workout/sync POST" });
+    const message = error instanceof Error ? error.message : "";
+    if (/column .* does not exist|relation .* does not exist/i.test(message)) {
+      return NextResponse.json({ error: "Workout database schema is out of date — a migration is missing." }, { status: 500 });
+    }
     return NextResponse.json({ error: "Workout sync failed." }, { status: 500 });
   }
 }

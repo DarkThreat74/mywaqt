@@ -41,7 +41,14 @@ export async function POST(request: NextRequest) {
       set: { ...shared, ...(loggedDate ? { loggedAt: loggedDate } : {}) },
     });
     return NextResponse.json({ ok: true });
-  } catch (e) { logError(e, { route: "workout/sets POST" }); return NextResponse.json({ error: "Server error." }, { status: 500 }); }
+  } catch (e) {
+    logError(e, { route: "workout/sets POST" });
+    const message = e instanceof Error ? e.message : "";
+    if (/column .* does not exist|relation .* does not exist/i.test(message)) {
+      return NextResponse.json({ error: "Workout database schema is out of date — a migration is missing." }, { status: 500 });
+    }
+    return NextResponse.json({ error: "Server error." }, { status: 500 });
+  }
 }
 
 export async function DELETE(request: NextRequest) {
