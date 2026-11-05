@@ -31,6 +31,10 @@ export default function WorkoutClient() {
   const [volumeSpike, setVolumeSpike] = useState(false);
   const [bodyWeight, setBodyWeight] = useState("");
   const [heightCm, setHeightCm] = useState("");
+  const [units, setUnits] = useState<"kg" | "lb">("kg");
+  // Weights are stored in kg — convert for display when the user prefers lb.
+  const dispW = (kg: number) => (units === "lb" ? Math.round(kg * 2.205) : Math.round(kg * 10) / 10);
+  const dispTon = (kg: number) => (units === "lb" ? `${(kg * 2.205 / 1000).toFixed(1)}k lb` : `${(kg / 1000).toFixed(1)}t`);
 
   const [actionDay, setActionDay] = useState<WDay | null>(null);
   const router = useRouter();
@@ -71,6 +75,7 @@ export default function WorkoutClient() {
       const prefs = await fetch("/api/settings/prefs").catch(() => null);
       if (prefs?.ok) {
         const { prefs: p } = await prefs.json();
+        if (p?.unitWeight === "lb" || p?.unitWeight === "kg") setUnits(p.unitWeight);
         if (p?.bodyWeightKg) setBodyWeight(String(p.bodyWeightKg));
         if (p?.heightCm) setHeightCm(String(p.heightCm));
         if (!p?.bodyWeightKg || !p?.heightCm) router.push("/workout/profile");
@@ -540,9 +545,9 @@ export default function WorkoutClient() {
             <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               weight
               <input value={bodyWeight} onChange={(e) => setBodyWeight(e.target.value)}
-                onBlur={() => { const v = parseFloat(bodyWeight); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bodyWeightKg: v, weightUpdatedAt: new Date().toISOString() }) }).catch(() => {}); }}
-                placeholder="kg" className="w-14 rounded border px-1.5 py-1 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
-              kg
+                onBlur={() => { const v = parseFloat(bodyWeight); if (v > 0) void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bodyWeightKg: units === "lb" ? Math.round(v / 2.205 * 10) / 10 : v, weightUpdatedAt: new Date().toISOString() }) }).catch(() => {}); }}
+                placeholder={units} className="w-14 rounded border px-1.5 py-1 text-[10px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+              {units}
             </label>
             <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               height
@@ -584,9 +589,9 @@ export default function WorkoutClient() {
                     <span>strength score <b style={{ color: "var(--color-ink)" }}>{score} <span style={{ color: "var(--color-accent)" }}>{scoreLabel}</span></b></span>
                   )}
                   {bmi && <span>BMI <b style={{ color: "var(--color-ink)" }}>{bmi.toFixed(1)}</b></span>}
-                  {tonnage > 0 && <span>volume <b style={{ color: "var(--color-ink)" }}>{(tonnage / 1000).toFixed(1)}t</b></span>}
+                  {tonnage > 0 && <span>volume <b style={{ color: "var(--color-ink)" }}>{dispTon(tonnage)}</b></span>}
                   {tonWeek > 0 && (
-                    <span>this week <b style={{ color: weekDelta !== null && weekDelta < 0 ? "var(--color-error)" : "var(--color-success)" }}>{(tonWeek / 1000).toFixed(1)}t{weekDelta !== null ? ` (${weekDelta > 0 ? "+" : ""}${weekDelta}%)` : ""}</b></span>
+                    <span>this week <b style={{ color: weekDelta !== null && weekDelta < 0 ? "var(--color-error)" : "var(--color-success)" }}>{dispTon(tonWeek)}{weekDelta !== null ? ` (${weekDelta > 0 ? "+" : ""}${weekDelta}%)` : ""}</b></span>
                   )}
                   {progress.length > 0 && <span>PRs <b style={{ color: "var(--color-ink)" }}>{progress.filter((p) => (p.bestE1 || 0) > 0).length}</b></span>}
                 </div>
@@ -621,6 +626,9 @@ export default function WorkoutClient() {
           <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>
             This week — effective sets per muscle
           </p>
+          <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+            An effective set is a hard working set — warmups don&apos;t count, sets far from failure (RIR 4+) count less, failure sets count most. The range is the weekly volume that grows that muscle; the last number is how recovered it is.
+          </p>
           <div className="mt-2 space-y-1.5">
             {muscles.filter((m) => m.effSetsWeek > 0).map((m) => {
               const [lo, hi] = m.landmark;
@@ -654,7 +662,7 @@ export default function WorkoutClient() {
             // The server's recommendation already accounts for RIR, exercise
             // position/fatigue, and recency — don't re-derive it here.
             const suggest = p.recommendedKg ?? p.last.w;
-            const target = targets[p.slug] ?? String(Math.round(suggest * 2) / 2);
+            const target = targets[p.slug] ?? String(dispW(suggest));
             const daysSince = p.daysSince ?? ((now - new Date(p.last.at).getTime()) / 86400000);
             const max = Math.max(...p.points.map((pt) => pt.e1));
             const min = Math.min(...p.points.map((pt) => pt.e1));
@@ -673,13 +681,13 @@ export default function WorkoutClient() {
                       </span>
                     )}
                     <span style={{ color: "var(--color-ink-muted)" }}>
-                      e1RM {e1}kg{(p.familyVariations || 0) > 1 ? ` · ${p.familyVariations}var` : ""}
+                      e1RM {dispW(e1)}{units}{(p.familyVariations || 0) > 1 ? ` · ${p.familyVariations}var` : ""}
                     </span>
                   </span>
                 </div>
                 {p.carryoverKg != null && p.carryoverFrom && (
                   <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-accent)" }}>
-                    New variation — family history suggests ~{p.carryoverKg}kg from {exerciseName(p.carryoverFrom)}
+                    New variation — family history suggests ~{dispW(p.carryoverKg)}{units} from {exerciseName(p.carryoverFrom)}
                   </p>
                 )}
                 <svg viewBox="0 0 100 18" className="mt-2 h-5 w-full" preserveAspectRatio="none" aria-hidden="true">
@@ -690,7 +698,7 @@ export default function WorkoutClient() {
                 </svg>
                 <div className="mt-1 flex items-center justify-between gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                   <span>
-                    {p.last.w}×{p.last.r}{p.last.rir != null ? ` · RIR${p.last.rir}` : ""}
+                    {dispW(p.last.w)}{units}×{p.last.r}{p.last.rir != null ? ` · RIR${p.last.rir}` : ""}
                     {daysSince >= 1 ? ` · ${Math.floor(daysSince)}d ago` : ""}
                     {daysSince > 14 ? " — detraining, hold" : ""}
                   </span>
@@ -702,14 +710,14 @@ export default function WorkoutClient() {
                       className="w-12 rounded border px-1 py-0.5 text-center text-[10px]"
                       style={{ borderColor: "var(--color-warmth)", color: "var(--color-ink)" }}
                     />
-                    kg
+                    {units}
                   </span>
                 </div>
                 {(limbPairs.length > 0 || (forecast && forecast.status === "forecast")) && (
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t pt-1.5 text-[9px]"
                     style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
                     {limbPairs.map((h) => (
-                      <span key={h}>{h === "left" ? "L" : "R"} {limbs[h]?.lastE1}kg
+                      <span key={h}>{h === "left" ? "L" : "R"} {dispW(limbs[h]?.lastE1 ?? 0)}{units}
                         {limbs[h]?.gainPct != null ? ` (${limbs[h]!.gainPct! >= 0 ? "+" : ""}${limbs[h]!.gainPct}%)` : ""}
                       </span>
                     ))}
@@ -756,7 +764,7 @@ export default function WorkoutClient() {
                   {s.completedExercises?.length
                     ? s.completedExercises.map((x) => {
                       const name = EXERCISES.find((e) => e.slug === x.slug)?.name || x.slug.replace(/-/g, " ");
-                      return `${name} · ${x.setCount} ${x.setCount === 1 ? "set" : "sets"} · next ${x.recommendedWeightKg}kg`;
+                      return `${name} · ${x.setCount} ${x.setCount === 1 ? "set" : "sets"} · next ${dispW(x.recommendedWeightKg)}${units}`;
                     }).join("  •  ")
                     : s.endedAt ? "No completed sets" : "No sets logged yet"}
                 </p>
