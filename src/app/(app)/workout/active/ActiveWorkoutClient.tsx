@@ -625,6 +625,21 @@ function ActiveInner() {
         <p className="mt-2 text-sm" style={{ color: "var(--color-ink-muted)" }}>
           {totalDone} sets in {fmt(finalDuration || elapsed)}.
         </p>
+        {exercises.length > 0 && (
+          <div className="mx-auto mt-4 max-w-xs space-y-1 text-left">
+            {exercises.map((x) => {
+              const done = (setRows[x.slug] || []).filter((r) => r?.done).length;
+              if (!done) return null;
+              const best = (setRows[x.slug] || []).reduce((m, r) => (r?.done && parseFloat(r.weight || "0") > (m || 0) ? parseFloat(r.weight) : m), 0);
+              return (
+                <div key={x.slug} className="flex justify-between rounded-lg border px-3 py-1.5 text-[11px]" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <span style={{ color: "var(--color-ink)" }}>{x.name}</span>
+                  <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{done} {done === 1 ? "set" : "sets"}{best ? ` · top ${dispW(best)}${units}` : ""}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {finishError && <p className="mt-2 text-xs" style={{ color: "var(--color-error)" }}>{finishError}</p>}
         <Link href="/workout" className="mt-6 inline-block rounded-lg px-6 py-3 text-sm font-semibold" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
           Back to workouts
