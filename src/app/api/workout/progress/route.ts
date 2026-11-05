@@ -5,7 +5,7 @@ import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
 import { estimateE1rm, recommendLoadKg } from "@/lib/workout/recommend";
 import { buildAlgorithmSignals, forecastGrowth } from "@/lib/workout/forecast";
-import { isUnilateralExercise } from "@/lib/workout/exercises";
+import { isUnilateralExercise, exerciseFamilyKey } from "@/lib/workout/exercises";
 
 export const dynamic = "force-dynamic";
 
@@ -144,6 +144,33 @@ export async function GET(request: NextRequest) {
         : null,
       growthForecast: forecastGrowth(v.points),
     }));
+
+    // ── Movement-family rollup ──
+    // Variations of the same movement (every pulldown grip, every curl tool)
+    // pool history under one family so the algorithm understands "lat
+    // pulldowns" even when the user rotates variations, and a brand-new
+    // variation inherits a sane starting load instead of starting blind.
+    const famMap = new Map<string, { bestE1: number; bestSlug: string; variationCount: number }>();
+    for (const e of out) {
+      const key = exerciseFamilyKey(e.slug);
+      const fam = famMap.get(key) || { bestE1: 0, bestSlug: "", variationCount: 0 };
+      fam.variationCount += 1;
+      if (e.bestE1 > fam.bestE1) { fam.bestE1 = e.bestE1; fam.bestSlug = e.slug; }
+      famMap.set(key, fam);
+    }
+    for (const e of out) {
+      const fam = famMap.get(exerciseFamilyKey(e.slug));
+      if (!fam) continue;
+      (e as Record<string, unknown>).familyKey = exerciseFamilyKey(e.slug);
+      (e as Record<string, unknown>).familyVariations = fam.variationCount;
+      (e as Record<string, unknown>).familyBestE1 = Math.round(fam.bestE1 * 10) / 10;
+      // Carryover: an under-trained variation starts near the family best at
+      // a conservative 90%, attributed to the variation it inherited from.
+      if (fam.variationCount > 1 && fam.bestSlug !== e.slug && e.sets < 3 && fam.bestE1 > 0) {
+        (e as Record<string, unknown>).carryoverKg = Math.round(fam.bestE1 * 0.9 * 10) / 10;
+        (e as Record<string, unknown>).carryoverFrom = fam.bestSlug;
+      }
+    }
 
     // ── Muscle-growth model ──
     // Effective set = done, not a warmup, loaded — weighted by proximity to

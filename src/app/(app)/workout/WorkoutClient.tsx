@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EXERCISES, MUSCLE_GROUP, GROUPS, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises";
+import { EXERCISES, MUSCLE_GROUP, GROUPS, DAY_TEMPLATES, exerciseName, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 import { getOfflineDB } from "@/lib/offline/db";
@@ -21,7 +21,7 @@ export default function WorkoutClient() {
   const [view, setView] = useState<Exercise | null>(null);
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [showProgress, setShowProgress] = useState(false);
-  const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null }>>([]);
+  const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null; carryoverKg?: number; carryoverFrom?: string; familyVariations?: number }>>([]);
   const [tonnage, setTonnage] = useState(0);
   const [tonWeek, setTonWeek] = useState(0);
   const [tonPrevWeek, setTonPrevWeek] = useState(0);
@@ -666,8 +666,14 @@ export default function WorkoutClient() {
                   <span className="text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{ex.name}</span>
                   <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                     e1RM {Math.round(p.points[p.points.length - 1]?.e1 || 0)}kg
+                    {(p.familyVariations || 0) > 1 ? ` · ${p.familyVariations} variations` : ""}
                   </span>
                 </div>
+                {p.carryoverKg != null && p.carryoverFrom && (
+                  <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-accent)" }}>
+                    New variation — family history suggests ~{p.carryoverKg}kg from {exerciseName(p.carryoverFrom)}
+                  </p>
+                )}
                 {/* sparkline */}
                 <svg viewBox="0 0 100 18" className="mt-2 h-5 w-full" preserveAspectRatio="none" aria-hidden="true">
                   <polyline

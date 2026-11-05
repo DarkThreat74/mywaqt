@@ -1014,6 +1014,27 @@ export const isUnilateralExercise = (slug: string) => {
   return /single-arm|one-arm|single-leg|unilateral/.test(name) || /^(single-arm|one-arm|single-leg)/.test(slug);
 };
 
+export const exerciseName = (slug: string) =>
+  EXERCISES.find((e) => e.slug === slug)?.name || slug.replace(/-/g, " ");
+
+// Movement family: same pattern + equipment + target muscle + core movement
+// word. "Wide-Grip Pulldown", "V-Bar Pulldown", "Underhand Pulldown" and
+// "Single-Arm Pulldown" all resolve to the cable vertical-pull "pulldown"
+// family; "Overhead Cable Extension" and "Pressdown" correctly do NOT merge.
+const FAMILY_CORES = [
+  "skullcrusher", "pressdown", "pulldown", "chin-up", "kickback", "hip",
+  "deadlift", "rdl", "squat", "lunge", "crunch", "flye", "raise", "press",
+  "row", "curl", "extension", "pullover", "shrug", "calf", "dip", "thrust",
+  "pull", "push", "bench", "bridge", "plank", "hang",
+];
+export const exerciseFamilyKey = (slug: string) => {
+  const ex = EXERCISES.find((e) => e.slug === slug);
+  if (!ex) return slug;
+  const tokens = ex.name.toLowerCase().split(/[^a-z]+/);
+  const core = FAMILY_CORES.find((c) => tokens.includes(c)) || slug;
+  return `${ex.pattern}:${ex.equip}:${ex.muscle}:${core}`;
+};
+
 export const MUSCLES = [
   { key: "chest", label: "Chest" }, { key: "upper_chest", label: "Upper chest" },
   { key: "lower_chest", label: "Lower chest" }, { key: "lats", label: "Lats" },

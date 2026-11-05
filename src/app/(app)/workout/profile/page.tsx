@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { exerciseName } from "@/lib/workout/exercises";
 
 type WUnit = "kg" | "lb";
 type HUnit = "cm" | "ft";
@@ -103,7 +104,7 @@ export default function WorkoutProfilePage() {
         setGrowth((d.progress || [])
           .filter((x: { firstE1?: number | null }) => (x.firstE1 || 0) > 0)
           .map((x: { slug: string; firstE1: number; lastE1: number; gainPct: number | null; points?: { e1: number }[] }) => ({
-            name: x.slug.replace(/-/g, " "),
+            name: exerciseName(x.slug),
             first: x.firstE1, last: x.lastE1 || 0,
             gainPct: x.gainPct ?? null,
             points: x.points || [],
@@ -116,7 +117,7 @@ export default function WorkoutProfilePage() {
             const left = x.limbs.left?.lastE1 || 0;
             const right = x.limbs.right?.lastE1 || 0;
             return {
-              name: x.slug.replace(/-/g, " "),
+              name: exerciseName(x.slug),
               left, right,
               gap: left && right ? Math.round((Math.abs(left - right) / Math.max(left, right)) * 1000) / 10 : null,
             };
@@ -126,7 +127,7 @@ export default function WorkoutProfilePage() {
         setForecasts((d.progress || [])
           .filter((x: { growthForecast?: { status: string } }) => x.growthForecast)
           .map((x: { slug: string; growthForecast: { status: string; monthlyE1rmChangePct: number | null; expectedMonthlyRangePct: [number, number] | null; confidence: number; limitingSignals: string[] } }) => ({
-            name: x.slug.replace(/-/g, " "),
+            name: exerciseName(x.slug),
             status: x.growthForecast.status,
             change: x.growthForecast.monthlyE1rmChangePct,
             range: x.growthForecast.expectedMonthlyRangePct,
