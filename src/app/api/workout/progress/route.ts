@@ -253,7 +253,13 @@ export async function GET(request: NextRequest) {
       if (!muscle) continue;
       const age = nowMs - row.at.getTime();
       const weight = rirWeight(row.rir, row.setType || "working");
-      if (age <= weekMs) effWeek.set(muscle, (effWeek.get(muscle) || 0) + weight);
+      if (age <= weekMs) {
+        effWeek.set(muscle, (effWeek.get(muscle) || 0) + weight);
+        // Synergist credit (~0.3): pulldowns/rows also grow biceps, presses
+        // grow triceps/front delts — RP fractional-volume model.
+        const SYN: Record<string, string[]> = { lats: ["biceps"], mid_back: ["biceps", "rear_delts"], chest: ["triceps", "front_delts"], upper_chest: ["front_delts", "triceps"], lower_chest: ["triceps"], quads: ["glutes"], hamstrings: ["glutes"], front_delts: ["triceps"], glutes: ["hamstrings"] };
+        for (const m2 of SYN[muscle] || []) effWeek.set(m2, (effWeek.get(m2) || 0) + weight * 0.3);
+      }
     }
     // e1RM slope per muscle (best point per week, linear over ≤8wks)
     const musclePoints = new Map<string, { t: number; e: number }[]>();
