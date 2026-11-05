@@ -23,8 +23,17 @@ export async function syncPendingWorkouts(): Promise<void> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session, sets }),
       }).catch(() => null);
+      // Keep the real server error so the UI can show exactly why a draft is
+      // stuck instead of silently staying "unsynced" forever.
+      let syncError: string | null = null;
+      if (!res) syncError = "No network connection.";
+      else if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null;
+        syncError = body?.error || `Server error (${res.status}).`;
+      }
       await db.workoutSessions.update(session.id, {
         syncState: res?.ok ? "synced" : "error",
+        syncError,
         updatedAt: new Date().toISOString(),
       });
     }

@@ -180,6 +180,7 @@ export interface LocalWorkoutSession {
   exerciseOrder?: Record<string, number>;
   readiness?: { sleepHours?: number; energy?: number; soreness?: number; stress?: number };
   syncState: "pending" | "synced" | "error";
+  syncError?: string | null;
   updatedAt: string;
 }
 

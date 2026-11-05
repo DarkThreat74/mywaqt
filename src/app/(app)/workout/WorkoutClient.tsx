@@ -35,7 +35,7 @@ export default function WorkoutClient() {
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<Array<{
-    id: string; dayId?: string; dayName: string; startedAt: string; endedAt: string | null; syncPending?: boolean;
+    id: string; dayId?: string; dayName: string; startedAt: string; endedAt: string | null; syncPending?: boolean; syncError?: string | null;
     completedExercises?: Array<{ slug: string; setCount: number; recommendedWeightKg: number }>;
   }>>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -47,6 +47,8 @@ export default function WorkoutClient() {
   const [picked, setPicked] = useState<DayExercise[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [syncingNow, setSyncingNow] = useState(false);
 
   async function load() {
     const res = await fetch("/api/workout/days").catch(() => null);
@@ -107,6 +109,7 @@ export default function WorkoutClient() {
             startedAt: s.startedAt,
             endedAt: s.endedAt ?? null,
             syncPending: s.syncState !== "synced",
+            syncError: s.syncError ?? null,
             completedExercises: [...bySlug].map(([slug, v]) => ({
               slug, setCount: v.setCount,
               recommendedWeightKg: Math.round(v.recommendedWeightKg * 10) / 10,
@@ -138,6 +141,24 @@ export default function WorkoutClient() {
     return [...list].sort((a, b) => (a.tier || "Z").localeCompare(b.tier || "Z"));
   }, [groupFilter, headFilter, search, tierFilter]);
 
+
+  const deleteSession = async (id: string) => {
+    await fetch(`/api/workout/sessions?id=${id}`, { method: "DELETE" }).catch(() => {});
+    try {
+      const db = getOfflineDB();
+      await db.workoutSessions.delete(id);
+      await db.workoutSets.where("sessionId").equals(id).delete();
+    } catch { /* noop */ }
+    setConfirmDelete(null);
+    setHistory((h) => h.filter((x) => x.id !== id));
+  };
+
+  const syncNow = async () => {
+    setSyncingNow(true);
+    await syncPendingWorkouts();
+    await load();
+    setSyncingNow(false);
+  };
 
   const openProfile = (d?: WDay) => {
     setStep(d ? 2 : 0);
@@ -680,6 +701,15 @@ export default function WorkoutClient() {
         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
         {showHistory ? "Hide" : "Show"} history{history.length ? ` — ${history.length} sessions` : ""}
       </button>
+      {history.some((x) => x.syncPending) && (
+        <button type="button" onClick={() => void syncNow()} disabled={syncingNow}
+          className="mt-1.5 w-full rounded-lg border border-dashed px-3 py-2 text-[11px] font-semibold disabled:opacity-50"
+          style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+          {syncingNow
+            ? "Syncing offline workouts…"
+            : `${history.filter((x) => x.syncPending).length} saved on this device — tap to sync now`}
+        </button>
+      )}
       {showHistory && (
         <div className="mt-2 space-y-1.5">
           {history.length === 0 && (
@@ -708,22 +738,31 @@ export default function WorkoutClient() {
                   ? `${Math.round((new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()) / 60000)}m`
                   : "in progress"}
                 {s.syncPending && (
-                  <span style={{ color: "var(--color-accent, #b45309)" }} title="Saved on this device — syncs when back online">· unsynced</span>
+                  <span style={{ color: "var(--color-accent, #b45309)" }}
+                    title={s.syncError || "Saved on this device — syncs when back online"}>
+                    · unsynced{s.syncError ? ` — ${s.syncError}` : ""}
+                  </span>
                 )}
                 {!s.endedAt && (
                   <a href={`/workout/active?day=${s.dayId}`} style={{ color: "var(--color-accent)" }} className="font-medium">Resume →</a>
                 )}
-                <button type="button" aria-label="Delete session"
-                  onClick={async () => {
-                    await fetch(`/api/workout/sessions?id=${s.id}`, { method: "DELETE" }).catch(() => {});
-                    try {
-                      const db = getOfflineDB();
-                      await db.workoutSessions.delete(s.id);
-                      await db.workoutSets.where("sessionId").equals(s.id).delete();
-                    } catch { /* noop */ }
-                    setHistory((h) => h.filter((x) => x.id !== s.id));
-                  }}
-                  className="text-[11px]" style={{ color: "var(--color-error)" }}>✕</button>
+                {confirmDelete === s.id ? (
+                  <span className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => void deleteSession(s.id)}
+                      className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                      style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}>
+                      Delete
+                    </button>
+                    <button type="button" onClick={() => setConfirmDelete(null)}
+                      className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                      Keep
+                    </button>
+                  </span>
+                ) : (
+                  <button type="button" aria-label="Delete session"
+                    onClick={() => setConfirmDelete(s.id)}
+                    className="text-[11px]" style={{ color: "var(--color-error)" }}>✕</button>
+                )}
               </span>
             </div>
           ))}
