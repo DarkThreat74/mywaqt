@@ -204,7 +204,7 @@ export default function WorkoutClient() {
 
   const addExercise = (x: Exercise) => {
     if (picked.some((p) => p.slug === x.slug)) return;
-    setPicked((p) => [...p, { slug: x.slug, name: x.name, sets: 3, reps: "8-12", supersetGroup: null }]);
+    setPicked((p) => [...p, { slug: x.slug, name: x.name, sets: 1, reps: "8-12", supersetGroup: null }]);
   };
 
   // Superset link — groups this exercise with the one above it
@@ -355,19 +355,6 @@ export default function WorkoutClient() {
                   </button>
                 )}
                 <span className="flex-1 text-sm font-medium" style={{ color: "var(--color-ink)" }}>{p.name}</span>
-                <input
-                  type="number" min={1} max={20} value={p.sets}
-                  onChange={(e) => setPicked((prev) => prev.map((q, j) => j === i ? { ...q, sets: Number(e.target.value) } : q))}
-                  className="w-14 rounded border px-2 py-1 text-center text-xs"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-                />
-                <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>×</span>
-                <input
-                  value={p.reps}
-                  onChange={(e) => setPicked((prev) => prev.map((q, j) => j === i ? { ...q, reps: e.target.value } : q))}
-                  className="w-16 rounded border px-2 py-1 text-center text-xs"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-                />
                 <button type="button" onClick={() => setPicked((prev) => prev.filter((_, j) => j !== i))} className="text-xs" style={{ color: "var(--color-error)" }}>✕</button>
               </div>
             ))}

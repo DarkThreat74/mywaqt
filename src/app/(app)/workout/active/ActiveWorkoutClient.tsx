@@ -536,16 +536,13 @@ function ActiveInner() {
   // Persist the in-session reorder back to the profile — the day's sortOrder
   // IS the position the algorithm reads, so arrows teach it the real order.
   const persistOrder = async (ordered: DayExercise[]) => {
-    if (!dayId) return;
-    const profileSave = fetch("/api/workout/days", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: dayId, exercises: ordered }),
-    }).catch(() => null);
+    // Session-scoped only — adding/removing exercises mid-workout must NOT
+    // rewrite the day profile. The template is edited from /workout, not here.
     const sessionSave = sessionId ? fetch("/api/workout/sessions", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: sessionId, exerciseOrder: Object.fromEntries(ordered.map((exercise, index) => [exercise.slug, index])) }),
     }).catch(() => null) : Promise.resolve(null);
-    await Promise.all([profileSave, sessionSave]);
+    await sessionSave;
   };
 
   const cancel = async () => {
@@ -588,7 +585,7 @@ function ActiveInner() {
     if (exercises.some((item) => item.slug === exercise.slug)) return;
     const next = [...exercises, exercise];
     setExercises(next);
-    setSetCounts((counts) => ({ ...counts, [exercise.slug]: Math.max(1, exercise.sets) }));
+    setSetCounts((counts) => ({ ...counts, [exercise.slug]: 1 }));
     void persistOrder(next);
     setExercisePickerOpen(false);
   };
