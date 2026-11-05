@@ -288,8 +288,26 @@ export default function GoalsTab({
 
   const horizon = HORIZON_LABELS[goalType] ?? HORIZON_LABELS.month;
 
+  const isBucket = goalType === "bucket";
+
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className="flex flex-col gap-4"
+      style={isBucket ? {
+        // Dreamy cloud field — soft radial blooms in the same palette, no
+        // imported art, no hard edges.
+        backgroundImage: [
+          "radial-gradient(ellipse 140px 90px at 12% 8%, color-mix(in oklab, var(--color-accent) 14%, transparent), transparent 70%)",
+          "radial-gradient(ellipse 180px 110px at 82% 4%, color-mix(in oklab, var(--color-warmth) 12%, transparent), transparent 70%)",
+          "radial-gradient(ellipse 160px 100px at 55% 30%, color-mix(in oklab, var(--color-paper-3) 40%, transparent), transparent 70%)",
+          "radial-gradient(ellipse 200px 120px at 8% 60%, color-mix(in oklab, var(--color-paper-2) 70%, transparent), transparent 70%)",
+          "radial-gradient(ellipse 170px 100px at 90% 78%, color-mix(in oklab, var(--color-accent) 10%, transparent), transparent 70%)",
+        ].join(", "),
+        borderRadius: "1rem",
+        padding: "0.75rem",
+        margin: "-0.75rem",
+      } : undefined}
+    >
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
