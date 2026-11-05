@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { exerciseName } from "@/lib/workout/exercises";
+import { levelFor, LIFT_SLUGS } from "@/lib/workout/standards";
 
 type WUnit = "kg" | "lb";
 type HUnit = "cm" | "ft";
@@ -45,7 +46,7 @@ export default function WorkoutProfilePage() {
   const [bodyfat, setBodyfat] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
+  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; nextLevel: string | null; nextKg: number | null; pctToNext: number | null; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
   const [growth, setGrowth] = useState<{ name: string; first: number; last: number; gainPct: number | null; points: { e1: number }[] }[]>([]);
   const [limbStats, setLimbStats] = useState<{ name: string; left: number; right: number; gap: number | null }[]>([]);
   const [forecasts, setForecasts] = useState<{ name: string; status: string; change: number | null; range: [number, number] | null; confidence: number; limiting: string[] }[]>([]);
@@ -73,20 +74,22 @@ export default function WorkoutProfilePage() {
       const pr = await fetch("/api/workout/progress").catch(() => null);
       if (pr?.ok) {
         const d = await pr.json();
-        const LIFTS: [string[], string, [number, number, number]][] = [
-          [["back-squat", "front-squat", "hack-squat", "low-bar-squat", "safety-bar-squat"], "squat", [1.0, 1.5, 2.0]],
-          [["deadlift", "rdl", "stiff-leg-deadlift"], "pull", [1.25, 2.0, 2.5]],
-          [["barbell-bench-press", "machine-chest-press", "weighted-dip", "incline-bench-30"], "press", [0.75, 1.0, 1.5]],
-          [["barbell-ohp", "seated-db-press", "machine-shoulder-press", "standing-db-press"], "ohp", [0.5, 0.75, 1.0]],
-          [["pull-up", "weighted-pullup", "chin-up"], "pull-up", [0.9, 1.2, 1.5]],
+        // Strength-Level (48M+ lifts) standards, interpolated to the user's
+        // bodyweight/sex — a 65kg lifter and a 110kg lifter are graded on
+        // different curves, not one bodyweight ratio.
+        const sexKey = (p?.sex === "f" ? "f" : "m") as "m" | "f";
+        const LIFT_ROWS_DEF: [keyof typeof LIFT_SLUGS, string][] = [
+          ["squat", "squat"], ["deadlift", "pull"], ["bench", "press"],
+          ["ohp", "ohp"], ["row", "row/pull"],
         ];
-        const levelOf = (r: number, [b, i, a]: [number, number, number]) => r >= a ? "advanced" : r >= i ? "intermediate" : r >= b ? "novice" : "beginner";
-        const lifts = bwKg > 0 ? LIFTS.map(([slugs, name, marks]) => {
+        const lifts = bwKg > 0 ? LIFT_ROWS_DEF.map(([key, name]) => {
+          const slugs = LIFT_SLUGS[key];
           const best = Math.max(0, ...slugs.map((s) => d.progress?.find((x: { slug: string; bestE1?: number }) => x.slug === s)?.bestE1 || 0));
           const gain = Math.max(-99, ...slugs.map((s) => d.progress?.find((x: { slug: string; gainPct?: number | null }) => x.slug === s)?.gainPct ?? -99));
-          return best > 0 ? { name, ratio: best / bwKg, level: levelOf(best / bwKg, marks), e1: best, gainPct: gain > -99 ? gain : null } : null;
+          const lv = best > 0 ? levelFor(key as "bench" | "squat" | "deadlift" | "ohp" | "row", best, bwKg, sexKey) : null;
+          return best > 0 ? { name, ratio: best / bwKg, level: lv!.level, nextLevel: lv!.next, nextKg: lv!.nextKg, pctToNext: lv!.pctToNext, e1: best, gainPct: gain > -99 ? gain : null } : null;
         }).filter((l): l is NonNullable<typeof l> => !!l) : [];
-        const score = lifts.length > 0 ? Math.round(lifts.reduce((s, l) => s + l.ratio, 0) / (LIFTS.length * 2.2) * 100) : null;
+        const score = lifts.length > 0 ? Math.round(lifts.reduce((s, l) => s + l.ratio, 0) / (LIFT_ROWS_DEF.length * 2.2) * 100) : null;
         // Powerlifting total = squat + bench + deadlift e1RMs (the big three).
         const get = (n: string) => lifts.find((l) => l.name === n)?.e1 || 0;
         const total = get("squat") + get("press") + get("pull");
@@ -96,7 +99,7 @@ export default function WorkoutProfilePage() {
           sessions: d.totalSessions || 0,
           lifts, score, total,
           wilks: bwKg > 0 && total > 0 ? Math.round(total * wilks(bwKg, p?.sex === "f" ? "f" : "m")) : null,
-          pushPull: get("press") > 0 && get("pull-up") > 0 ? get("press") / get("pull-up") : null,
+          pushPull: get("press") > 0 && get("row/pull") > 0 ? get("press") / get("row/pull") : null,
           upperLower: get("press") > 0 && get("squat") > 0 ? get("press") / get("squat") : null,
           scoreLabel: score === null ? null : score >= 90 ? "elite" : score >= 60 ? "advanced" : score >= 40 ? "intermediate" : score >= 20 ? "novice" : "beginner",
         });
@@ -170,8 +173,9 @@ export default function WorkoutProfilePage() {
 
       {!loaded && <p className="mt-8 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>}
       {loaded && !editing && (() => {
-        const LIFT_ROWS = ["squat", "pull", "press", "ohp", "pull-up"].map((n) =>
-          stats?.lifts.find((l) => l.name === n) ?? { name: n, ratio: 0, level: "—", e1: 0, gainPct: null });
+        const LIFT_ROWS = ["squat", "pull", "press", "ohp", "row/pull"].map((n) =>
+          stats?.lifts.find((l) => l.name === n) ?? { name: n, ratio: 0, level: "—", nextLevel: null, nextKg: null, pctToNext: null, e1: 0, gainPct: null });
+        const disp = (kg: number) => wUnit === "lb" ? Math.round(kg * 2.205) : Math.round(kg);
         return (
         <div className="mt-4 space-y-3">
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
@@ -219,17 +223,20 @@ export default function WorkoutProfilePage() {
             </div>
           </div>
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength levels — e1RM, ratio to bodyweight, tier</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength levels — graded for your bodyweight &amp; sex</p>
+            <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Beginner → novice → intermediate → advanced → elite, from Strength Level&apos;s dataset.</p>
             <div className="mt-2 space-y-1.5">
               {LIFT_ROWS.map((l) => (
                 <div key={l.name} className="flex items-center gap-2">
                   <span className="w-14 text-[11px]" style={{ color: "var(--color-ink)" }}>{l.name}</span>
-                  <span className="w-14 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{l.e1 > 0 ? `${Math.round(l.e1)}kg` : "—"}</span>
+                  <span className="w-14 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{l.e1 > 0 ? `${disp(l.e1)}${wUnit}` : "—"}</span>
                   <div className="h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-                    <div className="h-1.5 rounded-full" style={{ width: `${Math.min((l.ratio / 2.5) * 100, 100)}%`, backgroundColor: l.level === "advanced" ? "var(--color-success)" : l.level === "intermediate" ? "var(--color-accent)" : "var(--color-warmth)" }} />
+                    <div className="h-1.5 rounded-full" style={{ width: `${l.pctToNext ?? Math.min((l.ratio / 2.5) * 100, 100)}%`, backgroundColor: l.level === "elite" ? "var(--color-warmth)" : l.level === "advanced" ? "var(--color-success)" : l.level === "intermediate" ? "var(--color-accent)" : "var(--color-paper-3)" }} />
                   </div>
-                  <span className="w-24 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                    {l.e1 > 0 ? `${l.ratio.toFixed(2)}×bw · ${l.level}${l.gainPct != null ? ` ${l.gainPct > 0 ? "+" : ""}${l.gainPct}%` : ""}` : "—"}
+                  <span className="w-28 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                    {l.e1 > 0
+                      ? `${l.level}${l.nextKg ? ` → ${l.nextLevel} at ${disp(l.nextKg)}${wUnit}` : ""}`
+                      : "—"}
                   </span>
                 </div>
               ))}
