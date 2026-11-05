@@ -297,18 +297,28 @@ export default function GoalsTab({
     <div
       className="flex flex-col gap-4"
       style={isBucket ? {
-        // Dreamy cloud field — soft radial blooms in the same palette, no
-        // imported art, no hard edges.
+        // Night-sky dream field — star specks over layered accent/warmth
+        // blooms and a soft ink veil. CSS-only, same palette.
         backgroundImage: [
-          "radial-gradient(ellipse 140px 90px at 12% 8%, color-mix(in oklab, var(--color-accent) 14%, transparent), transparent 70%)",
-          "radial-gradient(ellipse 180px 110px at 82% 4%, color-mix(in oklab, var(--color-warmth) 12%, transparent), transparent 70%)",
-          "radial-gradient(ellipse 160px 100px at 55% 30%, color-mix(in oklab, var(--color-paper-3) 40%, transparent), transparent 70%)",
-          "radial-gradient(ellipse 200px 120px at 8% 60%, color-mix(in oklab, var(--color-paper-2) 70%, transparent), transparent 70%)",
-          "radial-gradient(ellipse 170px 100px at 90% 78%, color-mix(in oklab, var(--color-accent) 10%, transparent), transparent 70%)",
+          "radial-gradient(circle 1.5px at 8% 12%, var(--color-warmth), transparent 100%)",
+          "radial-gradient(circle 1px at 22% 32%, var(--color-ink-muted), transparent 100%)",
+          "radial-gradient(circle 1.5px at 38% 6%, var(--color-accent), transparent 100%)",
+          "radial-gradient(circle 1px at 55% 18%, var(--color-warmth), transparent 100%)",
+          "radial-gradient(circle 1px at 70% 10%, var(--color-ink-muted), transparent 100%)",
+          "radial-gradient(circle 1.5px at 85% 26%, var(--color-accent), transparent 100%)",
+          "radial-gradient(circle 1px at 15% 52%, var(--color-accent), transparent 100%)",
+          "radial-gradient(circle 1px at 45% 68%, var(--color-ink-muted), transparent 100%)",
+          "radial-gradient(circle 1.5px at 78% 55%, var(--color-warmth), transparent 100%)",
+          "radial-gradient(circle 1px at 92% 82%, var(--color-accent), transparent 100%)",
+          "radial-gradient(ellipse 220px 150px at 80% -5%, color-mix(in oklab, var(--color-warmth) 18%, transparent), transparent 70%)",
+          "radial-gradient(ellipse 260px 180px at 15% 15%, color-mix(in oklab, var(--color-accent) 16%, transparent), transparent 70%)",
+          "radial-gradient(ellipse 300px 200px at 50% 110%, color-mix(in oklab, var(--color-accent) 10%, transparent), transparent 70%)",
+          "linear-gradient(color-mix(in oklab, var(--color-paper-2) 35%, transparent), transparent)",
         ].join(", "),
-        borderRadius: "1rem",
-        padding: "0.75rem",
-        margin: "-0.75rem",
+        borderRadius: "1.25rem",
+        border: "1px solid color-mix(in oklab, var(--color-accent) 25%, var(--color-paper-3))",
+        padding: "1rem",
+        margin: "-1rem",
       } : undefined}
     >
       {/* Header */}
@@ -342,7 +352,9 @@ export default function GoalsTab({
       {addingRoot ? (
         <div
           className="flex flex-col gap-3 rounded-xl border p-4"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+          style={isBucket
+            ? { borderColor: "color-mix(in oklab, var(--color-accent) 40%, var(--color-paper-3))", backgroundColor: "color-mix(in oklab, var(--color-paper) 75%, transparent)", backdropFilter: "blur(6px)", borderRadius: "1rem" }
+            : { borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
         >
           <input
             autoFocus
@@ -352,9 +364,11 @@ export default function GoalsTab({
               if (e.key === "Enter") { void createGoal(newTitle, null, newDescription, newTargetDate); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); setAddingRoot(false); }
               if (e.key === "Escape") { setAddingRoot(false); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); }
             }}
-            placeholder={goalType === "rules" ? "A principle you hold yourself to..." : goalType === "bucket" ? "Something you dream of doing one day..." : `What do you want to achieve?`}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+            placeholder={goalType === "rules" ? "A principle you hold yourself to..." : goalType === "bucket" ? "✦ Something you dream of doing one day..." : `What do you want to achieve?`}
+            className={`${isBucket ? "rounded-full px-4" : "rounded-lg px-3"} border py-2 text-sm outline-none`}
+            style={isBucket
+              ? { borderColor: "color-mix(in oklab, var(--color-accent) 50%, var(--color-paper-3))", backgroundColor: "color-mix(in oklab, var(--color-paper) 85%, transparent)", color: "var(--color-ink)" }
+              : { borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
           />
           <input
             value={newDescription}
@@ -410,16 +424,20 @@ export default function GoalsTab({
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
         >
           <Plus className="h-4 w-4" />
-          Add {horizon.singular}
+          {isBucket ? "✦ Add a dream" : `Add ${horizon.singular}`}
         </button>
       )}
 
       {/* Goal list */}
       {filteredGoals.length === 0 && !addingRoot ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Target className="h-8 w-8 mb-3" style={{ color: "var(--color-ink-muted)", opacity: 0.4 }} />
+          {isBucket ? (
+            <p className="mb-3 text-3xl" style={{ color: "var(--color-warmth)" }}>☾</p>
+          ) : (
+            <Target className="h-8 w-8 mb-3" style={{ color: "var(--color-ink-muted)", opacity: 0.4 }} />
+          )}
           <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
-            No {horizon.singular}s yet.
+            {isBucket ? "The sky's the limit — name your first dream." : `No ${horizon.singular}s yet.`}
           </p>
         </div>
       ) : (
