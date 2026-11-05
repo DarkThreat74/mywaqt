@@ -4,7 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
 import { isValidUUID } from "@/lib/validation";
-import { recommendLoadKg } from "@/lib/workout/recommend";
+import { recommendLoadKg, estimateE1rm } from "@/lib/workout/recommend";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +71,31 @@ export async function GET(request: NextRequest) {
     exercises.set(set.slug, previous);
     bySession.set(set.sessionId, exercises);
   }
+  // PR detection: for each session (oldest→newest), an exercise counts as a PR
+  // when its best e1RM beats every prior session's best for that slug.
+  const bestSoFar = new Map<string, number>();
+  const prMap = new Map<string, Set<string>>(); // sessionId -> pr slugs
+  const sessionBestE1 = new Map<string, Map<string, number>>();
+  for (const set of completed) {
+    const w = Number.parseFloat(set.weight || "");
+    if (!(w > 0) || !(set.reps && set.reps > 0) || set.reps > 12) continue;
+    const e1 = estimateE1rm(w, set.reps);
+    const m = sessionBestE1.get(set.sessionId) || new Map<string, number>();
+    m.set(set.slug, Math.max(m.get(set.slug) || 0, e1));
+    sessionBestE1.set(set.sessionId, m);
+  }
+  for (const s of [...sessions].reverse()) {
+    const m = sessionBestE1.get(s.id);
+    if (!m) continue;
+    for (const [slug, e1] of m) {
+      if (e1 > (bestSoFar.get(slug) || 0) * 1.005) {
+        const prs = prMap.get(s.id) || new Set<string>();
+        prs.add(slug);
+        prMap.set(s.id, prs);
+      }
+      bestSoFar.set(slug, Math.max(bestSoFar.get(slug) || 0, e1));
+    }
+  }
   return NextResponse.json({
     sessions: sessions.map((s) => ({
       ...s,
@@ -78,6 +103,7 @@ export async function GET(request: NextRequest) {
         slug,
         setCount: summary.setCount,
         recommendedWeightKg: Math.round(summary.recommendedWeightKg * 10) / 10,
+        pr: prMap.get(s.id)?.has(slug) ?? false,
       })),
     })),
   }, {

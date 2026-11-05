@@ -103,6 +103,18 @@ export async function GET(request: NextRequest) {
       bySlug.set(row.slug, e);
     }
     // sessions-between: count distinct sessions overall for context
+    // Readiness scaling — last check-in's sleep/energy/soreness/stress scales
+    // every load suggestion (autoregulation: a wrecked day gets ×0.85-0.95).
+    let readinessFactor = 1;
+    const [latestReady] = await db.select({ readiness: schema.workoutSessions.readiness })
+      .from(schema.workoutSessions)
+      .where(and(eq(schema.workoutSessions.userId, session.userId), isNotNull(schema.workoutSessions.readiness)))
+      .orderBy(desc(schema.workoutSessions.startedAt)).limit(1);
+    const r0 = latestReady?.readiness as { sleepHours?: number; energy?: number; soreness?: number; stress?: number } | null;
+    if (r0 && (r0.energy || r0.soreness || r0.stress || r0.sleepHours)) {
+      const score = ((r0.energy ?? 7) + (10 - (r0.soreness ?? 3)) + (10 - (r0.stress ?? 4)) + Math.min(((r0.sleepHours ?? 7) / 8) * 10, 10)) / 4;
+      readinessFactor = Math.round(Math.min(1.05, Math.max(0.85, 0.9 + score * 0.015)) * 100) / 100;
+    }
     const sessCount = new Set(rows.map((r) => r.sessionId)).size;
     const out = [...bySlug.entries()].map(([slug, v]) => ({
       slug,
@@ -122,8 +134,8 @@ export async function GET(request: NextRequest) {
       // Conservative next-load recommendation. RIR 3+ means hold; RIR 2
       // earns a small jump; RIR 0-1 earns a larger jump only when the set
       // was not already a late-session fatigue-affected effort.
-      recommendedKg: v.last ? Math.round(recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).kg * 10) / 10 : null,
-      recommendationReason: v.last ? recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).reason : null,
+      recommendedKg: v.last ? Math.round(recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).kg * readinessFactor * 10) / 10 : null,
+      recommendationReason: v.last ? `${recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).reason}${readinessFactor !== 1 ? ` · readiness ×${readinessFactor}` : ""}` : null,
       limbs: Object.fromEntries([...((limbBySlug.get(slug) || new Map()).entries())].map(([hand, l]) => [hand, {
         bestE1: Math.round(l.best * 10) / 10,
         // Rows arrive newest-first; reverse the observed points for growth.

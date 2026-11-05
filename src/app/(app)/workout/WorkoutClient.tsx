@@ -43,7 +43,7 @@ export default function WorkoutClient() {
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<Array<{
     id: string; dayId?: string; dayName: string; startedAt: string; endedAt: string | null; syncPending?: boolean; syncError?: string | null;
-    completedExercises?: Array<{ slug: string; setCount: number; recommendedWeightKg: number }>;
+    completedExercises?: Array<{ slug: string; setCount: number; recommendedWeightKg: number; pr?: boolean }>;
   }>>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [dayName, setDayName] = useState("");
@@ -765,7 +765,7 @@ export default function WorkoutClient() {
                   {s.completedExercises?.length
                     ? s.completedExercises.map((x) => {
                       const name = EXERCISES.find((e) => e.slug === x.slug)?.name || x.slug.replace(/-/g, " ");
-                      return `${name} · ${x.setCount} ${x.setCount === 1 ? "set" : "sets"} · next ${dispW(x.recommendedWeightKg)}${units}`;
+                      return `${name} · ${x.setCount} ${x.setCount === 1 ? "set" : "sets"} · next ${dispW(x.recommendedWeightKg)}${units}${x.pr ? " ★PR" : ""}`;
                     }).join("  •  ")
                     : s.endedAt ? "No completed sets" : "No sets logged yet"}
                 </p>
