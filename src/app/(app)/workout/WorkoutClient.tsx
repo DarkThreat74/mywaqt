@@ -39,7 +39,7 @@ export default function WorkoutClient() {
 
   const [actionDay, setActionDay] = useState<WDay | null>(null);
   const router = useRouter();
-  const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number }>>([]);
+  const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number; advice?: string | null }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<Array<{
@@ -645,9 +645,9 @@ export default function WorkoutClient() {
                   <span className="w-14 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                     {m.effSetsWeek}/{lo}–{hi} {m.slopePct > 0.3 ? `+${m.slopePct}%` : m.slopePct < -0.3 ? `${m.slopePct}%` : ""}
                   </span>
-                  <span className="w-9 text-right text-[9px] tabular-nums" title="Recovered — Fitbod-style freshness"
-                    style={{ color: m.freshness >= 90 ? "var(--color-success)" : m.freshness >= 50 ? "var(--color-warmth)" : "var(--color-error)" }}>
-                    {m.freshness}%
+                  <span className="text-right text-[9px] tabular-nums" title={m.advice || "Recovered — Fitbod-style freshness"}
+                    style={{ color: m.advice ? "var(--color-accent)" : m.freshness >= 90 ? "var(--color-success)" : m.freshness >= 50 ? "var(--color-warmth)" : "var(--color-error)", minWidth: m.advice ? "auto" : undefined, width: m.advice ? "auto" : "2.25rem" }}>
+                    {m.advice || `${m.freshness}%`}
                   </span>
                 </div>
               );

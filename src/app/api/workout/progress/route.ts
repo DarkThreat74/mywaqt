@@ -295,10 +295,18 @@ export async function GET(request: NextRequest) {
         eff > hi ? "over" :
         slope > 0.3 ? "growing" :
         slope > -0.3 ? "maintaining" : "stalling";
+      // RP mesocycle advice: MV (~6) maintains, MEV is the growth floor, MAV→
+      // MRV is the ramp zone, beyond MRV recovery fails → deload.
+      const advice =
+        eff < 6 ? "below maintenance — add sets or it shrinks" :
+        eff < lo ? `+${Math.ceil(lo - eff)} sets to reach growth floor` :
+        eff > hi ? "past MRV — deload or reduce volume" :
+        status === "stalling" ? "stalling — change variation or rep range" :
+        status === "growing" ? "on track — keep ramping ~+2 sets/wk" : null;
       // Fitbod-style freshness: ~48-72h to recover → % recovered
       const hoursSince = lastTrained.get(muscle) ? (nowMs - lastTrained.get(muscle)!) / 3600000 : Infinity;
       const freshness = Math.min(Math.round((hoursSince / 72) * 100), 100);
-      return { muscle, effSetsWeek: Math.round(eff * 10) / 10, landmark: [lo, hi], slopePct: Math.round(slope * 10) / 10, status, freshness };
+      return { muscle, effSetsWeek: Math.round(eff * 10) / 10, landmark: [lo, hi], slopePct: Math.round(slope * 10) / 10, status, freshness, advice };
     });
     // Weekly volume trend — last 7d vs prior 7d (Hevy-style stat).
     let tonWeek = 0, tonPrevWeek = 0;
