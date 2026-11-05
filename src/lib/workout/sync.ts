@@ -13,9 +13,21 @@ export async function syncPendingWorkouts(): Promise<void> {
     // worker's synthetic response. Upserts are idempotent, so re-pushing is
     // always safe.
     const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const pending = await db.workoutSessions
+    const staleMs = 30 * 60 * 1000;
+    const all = await db.workoutSessions
       .filter((s) => s.syncState !== "synced" || s.updatedAt >= cutoff)
       .toArray();
+    const pending = [];
+    for (const s of all) {
+      const sets = await db.workoutSets.where("sessionId").equals(s.id).count();
+      // Stale empty drafts (opened a page, never logged) would sync as ghost
+      // open sessions and resurrect the pill — purge them instead.
+      if (sets === 0 && !s.endedAt && Date.now() - Date.parse(s.startedAt) > staleMs) {
+        await db.workoutSessions.delete(s.id);
+        continue;
+      }
+      pending.push(s);
+    }
     for (const session of pending) {
       const sets = await db.workoutSets.where("sessionId").equals(session.id).toArray();
       const res = await fetch("/workout-sync", {

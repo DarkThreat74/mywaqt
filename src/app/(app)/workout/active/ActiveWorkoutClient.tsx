@@ -101,22 +101,11 @@ function ActiveInner() {
       if (!d || cancelled) return;
       setDayName(d.name);
       setAvailableExercises(d.exercises || []);
-      // Start/resume session
+      // Start/resume session. The local draft is only written once we know
+      // the network is down — creating it unconditionally left empty open
+      // sessions that synced to the server and resurrected the workout pill.
       const localSessionId = crypto.randomUUID();
       const localStartedAt = new Date().toISOString();
-      try {
-        await getOfflineDB().workoutSessions.put({
-          id: localSessionId,
-          userId: null,
-          dayId: d.id,
-          dayName: d.name,
-          startedAt: localStartedAt,
-          endedAt: null,
-          exerciseOrder: {},
-          syncState: "pending",
-          updatedAt: localStartedAt,
-        });
-      } catch { /* browser storage may be unavailable; server path remains */ }
       const startBody = {
         clientId: localSessionId,
         dayId: d.id,
@@ -141,7 +130,44 @@ function ActiveInner() {
       };
       if (!sres?.ok) {
         // The phone owns the active session when the network is unavailable.
+        // Resume an open local draft for this day if one exists — otherwise
+        // a reload would orphan the in-progress offline workout.
         sdata = { session: { id: localSessionId, startedAt: localStartedAt }, sets: [], resumed: false };
+        try {
+          const db = getOfflineDB();
+          const open = await db.workoutSessions
+            .filter((s) => s.dayId === d.id && !s.endedAt)
+            .toArray();
+          const draft = open.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+          if (draft) {
+            const localSets = await db.workoutSets.where("sessionId").equals(draft.id).toArray();
+            sdata = {
+              session: { id: draft.id, startedAt: draft.startedAt },
+              resumed: true,
+              sets: localSets.map((s) => ({
+                slug: s.slug, setIndex: s.setIndex, weight: s.weight, reps: s.reps,
+                rir: s.rir ?? null, setType: s.setType ?? "working",
+                variation: s.variation ?? null, side: s.side ?? null,
+                loggedAt: s.loggedAt, done: s.done,
+              })),
+            };
+          }
+        } catch { /* fall through to a fresh draft */ }
+        if (!sdata.resumed) {
+          try {
+            await getOfflineDB().workoutSessions.put({
+              id: localSessionId,
+              userId: null,
+              dayId: d.id,
+              dayName: d.name,
+              startedAt: localStartedAt,
+              endedAt: null,
+              exerciseOrder: {},
+              syncState: "pending",
+              updatedAt: new Date().toISOString(),
+            });
+          } catch { /* storage unavailable */ }
+        }
       } else {
         sdata = await sres.json();
       }
@@ -207,16 +233,31 @@ function ActiveInner() {
           updatedAt: now,
         })));
       } catch { /* best effort */ }
-      const resumedExercises = sdata.resumed
-        ? (d.exercises || []).filter((exercise: DayExercise) => rows[exercise.slug])
-        : [];
-      setExercises(resumedExercises);
-      setSetCounts(Object.fromEntries(resumedExercises.map((exercise: DayExercise) => [exercise.slug, Math.max(1, exercise.sets || 1)])));
+      // Resume rebuilds cards from the logged rows themselves — exercises
+      // added via Other/library aren't in the day's routine list but still
+      // need their card (and paired L/R counts) restored.
       const modes: Record<string, HandMode> = {};
       for (const [slug, sets] of Object.entries(rows)) {
         if (sets.some((set) => set?.variation === "hand:left" || set?.variation === "hand:right")) modes[slug] = "one";
       }
       setHandModes(modes);
+      const resumedExercises: DayExercise[] = sdata.resumed
+        ? Object.keys(rows).map((slug) => {
+            const fromDay = (d.exercises || []).find((e: DayExercise) => e.slug === slug);
+            const lib = EXERCISES.find((e) => e.slug === slug);
+            const rowCount = rows[slug].length;
+            const logicalSets = Math.max(modes[slug] === "one" ? Math.ceil(rowCount / 2) : rowCount, 1);
+            return {
+              slug,
+              name: fromDay?.name || lib?.name || slug.replace(/-/g, " "),
+              sets: Math.max(logicalSets, fromDay?.sets || 1),
+              reps: fromDay?.reps || "",
+              supersetGroup: fromDay?.supersetGroup ?? null,
+            };
+          })
+        : [];
+      setExercises(resumedExercises);
+      setSetCounts(Object.fromEntries(resumedExercises.map((exercise: DayExercise) => [exercise.slug, Math.max(1, exercise.sets || 1)])));
       // Previous-session pre-fill (Strong-style): last completed numbers as placeholders
       if (!sdata.resumed) {
         const pr = await fetch(`/api/workout/sessions?lastFor=${d.id}`).catch(() => null);
