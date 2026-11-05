@@ -16,6 +16,14 @@ interface SetRow { weight: string; reps: number | null; rir?: number | null; set
 type Unit = "kg" | "lb";
 type HandMode = "both" | "one";
 
+// Exercises that are inherently one-side-at-a-time (Single-Arm X, One-Arm Y)
+// default to paired L/R rows instead of requiring the manual 1-hand toggle.
+const unilateralByDefault = (slug: string) => {
+  const name = (EXERCISES.find((e) => e.slug === slug)?.name || slug).toLowerCase();
+  return /single-arm|one-arm|single-leg|unilateral/.test(name) || /^(single-arm|one-arm|single-leg)/.test(slug);
+};
+const handedCapable = (slug: string) => HANDED.has(slug) || unilateralByDefault(slug);
+
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
 function fmt(s: number) {
@@ -33,6 +41,7 @@ function ActiveInner() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [setRows, setSetRows] = useState<Record<string, SetRow[]>>({});
   const [handModes, setHandModes] = useState<Record<string, HandMode>>({});
+  const handModeOf = (slug: string) => handModes[slug] ?? (unilateralByDefault(slug) ? "one" : "both");
   const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
   const [bestE1, setBestE1] = useState<Map<string, number>>(new Map());
   const [recommendedKg, setRecommendedKg] = useState<Map<string, number>>(new Map());
@@ -270,8 +279,8 @@ function ActiveInner() {
   const finishing = useRef(false);
   const logSet = async (slug: string, idx: number, patch: Partial<SetRow>): Promise<boolean> => {
     const prev = setRows[slug]?.[idx] || { weight: "", reps: null, done: false };
-    const mode = handModes[slug] ?? "both";
-    const automaticHand = HANDED.has(slug)
+    const mode = handModeOf(slug);
+    const automaticHand = handedCapable(slug)
       ? mode === "one" ? (idx % 2 === 0 ? "hand:left" : "hand:right") : "hand:both"
       : undefined;
     const loggedNow = nowMs();
@@ -313,18 +322,17 @@ function ActiveInner() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, side: next.side, loggedAt: next.loggedAt, restAfterSec, done: next.done }),
       }).catch(() => null);
-      if (!response || !response.ok) {
+      if (!response?.ok) {
+        // Direct path failed — the /api fallback can be answered by a stale
+        // service worker with a synthetic ok, so flag pending regardless and
+        // let the sweeper push real data via /workout-sync.
+        void markPending();
         response = await fetch("/api/workout/sets", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId, slug, setIndex: idx, weight: unitToKg(next.weight), reps: next.reps, rir: next.rir, setType: next.setType, variation: next.variation, side: next.side, loggedAt: next.loggedAt, restAfterSec, done: next.done }),
         }).catch(() => null);
       }
-      if (!response?.ok) {
-        // Both network paths failed — flag the session pending so the
-        // reconnect sweeper pushes it via /api/workout/sync later.
-        void markPending();
-        return localSaved;
-      }
+      if (!response?.ok) return localSaved;
     }
     if (patch.done && !finishing.current) rest();
     return true;
@@ -428,8 +436,8 @@ function ActiveInner() {
           if (r && r.reps != null && r.reps > 0 && parseFloat(r.weight) > 0) {
             const saved = await logSet(slug, i, {
               done: true,
-              ...(HANDED.has(slug) && handModes[slug] === "one" && !r.variation ? { variation: "hand:left" } : {}),
-              ...(HANDED.has(slug) && (handModes[slug] ?? "both") === "both" && !r.variation ? { variation: "hand:both" } : {}),
+              ...(handedCapable(slug) && handModeOf(slug) === "one" && !r.variation ? { variation: "hand:left" } : {}),
+              ...(handedCapable(slug) && handModeOf(slug) === "both" && !r.variation ? { variation: "hand:both" } : {}),
             });
             if (!saved) allSetsSaved = false;
           }
@@ -834,7 +842,7 @@ function ActiveInner() {
                   })}
                 </div>
               )}
-              {HANDED.has(x.slug) && (
+              {handedCapable(x.slug) && (
                 <div className="mt-2 flex items-center gap-2 rounded-lg border px-2 py-1.5"
                   style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper-2) 55%, transparent)" }}>
                   <span className="text-[10px] font-medium" style={{ color: "var(--color-ink-muted)" }}>How are you lifting?</span>
@@ -842,15 +850,15 @@ function ActiveInner() {
                     <button key={mode} type="button" onClick={() => setHandMode(x.slug, mode)}
                       className="rounded-full border px-2.5 py-1 text-[10px] font-semibold"
                       style={{
-                        borderColor: (handModes[x.slug] ?? "both") === mode ? "var(--color-accent)" : "var(--color-paper-3)",
-                        color: (handModes[x.slug] ?? "both") === mode ? "var(--color-accent)" : "var(--color-ink-muted)",
-                        backgroundColor: (handModes[x.slug] ?? "both") === mode ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "transparent",
+                        borderColor: handModeOf(x.slug) === mode ? "var(--color-accent)" : "var(--color-paper-3)",
+                        color: handModeOf(x.slug) === mode ? "var(--color-accent)" : "var(--color-ink-muted)",
+                        backgroundColor: handModeOf(x.slug) === mode ? "color-mix(in oklab, var(--color-accent) 10%, transparent)" : "transparent",
                       }}>
                       {mode === "both" ? "2 hands" : "1 hand"}
                     </button>
                   ))}
                   <span className="ml-auto text-[9px]" style={{ color: "var(--color-ink-faint)" }}>
-                    {(handModes[x.slug] ?? "both") === "one" ? "choose L/R per set" : "bilateral load"}
+                    {handModeOf(x.slug) === "one" ? "choose L/R per set" : "bilateral load"}
                   </span>
                 </div>
               )}
@@ -863,8 +871,8 @@ function ActiveInner() {
                   <span className="w-12 text-center" title="Reps in reserve — how many more you could have done">RIR</span>
                   <span className="flex-1" />
                 </div>
-                {Array.from({ length: (setCounts[x.slug] ?? 1) * ((HANDED.has(x.slug) && (handModes[x.slug] ?? "both") === "one") ? 2 : 1) }, (_, slot) => {
-                  const oneHand = HANDED.has(x.slug) && (handModes[x.slug] ?? "both") === "one";
+                {Array.from({ length: (setCounts[x.slug] ?? 1) * ((handedCapable(x.slug) && handModeOf(x.slug) === "one") ? 2 : 1) }, (_, slot) => {
+                  const oneHand = handedCapable(x.slug) && handModeOf(x.slug) === "one";
                   const logicalIndex = oneHand ? Math.floor(slot / 2) : slot;
                   const rowIndex = oneHand ? logicalIndex * 2 + (slot % 2) : logicalIndex;
                   const side = slot % 2 === 0 ? "left" : "right";
@@ -872,7 +880,15 @@ function ActiveInner() {
                   const prev = prevSets[x.slug]?.[logicalIndex];
                   return (
                     <div key={rowIndex} className="flex items-center gap-2 rounded-lg px-1 py-0.5 transition-colors"
-                      style={{ backgroundColor: row.done ? "color-mix(in oklab, var(--color-success) 12%, transparent)" : "transparent" }}>
+                      style={{
+                        backgroundColor: row.done ? "color-mix(in oklab, var(--color-success) 12%, transparent)" : oneHand ? "color-mix(in oklab, var(--color-accent) 4%, transparent)" : "transparent",
+                        ...(oneHand ? {
+                          borderLeft: `2px solid ${side === "left" ? "var(--color-accent)" : "var(--color-warmth, var(--color-accent))"}`,
+                          marginBottom: side === "right" ? 4 : 0,
+                          borderTopLeftRadius: side === "left" ? 6 : 0,
+                          borderBottomLeftRadius: side === "right" ? 6 : 0,
+                        } : {}),
+                      }}>
                       <span className="w-6 text-center text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{logicalIndex + 1}{oneHand ? ` ${side === "left" ? "L" : "R"}` : ""}</span>
                       <input
                         value={row.weight}
