@@ -39,6 +39,14 @@ export default function WorkoutClient() {
   const confidenceLabel = (value?: number) => value == null ? null : value >= 0.75 ? "high confidence" : value >= 0.5 ? "medium confidence" : "early estimate";
   const evidenceLabel = (value?: string) => value === "3 similar exposures" ? "3 similar workouts" : value === "recent performance rising" ? "recent workouts improving" : value === "Needs more exposures" ? "needs more workouts" : value;
   const rirLabel = (rir: number | null) => rir == null ? null : rir === 0 ? "to failure" : `${rir} ${rir === 1 ? "rep" : "reps"} left`;
+  const actionLabel = (reason?: string | null) => {
+    if (!reason) return "repeat the movement to collect more data";
+    if (reason.includes("hold and change")) return "change the rep range or variation";
+    if (reason.includes("hold-high-rir")) return "keep this weight and work closer to your target reps";
+    if (reason.includes("late-fatigue")) return "keep this weight — you were already fatigued";
+    if (reason.includes("small-progress")) return "a small increase looks reasonable";
+    return "repeat this weight and record your reps";
+  };
 
   const [actionDay, setActionDay] = useState<WDay | null>(null);
   const router = useRouter();
@@ -631,10 +639,10 @@ export default function WorkoutClient() {
       {showProgress && muscles.length > 0 && (
         <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
           <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>
-            This week — effective sets per muscle
+            Muscle workload this week
           </p>
           <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            Bar = hard sets this week vs a useful growth range. <b>9/10–20</b> means 9 hard sets done, with 10–20 as a starting target. The last % only means rested enough to train again. Direct = this muscle was the main target; indirect = it helped.
+            Each row answers: how much work did this muscle get, and is it rested? <b>9/10–20</b> means 9 hard sets done, with 10–20 as a starting target. Direct = the main target; indirect = it helped.
           </p>
           <div className="mt-2 space-y-1.5">
             {muscles.filter((m) => m.effSetsWeek > 0).map((m) => {
@@ -658,8 +666,8 @@ export default function WorkoutClient() {
                     <p className="w-full pl-[5.5rem] -mt-0.5 text-[9px]" style={{ color: "var(--color-accent)" }}>{m.advice}</p>
                   )}
                   <p className="w-full pl-[5.5rem] -mt-0.5 text-[9px]" style={{ color: "var(--color-ink-faint)" }}>
-                    {m.directSetsWeek ?? m.effSetsWeek} direct
-                    {(m.indirectSetsWeek ?? 0) > 0 ? ` · ${(m.indirectSetsWeek ?? 0).toFixed(1)} indirect estimate` : ""}
+                    {m.directSetsWeek ?? m.effSetsWeek} main-target sets
+                    {(m.indirectSetsWeek ?? 0) > 0 ? ` · ${(m.indirectSetsWeek ?? 0).toFixed(1)} helper estimate` : ""}
                   </p>
                 </div>
               );
@@ -706,7 +714,7 @@ export default function WorkoutClient() {
                 )}
                 {(p.predictionConfidence != null || p.plateau) && (
                   <p className="mt-1 text-[9px]" style={{ color: p.plateau ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
-                    {p.plateau ? "Plateau signal · " : ""}
+                    {p.plateau ? "Same result for 3 workouts · " : ""}
                     {confidenceLabel(p.predictionConfidence) || ""}
                     {p.uncertaintyRangeKg ? ` · range ${dispW(p.uncertaintyRangeKg[0])}–${dispW(p.uncertaintyRangeKg[1])}${units}` : ""}
                     {evidenceLabel(p.recommendationEvidence) ? ` · ${evidenceLabel(p.recommendationEvidence)}` : ""}
@@ -735,6 +743,9 @@ export default function WorkoutClient() {
                     {units}
                   </span>
                 </div>
+                <p className="mt-1 text-[9px]" style={{ color: "var(--color-accent)" }}>
+                  {actionLabel(p.recommendationReason)}
+                </p>
                 {(p.variations || []).length > 1 && (
                   <p className="mt-1 text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                     {p.variations!.length} variations tracked · best {dispW(Math.max(...p.variations!.map((v) => v.bestE1)))}{units}
@@ -750,7 +761,7 @@ export default function WorkoutClient() {
                     ))}
                     {forecast?.status === "forecast" && forecast.monthlyE1rmChangePct != null && (
                       <span style={{ color: "var(--color-success)" }}>
-                        {forecast.monthlyE1rmChangePct >= 0 ? "+" : ""}{forecast.monthlyE1rmChangePct}% monthly trend · {confidenceLabel(forecast.confidence)}
+                        {forecast.monthlyE1rmChangePct >= 0 ? "+" : ""}{forecast.monthlyE1rmChangePct}% per month trend · {confidenceLabel(forecast.confidence)}
                       </span>
                     )}
                   </div>
