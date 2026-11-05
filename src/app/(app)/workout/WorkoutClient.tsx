@@ -520,11 +520,26 @@ export default function WorkoutClient() {
         </div>
       )}
       {progress.length > 0 && (
-        <button type="button" onClick={() => setShowProgress((v) => !v)}
-          className="mt-4 w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
-          {showProgress ? "Hide" : "Show"} progress — {progress.length} exercises tracked
-        </button>
+        <div className="mt-4 flex rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+          {(["progress", "history"] as const).map((tab) => {
+            const active = tab === "progress" ? showProgress : showHistory;
+            const label = tab === "progress" ? `Progress${progress.length ? ` · ${progress.length}` : ""}` : `History${history.length ? ` · ${history.length}` : ""}`;
+            return (
+              <button key={tab} type="button"
+                onClick={() => {
+                  if (tab === "progress") { setShowProgress((v) => !v); setShowHistory(false); }
+                  else { setShowHistory((v) => !v); setShowProgress(false); }
+                }}
+                className="flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors"
+                style={{
+                  backgroundColor: active ? "var(--color-ink)" : "transparent",
+                  color: active ? "var(--color-paper)" : "var(--color-ink-muted)",
+                }}>
+                {label}
+              </button>
+            );
+          })}
+        </div>
       )}
 
       {showProgress && (
@@ -731,11 +746,13 @@ export default function WorkoutClient() {
         </div>
       )}
 
-      <button type="button" onClick={() => setShowHistory((v) => !v)}
-        className="mt-3 w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
-        {showHistory ? "Hide" : "Show"} history{history.length ? ` — ${history.length} sessions` : ""}
-      </button>
+      {history.length > 0 && !progress.length && (
+        <button type="button" onClick={() => setShowHistory((v) => !v)}
+          className="mt-3 w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+          {showHistory ? "Hide" : "Show"} history{history.length ? ` — ${history.length} sessions` : ""}
+        </button>
+      )}
       {history.some((x) => x.syncPending) && (
         <button type="button" onClick={() => void syncNow()} disabled={syncingNow}
           className="mt-1.5 w-full rounded-lg border border-dashed px-3 py-2 text-[11px] font-semibold disabled:opacity-50"
