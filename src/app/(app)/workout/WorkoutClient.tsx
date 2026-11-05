@@ -22,7 +22,7 @@ export default function WorkoutClient() {
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null; carryoverKg?: number; carryoverFrom?: string; familyVariations?: number; familyBestE1?: number;
-    daysSince?: number | null; retained?: number; recommendedKg?: number | null; recommendationReason?: string | null; averageRir?: number | null; averageReps?: number | null; predictionConfidence?: number; plateau?: boolean;
+    daysSince?: number | null; retained?: number; recommendedKg?: number | null; recommendationReason?: string | null; averageRir?: number | null; averageReps?: number | null; predictionConfidence?: number; uncertaintyRangeKg?: [number, number]; recommendationEvidence?: string; rirReliability?: number; plateau?: boolean;
     limbs?: Record<string, { bestE1?: number; lastE1?: number; gainPct?: number | null }>;
     variations?: Array<{ key: string; sets: number; bestE1: number; lastE1: number }>;
     growthForecast?: { status: string; monthlyE1rmChangePct: number | null; confidence: number } }>>([]);
@@ -39,7 +39,7 @@ export default function WorkoutClient() {
 
   const [actionDay, setActionDay] = useState<WDay | null>(null);
   const router = useRouter();
-  const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; landmark: [number, number]; slopePct: number; status: string; freshness: number; advice?: string | null }>>([]);
+  const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; directSetsWeek?: number; indirectSetsWeek?: number; landmark: [number, number]; slopePct: number; status: string; freshness: number; advice?: string | null; volumeConfidence?: number }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<Array<{
@@ -654,6 +654,11 @@ export default function WorkoutClient() {
                   {m.advice && (
                     <p className="w-full pl-[5.5rem] -mt-0.5 text-[9px]" style={{ color: "var(--color-accent)" }}>{m.advice}</p>
                   )}
+                  <p className="w-full pl-[5.5rem] -mt-0.5 text-[9px]" style={{ color: "var(--color-ink-faint)" }}>
+                    {m.directSetsWeek ?? m.effSetsWeek} direct
+                    {(m.indirectSetsWeek ?? 0) > 0 ? ` · ${(m.indirectSetsWeek ?? 0).toFixed(1)} indirect` : ""}
+                    {m.volumeConfidence != null ? ` · ${Math.round(m.volumeConfidence * 100)}% confidence` : ""}
+                  </p>
                 </div>
               );
             })}
@@ -700,7 +705,9 @@ export default function WorkoutClient() {
                 {(p.predictionConfidence != null || p.plateau) && (
                   <p className="mt-1 text-[9px]" style={{ color: p.plateau ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
                     {p.plateau ? "Plateau signal · " : ""}
-                    {p.predictionConfidence != null ? `${Math.round(p.predictionConfidence * 100)}% estimate confidence` : ""}
+                    {p.predictionConfidence != null ? `${Math.round(p.predictionConfidence * 100)}% confidence` : ""}
+                    {p.uncertaintyRangeKg ? ` · range ${dispW(p.uncertaintyRangeKg[0])}–${dispW(p.uncertaintyRangeKg[1])}${units}` : ""}
+                    {p.recommendationEvidence ? ` · ${p.recommendationEvidence}` : ""}
                   </p>
                 )}
                 <svg viewBox="0 0 100 18" className="mt-2 h-5 w-full" preserveAspectRatio="none" aria-hidden="true">

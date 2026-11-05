@@ -41,7 +41,8 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(schema.workoutSessions.startedAt));
     const nowMs = Date.now();
     // Group per slug → history points (best e1RM per session) + last-session detail
-    const bySlug = new Map<string, {
+    type Exposure = { at: string; e1: number; weight: number; reps: number; rir: number | null };
+    type SlugStats = {
       points: { at: string; e1: number; pos?: number }[];
       last: { w: number; r: number; rir: number | null; at: string; pos?: number; sessionId: string; readiness: typeof rows[number]["readiness"] } | null;
       sessionIds: Set<string>;
@@ -52,7 +53,9 @@ export async function GET(request: NextRequest) {
       rirCount: number;
       repSum: number;
       repCount: number;
-    }>();
+      exposures: Map<string, Exposure>;
+    };
+    const bySlug = new Map<string, SlugStats>();
     const limbBySlug = new Map<string, Map<"left" | "right" | "both", { best: number; first: number; last: number; points: number[] }>>();
     // Variation-keyed rollups — every grip/attachment/stance tracked
     // independently within its parent exercise.
@@ -74,9 +77,9 @@ export async function GET(request: NextRequest) {
       const w = parseFloat(row.weight || "");
       const r = row.reps || 0;
       if (!w || !r) continue;
-      const e = bySlug.get(row.slug) || {
+      const e: SlugStats = bySlug.get(row.slug) || {
         points: [], last: null, sessionIds: new Set<string>(), tonnage: 0, best: 0,
-        positions: [], rirSum: 0, rirCount: 0, repSum: 0, repCount: 0,
+        positions: [], rirSum: 0, rirCount: 0, repSum: 0, repCount: 0, exposures: new Map(),
       };
       const validE1 = r <= 12;
       // RIR-adjusted e1RM (Zourdos/Helms): effective reps = performed + in
@@ -135,6 +138,12 @@ export async function GET(request: NextRequest) {
         }
       }
       e.sessionIds.add(row.sessionId);
+      if (validE1) {
+        const exposure = e.exposures.get(row.sessionId);
+        if (!exposure || val > exposure.e1) {
+          e.exposures.set(row.sessionId, { at: row.at.toISOString(), e1: val, weight: w, reps: r, rir: row.rir });
+        }
+      }
       if (row.rir != null) { e.rirSum += row.rir; e.rirCount += 1; }
       e.repSum += r;
       e.repCount += 1;
@@ -168,14 +177,41 @@ export async function GET(request: NextRequest) {
       // Conservative next-load recommendation. RIR 3+ means hold; RIR 2
       // earns a small jump; RIR 0-1 earns a larger jump only when the set
       // was not already a late-session fatigue-affected effort.
-      recommendedKg: v.last ? Math.round(recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).kg * readinessFactor(v.last.readiness) * 10) / 10 : null,
-      recommendationReason: v.last ? `${recommendLoadKg(v.last.w, v.last.rir, v.last.pos ?? 0).reason}${readinessFactor(v.last.readiness) !== 1 ? ` · readiness ×${readinessFactor(v.last.readiness)}` : ""}` : null,
+      recommendedKg: v.last ? (() => {
+        const recent = [...v.exposures.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-3);
+        const flat = recent.length >= 3 && Math.max(...recent.map((x) => x.e1)) <= Math.min(...recent.map((x) => x.e1)) * 1.02;
+        const base = recommendLoadKg(v.last!.w, v.last!.rir, v.last!.pos ?? 0);
+        const readiness = readinessFactor(v.last!.readiness);
+        return Math.round((flat ? v.last!.w : base.kg) * readiness * 10) / 10;
+      })() : null,
+      recommendationReason: v.last ? (() => {
+        const recent = [...v.exposures.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-3);
+        const flat = recent.length >= 3 && Math.max(...recent.map((x) => x.e1)) <= Math.min(...recent.map((x) => x.e1)) * 1.02;
+        const readiness = readinessFactor(v.last!.readiness);
+        return `${flat ? "hold and change rep range or variation" : recommendLoadKg(v.last!.w, v.last!.rir, v.last!.pos ?? 0).reason}${readiness !== 1 ? ` · readiness ×${readiness}` : ""}`;
+      })() : null,
       averageRir: v.rirCount ? Math.round((v.rirSum / v.rirCount) * 10) / 10 : null,
       averageReps: v.repCount ? Math.round((v.repSum / v.repCount) * 10) / 10 : null,
       predictionConfidence: Math.round(Math.min(0.95,
         Math.max(0.25, Math.min(v.sessionIds.size, 8) / 8 * 0.6
           + (v.rirCount / Math.max(v.repCount, 1)) * 0.2
           + (v.repCount ? (v.repSum / v.repCount <= 8 ? 0.2 : v.repSum / v.repCount <= 12 ? 0.12 : 0.05) : 0))) * 100) / 100,
+      uncertaintyRangeKg: (() => {
+        const confidence = Math.min(0.95, Math.max(0.25, Math.min(v.sessionIds.size, 8) / 8 * 0.6
+          + (v.rirCount / Math.max(v.repCount, 1)) * 0.2
+          + (v.repCount ? (v.repSum / v.repCount <= 8 ? 0.2 : v.repSum / v.repCount <= 12 ? 0.12 : 0.05) : 0)));
+        const error = Math.max(0.05, 0.18 - confidence * 0.1);
+        return [Math.round(v.best * (1 - error) * 10) / 10, Math.round(v.best * (1 + error) * 10) / 10];
+      })(),
+      recentExposures: [...v.exposures.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-3),
+      rirReliability: Math.round(Math.min(1, v.rirCount / Math.max(v.sessionIds.size * 3, 1)) * 100) / 100,
+      recommendationEvidence: (() => {
+        const recent = [...v.exposures.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-3);
+        if (recent.length < 2) return "Needs more exposures";
+        const rising = recent[recent.length - 1].e1 > recent[0].e1 * 1.02;
+        const flat = Math.max(...recent.map((x) => x.e1)) <= Math.min(...recent.map((x) => x.e1)) * 1.02;
+        return flat ? "3 similar exposures" : rising ? "recent performance rising" : "recent performance mixed";
+      })(),
       plateau: (() => {
         const recent = v.points.slice(-3).map((p) => p.e1);
         if (recent.length < 3) return false;
@@ -278,6 +314,8 @@ export async function GET(request: NextRequest) {
     };
     const weekMs = 7 * 86400000;
     const effWeek = new Map<string, number>();
+    const directWeek = new Map<string, number>();
+    const indirectWeek = new Map<string, number>();
     for (const row of rows) {
       if (!row.done || row.weight === undefined) continue;
       const w = parseFloat(row.weight || "");
@@ -287,13 +325,18 @@ export async function GET(request: NextRequest) {
       const weight = rirWeight(row.rir, row.setType || "working");
       if (age <= weekMs) {
         effWeek.set(muscle, (effWeek.get(muscle) || 0) + weight);
+        directWeek.set(muscle, (directWeek.get(muscle) || 0) + weight);
         // Synergist credit (~0.3): pulldowns/rows also grow biceps, presses
         // grow triceps/front delts — RP fractional-volume model.
         const SYN: Record<string, string[]> = { lats: ["biceps", "forearms"], mid_back: ["biceps", "rear_delts", "forearms"], rear_delts: ["upper_traps"], chest: ["triceps", "front_delts"], upper_chest: ["front_delts", "triceps"], lower_chest: ["triceps"], quads: ["glutes", "adductors"], hamstrings: ["glutes"], front_delts: ["triceps", "side_delts"], side_delts: ["upper_traps"], glutes: ["hamstrings"], biceps: ["forearms"], back: ["biceps"] };
         // Synergy is a confidence-weighted estimate, not a full set: compounds
         // get 0.30 credit, isolation work only 0.15.
         const synergy = compoundOf.get(row.slug) ? 0.3 : 0.15;
-        for (const m2 of SYN[muscle] || []) effWeek.set(m2, (effWeek.get(m2) || 0) + weight * synergy);
+        for (const m2 of SYN[muscle] || []) {
+          const indirect = weight * synergy;
+          effWeek.set(m2, (effWeek.get(m2) || 0) + indirect);
+          indirectWeek.set(m2, (indirectWeek.get(m2) || 0) + indirect);
+        }
       }
     }
     // e1RM slope per muscle (best point per week, linear over ≤8wks)
@@ -346,7 +389,18 @@ export async function GET(request: NextRequest) {
       // Fitbod-style freshness: ~48-72h to recover → % recovered
       const hoursSince = lastTrained.get(muscle) ? (nowMs - lastTrained.get(muscle)!) / 3600000 : Infinity;
       const freshness = Math.min(Math.round((hoursSince / 72) * 100), 100);
-      return { muscle, effSetsWeek: Math.round(eff * 10) / 10, landmark: [lo, hi], slopePct: Math.round(slope * 10) / 10, status, freshness, advice };
+      return {
+        muscle,
+        effSetsWeek: Math.round(eff * 10) / 10,
+        directSetsWeek: Math.round((directWeek.get(muscle) || 0) * 10) / 10,
+        indirectSetsWeek: Math.round((indirectWeek.get(muscle) || 0) * 10) / 10,
+        landmark: [lo, hi],
+        slopePct: Math.round(slope * 10) / 10,
+        status,
+        freshness,
+        advice,
+        volumeConfidence: Math.min(0.95, Math.round((directWeek.has(muscle) ? 0.75 : 0.45) * 100) / 100),
+      };
     });
     // Weekly volume trend — last 7d vs prior 7d (Hevy-style stat).
     let tonWeek = 0, tonPrevWeek = 0;
