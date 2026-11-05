@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
   for (const set of completed) {
     const w = Number.parseFloat(set.weight || "");
     if (!(w > 0) || !(set.reps && set.reps > 0) || set.reps > 12) continue;
-    const e1 = estimateE1rm(w, set.reps);
+    const e1 = estimateE1rm(w, Math.min(12, set.reps + (set.rir ?? 0)));
     const m = sessionBestE1.get(set.sessionId) || new Map<string, number>();
     m.set(set.slug, Math.max(m.get(set.slug) || 0, e1));
     sessionBestE1.set(set.sessionId, m);

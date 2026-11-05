@@ -61,7 +61,9 @@ export async function GET(request: NextRequest) {
       if (!w || !r) continue;
       const e = bySlug.get(row.slug) || { points: [], last: null, sessions: 0, tonnage: 0, best: 0, positions: [] };
       const validE1 = r <= 12;
-      const val = validE1 ? e1rm(w, r) : w;
+      // RIR-adjusted e1RM (Zourdos/Helms): effective reps = performed + in
+      // reserve — a set stopped at RIR 2 undercounts true strength.
+      const val = validE1 ? e1rm(w, Math.min(12, r + (row.rir ?? 0))) : w;
       const hand = row.side === "left" || row.variation === "hand:left" ? "left"
         : row.side === "right" || row.variation === "hand:right" ? "right"
           : row.side === "both" || row.variation === "hand:both" ? "both" : null;
