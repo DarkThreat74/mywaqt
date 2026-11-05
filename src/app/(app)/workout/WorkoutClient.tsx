@@ -21,7 +21,10 @@ export default function WorkoutClient() {
   const [view, setView] = useState<Exercise | null>(null);
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [showProgress, setShowProgress] = useState(false);
-  const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null; carryoverKg?: number; carryoverFrom?: string; familyVariations?: number }>>([]);
+  const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null; carryoverKg?: number; carryoverFrom?: string; familyVariations?: number; familyBestE1?: number;
+    daysSince?: number | null; retained?: number; recommendedKg?: number | null; recommendationReason?: string | null;
+    limbs?: Record<string, { bestE1?: number; lastE1?: number; gainPct?: number | null }>;
+    growthForecast?: { status: string; monthlyE1rmChangePct: number | null; confidence: number } }>>([]);
   const [tonnage, setTonnage] = useState(0);
   const [tonWeek, setTonWeek] = useState(0);
   const [tonPrevWeek, setTonPrevWeek] = useState(0);
@@ -648,25 +651,30 @@ export default function WorkoutClient() {
           {progress.map((p) => {
             const ex = EXERCISES.find((e) => e.slug === p.slug);
             if (!ex || !p.last) return null;
-            const isLower = ["quads", "hamstrings", "glutes", "gastroc", "soleus", "glute_med", "erectors"].includes(ex.muscle);
-            const inc = isLower ? 5 : 2.5;
-            const daysSince = (now - new Date(p.last.at).getTime()) / 86400000;
-            // Alpha-Progression-lite: top-of-range + low RIR → add increment;
-            // 2+ weeks off → hold weight (detrain caution); weak session → -5%.
-            let suggest = p.last.w;
-            if (p.last.r >= 12 && (p.last.rir === null || p.last.rir <= 1)) suggest = p.last.w + inc;
-            else if (p.last.r <= 6) suggest = Math.round(p.last.w * 0.95 * 2) / 2;
-            if (daysSince > 14) suggest = p.last.w;
+            // The server's recommendation already accounts for RIR, exercise
+            // position/fatigue, and recency — don't re-derive it here.
+            const suggest = p.recommendedKg ?? p.last.w;
             const target = targets[p.slug] ?? String(Math.round(suggest * 2) / 2);
+            const daysSince = p.daysSince ?? ((now - new Date(p.last.at).getTime()) / 86400000);
             const max = Math.max(...p.points.map((pt) => pt.e1));
             const min = Math.min(...p.points.map((pt) => pt.e1));
+            const e1 = Math.round(p.points[p.points.length - 1]?.e1 || 0);
+            const limbs = p.limbs || {};
+            const limbPairs = (["left", "right"] as const).filter((h) => limbs[h]?.lastE1);
+            const forecast = p.growthForecast;
             return (
               <div key={p.slug} className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{ex.name}</span>
-                  <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                    e1RM {Math.round(p.points[p.points.length - 1]?.e1 || 0)}kg
-                    {(p.familyVariations || 0) > 1 ? ` · ${p.familyVariations} variations` : ""}
+                  <span className="min-w-0 truncate text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{ex.name}</span>
+                  <span className="flex shrink-0 items-center gap-1.5 text-[10px]">
+                    {p.gainPct != null && (
+                      <span style={{ color: p.gainPct >= 0 ? "var(--color-success)" : "var(--color-error)" }}>
+                        {p.gainPct >= 0 ? "▲" : "▼"}{Math.abs(p.gainPct)}%
+                      </span>
+                    )}
+                    <span style={{ color: "var(--color-ink-muted)" }}>
+                      e1RM {e1}kg{(p.familyVariations || 0) > 1 ? ` · ${p.familyVariations}var` : ""}
+                    </span>
                   </span>
                 </div>
                 {p.carryoverKg != null && p.carryoverFrom && (
@@ -674,18 +682,19 @@ export default function WorkoutClient() {
                     New variation — family history suggests ~{p.carryoverKg}kg from {exerciseName(p.carryoverFrom)}
                   </p>
                 )}
-                {/* sparkline */}
                 <svg viewBox="0 0 100 18" className="mt-2 h-5 w-full" preserveAspectRatio="none" aria-hidden="true">
                   <polyline
                     points={p.points.map((pt, i) => `${(i / Math.max(p.points.length - 1, 1)) * 100},${16 - ((pt.e1 - min) / Math.max(max - min, 1)) * 14}`).join(" ")}
                     fill="none" stroke="var(--color-accent)" strokeWidth="1.5"
                   />
                 </svg>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                    {daysSince > 14 ? `${Math.floor(daysSince)}d off — hold` : `last ${p.last.w}×${p.last.r}${p.last.rir !== null ? ` RIR${p.last.rir}` : ""}`}
+                <div className="mt-1 flex items-center justify-between gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                  <span>
+                    {p.last.w}×{p.last.r}{p.last.rir != null ? ` · RIR${p.last.rir}` : ""}
+                    {daysSince >= 1 ? ` · ${Math.floor(daysSince)}d ago` : ""}
+                    {daysSince > 14 ? " — detraining, hold" : ""}
                   </span>
-                  <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                  <span className="flex items-center gap-1">
                     try
                     <input
                       value={target}
@@ -696,6 +705,21 @@ export default function WorkoutClient() {
                     kg
                   </span>
                 </div>
+                {(limbPairs.length > 0 || (forecast && forecast.status === "forecast")) && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t pt-1.5 text-[9px]"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                    {limbPairs.map((h) => (
+                      <span key={h}>{h === "left" ? "L" : "R"} {limbs[h]?.lastE1}kg
+                        {limbs[h]?.gainPct != null ? ` (${limbs[h]!.gainPct! >= 0 ? "+" : ""}${limbs[h]!.gainPct}%)` : ""}
+                      </span>
+                    ))}
+                    {forecast?.status === "forecast" && forecast.monthlyE1rmChangePct != null && (
+                      <span style={{ color: "var(--color-success)" }}>
+                        {forecast.monthlyE1rmChangePct >= 0 ? "+" : ""}{forecast.monthlyE1rmChangePct}%/mo · {Math.round(forecast.confidence * 100)}% conf
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
