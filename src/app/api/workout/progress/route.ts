@@ -236,6 +236,7 @@ export async function GET(request: NextRequest) {
       forearms: [4, 10], grip: [2, 6], fingers: [2, 6], neck: [4, 8], quads: [8, 14],
       hamstrings: [6, 12], glutes: [6, 12], glute_med: [4, 10], gastroc: [6, 12], soleus: [6, 12],
       upper_abs: [4, 10], lower_abs: [4, 10], abs: [4, 10], obliques: [4, 10],
+      adductors: [4, 10], hip_flexors: [4, 8], tibialis: [4, 8], other: [4, 10],
     };
     const rirWeight = (rir: number | null, t: string) => {
       if (t === "failure") return 1;
@@ -249,23 +250,21 @@ export async function GET(request: NextRequest) {
       if (!row.done || row.weight === undefined) continue;
       const w = parseFloat(row.weight || "");
       if (!w || !row.reps) continue;
-      const muscle = muscleOf.get(row.slug);
-      if (!muscle) continue;
+      const muscle = muscleOf.get(row.slug) || "other";
       const age = nowMs - row.at.getTime();
       const weight = rirWeight(row.rir, row.setType || "working");
       if (age <= weekMs) {
         effWeek.set(muscle, (effWeek.get(muscle) || 0) + weight);
         // Synergist credit (~0.3): pulldowns/rows also grow biceps, presses
         // grow triceps/front delts — RP fractional-volume model.
-        const SYN: Record<string, string[]> = { lats: ["biceps"], mid_back: ["biceps", "rear_delts"], chest: ["triceps", "front_delts"], upper_chest: ["front_delts", "triceps"], lower_chest: ["triceps"], quads: ["glutes"], hamstrings: ["glutes"], front_delts: ["triceps"], glutes: ["hamstrings"] };
+        const SYN: Record<string, string[]> = { lats: ["biceps", "forearms"], mid_back: ["biceps", "rear_delts", "forearms"], rear_delts: ["upper_traps"], chest: ["triceps", "front_delts"], upper_chest: ["front_delts", "triceps"], lower_chest: ["triceps"], quads: ["glutes", "adductors"], hamstrings: ["glutes"], front_delts: ["triceps", "side_delts"], side_delts: ["upper_traps"], glutes: ["hamstrings"], biceps: ["forearms"], back: ["biceps"] };
         for (const m2 of SYN[muscle] || []) effWeek.set(m2, (effWeek.get(m2) || 0) + weight * 0.3);
       }
     }
     // e1RM slope per muscle (best point per week, linear over ≤8wks)
     const musclePoints = new Map<string, { t: number; e: number }[]>();
     for (const { slug, points } of out) {
-      const muscle = muscleOf.get(slug);
-      if (!muscle) continue;
+      const muscle = muscleOf.get(slug) || "other";
       const arr = musclePoints.get(muscle) || [];
       arr.push(...points.map((p) => ({ t: new Date(p.at).getTime(), e: p.e1 })));
       musclePoints.set(muscle, arr);
