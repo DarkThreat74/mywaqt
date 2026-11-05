@@ -223,23 +223,46 @@ export default function WorkoutProfilePage() {
             </div>
           </div>
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength levels — graded for your bodyweight &amp; sex</p>
-            <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Beginner → novice → intermediate → advanced → elite, from Strength Level&apos;s dataset.</p>
-            <div className="mt-2 space-y-1.5">
-              {LIFT_ROWS.map((l) => (
-                <div key={l.name} className="flex items-center gap-2">
-                  <span className="w-14 text-[11px]" style={{ color: "var(--color-ink)" }}>{l.name}</span>
-                  <span className="w-14 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{l.e1 > 0 ? `${disp(l.e1)}${wUnit}` : "—"}</span>
-                  <div className="h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-                    <div className="h-1.5 rounded-full" style={{ width: `${l.pctToNext ?? Math.min((l.ratio / 2.5) * 100, 100)}%`, backgroundColor: l.level === "elite" ? "var(--color-warmth)" : l.level === "advanced" ? "var(--color-success)" : l.level === "intermediate" ? "var(--color-accent)" : "var(--color-paper-3)" }} />
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength levels</p>
+            <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Graded for your bodyweight &amp; sex — Strength Level dataset.</p>
+            <div className="mt-3 space-y-3">
+              {LIFT_ROWS.map((l) => {
+                const TIER = ["beginner", "novice", "intermediate", "advanced", "elite"];
+                const rank = Math.max(0, TIER.indexOf(l.level));
+                const tierColor = ["var(--color-paper-3)", "var(--color-warmth)", "var(--color-accent)", "var(--color-success)", "var(--color-warmth)"][rank];
+                const fill = l.e1 > 0 ? ((rank + (l.pctToNext ?? 0) / 100) / 5) * 100 : 0;
+                return (
+                  <div key={l.name}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[12px] font-medium" style={{ color: "var(--color-ink)" }}>{l.name}</span>
+                      {l.e1 > 0 ? (
+                        <span className="rounded-full px-2 py-0.5 text-[9px] font-semibold capitalize"
+                          style={{ backgroundColor: `color-mix(in oklab, ${tierColor} 14%, transparent)`, color: tierColor }}>
+                          {l.level}
+                        </span>
+                      ) : (
+                        <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}>not logged</span>
+                      )}
+                    </div>
+                    <div className="mt-1.5 flex gap-0.5">
+                      {TIER.map((t, i) => {
+                        const segFill = Math.max(0, Math.min(100, (fill - i * 20) * 5));
+                        return (
+                          <div key={t} className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                            <div className="h-full rounded-full" style={{ width: `${segFill}%`, backgroundColor: tierColor }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {l.e1 > 0 && (
+                      <div className="mt-1 flex items-baseline justify-between text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                        <span>{disp(l.e1)}{wUnit} e1RM · {l.ratio.toFixed(2)}×bw{l.gainPct != null ? ` · ${l.gainPct > 0 ? "+" : ""}${l.gainPct}%` : ""}</span>
+                        <span>{l.nextKg ? `next: ${l.nextLevel} at ${disp(l.nextKg)}${wUnit}` : "top tier"}</span>
+                      </div>
+                    )}
                   </div>
-                  <span className="w-28 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                    {l.e1 > 0
-                      ? `${l.level}${l.nextKg ? ` → ${l.nextLevel} at ${disp(l.nextKg)}${wUnit}` : ""}`
-                      : "—"}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
           {(stats || bmi) && (
