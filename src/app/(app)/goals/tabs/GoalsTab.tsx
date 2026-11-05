@@ -309,8 +309,8 @@ export default function GoalsTab({
       } : undefined}
     >
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>
             {horizon.title}
           </h1>
@@ -321,7 +321,7 @@ export default function GoalsTab({
         </div>
         <button
           onClick={() => { setEditMode((m) => !m); setEditingId(null); }}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+          className="self-start flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors sm:self-auto"
           style={
             editMode
               ? { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }
@@ -338,11 +338,16 @@ export default function GoalsTab({
       {/* Add root goal */}
       {addingRoot ? (
         <div
-          className="flex flex-col gap-3 rounded-xl border p-4"
+          className={`flex flex-col gap-3 rounded-xl border p-3 sm:p-4 ${isBucket ? "gap-2.5" : ""}`}
           style={isBucket
             ? { borderColor: "color-mix(in oklab, var(--color-accent) 40%, var(--color-paper-3))", backgroundColor: "color-mix(in oklab, var(--color-paper) 75%, transparent)", backdropFilter: "blur(6px)", borderRadius: "1rem" }
             : { borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
         >
+          {isBucket && (
+            <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-accent)" }}>
+              One day, somewhere
+            </p>
+          )}
           <input
             autoFocus
             value={newTitle}
@@ -386,18 +391,18 @@ export default function GoalsTab({
               />
             </div>
           )}
-          <div className="flex gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <button
               onClick={() => { void createGoal(newTitle, null, newDescription, newTargetDate); setNewTitle(""); setNewDescription(""); setNewTargetDate(""); setAddingRoot(false); }}
               disabled={loading || !newTitle.trim()}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="rounded-lg px-3 py-2 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50 sm:py-1.5"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
             </button>
             <button
               onClick={() => { setAddingRoot(false); setNewTitle(""); setNewDescription(""); }}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium"
+              className="rounded-lg px-3 py-2 text-sm font-medium sm:py-1.5"
               style={{ color: "var(--color-ink-muted)" }}
             >
               Cancel
@@ -428,7 +433,7 @@ export default function GoalsTab({
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-1">
+        <div className={`flex flex-col ${isBucket ? "gap-2" : "gap-1"}`}>
           {sortedGoals.map((goal, i) => (
             <GoalRow
               key={goal.id}
@@ -546,9 +551,13 @@ function GoalRow({
   return (
     <>
     <div
-      className="flex items-start gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-[var(--color-paper-2)]"
+      className={`flex items-start gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-[var(--color-paper-2)] ${horizon === "bucket" ? "rounded-xl border p-3 sm:p-3.5" : ""}`}
       style={{
         borderLeft: goal.color ? `3px solid ${goal.color}` : "3px solid transparent",
+        ...(horizon === "bucket" ? {
+          borderColor: "color-mix(in oklab, var(--color-accent) 20%, var(--color-paper-3))",
+          backgroundColor: "color-mix(in oklab, var(--color-paper) 62%, transparent)",
+        } : {}),
       }}
     >
       {/* Reorder arrows — edit mode only, touch-friendly */}
