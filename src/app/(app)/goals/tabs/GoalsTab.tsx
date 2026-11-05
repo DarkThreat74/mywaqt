@@ -295,30 +295,17 @@ export default function GoalsTab({
 
   return (
     <div
-      className="flex flex-col gap-4"
+      className={`flex flex-col gap-4 ${isBucket ? "rounded-2xl border p-3 sm:p-4" : ""}`}
       style={isBucket ? {
-        // Night-sky dream field — star specks over layered accent/warmth
-        // blooms and a soft ink veil. CSS-only, same palette.
+        // Keep the dream treatment airy on narrow screens: three broad cloud
+        // blooms are calmer and cheaper to paint than a dense star field.
         backgroundImage: [
-          "radial-gradient(circle 1.5px at 8% 12%, var(--color-warmth), transparent 100%)",
-          "radial-gradient(circle 1px at 22% 32%, var(--color-ink-muted), transparent 100%)",
-          "radial-gradient(circle 1.5px at 38% 6%, var(--color-accent), transparent 100%)",
-          "radial-gradient(circle 1px at 55% 18%, var(--color-warmth), transparent 100%)",
-          "radial-gradient(circle 1px at 70% 10%, var(--color-ink-muted), transparent 100%)",
-          "radial-gradient(circle 1.5px at 85% 26%, var(--color-accent), transparent 100%)",
-          "radial-gradient(circle 1px at 15% 52%, var(--color-accent), transparent 100%)",
-          "radial-gradient(circle 1px at 45% 68%, var(--color-ink-muted), transparent 100%)",
-          "radial-gradient(circle 1.5px at 78% 55%, var(--color-warmth), transparent 100%)",
-          "radial-gradient(circle 1px at 92% 82%, var(--color-accent), transparent 100%)",
-          "radial-gradient(ellipse 220px 150px at 80% -5%, color-mix(in oklab, var(--color-warmth) 18%, transparent), transparent 70%)",
-          "radial-gradient(ellipse 260px 180px at 15% 15%, color-mix(in oklab, var(--color-accent) 16%, transparent), transparent 70%)",
-          "radial-gradient(ellipse 300px 200px at 50% 110%, color-mix(in oklab, var(--color-accent) 10%, transparent), transparent 70%)",
-          "linear-gradient(color-mix(in oklab, var(--color-paper-2) 35%, transparent), transparent)",
+          "radial-gradient(ellipse 180px 120px at 100% 0%, color-mix(in oklab, var(--color-warmth) 18%, transparent), transparent 72%)",
+          "radial-gradient(ellipse 220px 150px at 0% 28%, color-mix(in oklab, var(--color-accent) 15%, transparent), transparent 72%)",
+          "radial-gradient(ellipse 260px 170px at 55% 100%, color-mix(in oklab, var(--color-paper-3) 32%, transparent), transparent 72%)",
+          "linear-gradient(145deg, color-mix(in oklab, var(--color-paper-2) 38%, transparent), transparent 62%)",
         ].join(", "),
-        borderRadius: "1.25rem",
-        border: "1px solid color-mix(in oklab, var(--color-accent) 25%, var(--color-paper-3))",
-        padding: "1rem",
-        margin: "-1rem",
+        borderColor: "color-mix(in oklab, var(--color-accent) 25%, var(--color-paper-3))",
       } : undefined}
     >
       {/* Header */}
@@ -1044,4 +1031,3 @@ function GoalChecklist({
     </div>
   );
 }
-
