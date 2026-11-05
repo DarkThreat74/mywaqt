@@ -5,7 +5,6 @@ import {
   Calendar,
   Target,
   BookOpen,
-  Repeat,
   CheckCircle2,
 } from "lucide-react";
 import type { Goal, Homework, Class, Habit, HabitLog, Chore } from "@/lib/db/schema";
@@ -23,7 +22,7 @@ import HabitsTab from "./tabs/HabitsTab";
 import TodayTab from "./tabs/TodayTab";
 import DoneTab from "./tabs/DoneTab";
 
-export type TabId = "today" | "goals" | "homework" | "habits" | "done";
+export type TabId = "today" | "goals" | "homework" | "done" | "habits"; // "habits" kept for legacy hash redirects → goals#habits
 
 interface TabDef {
   id: TabId;
@@ -35,7 +34,6 @@ const TABS: TabDef[] = [
   { id: "today", label: "Today", icon: Calendar },
   { id: "goals", label: "Goals", icon: Target },
   { id: "homework", label: "Homework", icon: BookOpen },
-  { id: "habits", label: "Habits", icon: Repeat },
   { id: "done", label: "Done", icon: CheckCircle2 },
 ];
 
@@ -48,6 +46,7 @@ const GOAL_HORIZONS: { key: GoalHorizon; label: string }[] = [
   { key: "month", label: "Month" },
   { key: "year", label: "Year" },
   { key: "bucket", label: "Bucket list" },
+  { key: "habits", label: "Habits" },
   { key: "all_time", label: "Deadlines" },
   { key: "rules", label: "Rules" },
 ];
@@ -58,7 +57,8 @@ const LEGACY_TAB: Record<string, TabId> = {
   "short-term": "goals",
   notes: "today",
   backlog: "today",
-  chores: "habits",
+  chores: "goals",
+  habits: "goals",
 };
 
 function resolveHash(hash: string): TabId {
@@ -88,7 +88,10 @@ export default function GoalsPageClient({
     }
     return "today";
   });
-  const [goalHorizon, setGoalHorizon] = useState<GoalHorizon>("week");
+  const [goalHorizon, setGoalHorizon] = useState<GoalHorizon>(() => {
+    if (typeof window !== "undefined" && window.location.hash.slice(1) === "habits") return "habits";
+    return "week";
+  });
   const [goals, setGoals] = useState<Goal[]>(initialGoals);
   const [homework, setHomework] = useState<Homework[]>(initialHomework);
   const [classes, setClasses] = useState<Class[]>(initialClasses);
@@ -323,7 +326,7 @@ export default function GoalsPageClient({
                 >
                   <span className="relative">
                     <Icon className="h-4 w-4" />
-                    {tab.id === "habits" && choresDue && (
+                    {tab.id === "goals" && choresDue && (
                       <span
                         className="absolute -right-1 -top-1 h-2 w-2 rounded-full"
                         style={{ backgroundColor: "var(--color-warmth)" }}
@@ -356,7 +359,7 @@ export default function GoalsPageClient({
                 >
                   <span className="relative">
                     <Icon className="h-3.5 w-3.5" />
-                    {tab.id === "habits" && choresDue && (
+                    {tab.id === "goals" && choresDue && (
                       <span
                         className="absolute -right-1 -top-1 h-2 w-2 rounded-full"
                         style={{ backgroundColor: "var(--color-warmth)" }}
@@ -401,13 +404,18 @@ export default function GoalsPageClient({
                 </button>
               ))}
             </div>
-            <GoalsTab goals={goals} setGoals={setGoals} goalType={goalHorizon} />
+            {goalHorizon === "habits" ? (
+              <HabitsTab habits={habits} setHabits={setHabits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} chores={chores} setChores={setChores} />
+            ) : (
+              <GoalsTab goals={goals} setGoals={setGoals} goalType={goalHorizon} />
+            )}
           </div>
         )}
         {activeTab === "homework" && (
           <HomeworkTab homework={homework} classes={classes} onHomeworkChange={setHomework} />
         )}
         {activeTab === "habits" && (
+          // Legacy hash: #habits lands here before redirect — show habits under goals
           <HabitsTab habits={habits} setHabits={setHabits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} chores={chores} setChores={setChores} />
         )}
         {activeTab === "done" && (

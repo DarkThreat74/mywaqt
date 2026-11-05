@@ -27,7 +27,7 @@ const QUANTITY_TAGS: Record<string, { label: string; placeholder: string }> = {
   save: { label: "How much do you want to save?", placeholder: "e.g. 5000" },
 };
 
-export type GoalHorizon = "week" | "month" | "year" | "all_time" | "bucket" | "rules";
+export type GoalHorizon = "week" | "month" | "year" | "all_time" | "bucket" | "rules" | "habits";
 
 // Rules are principles — never completable, never dated, never quantified.
 // All-time goals aren't "checked off" but CAN carry a target date (MCAT day,
@@ -43,6 +43,9 @@ const HORIZON_LABELS: Record<GoalHorizon, { title: string; sub: string; singular
   all_time: { title: "All-time",         sub: "Life goals & fixed dates — MCAT, matriculation, milestones", singular: "life goal" },
   bucket:   { title: "Bucket list",      sub: "Dreams to chase in this lifetime — no deadline, just a list of someday", singular: "dream" },
   rules:    { title: "Rules to Live By", sub: "Principles you hold yourself to",     singular: "rule" },
+  // Habits renders via HabitsTab inside the goals horizon — GoalsTab never
+  // reaches this key, but the Record requires completeness.
+  habits:   { title: "Habits",           sub: "Recurring commitments",              singular: "habit" },
 };
 
 // Day-granularity "now" for pace-line math — recomputed on each page load,
