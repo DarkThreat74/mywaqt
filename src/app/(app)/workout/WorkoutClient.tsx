@@ -36,6 +36,9 @@ export default function WorkoutClient() {
   // Weights are stored in kg — convert for display when the user prefers lb.
   const dispW = (kg: number) => (units === "lb" ? Math.round(kg * 2.205) : Math.round(kg * 10) / 10);
   const dispTon = (kg: number) => (units === "lb" ? `${(kg * 2.205 / 1000).toFixed(1)}k lb` : `${(kg / 1000).toFixed(1)}t`);
+  const confidenceLabel = (value?: number) => value == null ? null : value >= 0.75 ? "high confidence" : value >= 0.5 ? "medium confidence" : "early estimate";
+  const evidenceLabel = (value?: string) => value === "3 similar exposures" ? "3 similar workouts" : value === "recent performance rising" ? "recent workouts improving" : value === "Needs more exposures" ? "needs more workouts" : value;
+  const rirLabel = (rir: number | null) => rir == null ? null : rir === 0 ? "to failure" : `${rir} ${rir === 1 ? "rep" : "reps"} left`;
 
   const [actionDay, setActionDay] = useState<WDay | null>(null);
   const router = useRouter();
@@ -631,7 +634,7 @@ export default function WorkoutClient() {
             This week — effective sets per muscle
           </p>
           <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            Bar = hard sets this week vs the range that grows that muscle (<b>9/10–20</b> means 9 done, 10–20 recommended). Below the range means you&apos;re maintaining, not growing — even fully rested. The last % is recovery only: 100% just means the muscle is rested enough to train again — it says nothing about how much you trained it.
+            Bar = hard sets this week vs a useful growth range. <b>9/10–20</b> means 9 hard sets done, with 10–20 as a starting target. The last % only means rested enough to train again. Direct = this muscle was the main target; indirect = it helped.
           </p>
           <div className="mt-2 space-y-1.5">
             {muscles.filter((m) => m.effSetsWeek > 0).map((m) => {
@@ -645,7 +648,7 @@ export default function WorkoutClient() {
                     <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
                   </div>
                   <span className="w-14 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                    {m.effSetsWeek}/{lo}–{hi} {m.slopePct > 0.3 ? `+${m.slopePct}%` : m.slopePct < -0.3 ? `${m.slopePct}%` : ""}
+                    {m.effSetsWeek}/{lo}–{hi}
                   </span>
                   <span className="w-9 shrink-0 text-right text-[9px] tabular-nums" title="Recovered — Fitbod-style freshness"
                     style={{ color: m.freshness >= 90 ? "var(--color-success)" : m.freshness >= 50 ? "var(--color-warmth)" : "var(--color-error)" }}>
@@ -692,7 +695,7 @@ export default function WorkoutClient() {
                       </span>
                     )}
                     <span style={{ color: "var(--color-ink-muted)" }}>
-                      e1RM {dispW(e1)}{units}{(p.familyVariations || 0) > 1 ? ` · ${p.familyVariations}var` : ""}
+                      estimated max {dispW(e1)}{units}{(p.familyVariations || 0) > 1 ? ` · ${p.familyVariations} variations` : ""}
                     </span>
                   </span>
                 </div>
@@ -704,9 +707,9 @@ export default function WorkoutClient() {
                 {(p.predictionConfidence != null || p.plateau) && (
                   <p className="mt-1 text-[9px]" style={{ color: p.plateau ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
                     {p.plateau ? "Plateau signal · " : ""}
-                    {p.predictionConfidence != null ? `${Math.round(p.predictionConfidence * 100)}% confidence` : ""}
+                    {confidenceLabel(p.predictionConfidence) || ""}
                     {p.uncertaintyRangeKg ? ` · range ${dispW(p.uncertaintyRangeKg[0])}–${dispW(p.uncertaintyRangeKg[1])}${units}` : ""}
-                    {p.recommendationEvidence ? ` · ${p.recommendationEvidence}` : ""}
+                    {evidenceLabel(p.recommendationEvidence) ? ` · ${evidenceLabel(p.recommendationEvidence)}` : ""}
                   </p>
                 )}
                 <svg viewBox="0 0 100 18" className="mt-2 h-5 w-full" preserveAspectRatio="none" aria-hidden="true">
@@ -717,12 +720,12 @@ export default function WorkoutClient() {
                 </svg>
                 <div className="mt-1 flex items-center justify-between gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                   <span>
-                    {dispW(p.last.w)}{units}×{p.last.r}{p.last.rir != null ? ` · RIR${p.last.rir}` : ""}
+                    {dispW(p.last.w)}{units} × {p.last.r}{p.last.rir != null ? ` · ${rirLabel(p.last.rir)}` : ""}
                     {daysSince >= 1 ? ` · ${Math.floor(daysSince)}d ago` : ""}
                     {daysSince > 14 ? " — detraining, hold" : ""}
                   </span>
                   <span className="flex items-center gap-1">
-                    try
+                    next session
                     <input
                       value={target}
                       onChange={(e) => setTargets((t) => ({ ...t, [p.slug]: e.target.value }))}
@@ -734,7 +737,7 @@ export default function WorkoutClient() {
                 </div>
                 {(p.variations || []).length > 1 && (
                   <p className="mt-1 text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                    {p.variations!.map((v) => `${v.key === "standard" ? "std" : v.key.replace(/^hand:/, "")} ${dispW(v.lastE1)}${units}`).join(" · ")}
+                    {p.variations!.length} variations tracked · best {dispW(Math.max(...p.variations!.map((v) => v.bestE1)))}{units}
                   </p>
                 )}
                 {(limbPairs.length > 0 || (forecast && forecast.status === "forecast")) && (
@@ -747,7 +750,7 @@ export default function WorkoutClient() {
                     ))}
                     {forecast?.status === "forecast" && forecast.monthlyE1rmChangePct != null && (
                       <span style={{ color: "var(--color-success)" }}>
-                        {forecast.monthlyE1rmChangePct >= 0 ? "+" : ""}{forecast.monthlyE1rmChangePct}%/mo · {Math.round(forecast.confidence * 100)}% conf
+                        {forecast.monthlyE1rmChangePct >= 0 ? "+" : ""}{forecast.monthlyE1rmChangePct}% monthly trend · {confidenceLabel(forecast.confidence)}
                       </span>
                     )}
                   </div>
