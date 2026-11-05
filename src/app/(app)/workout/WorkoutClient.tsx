@@ -631,7 +631,7 @@ export default function WorkoutClient() {
             This week — effective sets per muscle
           </p>
           <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            Hard sets this week vs the range that grows that muscle. Last % = recovered.
+            Bar = hard sets this week vs the range that grows that muscle (<b>9/10–20</b> means 9 done, 10–20 recommended). Below the range means you&apos;re maintaining, not growing — even fully rested. The last % is recovery only: 100% just means the muscle is rested enough to train again — it says nothing about how much you trained it.
           </p>
           <div className="mt-2 space-y-1.5">
             {muscles.filter((m) => m.effSetsWeek > 0).map((m) => {
