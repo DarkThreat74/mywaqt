@@ -610,8 +610,14 @@ function GoalRow({
       <div className="min-w-0 flex-1">
         {(
           <>
+            {horizon === "bucket" && (
+              <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.16em]"
+                style={{ color: isDone ? "var(--color-success)" : "var(--color-warmth)" }}>
+                {isDone ? "Dream realized" : "Someday"}
+              </p>
+            )}
             <p
-              className="text-sm font-medium"
+              className={`${horizon === "bucket" ? "text-[15px] sm:text-sm" : "text-sm"} font-medium`}
               style={{
                 color: showDone ? "var(--color-ink-muted)" : "var(--color-ink)",
                 textDecoration: showDone ? "line-through" : "none",
@@ -621,6 +627,11 @@ function GoalRow({
             </p>
             {goal.description && (
               <p className="text-xs mt-0.5" style={{ color: "var(--color-ink-muted)" }}>{goal.description}</p>
+            )}
+            {horizon === "bucket" && isDone && goal.completedAt && (
+              <p className="mt-1 text-[10px]" style={{ color: "var(--color-success)" }}>
+                Completed {new Date(goal.completedAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+              </p>
             )}
             {goal.targetDate && (
               <p className="mt-0.5 flex items-center gap-1.5 text-xs" style={{ color: "var(--color-warmth)" }}>
