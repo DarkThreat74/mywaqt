@@ -10,6 +10,8 @@ const REF75: Record<string, Std> = {
   deadlift: { m: [75, 103, 136, 175, 216], f: [38, 61, 90, 122, 152] },
   ohp:      { m: [29, 44, 61, 80, 101], f: [13, 22, 34, 46, 58] },
   row:      { m: [40, 59, 82, 108, 135], f: [18, 30, 48, 65, 83] },
+  // NOTE: pulldowns/pull-ups intentionally excluded from `row` — vertical
+  // pulls have different strength curves and must not inflate a row grade.
 };
 
 // Strength scales sub-linearly with bodyweight: lighter lifters carry higher
@@ -49,5 +51,5 @@ export const LIFT_SLUGS: Record<string, string[]> = {
   squat: ["barbell-squat", "back-squat", "front-squat", "leg-press", "hack-squat", "smith-squat", "goblet-squat"],
   deadlift: ["conventional-deadlift", "sumo-deadlift", "trap-bar-deadlift", "romanian-deadlift", "rdl", "deadlift"],
   ohp: ["barbell-overhead-press", "overhead-press", "military-press", "seated-ohp", "push-press", "dumbbell-shoulder-press", "machine-shoulder-press"],
-  row: ["barbell-row", "pendlay-row", "bent-dumbbell-row", "chest-supported-row", "seated-cable-row", "single-arm-cable-row", "helms-row", "t-bar-row", "wide-grip-pulldown"],
+  row: ["barbell-row", "pendlay-row", "bent-dumbbell-row", "chest-supported-row", "seated-cable-row", "single-arm-cable-row", "helms-row", "t-bar-row"],
 };
