@@ -317,6 +317,9 @@ export default function WorkoutProfilePage() {
               <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Left / right balance</p>
               <span className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>latest e1RM · per hand</span>
             </div>
+            <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Each pair compares your strongest recent set on each arm — blue is left, gold is right. A gap of 10%+ means one side lags; train the weaker side first. &quot;One side&quot; means only one arm has logged sets.
+            </p>
             {limbStats.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Choose 1 hand and log both sides to measure asymmetry.</p>}
             <div className="mt-2 space-y-2">
               {limbStats.map((l) => {

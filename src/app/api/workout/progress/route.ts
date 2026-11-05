@@ -72,9 +72,11 @@ export async function GET(request: NextRequest) {
           : row.side === "both" || row.variation === "hand:both" ? "both" : null;
       // Legacy sets logged before side tracking on unilateral exercises were
       // done one arm at a time — credit each limb so per-arm history exists.
-      const hands: Array<"left" | "right" | "both"> = hand
+      // "both" = this set covered both sides — credit each arm. An untagged
+      // set on a single-arm exercise is assumed done on both sides.
+      const hands: Array<"left" | "right"> = hand === "left" || hand === "right"
         ? [hand]
-        : isUnilateralExercise(row.slug) ? ["left", "right"] : [];
+        : hand === "both" || isUnilateralExercise(row.slug) ? ["left", "right"] : [];
       if (hands.length && validE1) {
         const limbs = limbBySlug.get(row.slug) || new Map();
         for (const h of hands) {
