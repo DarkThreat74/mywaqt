@@ -629,7 +629,7 @@ export default function WorkoutClient() {
             This week — effective sets per muscle
           </p>
           <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            An effective set is a hard working set — warmups don&apos;t count, sets far from failure (RIR 4+) count less, failure sets count most. The range is the weekly volume that grows that muscle; the last number is how recovered it is.
+            Hard sets this week vs the range that grows that muscle. Last % = recovered.
           </p>
           <div className="mt-2 space-y-1.5">
             {muscles.filter((m) => m.effSetsWeek > 0).map((m) => {

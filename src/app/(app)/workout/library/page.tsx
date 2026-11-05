@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { EXERCISES, MUSCLE_GROUP, GROUPS, type Exercise } from "@/lib/workout/exercises";
+import { EXERCISES, MUSCLE_GROUP, GROUPS, exerciseFamilyKey, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 
@@ -16,6 +16,7 @@ export default function LibraryPage() {
   const [headFilter, setHeadFilter] = useState("all");
   const [view, setView] = useState<Exercise | null>(null);
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const list = EXERCISES.filter((x) => {
     if (groupFilter !== "all") {
@@ -26,6 +27,17 @@ export default function LibraryPage() {
     if (search && !x.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
+
+  // Group movement variations under a parent card — "Lat Pulldown" once, with
+  // its 8 grips nested behind a count chip instead of 8 separate rows.
+  const fams = new Map<string, Exercise[]>();
+  for (const x of list) {
+    const k = exerciseFamilyKey(x.slug);
+    const arr = fams.get(k) || [];
+    arr.push(x);
+    fams.set(k, arr);
+  }
+  const groups = [...fams.values()].map((m) => m.slice().sort((a, b) => a.name.length - b.name.length));
 
   return (
     <div className="page-fade mx-auto w-full max-w-2xl px-4 py-6">
@@ -81,19 +93,39 @@ export default function LibraryPage() {
       )}
 
       <div className="mt-3 space-y-1.5">
-        {list.map((x) => (
-          <button key={x.slug} type="button" onClick={() => setView(x)}
-            className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left hover:bg-[var(--color-paper-2)]"
-            style={{ borderColor: "var(--color-paper-3)" }}>
-            <ExerciseMedia slug={x.slug} pattern={x.pattern}
-              className="h-10 w-10 shrink-0 items-center justify-center rounded-lg"
-              style={{ backgroundColor: "var(--color-paper-2)" }} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{x.name}</p>
-              <p className="truncate text-[10px] capitalize" style={{ color: "var(--color-ink-muted)" }}>{x.muscle.replace(/_/g, " ")} · {x.equip}</p>
-            </div>
-            {x.tier && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[x.tier], color: "#fff" }}>{x.tier}</span>}
-          </button>
+        {groups.map(([x, ...variants]) => (
+          <div key={x.slug}>
+            <button type="button" onClick={() => setView(x)}
+              className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left hover:bg-[var(--color-paper-2)]"
+              style={{ borderColor: "var(--color-paper-3)" }}>
+              <ExerciseMedia slug={x.slug} pattern={x.pattern}
+                className="h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                style={{ backgroundColor: "var(--color-paper-2)" }} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{x.name}</p>
+                <p className="truncate text-[10px] capitalize" style={{ color: "var(--color-ink-muted)" }}>{x.muscle.replace(/_/g, " ")} · {x.equip}</p>
+              </div>
+              {variants.length > 0 && (
+                <button type="button"
+                  onClick={(e) => { e.stopPropagation(); setExpanded((s) => { const n = new Set(s); if (n.has(x.slug)) n.delete(x.slug); else n.add(x.slug); return n; }); }}
+                  className="shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-semibold"
+                  style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+                  {expanded.has(x.slug) ? "−" : `+${variants.length}`}
+                </button>
+              )}
+              {x.tier && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[x.tier], color: "#fff" }}>{x.tier}</span>}
+            </button>
+            {expanded.has(x.slug) && variants.map((v) => (
+              <button key={v.slug} type="button" onClick={() => setView(v)}
+                className="mt-1 flex w-full items-center gap-2.5 rounded-lg border border-dashed p-2 pl-6 text-left hover:bg-[var(--color-paper-2)]"
+                style={{ borderColor: "var(--color-paper-3)" }}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[12px]" style={{ color: "var(--color-ink)" }}>{v.name}</p>
+                </div>
+                {v.tier && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[v.tier], color: "#fff" }}>{v.tier}</span>}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
 

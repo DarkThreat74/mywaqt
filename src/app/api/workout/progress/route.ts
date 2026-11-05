@@ -299,11 +299,10 @@ export async function GET(request: NextRequest) {
       // RP mesocycle advice: MV (~6) maintains, MEV is the growth floor, MAV→
       // MRV is the ramp zone, beyond MRV recovery fails → deload.
       const advice =
-        eff < 6 ? "below maintenance — add sets or it shrinks" :
-        eff < lo ? `+${Math.ceil(lo - eff)} sets to reach growth floor` :
-        eff > hi ? "past MRV — deload or reduce volume" :
-        status === "stalling" ? "stalling — change variation or rep range" :
-        status === "growing" ? "on track — keep ramping ~+2 sets/wk" : null;
+        eff < 6 ? "below maintenance" :
+        eff < lo ? `+${Math.ceil(lo - eff)} sets` :
+        eff > hi ? "deload" :
+        status === "stalling" ? "vary it" : null;
       // Fitbod-style freshness: ~48-72h to recover → % recovered
       const hoursSince = lastTrained.get(muscle) ? (nowMs - lastTrained.get(muscle)!) / 3600000 : Infinity;
       const freshness = Math.min(Math.round((hoursSince / 72) * 100), 100);
