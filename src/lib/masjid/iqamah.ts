@@ -171,6 +171,21 @@ export function parseGenericIqamah(body: string, tz?: string | null): { fixed: (
 
 const SCRAPE_TIMEOUT = 5000;
 
+function isSafeScrapeUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== "https:") return false;
+    if (host === "localhost" || host.endsWith(".local") || host === "::1") return false;
+    if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host)) return false;
+    const private172 = host.match(/^172\.(\d+)\./);
+    if (private172 && Number(private172[1]) >= 16 && Number(private172[1]) <= 31) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Full scrape cascade for one source URL — the exact same chain the lazy
  * resolver uses: Masjidal API/iframe → Mawaqit confData → Mohid iframe →
@@ -179,11 +194,12 @@ const SCRAPE_TIMEOUT = 5000;
  */
 export async function scrapeIqamah(url: string, tz?: string | null): Promise<IqamahResult | null> {
   const opts = { signal: AbortSignal.timeout(SCRAPE_TIMEOUT) };
+  if (!isSafeScrapeUrl(url)) return null;
   try {
     if (url.includes("masjidal.com")) {
       // API URL → JSON iqama. A widget/page URL → HTML; fall through to the
       // generic cascade instead of giving up.
-      const res = await fetch(url, opts);
+      const res = await fetch(url, { ...opts, redirect: "manual" });
       const body = res.ok ? await res.text().catch(() => "") : "";
       let json: unknown = null;
       try { json = JSON.parse(body); } catch { /* HTML page, not the API */ }
@@ -196,7 +212,7 @@ export async function scrapeIqamah(url: string, tz?: string | null): Promise<Iqa
       return null;
     }
 
-    const res = await fetch(url, { ...opts, headers: { "User-Agent": "Waqt/1.0" } });
+    const res = await fetch(url, { ...opts, redirect: "manual", headers: { "User-Agent": "Waqt/1.0" } });
     if (!res.ok) return null;
     const html = await res.text();
     if (html.length > 2_000_000) return null; // absurd page — don't parse megabytes
@@ -227,8 +243,8 @@ export async function scrapeIqamah(url: string, tz?: string | null): Promise<Iqa
     // "mohid" must be in the HOST — a path match (e.g. /mohid on an arbitrary
     // or link-local host) would be an SSRF vector.
     const mohidEmbed = html.match(/(?:src|href)=["'](https?:\/\/[^/"']*mohid[^/"']*\/[^"']*)["']/i);
-    const targetHtml = mohidEmbed
-      ? await fetch(mohidEmbed[1], { ...opts, headers: { "User-Agent": "Waqt/1.0" } })
+    const targetHtml = mohidEmbed && isSafeScrapeUrl(mohidEmbed[1])
+      ? await fetch(mohidEmbed[1], { ...opts, redirect: "manual", headers: { "User-Agent": "Waqt/1.0" } })
           .then((r) => (r.ok ? r.text() : null))
           .catch(() => null)
       : html;
