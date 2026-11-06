@@ -729,7 +729,7 @@ export default function WorkoutClient() {
                         {p.gainPct >= 0 ? "▲" : "▼"}{Math.abs(p.gainPct)}%
                       </span>
                     )}
-                    <span style={{ color: "var(--color-ink-muted)" }}>
+                    <span title="A training estimate from your recent logged sets; it is not a tested one-rep maximum." style={{ color: "var(--color-ink-muted)" }}>
                       estimated max {dispW(e1)}{units}{(p.familyVariations || 0) > 1 ? ` · ${p.familyVariations} variations` : ""}
                     </span>
                   </span>

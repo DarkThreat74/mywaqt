@@ -203,7 +203,10 @@ export async function GET(request: NextRequest) {
           + (v.rirCount / Math.max(v.repCount, 1)) * 0.2
           + (v.repCount ? (v.repSum / v.repCount <= 8 ? 0.2 : v.repSum / v.repCount <= 12 ? 0.12 : 0.05) : 0)));
         const error = Math.max(0.05, 0.18 - confidence * 0.1);
-        return [Math.round(v.best * (1 - error) * 10) / 10, Math.round(v.best * (1 + error) * 10) / 10];
+        // The range must describe the current estimate shown in the card,
+        // not the all-time best hidden elsewhere in the history.
+        const current = v.points[v.points.length - 1]?.e1 || v.best;
+        return [Math.round(current * (1 - error) * 10) / 10, Math.round(current * (1 + error) * 10) / 10];
       })(),
       recentExposures: [...v.exposures.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-3),
       rirReliability: Math.round(Math.min(1, v.rirCount / Math.max(v.sessionIds.size * 3, 1)) * 100) / 100,
