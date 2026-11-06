@@ -151,6 +151,14 @@ export function warmMushaf(): void {
   // weak link — only 4g-class connections (or unknown, e.g. wifi) can afford it.
   if (conn?.saveData || (conn?.effectiveType && conn.effectiveType !== "4g")) return;
   if (navigator.onLine === false) return;
+  if (document.hidden) {
+    const resume = () => {
+      document.removeEventListener("visibilitychange", resume);
+      if (!document.hidden) warmMushaf();
+    };
+    document.addEventListener("visibilitychange", resume, { once: true });
+    return;
+  }
   let p = Math.max(1, Math.min(PAGE_COUNT + 1, Number(localStorage.getItem(WARM_KEY)) || 1));
   warming = true;
   // The small shared assets warm with the run — without these an offline
@@ -163,6 +171,15 @@ export function warmMushaf(): void {
   if (p > PAGE_COUNT) { warming = false; return; } // already fully warm
 
   const tick = () => {
+    if (document.hidden) {
+      warming = false;
+      const resume = () => {
+        document.removeEventListener("visibilitychange", resume);
+        if (!document.hidden) warmMushaf();
+      };
+      document.addEventListener("visibilitychange", resume, { once: true });
+      return;
+    }
     if (p > PAGE_COUNT) { warming = false; return; }
     const pad = String(p).padStart(3, "0");
     Promise.all([
@@ -179,5 +196,4 @@ export function warmMushaf(): void {
   };
   idle(tick);
 }
-
 

@@ -43,6 +43,43 @@
   --font-arabic: var(--font-amiri), "Noto Naskh Arabic", serif;
 }
 
+/* Older Android System WebViews do not understand OKLCH/color-mix. Keep the
+ * app readable there instead of letting token-based text/backgrounds vanish. */
+@supports not (color: oklch(0.5 0 0)) {
+  :root {
+    --color-ink: #332f2a;
+    --color-ink-soft: #5f574f;
+    --color-ink-muted: #6f675e;
+    --color-paper: #f5f0e8;
+    --color-paper-2: #ebe4d9;
+    --color-paper-3: #d9d0c3;
+    --color-accent: #146b70;
+    --color-accent-soft: #5f9698;
+    --color-accent-faint: #dceceb;
+    --color-warmth: #a95f35;
+    --color-warmth-faint: #f0dfd2;
+    --color-error: #a43d2c;
+    --color-success: #3c7d5a;
+    --color-focus: #146b70;
+  }
+  :root[data-theme="dark"] {
+    --color-ink: #eee7dc;
+    --color-ink-soft: #c7bdb0;
+    --color-ink-muted: #aaa094;
+    --color-paper: #2a2520;
+    --color-paper-2: #342e28;
+    --color-paper-3: #494039;
+    --color-accent: #77b6b5;
+    --color-accent-soft: #9ac9c5;
+    --color-accent-faint: #273f3e;
+    --color-warmth: #d99a70;
+    --color-warmth-faint: #4b3328;
+    --color-error: #ed8871;
+    --color-success: #8bc69a;
+    --color-focus: #77b6b5;
+  }
+}
+
 @theme inline {
   --color-background: var(--color-paper);
   --color-foreground: var(--color-ink);
@@ -106,6 +143,7 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   /* Use dvh for mobile viewport (accounts for Safari dynamic toolbars) */
+  height: 100vh;
   height: 100dvh;
 }
 
@@ -118,6 +156,7 @@ html {
  */
 @media (display-mode: standalone) {
   html {
+    height: 100vh;
     height: 100dvh;
     /* Prevent iOS rubber-band overscroll */
     overscroll-behavior: none;

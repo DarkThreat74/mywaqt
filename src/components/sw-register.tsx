@@ -162,11 +162,8 @@ export default function ServiceWorkerRegister() {
     // (non-prefetch) RSC request per route lets the SW store each response;
     // first taps become cache hits. Staggered to idle so hydration wins.
     const APP_ROUTES = [
-      "/calendar/day", "/prayer", "/goals", "/settings", "/quran", "/dhikr",
-      "/qibla", "/names", "/talks", "/masjids", "/friends", "/study",
-      "/nasheeds", "/guide", "/workout", "/subscriptions", "/birthdays",
-      "/quran-tester", "/recite", "/mutashabihat", "/hijri", "/sadaqah",
-      "/learn", "/shield", "/store", "/messages", "/calendar/month",
+      "/calendar/day", "/calendar/month", "/prayer", "/goals",
+      "/quran", "/quran-tester", "/workout", "/settings",
     ];
     const warmRsc = () => {
       let i = 0;
