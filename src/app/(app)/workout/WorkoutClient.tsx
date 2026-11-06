@@ -554,7 +554,33 @@ export default function WorkoutClient() {
       )}
 
       {showProgress && (
-        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="mt-3 space-y-3">
+          {(() => {
+            const under = muscles.filter((m) => m.status === "under" || m.status === "low");
+            const over = muscles.filter((m) => m.status === "over");
+            const next = under[0] || muscles.find((m) => m.advice) || null;
+            return (
+              <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))" }}>
+                <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-accent)" }}>At a glance</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <p style={{ color: "var(--color-ink-muted)" }}>Exercises tracked</p>
+                    <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{progress.length}</p>
+                  </div>
+                  <div>
+                    <p style={{ color: "var(--color-ink-muted)" }}>Muscles needing attention</p>
+                    <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: over.length ? "var(--color-error)" : under.length ? "var(--color-warmth)" : "var(--color-success)" }}>{under.length + over.length}</p>
+                  </div>
+                </div>
+                <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                  {next ? `Next focus: ${next.muscle.replace(/_/g, " ")} — ${next.advice || "keep building"}`
+                    : over.length ? "Volume is high across some muscles — consider an easier week."
+                    : "Your current workload looks balanced."}
+                </p>
+              </div>
+            );
+          })()}
+          <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)" }}>
           <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Your stats</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <label className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -633,6 +659,7 @@ export default function WorkoutClient() {
               </>
             );
           })()}
+          </div>
         </div>
       )}
 
