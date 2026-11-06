@@ -108,12 +108,6 @@ const MushafPageView = memo(function MushafPageView({
     const dz = divZones.get(`${s}:${a}`);
     if (dz && w >= dz.w1 && w <= dz.w2)
       return { ...bridge, boxShadow: "inset 0 -2px 0 color-mix(in oklab, var(--color-accent) 65%, transparent)" } as const;
-    if (cursor && cursor.s === s && cursor.a === a) {
-      if (cursor.w === w)
-        return { backgroundColor: "var(--color-accent)", color: "var(--color-paper)" } as const;
-      if (cursor.w !== null && w < cursor.w)
-        return { color: "var(--color-accent)" } as const;
-    }
     return undefined;
   };
 
@@ -182,10 +176,10 @@ const MushafPageView = memo(function MushafPageView({
     </div>
   );
 }, (prev, next) => {
+  // Word movement is painted directly on existing spans; only an ayah change
+  // needs to re-render the mushaf layout.
   const sameCursor = prev.cursor === next.cursor ||
-    (prev.cursor?.s === next.cursor?.s &&
-      prev.cursor?.a === next.cursor?.a &&
-      prev.cursor?.w === next.cursor?.w);
+    (prev.cursor?.s === next.cursor?.s && prev.cursor?.a === next.cursor?.a);
   return prev.p === next.p &&
     prev.data === next.data &&
     prev.fontReady === next.fontReady &&
@@ -1605,6 +1599,20 @@ export default function QuranTesterClient() {
       ? { s: loc.surah, a: loc.ayah, w: wordIdx }
       : null
   );
+
+  // Word events arrive much faster than the mushaf needs to re-render. Paint
+  // the active/previous words on existing spans so recognition stays smooth
+  // on phones; React still owns ayah/page changes and all durable state.
+  useEffect(() => {
+    const nodes = document.querySelectorAll<HTMLElement>("[data-qt-cur] [data-loc]");
+    nodes.forEach((node) => {
+      node.classList.remove("qt-live-word", "qt-heard-word");
+      const [s, a, w] = (node.dataset.loc || "").split(":").map(Number);
+      if (!loc || s !== loc.surah || a !== loc.ayah || wordIdx == null) return;
+      if (w < wordIdx) node.classList.add("qt-heard-word");
+      if (w === wordIdx) node.classList.add("qt-live-word");
+    });
+  }, [loc, wordIdx]);
 
   function peek() {
     // Escalating hint, per ayah: 1st press shows the next word, 2nd the next
