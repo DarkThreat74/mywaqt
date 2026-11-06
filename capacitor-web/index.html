@@ -3,69 +3,95 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#1a1815">
-  <title>Waqt</title>
+  <meta name="theme-color" content="#f5f0e8">
+  <title>Waqt — Prayer-centered life tracker</title>
   <style>
-    :root { color-scheme: light; font-family: Georgia, serif; background: #f5f0e8; color: #332f2a; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-    main { width: min(100%, 420px); }
-    .mark { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; background: #332f2a; color: #f5f0e8; font-size: 26px; }
-    h1 { margin: 24px 0 8px; font-size: 30px; letter-spacing: -.03em; }
-    p { margin: 0; color: #6f675e; line-height: 1.55; }
-    .status { display: flex; align-items: center; gap: 8px; margin-top: 24px; font-size: 13px; color: #6f675e; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #b56d3d; }
-    .actions { display: grid; gap: 10px; margin-top: 24px; }
-    button, a { min-height: 48px; border: 1px solid #d9d0c3; border-radius: 12px; padding: 12px 16px; font: inherit; text-align: center; text-decoration: none; cursor: pointer; }
-    button { background: #332f2a; color: #f5f0e8; }
-    a { background: transparent; color: #332f2a; }
-    .hidden { display: none; }
+    :root { color-scheme: light; --paper:#f5f0e8; --paper2:#ebe4d9; --ink:#332f2a; --muted:#6f675e; --accent:#146b70; --warm:#a95f35; font-family:Georgia,"Times New Roman",serif; }
+    @media (prefers-color-scheme:dark) { :root { color-scheme:dark; --paper:#2a2520; --paper2:#342e28; --ink:#eee7dc; --muted:#aaa094; --accent:#77b6b5; --warm:#d99a70; } }
+    * { box-sizing:border-box; }
+    html,body { min-height:100%; margin:0; background:var(--paper); color:var(--ink); }
+    a { color:inherit; }
+    .page { min-height:100vh; overflow:hidden; }
+    header { display:flex; align-items:center; justify-content:space-between; padding:calc(18px + env(safe-area-inset-top)) clamp(18px,6vw,72px) 18px; }
+    .brand { display:flex; gap:10px; align-items:baseline; font-weight:700; letter-spacing:-.03em; }
+    .brand-ar { color:var(--accent); font-size:18px; }
+    nav { display:flex; gap:18px; align-items:center; font-size:14px; }
+    nav a { color:var(--muted); text-decoration:none; }
+    .nav-cta { border-radius:999px; padding:10px 16px; background:var(--ink); color:var(--paper)!important; }
+    .hero { min-height:calc(100vh - 70px); display:flex; align-items:center; padding:64px clamp(20px,8vw,120px) 90px; position:relative; }
+    .hero:before { content:"حي على الصلاة"; position:absolute; right:-12%; top:8%; color:var(--accent); opacity:.08; white-space:nowrap; font-size:clamp(110px,22vw,340px); line-height:1; transform:rotate(-5deg); pointer-events:none; }
+    .copy { position:relative; z-index:1; max-width:680px; }
+    .eyebrow { color:var(--accent); font-size:12px; letter-spacing:.18em; text-transform:uppercase; }
+    h1 { max-width:720px; margin:18px 0 20px; font-size:clamp(44px,8vw,92px); line-height:.98; letter-spacing:-.055em; font-weight:600; }
+    .lead { max-width:560px; color:var(--muted); font-size:clamp(17px,2vw,22px); line-height:1.5; }
+    .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:30px; }
+    .button { min-height:48px; display:inline-flex; align-items:center; justify-content:center; padding:12px 20px; border-radius:999px; font-size:14px; text-decoration:none; }
+    .primary { background:var(--ink); color:var(--paper); }
+    .secondary { border:1px solid var(--paper2); color:var(--ink); }
+    .note { margin-top:18px; color:var(--muted); font-size:12px; line-height:1.5; }
+    .features { padding:22px clamp(20px,8vw,120px) 64px; background:var(--paper2); }
+    .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); max-width:1080px; border-top:1px solid var(--paper2); border-left:1px solid var(--paper2); }
+    .feature { min-height:125px; padding:22px; border-right:1px solid var(--paper2); border-bottom:1px solid var(--paper2); }
+    .feature b { display:block; margin-bottom:8px; font-size:16px; }
+    .feature span { color:var(--muted); font-size:13px; line-height:1.45; }
+    footer { display:flex; justify-content:space-between; gap:20px; padding:24px clamp(20px,8vw,120px) calc(28px + env(safe-area-inset-bottom)); color:var(--muted); font-size:12px; }
+    footer nav { font-size:12px; gap:12px; }
+    @media (max-width:640px) {
+      header { padding-left:18px; padding-right:18px; }
+      nav a:not(.nav-cta) { display:none; }
+      .hero { min-height:calc(100vh - 70px); padding:52px 20px 70px; align-items:flex-end; }
+      .hero:before { right:-30%; top:9%; font-size:145px; }
+      h1 { font-size:clamp(44px,14vw,70px); }
+      .actions { display:grid; grid-template-columns:1fr; }
+      .button { width:100%; }
+      .features { padding:14px 20px 46px; }
+      .grid { grid-template-columns:1fr; }
+      .feature { min-height:auto; padding:18px; }
+      footer { flex-direction:column; }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <div class="mark" aria-hidden="true">و</div>
-    <h1>Waqt</h1>
-    <p id="message">Starting locally. Your app opens as soon as the connection is reachable.</p>
-    <div class="status"><span class="dot" id="dot"></span><span id="status">Checking connection…</span></div>
-    <div class="actions">
-      <button id="retry" type="button">Try again</button>
-      <a id="web" class="hidden" href="https://www.mywaqt.app/prayer">Open Waqt online</a>
-    </div>
-  </main>
-  <script>
-    (function () {
-      var remote = "https://www.mywaqt.app/prayer";
-      var status = document.getElementById("status");
-      var message = document.getElementById("message");
-      var dot = document.getElementById("dot");
-      var retry = document.getElementById("retry");
-      var web = document.getElementById("web");
-      var timer;
-      function openOnline() {
-        clearTimeout(timer);
-        // Do not perform a cross-origin health probe here. Android WebView can
-        // reject an otherwise reachable HTTPS probe because of CORS/redirect
-        // handling. Let the real navigation decide; Capacitor owns fallback.
-        status.textContent = "Opening Waqt…";
-        dot.style.background = "#3c7d5a";
-        location.replace(remote);
-      }
-      function showOffline() {
-        status.textContent = "Offline mode";
-        message.textContent = "The app shell is ready. Connect to the internet to load your account and latest data.";
-        web.classList.remove("hidden");
-      }
-      function start() {
-        // navigator.onLine is not authoritative inside Android WebView and
-        // can report false while Wi-Fi is usable. Always attempt the real
-        // navigation; Capacitor's local error path handles a true outage.
-        openOnline();
-      }
-      retry.addEventListener("click", start);
-      window.addEventListener("online", start);
-      start();
-    }());
-  </script>
+  <div class="page">
+    <header>
+      <div class="brand"><span>Waqt</span><span class="brand-ar" dir="rtl">وقت</span></div>
+      <nav aria-label="Landing navigation">
+        <a href="https://www.mywaqt.app/login">Log in</a>
+        <a class="nav-cta" href="https://www.mywaqt.app/signup">Get started</a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero">
+        <div class="copy">
+          <div class="eyebrow">A quieter way to plan</div>
+          <h1>The five prayers are the fixed anchor.</h1>
+          <p class="lead">Waqt places the rest of life around them — your calendar, habits, study, goals, Quran, and the things worth remembering.</p>
+          <div class="actions">
+            <a class="button primary" href="https://www.mywaqt.app/signup">Create your account&nbsp; →</a>
+            <a class="button secondary" href="https://www.mywaqt.app/login">Log in</a>
+          </div>
+          <p class="note">This landing page is bundled in the APK and works without internet. Sign in when you are ready to load your account.</p>
+        </div>
+      </section>
+      <section class="features" aria-label="Waqt features">
+        <div class="grid">
+          <div class="feature"><b>Prayer first</b><span>Check in, keep qadaa visible, and build accountability without turning worship into a score.</span></div>
+          <div class="feature"><b>Plan around waqt</b><span>Events, study, homework, habits, and workouts find their place around prayer.</span></div>
+          <div class="feature"><b>Offline by default</b><span>The app opens instantly. Changes sync when the connection returns.</span></div>
+          <div class="feature"><b>Quran close at hand</b><span>Read, recite, follow along, and keep your progress with you.</span></div>
+          <div class="feature"><b>Life in one place</b><span>Goals, dreams, dhikr, Qibla, masjids, and the small daily details.</span></div>
+          <div class="feature"><b>Free where it matters</b><span>Prayer accountability stays free forever.</span></div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <span>Waqt — prayer-centered life tracker</span>
+      <nav aria-label="Footer navigation">
+        <a href="https://www.mywaqt.app/privacy">Privacy</a>
+        <a href="https://www.mywaqt.app/terms">Terms</a>
+        <a href="https://www.mywaqt.app/support">Support</a>
+      </nav>
+    </footer>
+  </div>
 </body>
 </html>
