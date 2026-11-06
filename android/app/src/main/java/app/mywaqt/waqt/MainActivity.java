@@ -28,6 +28,9 @@ public class MainActivity extends BridgeActivity {
         // scrolling work at all.
         WebView webView = getBridge().getWebView();
         WebSettings s = webView.getSettings();
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setJavaScriptEnabled(true);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
 
@@ -38,6 +41,17 @@ public class MainActivity extends BridgeActivity {
         if (!isNetworkAvailable()) {
             s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
         }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // A cold offline launch used to leave LOAD_CACHE_ELSE_NETWORK active
+        // for the entire process, even after signal returned.
+        WebView webView = getBridge().getWebView();
+        webView.getSettings().setCacheMode(
+            isNetworkAvailable() ? WebSettings.LOAD_DEFAULT : WebSettings.LOAD_CACHE_ELSE_NETWORK
+        );
     }
 
     @Override
