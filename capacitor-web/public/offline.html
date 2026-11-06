@@ -27,19 +27,37 @@
       cursor: pointer; -webkit-tap-highlight-color: transparent;
     }
     .retry-btn:active { opacity: 0.8; }
+    .status { font-size: 0.8rem; color: #a8a098; margin-top: 1.5rem; min-height: 1.2em; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Reconnecting...</h1>
     <p>Your prayer data is cached on this device. The app will load automatically when the connection returns.</p>
-    <button class="retry-btn" onclick="location.reload()">Retry now</button>
+    <button class="retry-btn" id="retry">Retry now</button>
+    <div class="status" id="status"></div>
   </div>
   <script>
-    // Auto-reload when back online
-    window.addEventListener('online', () => location.reload());
-    // Also try reloading after 3 seconds (in case the online event already fired)
-    setTimeout(() => { if (navigator.onLine) location.reload(); }, 3000);
+    // This page is Capacitor's errorPath — it lives on the LOCAL https://localhost
+    // origin. location.reload() only reloads THIS error page, which is why it
+    // used to loop forever. Recovery means navigating back to the real app;
+    // the server redirects to the right place based on the session cookie.
+    var APP_URL = 'https://www.mywaqt.app/';
+    var statusEl = document.getElementById('status');
+    var attempts = 0;
+
+    function retry() {
+      attempts++;
+      statusEl.textContent = 'Opening Waqt…';
+      location.replace(APP_URL);
+    }
+
+    document.getElementById('retry').addEventListener('click', retry);
+
+    // Real navigation is the only reliable connectivity test in a WebView —
+    // navigator.onLine lies. Retry on a steady timer; each attempt either
+    // loads the app (page unloads) or lands back here and tries again.
+    setInterval(retry, 6000);
   </script>
 </body>
 </html>

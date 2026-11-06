@@ -1,5 +1,6 @@
 package app.mywaqt.waqt;
 
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
@@ -29,6 +30,12 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
 
     private static final String STATIC_PREFIX = "/_next/static/";
     private static final String ASSET_ROOT = "next-static/";
+    // Capacitor's errorPath fires on the FIRST main-frame failure — a single
+    // transient abort/redirect hiccup strands the user on a page that cannot
+    // recover (its reload just reloads the local error file). Retry the real
+    // URL in-place a few times before ever letting the error path show.
+    private static final int MAX_REMOTE_RETRIES = 5;
+    private int remoteRetries = 0;
     private final Bridge bridge;
 
     public WaqtWebViewClient(Bridge bridge) {
@@ -49,6 +56,34 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
             }
         }
         return super.shouldInterceptRequest(view, request);
+    }
+
+    @Override
+    public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+        String host = request.getUrl().getHost();
+        if (request.isForMainFrame() && isWaqtHost(host) && remoteRetries < MAX_REMOTE_RETRIES) {
+            remoteRetries++;
+            final String url = request.getUrl().toString();
+            // Backing off: 1s, 2s, 3s… — swallows the error entirely so the
+            // user never sees the local error page for a transient failure.
+            view.postDelayed(() -> view.loadUrl(url), 1000L * remoteRetries);
+            return;
+        }
+        super.onReceivedError(view, request, error);
+    }
+
+    @Override
+    public void onPageFinished(WebView view, String url) {
+        super.onPageFinished(view, url);
+        // A remote page that actually rendered clears the retry budget —
+        // only count failures, not successful loads between them.
+        try {
+            if (isWaqtHost(android.net.Uri.parse(url).getHost())) remoteRetries = 0;
+        } catch (Exception ignored) { }
+    }
+
+    private static boolean isWaqtHost(String host) {
+        return host != null && (host.equals("mywaqt.app") || host.endsWith(".mywaqt.app"));
     }
 
     private WebResourceResponse fromAssets(String rel) {
