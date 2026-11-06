@@ -303,13 +303,14 @@ export default function WorkoutProfilePage() {
             <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Possible future trend</p>
               <span className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>based on your logged performance, not muscle size</span>
             </div>
-            {forecasts.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Need at least three sessions across two weeks before forecasting.</p>}
+            {forecasts.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Need at least four comparable workouts across three weeks before forecasting.</p>}
             <div className="mt-2 space-y-2">
               {forecasts.map((f) => (
                 <div key={f.name} className="flex items-center gap-2">
                   <span className="w-28 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{f.name}</span>
                   <span className="flex-1 text-[9px]" style={{ color: f.status === "forecast" ? "var(--color-success)" : "var(--color-ink-muted)" }}>
                     {f.change !== null && f.range ? `${f.change >= 0 ? "+" : ""}${f.change}% per month · likely ${f.range[0]}–${f.range[1]}%` : f.status === "insufficient-data" ? "Need more workouts" : "Still learning your trend"}
+                    {f.limiting[0] ? ` · ${f.limiting[0]}` : ""}
                   </span>
                   <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}>{f.confidence >= 0.75 ? "high confidence" : f.confidence >= 0.5 ? "medium confidence" : "early estimate"}</span>
                 </div>

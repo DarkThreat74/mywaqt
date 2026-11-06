@@ -34,25 +34,43 @@ export function forecastGrowth(points: Point[]): GrowthForecast {
   const ordered = points
     .filter((p) => Number.isFinite(p.e1) && p.e1 > 0 && Number.isFinite(Date.parse(p.at)))
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  if (ordered.length < 3) {
-    return { status: "insufficient-data", weeksObserved: 0, sessionsObserved: ordered.length, currentE1rm: ordered.at(-1)?.e1 ?? null, monthlyE1rmChangePct: null, expectedMonthlyRangePct: null, confidence: 0, limitingSignals: ["Need at least three valid sessions"] };
+  if (ordered.length < 4) {
+    return { status: "insufficient-data", weeksObserved: 0, sessionsObserved: ordered.length, currentE1rm: ordered.at(-1)?.e1 ?? null, monthlyE1rmChangePct: null, expectedMonthlyRangePct: null, confidence: 0, limitingSignals: ["Need four comparable workouts"] };
   }
   const firstAt = Date.parse(ordered[0].at);
   const lastAt = Date.parse(ordered.at(-1)!.at);
   const weeks = Math.max(0, (lastAt - firstAt) / 604800000);
-  if (weeks < 2) {
-    return { status: "calibrating", weeksObserved: weeks, sessionsObserved: ordered.length, currentE1rm: ordered.at(-1)!.e1, monthlyE1rmChangePct: null, expectedMonthlyRangePct: null, confidence: 0.2, limitingSignals: ["Trend window is shorter than two weeks"] };
+  if (weeks < 3) {
+    return { status: "calibrating", weeksObserved: weeks, sessionsObserved: ordered.length, currentE1rm: ordered.at(-1)!.e1, monthlyE1rmChangePct: null, expectedMonthlyRangePct: null, confidence: 0.2, limitingSignals: ["Need three weeks of comparable workouts"] };
   }
-  const xMean = ordered.reduce((s, p) => s + Date.parse(p.at), 0) / ordered.length;
-  const yMean = ordered.reduce((s, p) => s + p.e1, 0) / ordered.length;
-  const denom = ordered.reduce((s, p) => s + (Date.parse(p.at) - xMean) ** 2, 0) || 1;
-  const slopePerMs = ordered.reduce((s, p) => s + (Date.parse(p.at) - xMean) * (p.e1 - yMean), 0) / denom;
   const current = ordered.at(-1)!.e1;
+  // Theil–Sen slope: median of all pairwise slopes. One unusually good or
+  // bad workout cannot bend the forecast as much as ordinary least squares.
+  const slopes: number[] = [];
+  for (let i = 0; i < ordered.length; i++) {
+    for (let j = i + 1; j < ordered.length; j++) {
+      const dt = Date.parse(ordered[j].at) - Date.parse(ordered[i].at);
+      if (dt > 0) slopes.push((ordered[j].e1 - ordered[i].e1) / dt);
+    }
+  }
+  const median = (values: number[]) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted.length % 2 ? sorted[Math.floor(sorted.length / 2)] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+  };
+  const slopePerMs = median(slopes);
+  const intercepts = ordered.map((p) => p.e1 - slopePerMs * Date.parse(p.at));
+  const intercept = median(intercepts);
   const monthlyPct = (slopePerMs * 2592000000 / Math.max(current, 1)) * 100;
-  const residuals = ordered.map((p) => p.e1 - (yMean + slopePerMs * (Date.parse(p.at) - xMean)));
-  const noisePct = Math.sqrt(residuals.reduce((s, x) => s + x * x, 0) / residuals.length) / Math.max(current, 1) * 100;
-  const confidence = Math.min(0.95, Math.max(0.25, (Math.min(ordered.length, 10) / 10) * Math.min(1, weeks / 8) * (1 / (1 + noisePct / 10))));
-  const margin = Math.max(0.5, noisePct * 1.5);
+  const residuals = ordered.map((p) => p.e1 - (intercept + slopePerMs * Date.parse(p.at)));
+  const noisePct = median(residuals.map((x) => Math.abs(x))) / Math.max(current, 1) * 100;
+  const confidence = Math.min(0.95, Math.max(0.2, (Math.min(ordered.length, 10) / 10) * Math.min(1, weeks / 8) * (1 / (1 + noisePct / 8))));
+  // Prediction interval is intentionally wider than the fitted trend. This is
+  // a monitoring estimate, not a promise of future strength.
+  const margin = Math.max(1.5, noisePct * 1.8);
+  const limitingSignals: string[] = [];
+  if (noisePct > 8) limitingSignals.push("Workouts vary a lot");
+  if (ordered.length < 6) limitingSignals.push("More workouts will improve this");
+  if (Math.abs(monthlyPct) > 12) limitingSignals.push("Large trend may include technique or rep-range changes");
   return {
     status: "forecast",
     weeksObserved: Math.round(weeks * 10) / 10,
@@ -61,7 +79,7 @@ export function forecastGrowth(points: Point[]): GrowthForecast {
     monthlyE1rmChangePct: Math.round(monthlyPct * 10) / 10,
     expectedMonthlyRangePct: [Math.round((monthlyPct - margin) * 10) / 10, Math.round((monthlyPct + margin) * 10) / 10],
     confidence: Math.round(confidence * 100) / 100,
-    limitingSignals: noisePct > 8 ? ["High session-to-session variability"] : [],
+    limitingSignals,
   };
 }
 
