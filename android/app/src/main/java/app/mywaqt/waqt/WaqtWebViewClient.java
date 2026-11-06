@@ -137,10 +137,40 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
                 if (tryRetry(view, url)) { /* retry runs behind the card */ }
                 else { remoteRetries = 0; firstFailureAt = 0; }
             }
-            loadDiag(view, String.valueOf(status), url, "HTTP error " + status);
+            loadDiag(view, String.valueOf(status), url, describeHttpError(errorResponse, status));
             return;
         }
         super.onReceivedHttpError(view, request, errorResponse);
+    }
+
+    // Vercel/Next error pages carry the real reason — x-vercel-error header
+    // (FUNCTION_INVOCATION_FAILED, DEPLOYMENT_…) and a digest in the body.
+    // Pulling them onto the card turns "HTTP 500" into an actionable answer.
+    private static String describeHttpError(WebResourceResponse res, int status) {
+        StringBuilder sb = new StringBuilder("HTTP error ").append(status);
+        try {
+            if (res != null && res.getResponseHeaders() != null) {
+                for (java.util.Map.Entry<String, String> e : res.getResponseHeaders().entrySet()) {
+                    String k = e.getKey() == null ? "" : e.getKey().toLowerCase(Locale.ROOT);
+                    if (k.startsWith("x-vercel-error") || k.equals("x-middleware-error") || k.equals("x-nextjs-error")) {
+                        sb.append(" · ").append(e.getValue());
+                    }
+                }
+            }
+        } catch (Exception ignored) { }
+        try {
+            if (res != null && res.getData() != null) {
+                byte[] buf = new byte[2048];
+                int n = res.getData().read(buf);
+                if (n > 0) {
+                    String body = new String(buf, 0, n, java.nio.charset.StandardCharsets.UTF_8);
+                    java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("digest[\"'\\s:=]+([A-Za-z0-9_\\-]+)").matcher(body);
+                    if (m.find()) sb.append(" · digest ").append(m.group(1));
+                }
+            }
+        } catch (Exception ignored) { }
+        return sb.toString();
     }
 
     // ── TLS / certificate failures ──
