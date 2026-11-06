@@ -38,6 +38,7 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
     // URL in-place a few times before ever letting the error path show.
     private static final int MAX_REMOTE_RETRIES = 5;
     private int remoteRetries = 0;
+    private long firstFailureAt = 0;
     private final Bridge bridge;
 
     public WaqtWebViewClient(Bridge bridge) {
@@ -64,7 +65,12 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         String host = request.getUrl().getHost();
         if (request.isForMainFrame() && isWaqtHost(host)) {
-            if (remoteRetries < MAX_REMOTE_RETRIES) {
+            // Hard time cap: even if something keeps resetting the counter,
+            // silent retry can never run longer than 45s — the diagnostic
+            // page must always be reachable.
+            if (firstFailureAt == 0) firstFailureAt = System.currentTimeMillis();
+            boolean inWindow = System.currentTimeMillis() - firstFailureAt < 45_000;
+            if (remoteRetries < MAX_REMOTE_RETRIES && inWindow) {
                 remoteRetries++;
                 final String url = request.getUrl().toString();
                 // Backing off: 1s, 2s, 3s… — swallows the error entirely so the
@@ -72,6 +78,7 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
                 view.postDelayed(() -> view.loadUrl(url), 1000L * remoteRetries);
                 return;
             }
+            firstFailureAt = 0;
             // Retries exhausted — the failure is real and persistent. Load the
             // bundled error page directly (same file errorPath would show) but
             // WITH the error details so the failure is diagnosable instead of
@@ -131,10 +138,19 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
         injectBridgeIfRemote(view, url);
-        // A remote page that actually rendered clears the retry budget —
+        // NOTE: deliberately NOT resetting remoteRetries here — WebView can
+        // fire onPageFinished for a FAILED navigation (error document
+        // commits), which reset the backoff to 1s and produced an infinite
+        // ~1s reload loop. Only a visible commit counts as success.
+    }
+
+    @Override
+    public void onPageCommitVisible(WebView view, String url) {
+        super.onPageCommitVisible(view, url);
+        // A remote page that actually painted clears the retry budget —
         // only count failures, not successful loads between them.
         try {
-            if (isWaqtHost(android.net.Uri.parse(url).getHost())) remoteRetries = 0;
+            if (isWaqtHost(android.net.Uri.parse(url).getHost())) { remoteRetries = 0; firstFailureAt = 0; }
         } catch (Exception ignored) { }
     }
 
