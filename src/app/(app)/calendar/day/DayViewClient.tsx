@@ -1525,8 +1525,10 @@ export default function DayViewClient({ date }: { date: string }) {
         </div>
       )}
 
-      {/* Prayer times bar — compact horizontal strip on mobile, cards on desktop */}
-      {prayerTimes && (
+      {/* Prayer times bar — compact horizontal strip on mobile, cards on desktop.
+          Always mounted (empty slots skeleton in) so the timeline never
+          renders into its space and shifts down on data load. */}
+      {(
         <div
           className="mb-3 sm:mb-4"
           role="group"
@@ -1537,7 +1539,7 @@ export default function DayViewClient({ date }: { date: string }) {
               of crushing into unreadability. */}
           <div className="flex gap-1 overflow-x-auto lg:hidden" style={{ scrollbarWidth: "none" }}>
             {PRAYER_NAMES.map((prayer) => {
-              const rawTime = prayerTimes[prayer.key];
+              const rawTime = prayerTimes?.[prayer.key];
               // Keep every slot mounted from first paint — returning null for
               // missing times collapsed the row, then it snapped open on load
               // (the "squished pills" glitch). Empty slots render a skeleton
@@ -1600,7 +1602,7 @@ export default function DayViewClient({ date }: { date: string }) {
           {/* Desktop: cards with full label and time */}
           <div className="hidden flex-wrap justify-center gap-1.5 lg:flex">
             {PRAYER_NAMES.map((prayer) => {
-              const rawTime = prayerTimes[prayer.key];
+              const rawTime = prayerTimes?.[prayer.key];
               // Keep every slot mounted from first paint — returning null for
               // missing times collapsed the row, then it snapped open on load
               // (the "squished pills" glitch). Empty slots render a skeleton
@@ -1853,7 +1855,7 @@ export default function DayViewClient({ date }: { date: string }) {
           {/* Prayer window background bands — translucent, behind events (z-0) */}
           {prayerTimes &&
             PRAYER_NAMES.filter((p) => p.isPrayer).map((prayer, i, arr) => {
-              const rawTime = prayerTimes[prayer.key];
+              const rawTime = prayerTimes?.[prayer.key];
               if (!rawTime) return null;
               const time = adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime);
               const startMin = timeToMinutes(time);
@@ -1907,7 +1909,7 @@ export default function DayViewClient({ date }: { date: string }) {
               through) */}
           {prayerTimes &&
             PRAYER_NAMES.map((prayer) => {
-              const rawTime = prayerTimes[prayer.key];
+              const rawTime = prayerTimes?.[prayer.key];
               if (!rawTime) return null;
               // Asr time: display API time + 1 hour
               const time = adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime);

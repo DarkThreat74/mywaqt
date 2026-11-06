@@ -123,8 +123,8 @@ export default function MiscClient() {
 
       {/* Tab bar — sections grow here as more misc settings land */}
       <div
-        className="mb-5 flex gap-1 rounded-xl border p-1"
-        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+        className="mb-5 flex gap-1 overflow-x-auto rounded-xl border p-1"
+        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", scrollbarWidth: "none" }}
         role="tablist"
       >
         {TABS.map(({ id, label }) => (
@@ -133,7 +133,7 @@ export default function MiscClient() {
             role="tab"
             aria-selected={tab === id}
             onClick={() => setTab(id)}
-            className="flex-1 rounded-lg px-3 py-2 text-xs font-medium transition-colors"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors"
             style={{
               backgroundColor: tab === id ? "var(--color-paper)" : "transparent",
               color: tab === id ? "var(--color-ink)" : "var(--color-ink-muted)",
@@ -399,26 +399,31 @@ function SalahGuardPanel() {
   const [paused, setPaused] = useState(false);
   const [accOn, setAccOn] = useState<boolean | null>(null);
   const [mounted, setMounted] = useState(false);
-  const native = shieldNativeAvailable();
+  // Read on mount AND on a short retry — the Capacitor bridge injects after
+  // first paint, so a render-time check can freeze "not native" forever
+  // (which is why the buttons looked dead).
+  const [native, setNative] = useState(false);
 
   useEffect(() => {
-    Promise.resolve().then(async () => {
-      setArmed(isShieldArmed());
-      setPaused(isShieldPausedToday());
-      if (native) {
+    let attempts = 0;
+    const refresh = async () => {
+      const ok = shieldNativeAvailable();
+      setNative(ok);
+      if (ok) {
+        setArmed(isShieldArmed());
+        setPaused(isShieldPausedToday());
         const s = await getShieldStatus();
-        setAccOn(s?.accessibility ?? false);
+        if (s) setAccOn(s.accessibility);
       }
-      setMounted(true);
-    });
-    // Poll accessibility state — user toggles it in system settings, then returns.
-    const t = setInterval(async () => {
-      if (!native) return;
-      const s = await getShieldStatus();
-      if (s) setAccOn(s.accessibility);
-    }, 5000);
+    };
+    Promise.resolve().then(refresh).then(() => setMounted(true));
+    const t = setInterval(() => {
+      attempts++;
+      if (!shieldNativeAvailable() && attempts > 12) return;
+      void refresh();
+    }, 2500);
     return () => clearInterval(t);
-  }, [native]);
+  }, []);
 
   return (
     <div className="flex flex-col gap-3">

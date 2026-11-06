@@ -389,7 +389,7 @@ export default function GoalsPageClient({
         {activeTab === "goals" && (
           <div className="flex flex-col gap-4">
             {/* Horizon chips — week / month / year / all-time / rules */}
-            <div className="flex gap-1 overflow-x-auto rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+            <div className="flex gap-1 overflow-x-auto rounded-xl border p-1" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", scrollbarWidth: "none" }}>
               {GOAL_HORIZONS.map((h) => (
                 <button
                   key={h.key}
