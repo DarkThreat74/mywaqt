@@ -42,44 +42,27 @@
       var retry = document.getElementById("retry");
       var web = document.getElementById("web");
       var timer;
-      function probe() {
+      function openOnline() {
         clearTimeout(timer);
-        status.textContent = "Checking connection…";
-        dot.style.background = "#b56d3d";
-        web.classList.add("hidden");
-        var finished = false;
-        function connected() {
-          if (finished) return;
-          finished = true;
-          clearTimeout(timer);
-          status.textContent = "Connected — opening Waqt";
-          dot.style.background = "#3c7d5a";
-          location.replace(remote);
-        }
-        function offline() {
-          if (finished) return;
-          finished = true;
-          clearTimeout(timer);
-          status.textContent = "Offline mode";
-          message.textContent = "The app shell is ready. Connect to the internet to load your account and latest data.";
-          web.classList.remove("hidden");
-        }
-        // Image loading is a more reliable WebView reachability check than a
-        // cross-origin no-cors fetch, which can reject on redirect/CORS quirks.
-        var image = new Image();
-        image.onload = connected;
-        image.onerror = offline;
-        image.src = "https://www.mywaqt.app/favicon-32.png?probe=" + Date.now();
-        timer = setTimeout(function () {
-          image.onload = null;
-          image.onerror = null;
-          if (navigator.onLine) location.replace(remote);
-          else offline();
-        }, 6000);
+        // Do not perform a cross-origin health probe here. Android WebView can
+        // reject an otherwise reachable HTTPS probe because of CORS/redirect
+        // handling. Let the real navigation decide; Capacitor owns fallback.
+        status.textContent = "Opening Waqt…";
+        dot.style.background = "#3c7d5a";
+        location.replace(remote);
       }
-      retry.addEventListener("click", probe);
-      window.addEventListener("online", probe);
-      probe();
+      function showOffline() {
+        status.textContent = "Offline mode";
+        message.textContent = "The app shell is ready. Connect to the internet to load your account and latest data.";
+        web.classList.remove("hidden");
+      }
+      function start() {
+        if (navigator.onLine === false) showOffline();
+        else openOnline();
+      }
+      retry.addEventListener("click", start);
+      window.addEventListener("online", start);
+      start();
     }());
   </script>
 </body>
