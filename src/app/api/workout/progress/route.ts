@@ -160,7 +160,8 @@ export async function GET(request: NextRequest) {
       const score = ((r0.energy ?? 7) + (10 - (r0.soreness ?? 3)) + (10 - (r0.stress ?? 4)) + Math.min(((r0.sleepHours ?? 7) / 8) * 10, 10)) / 4;
       return Math.round(Math.min(1.05, Math.max(0.85, 0.9 + score * 0.015)) * 100) / 100;
     };
-    const sessCount = new Set(rows.map((r) => r.sessionId)).size;
+    // A session only counts as a workout after at least one completed set.
+    const sessCount = new Set(rows.filter((r) => r.done).map((r) => r.sessionId)).size;
     const out = [...bySlug.entries()].map(([slug, v]) => ({
       slug,
       points: v.points.reverse(), // oldest → newest

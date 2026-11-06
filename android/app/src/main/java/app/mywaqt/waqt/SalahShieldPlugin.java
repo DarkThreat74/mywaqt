@@ -99,9 +99,11 @@ public class SalahShieldPlugin extends Plugin {
                         Uri.parse("package:" + ctx.getPackageName()));
                 break;
             case "battery":
-                // Direct exemption request — shows the system dialog, not a list.
-                i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                        Uri.parse("package:" + ctx.getPackageName()));
+                // The direct exemption intent requires a restricted
+                // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission. Open the
+                // system list instead so this action cannot throw or trigger
+                // a Play-policy issue.
+                i = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
                 break;
             case "notifications":
                 i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)

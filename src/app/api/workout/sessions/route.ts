@@ -92,7 +92,10 @@ export async function GET(request: NextRequest) {
     const m = sessionBestE1.get(s.id);
     if (!m) continue;
     for (const [slug, e1] of m) {
-      if (e1 > (bestSoFar.get(slug) || 0) * 1.005) {
+      // The endpoint intentionally returns only the latest 50 sessions. Do
+      // not call the oldest visible session a PR when its older history is
+      // outside this window; there is no baseline to prove that.
+      if (bestSoFar.has(slug) && e1 > bestSoFar.get(slug)! * 1.005) {
         const prs = prMap.get(s.id) || new Set<string>();
         prs.add(slug);
         prMap.set(s.id, prs);

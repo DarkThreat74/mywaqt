@@ -1206,11 +1206,6 @@ self.addEventListener("fetch", (event) => {
                 assignments: [],
               };
               responseData._pending = true;
-            } else {
-              // For other API POSTs (prayer log, qadaa, etc.), echo back the body
-              Object.assign(responseData, body);
-              responseData.id = tempId;
-              responseData._pending = true;
             } else if (url.pathname === "/api/workout/sessions") {
               responseData.session = {
                 id: tempId,
@@ -1220,6 +1215,11 @@ self.addEventListener("fetch", (event) => {
                 endedAt: null,
               };
               responseData.sets = [];
+            } else {
+              // For other API POSTs (prayer log, qadaa, etc.), echo back the body
+              Object.assign(responseData, body);
+              responseData.id = tempId;
+              responseData._pending = true;
             }
           }
 
