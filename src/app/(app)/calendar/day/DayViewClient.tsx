@@ -1538,8 +1538,11 @@ export default function DayViewClient({ date }: { date: string }) {
           <div className="flex gap-1 overflow-x-auto lg:hidden" style={{ scrollbarWidth: "none" }}>
             {PRAYER_NAMES.map((prayer) => {
               const rawTime = prayerTimes[prayer.key];
-              if (!rawTime) return null;
-              const time = adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime);
+              // Keep every slot mounted from first paint — returning null for
+              // missing times collapsed the row, then it snapped open on load
+              // (the "squished pills" glitch). Empty slots render a skeleton
+              // at the same size.
+              const time = rawTime ? adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime) : null;
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
               const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
@@ -1553,15 +1556,15 @@ export default function DayViewClient({ date }: { date: string }) {
                     key={prayer.key}
                     className="flex shrink-0 items-center self-stretch"
                     style={{ width: 18 }}
-                    title={`${prayer.label} ${formatTimeCompact(time)} — end of the Fajr window`}
-                    aria-label={`${prayer.label} ${formatTimeCompact(time)}`}
+                    title={`${prayer.label} ${(time ? formatTimeCompact(time) : "—")} — end of the Fajr window`}
+                    aria-label={`${prayer.label} ${(time ? formatTimeCompact(time) : "—")}`}
                     role="separator"
                   >
                     <span className="flex flex-col items-center gap-0.5">
                       <span className="h-2 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                       <Sunrise className="h-3 w-3" style={{ color: "var(--color-warmth)" }} />
                       <span className="text-[8px] leading-none tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                        {formatTimeCompact(time)}
+                        {(time ? formatTimeCompact(time) : "—")}
                       </span>
                       <span className="h-2 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                     </span>
@@ -1587,7 +1590,7 @@ export default function DayViewClient({ date }: { date: string }) {
                     {isExcused && <span className="text-[8px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
                   </span>
                   <span className="mt-0.5 text-[10px] tabular-nums leading-none" style={{ color: "var(--color-ink-muted)" }}>
-                    {formatTimeCompact(time)}
+                    {(time ? formatTimeCompact(time) : "—")}
                   </span>
                 </button>
               );
@@ -1598,8 +1601,11 @@ export default function DayViewClient({ date }: { date: string }) {
           <div className="hidden flex-wrap justify-center gap-1.5 lg:flex">
             {PRAYER_NAMES.map((prayer) => {
               const rawTime = prayerTimes[prayer.key];
-              if (!rawTime) return null;
-              const time = adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime);
+              // Keep every slot mounted from first paint — returning null for
+              // missing times collapsed the row, then it snapped open on load
+              // (the "squished pills" glitch). Empty slots render a skeleton
+              // at the same size.
+              const time = rawTime ? adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime) : null;
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
               const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
               const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
@@ -1609,15 +1615,15 @@ export default function DayViewClient({ date }: { date: string }) {
                   <div
                     key={prayer.key}
                     className="flex items-center self-stretch"
-                    title={`${prayer.label} ${formatTime(time)} — end of the Fajr window`}
-                    aria-label={`${prayer.label} ${formatTime(time)}`}
+                    title={`${prayer.label} ${(time ? formatTime(time) : "—")} — end of the Fajr window`}
+                    aria-label={`${prayer.label} ${(time ? formatTime(time) : "—")}`}
                     role="separator"
                   >
                     <span className="flex flex-col items-center gap-0.5">
                       <span className="h-2.5 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                       <Sunrise className="h-3.5 w-3.5" style={{ color: "var(--color-warmth)" }} />
                       <span className="text-[9px] leading-none tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                        {formatTimeCompact(time)}
+                        {(time ? formatTimeCompact(time) : "—")}
                       </span>
                       <span className="h-2.5 w-px" style={{ backgroundColor: "var(--color-warmth)" }} />
                     </span>
@@ -1643,7 +1649,7 @@ export default function DayViewClient({ date }: { date: string }) {
                     {isExcused && <span className="text-[9px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
                   </span>
                   <span className="text-xs tabular-nums leading-tight" style={{ color: "var(--color-ink-muted)" }}>
-                    {formatTime(time)}
+                    {(time ? formatTime(time) : "—")}
                   </span>
                 </button>
               );
@@ -1929,7 +1935,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       cursor: isClickable ? "pointer" : "default",
                     }}
                   >
-                    {prayerLabel(prayer.key, prayer.label)} {formatTime(time)}
+                    {prayerLabel(prayer.key, prayer.label)} {(time ? formatTime(time) : "—")}
                     {iqamahFor(prayer.key) && (
                       <span className="opacity-70"> · IQ {formatTime(iqamahFor(prayer.key)!)}</span>
                     )}

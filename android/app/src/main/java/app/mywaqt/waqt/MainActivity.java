@@ -50,6 +50,15 @@ public class MainActivity extends BridgeActivity {
             s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
         }
 
+        // Android 13+ requires a runtime grant for POST_NOTIFICATIONS — the
+        // manifest entry alone does nothing, which is why the permission
+        // silently stayed "not granted". Ask once on launch.
+        if (android.os.Build.VERSION.SDK_INT >= 33
+            && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 4211);
+        }
+
         // A cold start from an App Link / notification tap carries a waqt.app
         // URL in the intent — honor it before the generic session resume,
         // or the user lands on the local page while the link rots in the

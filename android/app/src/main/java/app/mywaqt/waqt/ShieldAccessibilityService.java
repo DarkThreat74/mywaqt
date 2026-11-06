@@ -90,6 +90,14 @@ public class ShieldAccessibilityService extends AccessibilityService {
             hideOverlay();
             return;
         }
+        // A bypass taps through ONCE for that window — it never unblocks the
+        // next prayer, but a stuck overlay must always be escapable.
+        String bypassed = getSharedPreferences(SalahShieldPlugin.PREFS, MODE_PRIVATE)
+                .getString("bypassed_window", null);
+        if (bypassed != null && bypassed.equals(due.optString("name") + ":" + due.optLong("endMs"))) {
+            hideOverlay();
+            return;
+        }
         showOverlay(due.optString("name", "Prayer"), due.optLong("endMs", 0));
     }
 
@@ -130,11 +138,25 @@ public class ShieldAccessibilityService extends AccessibilityService {
         return null;
     }
 
+    // Block ALL apps while a window is due — the point of the shield is that
+    // nothing distracts from prayer, not just social media. The only
+    // exemptions are the system surfaces the user MUST keep to escape or
+    // revoke (otherwise a broken setup could lock the phone).
+    private static final Set<String> NEVER_BLOCK = new HashSet<>(java.util.Arrays.asList(
+            "com.android.settings",        // needed to revoke accessibility
+            "com.android.systemui",        // home/recents/pull-down
+            "com.miui.securitycenter",     // Xiaomi system tools
+            "com.samsung.android.lool",    // Samsung device care
+            "android"
+    ));
+
     private boolean isBlocked(String pkg) {
+        if (NEVER_BLOCK.contains(pkg)) return false;
         SharedPreferences prefs = getSharedPreferences(SalahShieldPlugin.PREFS, MODE_PRIVATE);
         Set<String> custom = prefs.getStringSet("blocked_apps", null);
-        Set<String> list = custom != null && !custom.isEmpty() ? custom : DEFAULT_BLOCKED;
-        return list.contains(pkg);
+        // An explicit custom list overrides block-all mode (e.g. tests).
+        if (custom != null && !custom.isEmpty()) return custom.contains(pkg);
+        return true;
     }
 
     // ── Overlay ──
@@ -207,6 +229,25 @@ public class ShieldAccessibilityService extends AccessibilityService {
             }
         });
         root.addView(btn, bp);
+
+        // Tiny bypass escape — small text at the bottom, deliberately
+        // de-emphasized but never absent. Bypass is remembered per-window
+        // (name:endMs) so it can't silently unshield future prayers.
+        TextView bypass = new TextView(this);
+        bypass.setText("bypass");
+        bypass.setTextColor(Color.parseColor("#6f675e"));
+        bypass.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        bypass.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams byp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        byp.setMargins(0, dp(20), 0, 0);
+        bypass.setPadding(dp(24), dp(8), dp(24), dp(8));
+        bypass.setOnClickListener(v -> {
+            getSharedPreferences(SalahShieldPlugin.PREFS, MODE_PRIVATE).edit()
+                    .putString("bypassed_window", prayerName + ":" + endsAtMs).apply();
+            hideOverlay();
+        });
+        root.addView(bypass, byp);
 
         // Focusable so touches and Back land on the shield instead of
         // falling through to the blocked app — without this the overlay is

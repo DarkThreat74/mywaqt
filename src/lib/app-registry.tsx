@@ -260,7 +260,7 @@ export const ALL_APPS: AppDef[] = [
   { key: "/qibla", href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba, live compass", rating: "4.9", installs: "18K", art: QiblaArt },
   { key: "/dhikr", href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter with sequences", rating: "4.8", installs: "24K", art: DhikrArt },
   { key: "/masjids", href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah times", rating: "4.7", installs: "9K", art: MasjidArt },
-  { key: "/shield", href: "/shield", label: "Salah Shield", arabic: "درع", description: "Locks distracting apps while prayer is due", rating: "4.9", installs: "16K", art: ShieldArt },
+
   { key: "/quran", href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah from a verse", rating: "4.9", installs: "15K", art: QuranArt, ranked: true },
   { key: "/quran-tester", href: "/quran-tester", label: "Quran Tester", arabic: "تلاوة", description: "Recite from memory — it follows and catches mistakes", rating: "5.0", installs: "1K", art: QuranTesterArt },
   { key: "/recite", href: "/recite", label: "Recite Coach", arabic: "مقامات", description: "Recite beautifully — pitch, pace and tajwid graded on-device", rating: "4.9", installs: "1K", art: ReciteCoachArt },
@@ -281,7 +281,7 @@ export const ALL_APPS: AppDef[] = [
 export const APP_BY_KEY = new Map(ALL_APPS.map((a) => [a.key, a]));
 
 export const CATEGORIES: { title: string; keys: string[] }[] = [
-  { title: "Prayer", keys: ["/qibla", "/dhikr", "/masjids", "/shield"] },
+  { title: "Prayer", keys: ["/qibla", "/dhikr", "/masjids"] },
   { title: "Quran", keys: ["/quran", "/quran-tester", "/recite", "/mutashabihat", "/names"] },
   { title: "Study", keys: ["/study", "/learn", "/talks", "/nasheeds"] },
   { title: "Life", keys: ["/workout", "/subscriptions", "/birthdays"] },

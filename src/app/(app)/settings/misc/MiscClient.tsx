@@ -2,18 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CalendarClock, Download, Lightbulb, RefreshCw, UserRound } from "lucide-react";
+import { ArrowLeft, CalendarClock, Download, Lightbulb, RefreshCw, Shield, UserRound } from "lucide-react";
 import { setCachedPrayerSettings, getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
 import { FunFactToggle, FunFactCountdown, PrayerPersonalization, type PrayerSettings } from "../SettingsClient";
+import { shieldNativeAvailable, getShieldStatus, setShieldArmed, isShieldArmed, isShieldPausedToday, setShieldPausedToday, openShieldSetting } from "@/lib/salah-shield-native";
 
-type Tab = "planner" | "cards" | "downloads" | "personal";
+type Tab = "planner" | "cards" | "downloads" | "personal" | "guard";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "planner", label: "Planner" },
   { id: "cards", label: "Cards" },
   { id: "downloads", label: "Downloads" },
   { id: "personal", label: "Personal" },
+  { id: "guard", label: "Guard" },
 ];
 
 interface MiscSettings {
@@ -258,6 +260,8 @@ export default function MiscClient() {
 
       {tab === "downloads" && <OfflineTalksPanel />}
 
+      {tab === "guard" && <SalahGuardPanel />}
+
       {tab === "personal" && (
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
@@ -386,6 +390,116 @@ function OfflineTalksPanel() {
           <span>Loading…</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function SalahGuardPanel() {
+  const [armed, setArmed] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [accOn, setAccOn] = useState<boolean | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const native = shieldNativeAvailable();
+
+  useEffect(() => {
+    Promise.resolve().then(async () => {
+      setArmed(isShieldArmed());
+      setPaused(isShieldPausedToday());
+      if (native) {
+        const s = await getShieldStatus();
+        setAccOn(s?.accessibility ?? false);
+      }
+      setMounted(true);
+    });
+    // Poll accessibility state — user toggles it in system settings, then returns.
+    const t = setInterval(async () => {
+      if (!native) return;
+      const s = await getShieldStatus();
+      if (s) setAccOn(s.accessibility);
+    }, 5000);
+    return () => clearInterval(t);
+  }, [native]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <Shield className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+        <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Salah Guard</p>
+      </div>
+      <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+        While a prayer window is open and unmarked, every app on this phone is
+        covered by the guard — not just Waqt. The only way through is marking
+        the prayer (or the small bypass link). Android app only.
+      </p>
+
+      {!native && (
+        <p className="rounded-xl border px-3 py-2.5 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+          Available in the Waqt Android app.
+        </p>
+      )}
+
+      <div className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="min-w-0">
+          <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Enable Salah Guard</p>
+          <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            Blocks all apps until the prayer is marked.
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={armed}
+          disabled={!mounted || !native}
+          onClick={() => {
+            const next = !armed;
+            setShieldArmed(next);
+            setArmed(next);
+            if (next && !accOn) void openShieldSetting("accessibility");
+          }}
+          className="relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50"
+          style={{ backgroundColor: armed ? "var(--color-accent)" : "var(--color-paper-3)" }}
+          aria-label="Toggle Salah Guard"
+        >
+          <span className="absolute top-0.5 h-5 w-5 rounded-full transition-all" style={{ backgroundColor: "var(--color-paper)", left: armed ? "22px" : "2px" }} />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="min-w-0">
+          <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Accessibility access</p>
+          <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            {accOn ? "Granted — the guard can cover other apps." : "Required — tap to open the system setting and allow Waqt."}
+          </p>
+        </div>
+        {!accOn && native && (
+          <button
+            onClick={() => void openShieldSetting("accessibility")}
+            className="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+          >
+            Grant
+          </button>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="min-w-0">
+          <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Pause for today</p>
+          <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            Suspends the guard until midnight — an honest escape, not a silent off-switch.
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={paused}
+          disabled={!mounted || !native}
+          onClick={() => { const next = !paused; setShieldPausedToday(next); setPaused(next); }}
+          className="relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50"
+          style={{ backgroundColor: paused ? "var(--color-accent)" : "var(--color-paper-3)" }}
+          aria-label="Pause Salah Guard for today"
+        >
+          <span className="absolute top-0.5 h-5 w-5 rounded-full transition-all" style={{ backgroundColor: "var(--color-paper)", left: paused ? "22px" : "2px" }} />
+        </button>
+      </div>
     </div>
   );
 }

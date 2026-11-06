@@ -68,7 +68,7 @@ export default function StoreClient() {
     }
   }
 
-  const featured = APP_BY_KEY.get("/shield") ?? ALL_APPS[0];
+  const featured = APP_BY_KEY.get("/quran-tester") ?? ALL_APPS[0];
 
   return (
     <div className="min-h-dvh" style={{ backgroundColor: "var(--color-paper)" }}>

@@ -7,14 +7,11 @@ import { MapPin, ArrowRight, ArrowLeft, Check, Loader2, User, Camera, CloudOff, 
 import { readAvatarFile, presetAvatarDataUrl, AVATAR_PRESETS } from "@/lib/avatar";
 import { GuideGate } from "./guide-gate";
 import { ONBOARDING_DONE_KEY } from "@/components/onboarding-guard";
-import SalahShieldSetup from "@/components/salah-shield-setup";
-import { isNativeApp, getPlatform } from "@/lib/native-bridge";
-
-type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "theme" | "location" | "madhab" | "hifidh" | "notifications" | "install" | "shield" | "tour" | "guide" | "done";
+type Step = "terms" | "name" | "avatar" | "gender" | "hayd" | "theme" | "location" | "madhab" | "hifidh" | "notifications" | "install" | "tour" | "guide" | "done";
 
 const VALID_STEPS = new Set<Step>([
   "terms", "name", "avatar", "gender", "hayd", "theme", "location",
-  "madhab", "hifidh", "notifications", "install", "shield", "tour", "guide", "done",
+  "madhab", "hifidh", "notifications", "install", "tour", "guide", "done",
 ]);
 
 /** Resume point — the layout's guard redirects here with ?s=<step>. */
@@ -712,17 +709,13 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
     }
   }
 
-  // Salah Shield permission walkthrough only exists inside the Android
-  // shell — on web there's nothing to grant, so the step disappears.
-  const showShieldStep = isNativeApp() && getPlatform() === "android";
-  const afterInstall: Step = showShieldStep ? "shield" : "tour";
+  const afterInstall: Step = "tour";
 
   // Progress dots: hayd step only exists for girls — count it conditionally
   const steps: Step[] = [
     "terms", "name", "avatar", "gender",
     ...(gender === "female" ? (["hayd"] as Step[]) : []),
     "theme", "location", "madhab", "hifidh", "notifications", "install",
-    ...(showShieldStep ? (["shield"] as Step[]) : []),
     "tour", "guide", "done",
   ];
   const currentIdx = steps.indexOf(step);
@@ -1439,11 +1432,6 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
             </button>
           </div>
         </div>
-      )}
-
-      {/* ── Salah Shield — Android permission walkthrough (native only) ── */}
-      {step === "shield" && (
-        <SalahShieldSetup onDone={() => setStep("tour")} onSkip={() => setStep("tour")} />
       )}
 
       {/* ── Feature tour — what Waqt can do ── */}
