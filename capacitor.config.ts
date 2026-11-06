@@ -15,7 +15,9 @@ const config: CapacitorConfig = {
       SITE_DOMAIN.replace(/^www\./, ""),
       `*.${SITE_DOMAIN.replace(/^www\./, "")}`,
     ],
-    errorPath: "public/offline.html",
+    // Capacitor resolves this against the local https://localhost asset
+    // server. The file is at the root of webDir, so use the bare filename.
+    errorPath: "offline.html",
   },
 
   ios: {

@@ -57,8 +57,10 @@
         web.classList.remove("hidden");
       }
       function start() {
-        if (navigator.onLine === false) showOffline();
-        else openOnline();
+        // navigator.onLine is not authoritative inside Android WebView and
+        // can report false while Wi-Fi is usable. Always attempt the real
+        // navigation; Capacitor's local error path handles a true outage.
+        openOnline();
       }
       retry.addEventListener("click", start);
       window.addEventListener("online", start);
