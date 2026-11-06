@@ -224,6 +224,7 @@ export default function QuranTesterClient() {
   const wordIdxRef = useRef<number | null>(null);
   const paintFrameRef = useRef<number | null>(null);
   const queuedPaintRef = useRef<{ s: number; a: number; w: number } | null>(null);
+  const liveWordNodeRef = useRef<HTMLElement | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   const [micDenied, setMicDenied] = useState(false);
   const [storageInfo, setStorageInfo] = useState(false);
@@ -1616,13 +1617,24 @@ export default function QuranTesterClient() {
       paintFrameRef.current = null;
       const next = queuedPaintRef.current;
       if (!next) return;
+      const previous = liveWordNodeRef.current;
+      const previousLoc = previous?.dataset.loc?.split(":").map(Number);
+      const sameAyah = previousLoc?.[0] === next.s && previousLoc?.[1] === next.a;
+      if (previous) {
+        previous.classList.remove("qt-live-word");
+        if (sameAyah) previous.classList.add("qt-heard-word");
+      }
+      if (!sameAyah) {
+        document.querySelectorAll<HTMLElement>("[data-qt-cur] .qt-heard-word")
+          .forEach((node) => node.classList.remove("qt-heard-word"));
+      }
       const nodes = document.querySelectorAll<HTMLElement>("[data-qt-cur] [data-loc]");
+      liveWordNodeRef.current = null;
       nodes.forEach((node) => {
-        node.classList.remove("qt-live-word", "qt-heard-word");
         const [ns, na, nw] = (node.dataset.loc || "").split(":").map(Number);
-        if (ns === next.s && na === next.a) {
-          if (nw < next.w) node.classList.add("qt-heard-word");
-          if (nw === next.w) node.classList.add("qt-live-word");
+        if (ns === next.s && na === next.a && nw === next.w) {
+          node.classList.add("qt-live-word");
+          liveWordNodeRef.current = node;
         }
       });
     });
