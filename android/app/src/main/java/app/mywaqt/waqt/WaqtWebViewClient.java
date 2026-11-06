@@ -7,6 +7,8 @@ import android.webkit.WebView;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
+import com.getcapacitor.JSExport;
+import com.getcapacitor.PluginHandle;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -128,11 +130,68 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
     @Override
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
+        injectBridgeIfRemote(view, url);
         // A remote page that actually rendered clears the retry budget —
         // only count failures, not successful loads between them.
         try {
             if (isWaqtHost(android.net.Uri.parse(url).getHost())) remoteRetries = 0;
         } catch (Exception ignored) { }
+    }
+
+    @Override
+    public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+        super.onPageStarted(view, url, favicon);
+        injectBridgeIfRemote(view, url);
+    }
+
+    /**
+     * Capacitor's JSInjector only stitches window.Capacitor into LOCAL
+     * (https://localhost) pages — remote allowNavigation pages get the
+     * androidBridge transport but no JS runtime, so every plugin call
+     * (push, haptics, status bar, App listeners) silently dies and the app
+     * reports "push not supported". Inject the same generated bridge script
+     * into www.mywaqt.app pages after load; idempotent via the JS-side guard.
+     */
+    private void injectBridgeIfRemote(final WebView view, String url) {
+        try {
+            if (!isWaqtHost(android.net.Uri.parse(url).getHost())) return;
+        } catch (Exception e) { return; }
+        final String script = bridgeScript();
+        if (script.isEmpty()) return;
+        view.evaluateJavascript(
+            "(window.Capacitor && window.Capacitor.Plugins) ? 1 : 0",
+            res -> {
+                if (!"1".equals(res)) {
+                    view.evaluateJavascript(script, null);
+                }
+            });
+    }
+
+    private volatile String bridgeScript;
+    @SuppressWarnings("unchecked")
+    private String bridgeScript() {
+        if (bridgeScript != null) return bridgeScript;
+        try {
+            android.content.Context ctx = bridge.getContext();
+            StringBuilder sb = new StringBuilder();
+            sb.append(JSExport.getGlobalJS(ctx, false, false)).append('\n');
+            sb.append("window.WEBVIEW_SERVER_URL = '").append(bridge.getLocalUrl()).append("';\n");
+            sb.append(JSExport.getBridgeJS(ctx)).append('\n');
+            // The plugins map is private on Bridge — reflect once at build
+            // time rather than hardcoding the plugin list.
+            java.lang.reflect.Field f = Bridge.class.getDeclaredField("plugins");
+            f.setAccessible(true);
+            java.util.Map<String, PluginHandle> map =
+                (java.util.Map<String, PluginHandle>) f.get(bridge);
+            sb.append(JSExport.getPluginJS(map.values())).append('\n');
+            try { sb.append(JSExport.getCordovaJS(ctx)).append('\n'); } catch (Throwable ignored) { }
+            try { sb.append(JSExport.getCordovaPluginJS(ctx)).append('\n'); } catch (Throwable ignored) { }
+            try { sb.append(JSExport.getCordovaPluginsFileJS(ctx)).append('\n'); } catch (Throwable ignored) { }
+            bridgeScript = sb.toString();
+        } catch (Exception e) {
+            bridgeScript = "";
+        }
+        return bridgeScript;
     }
 
     private static boolean isWaqtHost(String host) {

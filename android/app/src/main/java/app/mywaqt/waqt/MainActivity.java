@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.os.Bundle;
+import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -37,6 +38,9 @@ public class MainActivity extends BridgeActivity {
         s.setJavaScriptEnabled(true);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
+        // Kill the WebView's elastic overscroll glow/stretch — CSS
+        // overscroll-behavior doesn't reach it; this is the native switch.
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         // Offline tolerance: the WebView has its own HTTP cache. When the
         // device has no usable network, serve whatever it has cached
