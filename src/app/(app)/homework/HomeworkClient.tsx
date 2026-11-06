@@ -868,10 +868,15 @@ export default function HomeworkClient({
   const sortedPending = [...visible].sort((a, b) => {
     switch (sortBy) {
       case "soonest": {
-        // Soonest due first, then by due time
+        // Date → time → class/category → natural title. This keeps e.g.
+        // "Journal 10" before "Journal 11" without splitting same-class work.
         const dateCmp = a.dueDate.localeCompare(b.dueDate);
         if (dateCmp !== 0) return dateCmp;
-        return (a.dueTime || "23:59").localeCompare(b.dueTime || "23:59");
+        const timeCmp = (a.dueTime || "23:59").localeCompare(b.dueTime || "23:59");
+        if (timeCmp !== 0) return timeCmp;
+        const classCmp = (getClassInfo(a.classId)?.name || "").localeCompare(getClassInfo(b.classId)?.name || "", undefined, { sensitivity: "base" });
+        if (classCmp !== 0) return classCmp;
+        return a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" });
       }
       case "latest": {
         // Latest due date first (furthest away)

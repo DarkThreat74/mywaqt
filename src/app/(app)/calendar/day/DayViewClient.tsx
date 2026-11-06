@@ -313,6 +313,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [checkinPopup, setCheckinPopup] = useState<{ prayer: PrayerKey; label: string } | null>(null);
   const [studyBlocks, setStudyBlocks] = useState<BlockWithAssignments[]>([]);
   const [planOpen, setPlanOpen] = useState(false);
+  const [plusOpen, setPlusOpen] = useState(false);
   const [pickMode, setPickMode] = useState(false); // tap-a-slot-on-the-calendar mode
 
   useEffect(() => {
@@ -1750,19 +1751,6 @@ export default function DayViewClient({ date }: { date: string }) {
             {dayHomeworkCount > 0 && !isPastDay && (
               <span className="w-px self-stretch" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden />
             )}
-            {!isPastDay && (
-              <button
-                onClick={() => { setPlanOpen(true); play("open"); }}
-                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ color: "var(--color-ink)", minHeight: 32 }}
-                aria-label={`Plan study blocks — ${fmtDur(gaps.reduce((s, g) => s + g.end - g.start, 0))} free today`}
-              >
-                <BookOpen className="h-3 w-3 shrink-0" style={{ color: "var(--color-accent)" }} />
-                {dayBlocks.filter((b) => b.status !== "released").length > 0
-                  ? `${dayBlocks.filter((b) => b.status !== "released").length} planned`
-                  : "Plan"}
-              </button>
-            )}
             {goalsOpen && goalEvents.length > 0 && (
               <div
                 className="absolute right-0 top-9 z-40 w-56 rounded-xl border p-2 shadow-xl"
@@ -2313,7 +2301,27 @@ export default function DayViewClient({ date }: { date: string }) {
 
       {/* Floating action button — sits above mobile bottom nav, top-right on desktop */}
       <button
-        onClick={() => {
+        onClick={() => setPlusOpen((open) => !open)}
+        className="fixed right-5 bottom-20 z-30 flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-105 lg:bottom-6"
+        style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+        aria-label="Add to calendar"
+        aria-expanded={plusOpen}
+      >
+        <Plus className="h-5 w-5" />
+      </button>
+
+      {plusOpen && (
+        <div className="fixed bottom-36 right-5 z-30 flex w-52 flex-col gap-1 rounded-xl border p-1.5 shadow-xl lg:bottom-20"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+          {!isPastDay && (
+            <button type="button" onClick={() => { setPlusOpen(false); setPlanOpen(true); play("open"); }}
+              className="rounded-lg px-3 py-2.5 text-left text-xs font-semibold hover:bg-[var(--color-paper-2)]"
+              style={{ color: "var(--color-ink)" }}>
+              <BookOpen className="mr-2 inline h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />
+              Plan a study session
+            </button>
+          )}
+          <button type="button" onClick={() => {
           setNewTitle("");
           setNewDetails("");
           setNewStart("09:00");
@@ -2327,14 +2335,16 @@ export default function DayViewClient({ date }: { date: string }) {
           setRecurrenceDays([]);
           setEditingEvent(null);
           setShowAddForm(true);
+          setPlusOpen(false);
           play("open");
         }}
-        className="fixed right-5 bottom-20 z-30 flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-105 lg:bottom-6"
-        style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
-        aria-label="Add event"
-      >
-        <Plus className="h-5 w-5" />
-      </button>
+            className="rounded-lg px-3 py-2.5 text-left text-xs font-semibold hover:bg-[var(--color-paper-2)]"
+            style={{ color: "var(--color-ink)" }}>
+            <Plus className="mr-2 inline h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />
+            Add event or class
+          </button>
+        </div>
+      )}
 
       {loading && (
         <div className="mt-4 flex items-center gap-2" role="status" aria-label="Loading calendar">
@@ -2562,7 +2572,7 @@ export default function DayViewClient({ date }: { date: string }) {
                     lives in the Repeat section below */}
                 <div>
                   <span className="mb-1 block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                    Starts
+                    Class starts
                   </span>
                   <input
                     type="date"
@@ -2571,6 +2581,21 @@ export default function DayViewClient({ date }: { date: string }) {
                     className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
                     style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
                   />
+                </div>
+                <div>
+                  <span className="mb-1 block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                    Class ends
+                  </span>
+                  <input
+                    type="date"
+                    value={recurrenceEndDate}
+                    onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
+                  />
+                  <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    The last date this recurring class should appear.
+                  </p>
                 </div>
                 </div>
               )}
@@ -2787,15 +2812,20 @@ export default function DayViewClient({ date }: { date: string }) {
                         )}
                       </div>
 
-                      {/* End date */}
-                      <input
-                        type="date"
-                        value={recurrenceEndDate}
-                        onChange={(e) => setRecurrenceEndDate(e.target.value)}
-                        required={enableRecurrence}
-                        className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
-                        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
-                      />
+                      {/* End date is shown beside the class start field above. */}
+                      {eventKind !== "class" && (
+                        <div>
+                          <label className="mb-1 block text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Repeat until</label>
+                          <input
+                            type="date"
+                            value={recurrenceEndDate}
+                            onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                            required={enableRecurrence}
+                            className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 44 }}
+                          />
+                        </div>
+                      )}
 
                       {/* Summary */}
                       {recurrenceDays.length > 0 && recurrenceEndDate && (
