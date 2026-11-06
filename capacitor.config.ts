@@ -4,33 +4,17 @@ import { SITE_DOMAIN, APP_BUNDLE_ID, APP_NAME } from "./src/lib/site-config";
 const config: CapacitorConfig = {
   appId: APP_BUNDLE_ID,
   appName: APP_NAME,
-  // Remote-URL mode: webDir only supplies the errorPath fallback page —
-  // offline.html is fully self-contained (inline CSS, no assets). Pointing
-  // at public/ mirrored 7.6MB of site assets (quran.json, toy PNGs, icons)
-  // into the APK that the remote site already serves — pure dead weight.
+  // Local-first entry shell. It boots immediately from the APK, then hands
+  // off to the deployed app only after a reachability probe succeeds.
   webDir: "capacitor-web",
 
-  // ── Mode B: Remote URL ──
-  // The WebView loads the deployed Next.js app so SSR, API routes,
-  // middleware, and cron all work normally. Native plugins add the
-  // features that pass Apple's 4.2 review (biometric, push, haptics, share).
+  // The bundled shell owns the first paint. The remote app remains the
+  // online source of truth until the full local route bundle is migrated.
   server: {
-    // MUST be the canonical host. The site 308s apex → www; starting on the
-    // apex made that redirect cross hosts, so the bridge treated it as an
-    // external navigation and bounced to the browser/PWA instead of
-    // staying inside the WebView.
-    url: `https://www.${SITE_DOMAIN.replace(/^www\./, "")}`,
-    // Keep any host drift inside the WebView — apex, www, and any
-    // subdomain of the site are the app, never a browser intent.
     allowNavigation: [
       SITE_DOMAIN.replace(/^www\./, ""),
       `*.${SITE_DOMAIN.replace(/^www\./, "")}`,
     ],
-    // Land on the prayer dashboard — reviewers see populated content
-    appStartPath: "/prayer",
-    // Capacitor copies webDir under the local `public/` asset root. Using
-    // the bare filename sends failures to localhost/offline.html, which does
-    // not exist in the APK and creates a second navigation failure.
     errorPath: "public/offline.html",
   },
 
