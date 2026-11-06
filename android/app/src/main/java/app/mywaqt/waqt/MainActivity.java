@@ -3,14 +3,17 @@ package app.mywaqt.waqt;
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
+import android.net.NetworkCapabilities;
 import android.os.Bundle;
+import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private static final String REMOTE_APP_URL = "https://www.mywaqt.app/prayer";
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SalahShieldPlugin.class);
@@ -28,6 +31,7 @@ public class MainActivity extends BridgeActivity {
         // scrolling work at all.
         WebView webView = getBridge().getWebView();
         WebSettings s = webView.getSettings();
+        CookieManager.getInstance().setAcceptCookie(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
         s.setJavaScriptEnabled(true);
@@ -40,6 +44,14 @@ public class MainActivity extends BridgeActivity {
         // first cold boot still needs network, subsequent ones don't.
         if (!isNetworkAvailable()) {
             s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
+        }
+
+        // The local landing page is for first-time users. After login, the
+        // HttpOnly session cookie persists in the Android WebView cookie jar;
+        // resume the app from that same origin, including from cache offline.
+        String cookies = CookieManager.getInstance().getCookie(REMOTE_APP_URL);
+        if (cookies != null && cookies.contains("waqt-session=")) {
+            webView.post(() -> webView.loadUrl(REMOTE_APP_URL));
         }
     }
 
@@ -65,7 +77,10 @@ public class MainActivity extends BridgeActivity {
     private boolean isNetworkAvailable() {
         ConnectivityManager cm =
             (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo info = cm == null ? null : cm.getActiveNetworkInfo();
-        return info != null && info.isConnected();
+        if (cm == null) return false;
+        android.net.Network network = cm.getActiveNetwork();
+        NetworkCapabilities caps = network == null ? null : cm.getNetworkCapabilities(network);
+        return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
     }
 }
