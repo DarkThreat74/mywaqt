@@ -46,7 +46,11 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
 
     private static final String STATIC_PREFIX = "/_next/static/";
     private static final String ASSET_ROOT = "next-static/";
-    private static final int MAX_REMOTE_RETRIES = 5;
+    // Two quick silent retries (~3s) cover real transient blips; after that
+    // the diagnostic page takes over (it auto-retries every 8s). Retrying
+    // longer in place just leaves the user staring at the WebView's ugly
+    // built-in "webpage not available" error doc.
+    private static final int MAX_REMOTE_RETRIES = 2;
     private static final long RETRY_WINDOW_MS = 45_000;
     private static final int MAX_RENDERER_CRASHES = 2;
 
@@ -93,9 +97,13 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
         if (request.isForMainFrame() && isWaqtHost(host)) {
             hadMainFrameError = true;
             final String url = request.getUrl().toString();
-            if (tryRetry(view, url)) return;
-            remoteRetries = 0;
-            firstFailureAt = 0;
+            // The WebView paints its own ugly "webpage not available" doc on
+            // every failed navigation — swallowing the callback doesn't hide
+            // it. So the diagnostic card goes up IMMEDIATELY; the scheduled
+            // silent retries still run behind it and navigate away the
+            // moment the real page answers.
+            if (tryRetry(view, url)) { /* retry runs behind the card */ }
+            else { remoteRetries = 0; firstFailureAt = 0; }
             int code = error != null ? error.getErrorCode() : 0;
             String desc = error != null ? String.valueOf(error.getDescription()) : "";
             loadDiag(view, String.valueOf(code), url, desc);
@@ -126,9 +134,8 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
             final String url = request.getUrl().toString();
             // Transient statuses retry; 4xx etc. go straight to diagnostics.
             if (status >= 500 || status == 429 || status == 408) {
-                if (tryRetry(view, url)) return;
-                remoteRetries = 0;
-                firstFailureAt = 0;
+                if (tryRetry(view, url)) { /* retry runs behind the card */ }
+                else { remoteRetries = 0; firstFailureAt = 0; }
             }
             loadDiag(view, String.valueOf(status), url, "HTTP error " + status);
             return;
