@@ -50,6 +50,16 @@ public class MainActivity extends BridgeActivity {
             s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
         }
 
+        // A cold start from an App Link / notification tap carries a waqt.app
+        // URL in the intent — honor it before the generic session resume,
+        // or the user lands on the local page while the link rots in the
+        // bridge's appUrlOpen event (no listener on the local origin).
+        String deepLink = deepLinkUrl(getIntent());
+        if (deepLink != null) {
+            webView.post(() -> webView.loadUrl(deepLink));
+            return;
+        }
+
         // The local landing page is for first-time users. After login, the
         // HttpOnly session cookie persists in the Android WebView cookie jar;
         // resume the app from that same origin, including from cache offline.
@@ -76,6 +86,30 @@ public class MainActivity extends BridgeActivity {
         // Warm launch from the shield overlay — surface shield_prayer so
         // consumeLaunchPrayer can hand it to the web layer.
         setIntent(intent);
+        // Warm app-link hit: if the WebView is still on the local shell or
+        // error page, take it to the link's destination directly.
+        String deepLink = deepLinkUrl(intent);
+        if (deepLink != null) {
+            WebView webView = getBridge().getWebView();
+            String current = webView.getUrl() == null ? "" : webView.getUrl();
+            String host = null;
+            try { host = android.net.Uri.parse(current).getHost(); } catch (Exception ignored) { }
+            if (host == null || !host.endsWith("mywaqt.app")) {
+                webView.loadUrl(deepLink);
+            }
+        }
+    }
+
+    private String deepLinkUrl(Intent intent) {
+        if (intent == null) return null;
+        android.net.Uri uri = intent.getData();
+        if (uri == null) return null;
+        String host = uri.getHost();
+        if (host != null && (host.equals("mywaqt.app") || host.endsWith(".mywaqt.app"))
+            && "https".equals(uri.getScheme())) {
+            return uri.toString();
+        }
+        return null;
     }
 
     private boolean isNetworkAvailable() {

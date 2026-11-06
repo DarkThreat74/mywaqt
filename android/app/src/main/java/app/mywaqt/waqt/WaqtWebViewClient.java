@@ -1,5 +1,8 @@
 package app.mywaqt.waqt;
 
+import android.webkit.RenderProcessGoneDetail;
+import android.net.http.SslError;
+import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -27,18 +30,30 @@ import java.util.Locale;
  * Bundle contents live at assets/next-static/{chunks,media}/… (populated
  * by the release step). MapLibre (~3.5MB, lazily imported on the masjids
  * page only) is deliberately NOT bundled — it streams on demand.
+ *
+ * Error policy (all paths funnel through tryRetry/loadDiag):
+ *  - Transient failures retry silently with backoff, capped by count AND a
+ *    45s wall-clock window — a scheduled retry also checks a success hasn't
+ *    landed since (pending retries used to punch a fresh load over a page
+ *    that had already rendered).
+ *  - Persistent failures show the bundled offline page WITH the real error
+ *    code + URL — never an undiagnosable "reconnecting" screen.
+ *  - The retry state only resets on a visible commit with no intervening
+ *    error — onPageFinished fires for failed navigations too and used to
+ *    reset the backoff into an infinite ~1s reload loop.
  */
 public class WaqtWebViewClient extends BridgeWebViewClient {
 
     private static final String STATIC_PREFIX = "/_next/static/";
     private static final String ASSET_ROOT = "next-static/";
-    // Capacitor's errorPath fires on the FIRST main-frame failure — a single
-    // transient abort/redirect hiccup strands the user on a page that cannot
-    // recover (its reload just reloads the local error file). Retry the real
-    // URL in-place a few times before ever letting the error path show.
     private static final int MAX_REMOTE_RETRIES = 5;
+    private static final long RETRY_WINDOW_MS = 45_000;
+    private static final int MAX_RENDERER_CRASHES = 2;
+
     private int remoteRetries = 0;
     private long firstFailureAt = 0;
+    private boolean hadMainFrameError = false;
+    private int rendererCrashes = 0;
     private final Bridge bridge;
 
     public WaqtWebViewClient(Bridge bridge) {
@@ -46,119 +61,140 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
         this.bridge = bridge;
     }
 
-    @Override
-    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-        if ("GET".equals(request.getMethod())) {
-            String host = request.getUrl().getHost();
-            if (host != null && (host.equals("mywaqt.app") || host.endsWith(".mywaqt.app"))) {
-                String path = request.getUrl().getPath();
-                if (path != null && path.startsWith(STATIC_PREFIX)) {
-                    WebResourceResponse res = fromAssets(path.substring(STATIC_PREFIX.length()));
-                    if (res != null) return res;
-                }
-            }
-        }
-        return super.shouldInterceptRequest(view, request);
+    // ── Retry machinery ──
+
+    /** Returns true if a silent retry was scheduled. */
+    private boolean tryRetry(final WebView view, final String url) {
+        if (firstFailureAt == 0) firstFailureAt = System.currentTimeMillis();
+        boolean inWindow = System.currentTimeMillis() - firstFailureAt < RETRY_WINDOW_MS;
+        if (remoteRetries >= MAX_REMOTE_RETRIES || !inWindow) return false;
+        remoteRetries++;
+        view.postDelayed(() -> {
+            // A success may have landed while this retry was queued —
+            // without this check the retry punches a fresh navigation over
+            // an already-rendered page (visible as a random reload flash).
+            if (remoteRetries > 0) view.loadUrl(url);
+        }, 1000L * remoteRetries);
+        return true;
     }
+
+    private void loadDiag(WebView view, String code, String url, String desc) {
+        view.loadUrl("https://localhost/offline.html"
+            + "?code=" + android.net.Uri.encode(code)
+            + "&url=" + android.net.Uri.encode(url)
+            + "&desc=" + android.net.Uri.encode(desc));
+    }
+
+    // ── Network-level failures ──
 
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         String host = request.getUrl().getHost();
         if (request.isForMainFrame() && isWaqtHost(host)) {
-            // Hard time cap: even if something keeps resetting the counter,
-            // silent retry can never run longer than 45s — the diagnostic
-            // page must always be reachable.
-            if (firstFailureAt == 0) firstFailureAt = System.currentTimeMillis();
-            boolean inWindow = System.currentTimeMillis() - firstFailureAt < 45_000;
-            if (remoteRetries < MAX_REMOTE_RETRIES && inWindow) {
-                remoteRetries++;
-                final String url = request.getUrl().toString();
-                // Backing off: 1s, 2s, 3s… — swallows the error entirely so the
-                // user never sees the local error page for a transient failure.
-                view.postDelayed(() -> view.loadUrl(url), 1000L * remoteRetries);
-                return;
-            }
+            hadMainFrameError = true;
+            final String url = request.getUrl().toString();
+            if (tryRetry(view, url)) return;
+            remoteRetries = 0;
             firstFailureAt = 0;
-            // Retries exhausted — the failure is real and persistent. Load the
-            // bundled error page directly (same file errorPath would show) but
-            // WITH the error details so the failure is diagnosable instead of
-            // a dead-end "reconnecting" screen.
             int code = error != null ? error.getErrorCode() : 0;
             String desc = error != null ? String.valueOf(error.getDescription()) : "";
-            view.loadUrl("https://localhost/offline.html"
-                + "?code=" + code
-                + "&url=" + android.net.Uri.encode(request.getUrl().toString())
-                + "&desc=" + android.net.Uri.encode(desc));
+            loadDiag(view, String.valueOf(code), url, desc);
             return;
         }
         super.onReceivedError(view, request, error);
-    }
-
-    @Override
-    public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
-        String host = request.getUrl().getHost();
-        if (request.isForMainFrame() && isWaqtHost(host)) {
-            int status = errorResponse != null ? errorResponse.getStatusCode() : 0;
-            // Transient statuses (5xx, 429, 408) get the same silent retry —
-            // Capacitor's default would dump the user on the error page with
-            // no detail for ANY non-2xx main-frame response.
-            if ((status >= 500 || status == 429 || status == 408) && remoteRetries < MAX_REMOTE_RETRIES) {
-                remoteRetries++;
-                final String url = request.getUrl().toString();
-                view.postDelayed(() -> view.loadUrl(url), 1000L * remoteRetries);
-                return;
-            }
-            view.loadUrl("https://localhost/offline.html"
-                + "?code=" + status
-                + "&url=" + android.net.Uri.encode(request.getUrl().toString())
-                + "&desc=" + android.net.Uri.encode("HTTP error " + status));
-            return;
-        }
-        super.onReceivedHttpError(view, request, errorResponse);
     }
 
     @SuppressWarnings("deprecation")
     @Override
     public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
         // WebView calls BOTH signatures for main-frame errors on API 23+ —
-        // handling only the new one lets this callback still hit the error
-        // path underneath the retry. Deprecated signature has no isForMainFrame,
-        // so it only fires for main-frame errors by definition.
+        // the new-signature handler owns retry + the diagnostic page.
         String host = null;
         try { host = android.net.Uri.parse(failingUrl).getHost(); } catch (Exception ignored) { }
-        if (isWaqtHost(host)) {
-            // The new-signature handler owns retry + the diagnostic error
-            // page — letting this one through would overwrite it.
-            return;
-        }
+        if (isWaqtHost(host)) return;
         super.onReceivedError(view, errorCode, description, failingUrl);
     }
 
-    @Override
-    public void onPageFinished(WebView view, String url) {
-        super.onPageFinished(view, url);
-        injectBridgeIfRemote(view, url);
-        // NOTE: deliberately NOT resetting remoteRetries here — WebView can
-        // fire onPageFinished for a FAILED navigation (error document
-        // commits), which reset the backoff to 1s and produced an infinite
-        // ~1s reload loop. Only a visible commit counts as success.
-    }
+    // ── HTTP error statuses ──
 
     @Override
-    public void onPageCommitVisible(WebView view, String url) {
-        super.onPageCommitVisible(view, url);
-        // A remote page that actually painted clears the retry budget —
-        // only count failures, not successful loads between them.
-        try {
-            if (isWaqtHost(android.net.Uri.parse(url).getHost())) { remoteRetries = 0; firstFailureAt = 0; }
-        } catch (Exception ignored) { }
+    public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
+        String host = request.getUrl().getHost();
+        if (request.isForMainFrame() && isWaqtHost(host)) {
+            hadMainFrameError = true;
+            int status = errorResponse != null ? errorResponse.getStatusCode() : 0;
+            final String url = request.getUrl().toString();
+            // Transient statuses retry; 4xx etc. go straight to diagnostics.
+            if (status >= 500 || status == 429 || status == 408) {
+                if (tryRetry(view, url)) return;
+                remoteRetries = 0;
+                firstFailureAt = 0;
+            }
+            loadDiag(view, String.valueOf(status), url, "HTTP error " + status);
+            return;
+        }
+        super.onReceivedHttpError(view, request, errorResponse);
     }
+
+    // ── TLS / certificate failures ──
+    // Never call handler.proceed() — a broken cert must never be bypassed.
+    // Show the diagnostic page so the failure is visible, not a blank view.
+    @Override
+    public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+        String host = null;
+        try { host = android.net.Uri.parse(view.getUrl()).getHost(); } catch (Exception ignored) { }
+        if (isWaqtHost(host)) {
+            loadDiag(view, "SSL", view.getUrl(),
+                error != null ? error.toString() : "certificate error");
+            return;
+        }
+        super.onReceivedSslError(view, handler, error);
+    }
+
+    // ── Renderer death ──
+    // Default Capacitor behavior lets the process die on renderer crash.
+    // Reload once or twice instead; beyond that, let it fail honestly.
+    @Override
+    public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+        if (rendererCrashes < MAX_RENDERER_CRASHES) {
+            rendererCrashes++;
+            view.postDelayed(view::reload, 1500);
+            return true;
+        }
+        return super.onRenderProcessGone(view, detail);
+    }
+
+    // ── Page lifecycle ──
 
     @Override
     public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
         super.onPageStarted(view, url, favicon);
         injectBridgeIfRemote(view, url);
     }
+
+    @Override
+    public void onPageFinished(WebView view, String url) {
+        super.onPageFinished(view, url);
+        injectBridgeIfRemote(view, url);
+        // NOTE: deliberately NOT resetting retry state here — WebView can
+        // fire onPageFinished for a FAILED navigation (error document
+        // commits), which reset the backoff to 1s and produced an infinite
+        // ~1s reload loop. Only a clean visible commit counts as success.
+    }
+
+    @Override
+    public void onPageCommitVisible(WebView view, String url) {
+        super.onPageCommitVisible(view, url);
+        try {
+            if (isWaqtHost(android.net.Uri.parse(url).getHost()) && !hadMainFrameError) {
+                remoteRetries = 0;
+                firstFailureAt = 0;
+            }
+            hadMainFrameError = false;
+        } catch (Exception ignored) { }
+    }
+
+    // ── Capacitor bridge injection for remote origin ──
 
     /**
      * Capacitor's JSInjector only stitches window.Capacitor into LOCAL
@@ -208,6 +244,23 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
             bridgeScript = "";
         }
         return bridgeScript;
+    }
+
+    // ── Static-asset interception ──
+
+    @Override
+    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        if ("GET".equals(request.getMethod())) {
+            String host = request.getUrl().getHost();
+            if (host != null && (host.equals("mywaqt.app") || host.endsWith(".mywaqt.app"))) {
+                String path = request.getUrl().getPath();
+                if (path != null && path.startsWith(STATIC_PREFIX)) {
+                    WebResourceResponse res = fromAssets(path.substring(STATIC_PREFIX.length()));
+                    if (res != null) return res;
+                }
+            }
+        }
+        return super.shouldInterceptRequest(view, request);
     }
 
     private static boolean isWaqtHost(String host) {
