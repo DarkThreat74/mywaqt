@@ -50,6 +50,19 @@ public class MainActivity extends BridgeActivity {
             s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
         }
 
+        // install -r preserves the WebView disk cache — a stale cached
+        // page/chunk set can outlive reinstalls, which is how deployed fixes
+        // stay invisible inside the APK. Clear it once per app version so
+        // every new build starts from the real server response.
+        try {
+            int vc = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+            android.content.SharedPreferences ver = getSharedPreferences("waqt_native", MODE_PRIVATE);
+            if (ver.getInt("cleared_version", -1) != vc) {
+                webView.clearCache(true);
+                ver.edit().putInt("cleared_version", vc).apply();
+            }
+        } catch (Exception ignored) {}
+
         // Android 13+ requires a runtime grant for POST_NOTIFICATIONS — the
         // manifest entry alone does nothing, which is why the permission
         // silently stayed "not granted". Ask once on launch.
