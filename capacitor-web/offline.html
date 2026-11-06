@@ -28,6 +28,7 @@
     }
     .retry-btn:active { opacity: 0.8; }
     .status { font-size: 0.8rem; color: #a8a098; margin-top: 1.5rem; min-height: 1.2em; }
+    .diag { font-size: 0.7rem; color: #6f675e; margin-top: 0.75rem; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -36,15 +37,25 @@
     <p>Your prayer data is cached on this device. The app will load automatically when the connection returns.</p>
     <button class="retry-btn" id="retry">Retry now</button>
     <div class="status" id="status"></div>
+    <div class="diag" id="diag"></div>
   </div>
   <script>
     // This page is Capacitor's errorPath — it lives on the LOCAL https://localhost
     // origin. location.reload() only reloads THIS error page, which is why it
-    // used to loop forever. Recovery means navigating back to the real app;
-    // the server redirects to the right place based on the session cookie.
-    var APP_URL = 'https://www.mywaqt.app/';
+    // used to loop forever. Recovery means navigating back to the real app.
+    // The native client passes the exact URL and error code that failed.
+    var params = new URLSearchParams(location.search);
+    var APP_URL = params.get('url') || 'https://www.mywaqt.app/';
     var statusEl = document.getElementById('status');
+    var diagEl = document.getElementById('diag');
     var attempts = 0;
+
+    var code = params.get('code');
+    var desc = params.get('desc');
+    if (code || desc) {
+      diagEl.textContent = 'Error ' + (code || '?') + (desc ? ' — ' + desc : '') +
+        (APP_URL ? ' · ' + APP_URL : '');
+    }
 
     function retry() {
       attempts++;

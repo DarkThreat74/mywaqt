@@ -61,12 +61,25 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         String host = request.getUrl().getHost();
-        if (request.isForMainFrame() && isWaqtHost(host) && remoteRetries < MAX_REMOTE_RETRIES) {
-            remoteRetries++;
-            final String url = request.getUrl().toString();
-            // Backing off: 1s, 2s, 3s… — swallows the error entirely so the
-            // user never sees the local error page for a transient failure.
-            view.postDelayed(() -> view.loadUrl(url), 1000L * remoteRetries);
+        if (request.isForMainFrame() && isWaqtHost(host)) {
+            if (remoteRetries < MAX_REMOTE_RETRIES) {
+                remoteRetries++;
+                final String url = request.getUrl().toString();
+                // Backing off: 1s, 2s, 3s… — swallows the error entirely so the
+                // user never sees the local error page for a transient failure.
+                view.postDelayed(() -> view.loadUrl(url), 1000L * remoteRetries);
+                return;
+            }
+            // Retries exhausted — the failure is real and persistent. Load the
+            // bundled error page directly (same file errorPath would show) but
+            // WITH the error details so the failure is diagnosable instead of
+            // a dead-end "reconnecting" screen.
+            int code = error != null ? error.getErrorCode() : 0;
+            String desc = error != null ? String.valueOf(error.getDescription()) : "";
+            view.loadUrl("https://localhost/offline.html"
+                + "?code=" + code
+                + "&url=" + android.net.Uri.encode(request.getUrl().toString())
+                + "&desc=" + android.net.Uri.encode(desc));
             return;
         }
         super.onReceivedError(view, request, error);
