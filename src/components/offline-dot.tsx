@@ -16,14 +16,20 @@ function postForced(on: boolean) {
  * centered dialog to toggle forced offline — resets when the app closes.
  */
 export default function OfflineDot() {
-  const [offline, setOffline] = useState(() => !navigator.onLine);
-  const [forced, setForced] = useState(() => sessionStorage.getItem(FLAG) === "1");
+  // SSR-safe defaults — navigator/sessionStorage don't exist on the server;
+  // real values hydrate in the effect below. (This unguarded initializer
+  // crashed every authenticated page render with ReferenceError.)
+  const [offline, setOffline] = useState(false);
+  const [forced, setForced] = useState(false);
   const [pop, setPop] = useState(false);
   const taps = useRef<number[]>([]);
 
   useEffect(() => {
+    setOffline(!navigator.onLine);
+    const wasForced = sessionStorage.getItem(FLAG) === "1";
+    if (wasForced) setForced(true);
     // Re-post the flag on mount — a restarted SW loses its in-memory copy.
-    if (sessionStorage.getItem(FLAG) === "1") postForced(true);
+    if (wasForced) postForced(true);
     const update = () => setOffline(!navigator.onLine);
     window.addEventListener("online", update);
     window.addEventListener("offline", update);
