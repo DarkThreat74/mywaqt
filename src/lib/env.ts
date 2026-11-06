@@ -71,6 +71,9 @@ export const env = {
   fcmProjectId: process.env.FCM_PROJECT_ID ?? '',
   fcmClientEmail: process.env.FCM_CLIENT_EMAIL ?? '',
   fcmPrivateKey: (process.env.FCM_PRIVATE_KEY ?? '').replace(/\\n/g, '\n'),
+  // Android App Links — use the Play App Signing certificate fingerprint in
+  // production; empty means the association endpoint returns no claims.
+  androidAppSigningSha256: process.env.ANDROID_APP_SIGNING_SHA256 ?? '',
 
   // Cloudflare Turnstile (bot protection)
   turnstileSecretKey: required('TURNSTILE_SECRET_KEY'),
