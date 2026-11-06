@@ -25,9 +25,13 @@ export default function OfflineDot() {
   const taps = useRef<number[]>([]);
 
   useEffect(() => {
-    setOffline(!navigator.onLine);
     const wasForced = sessionStorage.getItem(FLAG) === "1";
-    if (wasForced) setForced(true);
+    // Hydrate real connectivity/forced state post-mount (SSR-safe pattern —
+    // same as DayShell's date check).
+    Promise.resolve().then(() => {
+      setOffline(!navigator.onLine);
+      if (wasForced) setForced(true);
+    });
     // Re-post the flag on mount — a restarted SW loses its in-memory copy.
     if (wasForced) postForced(true);
     const update = () => setOffline(!navigator.onLine);
