@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
+import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,9 @@ interface SyncSet {
 export async function POST(request: NextRequest) {
   const auth = await getSessionFromRequest(request);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!checkRateLimit("workout-sync", getClientIp(request.headers), 60, 60 * 1000)) {
+    return NextResponse.json({ error: "Too many workout sync attempts." }, { status: 429 });
+  }
   try {
     const body = await request.json() as {
       session?: {
@@ -43,6 +47,9 @@ export async function POST(request: NextRequest) {
       sets?: SyncSet[];
     };
     const draft = body.session;
+    if (Array.isArray(body.sets) && body.sets.length > 500) {
+      return NextResponse.json({ error: "A workout cannot contain more than 500 sets." }, { status: 400 });
+    }
     if (!draft?.id || !isValidUUID(draft.id) || !draft.dayName) {
       return NextResponse.json({ error: "Valid session draft required." }, { status: 400 });
     }
@@ -65,8 +72,9 @@ export async function POST(request: NextRequest) {
         readiness: draft.readiness || null,
         endedReason: draft.endedReason || null,
       });
-    } else if (draft.endedAt || draft.readiness || draft.exerciseOrder) {
+    } else if (draft.startedAt || draft.endedAt || draft.readiness || draft.exerciseOrder) {
       await db.update(schema.workoutSessions).set({
+        ...(draft.startedAt && !Number.isNaN(Date.parse(draft.startedAt)) ? { startedAt: new Date(draft.startedAt) } : {}),
         ...(draft.endedAt && !Number.isNaN(Date.parse(draft.endedAt)) ? { endedAt: new Date(draft.endedAt), endedReason: draft.endedReason || "completed" } : {}),
         ...(draft.readiness ? { readiness: draft.readiness } : {}),
         ...(draft.exerciseOrder ? { exerciseOrder: draft.exerciseOrder } : {}),

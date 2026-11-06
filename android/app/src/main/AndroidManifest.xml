@@ -27,13 +27,13 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="mywaqt.app" android:pathPrefix="/prayer" />
-                <data android:scheme="https" android:host="mywaqt.app" android:pathPrefix="/calendar" />
-                <data android:scheme="https" android:host="mywaqt.app" android:pathPrefix="/messages" />
-                <data android:scheme="https" android:host="mywaqt.app" android:pathPrefix="/settings" />
-                <data android:scheme="https" android:host="mywaqt.app" android:pathPrefix="/goals" />
-                <data android:scheme="https" android:host="mywaqt.app" android:pathPrefix="/quran" />
-                <data android:scheme="https" android:host="mywaqt.app" android:pathPrefix="/mutashabihat" />
+                <data android:scheme="https" android:host="www.mywaqt.app" android:pathPrefix="/prayer" />
+                <data android:scheme="https" android:host="www.mywaqt.app" android:pathPrefix="/calendar" />
+                <data android:scheme="https" android:host="www.mywaqt.app" android:pathPrefix="/messages" />
+                <data android:scheme="https" android:host="www.mywaqt.app" android:pathPrefix="/settings" />
+                <data android:scheme="https" android:host="www.mywaqt.app" android:pathPrefix="/goals" />
+                <data android:scheme="https" android:host="www.mywaqt.app" android:pathPrefix="/quran" />
+                <data android:scheme="https" android:host="www.mywaqt.app" android:pathPrefix="/mutashabihat" />
             </intent-filter>
 
         </activity>

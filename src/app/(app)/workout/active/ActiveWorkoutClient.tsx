@@ -19,6 +19,7 @@ type HandMode = "both" | "one";
 // Exercises that are inherently one-side-at-a-time (Single-Arm X, One-Arm Y)
 // default to paired L/R rows instead of requiring the manual 1-hand toggle.
 const handedCapable = (slug: string) => HANDED.has(slug) || isUnilateralExercise(slug);
+const requiresLoad = (slug: string) => EXERCISES.find((exercise) => exercise.slug === slug)?.equip !== "bodyweight";
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
@@ -69,6 +70,7 @@ function ActiveInner() {
   const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0);
+  const timerStartRef = useRef(0);
   const recordedStartRef = useRef(0); // the day the session belongs to (may be backdated)
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const lastSetAtRef = useRef<Record<string, number>>({});
@@ -196,6 +198,9 @@ function ActiveInner() {
       const safeStart = Number.isFinite(parsedStart) && parsedStart <= Date.now() ? parsedStart : Date.now();
       startRef.current = safeStart;
       recordedStartRef.current = safeStart;
+      // A backfilled workout belongs to the selected day, but its live timer
+      // starts when this screen opens — never show a multi-day timer.
+      timerStartRef.current = Date.now() - safeStart > 12 * 60 * 60 * 1000 ? Date.now() : safeStart;
       setSessionDate(new Date(safeStart).toISOString().slice(0, 10));
       setElapsed(Math.max(0, Math.floor((Date.now() - safeStart) / 1000)));
       try {
@@ -316,7 +321,7 @@ function ActiveInner() {
 
   useEffect(() => {
     if (!sessionId) return;
-    timerRef.current = setInterval(() => setElapsed(Math.max(0, Math.floor((Date.now() - startRef.current) / 1000))), 1000);
+    timerRef.current = setInterval(() => setElapsed(Math.max(0, Math.floor((Date.now() - timerStartRef.current) / 1000))), 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [sessionId]);
 
@@ -411,6 +416,9 @@ function ActiveInner() {
   const removeSetRow = async (slug: string, idx: number) => {
     if (!sessionId) return;
     await fetch(`/api/workout/sets?sessionId=${encodeURIComponent(sessionId)}&slug=${encodeURIComponent(slug)}&setIndex=${idx}`, { method: "DELETE" }).catch(() => {});
+    // The local draft is the source of truth. Leaving this row in IndexedDB
+    // lets the reconnect sweeper resurrect it on the next full sync.
+    await getOfflineDB().workoutSets.delete(`${sessionId}:${slug}:${idx}`).catch(() => {});
     setSetRows((prev) => {
       const rows = [...(prev[slug] || [])];
       rows[idx] = undefined as unknown as SetRow;
@@ -475,7 +483,7 @@ function ActiveInner() {
 
   const finish = async () => {
     setFinishError(null);
-    const wallSeconds = Math.max(0, Math.floor((nowMs() - startRef.current) / 1000));
+    const wallSeconds = Math.max(0, Math.floor((nowMs() - timerStartRef.current) / 1000));
     if (sessionId) {
       finishing.current = true; // don't fire the rest timer per flushed row
       for (const timer of Object.values(saveTimers.current)) clearTimeout(timer);
@@ -486,7 +494,7 @@ function ActiveInner() {
       for (const [slug, arr] of Object.entries(setRows)) {
         for (let i = 0; i < arr.length; i++) {
           const r = arr[i];
-          if (r && r.reps != null && r.reps > 0 && parseFloat(r.weight) > 0) {
+          if (r && r.reps != null && r.reps > 0 && (!requiresLoad(slug) || parseFloat(r.weight) > 0)) {
             const saved = await logSet(slug, i, {
               done: true,
               ...(handedCapable(slug) && handModeOf(slug) === "one" && !r.variation ? { variation: "hand:left" } : {}),
@@ -1040,7 +1048,7 @@ function ActiveInner() {
                       </div>
                       <button
                         type="button"
-                        disabled={!row.done && (!(parseFloat(row.weight) > 0) || !(row.reps && row.reps > 0))}
+                        disabled={!row.done && (requiresLoad(x.slug) && !(parseFloat(row.weight) > 0) || !(row.reps && row.reps > 0))}
                         onClick={() => void logSet(x.slug, rowIndex, { done: !row.done })}
                         className="flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
                         style={{
@@ -1048,10 +1056,10 @@ function ActiveInner() {
                           backgroundColor: row.done ? "var(--color-success)" : "var(--color-paper-2)",
                           color: row.done ? "var(--color-paper)" : "var(--color-ink)",
                           minHeight: 36,
-                          opacity: !row.done && (!(parseFloat(row.weight) > 0) || !(row.reps && row.reps > 0)) ? 0.5 : 1,
+                          opacity: !row.done && ((requiresLoad(x.slug) && !(parseFloat(row.weight) > 0)) || !(row.reps && row.reps > 0)) ? 0.5 : 1,
                         }}
                       >
-                        {row.done ? "Done ✓" : (!(parseFloat(row.weight) > 0) ? "Enter weight" : "Log")}
+                        {row.done ? "Done ✓" : (requiresLoad(x.slug) && !(parseFloat(row.weight) > 0) ? "Enter weight" : "Log")}
                       </button>
                     </div>
                   );

@@ -44,7 +44,11 @@ export async function GET(request: NextRequest) {
       await db.delete(schema.workoutSessions).where(eq(schema.workoutSessions.id, s.id));
       sessions.splice(sessions.indexOf(s), 1);
     } else {
-      s.endedAt = new Date(s.startedAt.getTime() + 30 * 60000); // approx real end
+      const lastLoggedAt = doneSets.reduce((latest, set) => {
+        const at = set.loggedAt?.getTime() ?? s.startedAt.getTime();
+        return Math.max(latest, at);
+      }, s.startedAt.getTime());
+      s.endedAt = new Date(Math.max(s.startedAt.getTime(), Math.min(lastLoggedAt, Date.now())));
       await db.update(schema.workoutSessions).set({ endedAt: s.endedAt }).where(eq(schema.workoutSessions.id, s.id));
     }
   }
