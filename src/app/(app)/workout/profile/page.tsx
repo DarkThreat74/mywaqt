@@ -45,12 +45,11 @@ export default function WorkoutProfilePage() {
   const [sex, setSex] = useState<"m" | "f">("m");
   const [bodyfat, setBodyfat] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; nextLevel: string | null; nextKg: number | null; pctToNext: number | null; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
   const [growth, setGrowth] = useState<{ name: string; first: number; last: number; gainPct: number | null; points: { e1: number }[] }[]>([]);
-  const [limbStats, setLimbStats] = useState<{ name: string; left: number; right: number; gap: number | null }[]>([]);
   const [forecasts, setForecasts] = useState<{ name: string; status: string; change: number | null; range: [number, number] | null; confidence: number; limiting: string[] }[]>([]);
-  const [algorithmSignals, setAlgorithmSignals] = useState<Record<string, { value: number | null; status: string; confidence: number; source: string }>>({});
   const router = useRouter();
 
   useEffect(() => {
@@ -114,19 +113,6 @@ export default function WorkoutProfilePage() {
           }))
           .sort((a: { last: number }, b: { last: number }) => b.last - a.last)
           .slice(0, 10));
-        setLimbStats((d.progress || [])
-          .filter((x: { limbs?: Record<string, { lastE1?: number }> }) => x.limbs?.left || x.limbs?.right)
-          .map((x: { slug: string; limbs: Record<string, { lastE1?: number }> }) => {
-            const left = x.limbs.left?.lastE1 || 0;
-            const right = x.limbs.right?.lastE1 || 0;
-            return {
-              name: exerciseName(x.slug),
-              left, right,
-              gap: left && right ? Math.round((Math.abs(left - right) / Math.max(left, right)) * 1000) / 10 : null,
-            };
-          })
-          .sort((a: { gap: number | null }, b: { gap: number | null }) => (b.gap || 0) - (a.gap || 0))
-          .slice(0, 8));
         setForecasts((d.progress || [])
           .filter((x: { growthForecast?: { status: string } }) => x.growthForecast)
           .map((x: { slug: string; growthForecast: { status: string; monthlyE1rmChangePct: number | null; expectedMonthlyRangePct: [number, number] | null; confidence: number; limitingSignals: string[] } }) => ({
@@ -139,10 +125,11 @@ export default function WorkoutProfilePage() {
           }))
           .sort((a: { confidence: number }, b: { confidence: number }) => b.confidence - a.confidence)
           .slice(0, 8));
-        setAlgorithmSignals(d.algorithmSignals || {});
+      } else {
+        setLoadError("Progress could not be loaded. Your saved body details are still available.");
       }
       setLoaded(true);
-    }).catch(() => setLoaded(true));
+    }).catch(() => { setLoadError("Profile data could not be loaded. Try again."); setLoaded(true); });
   }, []);
 
   const saveAll = () => {
@@ -178,6 +165,7 @@ export default function WorkoutProfilePage() {
         const disp = (kg: number) => wUnit === "lb" ? Math.round(kg * 2.205) : Math.round(kg);
         return (
         <div className="mt-4 space-y-3">
+          {loadError && <p className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>{loadError}</p>}
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="flex items-center justify-between">
               <div className="flex gap-6">
@@ -203,6 +191,13 @@ export default function WorkoutProfilePage() {
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Edit</button>
             </div>
           </div>
+          {stats?.sessions === 0 && (
+            <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))" }}>
+              <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>Your profile is ready.</p>
+              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>Log a completed workout to see lift comparisons, progress, and workload guidance.</p>
+              <Link href="/workout/active" className="mt-3 inline-block rounded-lg px-3 py-2 text-xs font-semibold" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Start a workout</Link>
+            </div>
+          )}
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="grid grid-cols-3 gap-2 text-center">
               <div>
@@ -211,20 +206,20 @@ export default function WorkoutProfilePage() {
                 <p className="text-[10px] font-medium" style={{ color: "var(--color-accent)" }}>{stats?.scoreLabel ?? ""}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Total (S+B+D)</p>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Squat + press + deadlift</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats && stats.total > 0 ? disp(stats.total) : "—"}</p>
-                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{wUnit} e1RM</p>
+                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{wUnit} estimated max</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Wilks</p>
+                <p className="text-[10px] uppercase tracking-wider" title="A bodyweight-adjusted powerlifting comparison score" style={{ color: "var(--color-ink-muted)" }}>Relative strength</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.wilks ?? "—"}</p>
-                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>pts</p>
+                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>comparison points</p>
               </div>
             </div>
           </div>
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength levels</p>
-            <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Graded for your bodyweight &amp; sex — Strength Level dataset.</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>How your main lifts compare</p>
+            <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Compared with people of a similar bodyweight and sex. These are estimates, not tested maxes.</p>
             <div className="mt-3 space-y-3">
               {LIFT_ROWS.map((l) => {
                 const TIER = ["beginner", "novice", "intermediate", "advanced", "elite"];
@@ -256,8 +251,8 @@ export default function WorkoutProfilePage() {
                     </div>
                     {l.e1 > 0 && (
                       <div className="mt-1 flex items-baseline justify-between text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                        <span>{disp(l.e1)}{wUnit} e1RM · {l.ratio.toFixed(2)}×bw{l.gainPct != null ? ` · ${l.gainPct > 0 ? "+" : ""}${l.gainPct}%` : ""}</span>
-                        <span>{l.nextKg ? `next: ${l.nextLevel} at ${disp(l.nextKg)}${wUnit}` : "top tier"}</span>
+                        <span>{disp(l.e1)}{wUnit} estimated max{l.gainPct != null ? ` · ${l.gainPct > 0 ? "+" : ""}${l.gainPct}%` : ""}</span>
+                        <span>{l.nextKg ? `next: ${l.nextLevel} at ${disp(l.nextKg)}${wUnit}` : "highest comparison tier"}</span>
                       </div>
                     )}
                   </div>
@@ -267,26 +262,17 @@ export default function WorkoutProfilePage() {
           </div>
           {(stats || bmi) && (
             <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Balance & body</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Body & training</p>
               <div className="mt-2 grid grid-cols-2 gap-y-1.5 text-[11px]" style={{ color: "var(--color-ink)" }}>
                 <span>BMI <b>{bmi ?? "—"}</b></span>
-                <span>push : pull <b>{stats?.pushPull ? stats.pushPull.toFixed(2) : "—"}</b>
-                  {stats?.pushPull ? <span className="text-[9px]" style={{ color: stats.pushPull > 1.25 ? "var(--color-error)" : "var(--color-ink-muted)" }}> {stats.pushPull > 1.25 ? "push-heavy" : "balanced"}</span> : null}
-                </span>
-                <span>upper : lower <b>{stats?.upperLower ? stats.upperLower.toFixed(2) : "—"}</b>
-                  {stats?.upperLower ? <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}> {stats.upperLower < 0.5 ? "lower-dominant" : stats.upperLower > 0.8 ? "upper-dominant" : "balanced"}</span> : null}
-                </span>
-                <span>strength / kg <b>{bw > 0 && stats && stats.total > 0 ? `${(stats.total / bw).toFixed(2)}×` : "—"}</b></span>
-                <span>FFMI <b>{(() => {
-                  const bf = parseFloat(bodyfat);
-                  return bf > 0 && bw > 0 && ht > 0 ? ((bw * (1 - bf / 100)) / ((ht / 100) ** 2)).toFixed(1) : "—";
-                })()}</b></span>
-                <span>sessions <b>{stats?.sessions || "—"}</b></span>
+                <span>Workouts logged <b>{stats?.sessions || "—"}</b></span>
+                <span>Strength relative to bodyweight <b>{bw > 0 && stats && stats.total > 0 ? `${(stats.total / bw).toFixed(2)}×` : "—"}</b></span>
+                <span>Body-fat estimate <b>{bodyfat ? `${bodyfat}%` : "—"}</b></span>
               </div>
             </div>
           )}
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Growth since day one — e1RM per session</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Progress since your first workout</p>
             {growth.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Log sets to start your trend lines.</p>}
             <div className="mt-2 space-y-1.5">
               {growth.map((g) => {
@@ -301,7 +287,7 @@ export default function WorkoutProfilePage() {
                         points={[g.first, ...vals].map((v, i, a) => `${(i / Math.max(a.length - 1, 1)) * 58},${15 - ((v - min) / span) * 13}`).join(" ")} />
                     </svg>
                     <span className="w-24 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                      {disp(g.first)}→{disp(g.last)}{wUnit}
+                      {disp(g.first)}→{disp(g.last)}{wUnit} estimated max
                     </span>
                     <span className="w-12 text-right text-[9px] font-semibold tabular-nums"
                       style={{ color: g.gainPct === null ? "var(--color-ink-muted)" : g.gainPct >= 0 ? "var(--color-success)" : "var(--color-error)" }}>
@@ -314,36 +300,8 @@ export default function WorkoutProfilePage() {
           </div>
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="flex items-baseline justify-between gap-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Left / right balance</p>
-              <span className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>latest e1RM · per hand</span>
-            </div>
-            <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              Each pair compares your strongest recent set on each arm — blue is left, gold is right. A gap of 10%+ means one side lags; train the weaker side first. &quot;One side&quot; means only one arm has logged sets.
-            </p>
-            {limbStats.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Choose 1 hand and log both sides to measure asymmetry.</p>}
-            <div className="mt-2 space-y-2">
-              {limbStats.map((l) => {
-                const max = Math.max(l.left, l.right, 1);
-                return (
-                  <div key={l.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
-                    <span className="truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{l.name}</span>
-                    <span className="text-[9px] tabular-nums" style={{ color: l.gap !== null && l.gap >= 10 ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
-                      {l.gap !== null ? `${l.gap}% gap` : "one side"}
-                    </span>
-                    <div className="col-span-2 flex h-1.5 gap-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-                      <span className="rounded-full" style={{ width: `${(l.left / max) * 50}%`, backgroundColor: "var(--color-accent)" }} />
-                      <span className="rounded-full" style={{ width: `${(l.right / max) * 50}%`, backgroundColor: "var(--color-warmth)" }} />
-                    </div>
-                    <span className="text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>L {l.left ? `${disp(l.left)}${wUnit}` : "—"} · R {l.right ? `${disp(l.right)}${wUnit}` : "—"}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-            <div className="flex items-baseline justify-between gap-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Growth forecast</p>
-              <span className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>e1RM trend, not muscle mass</span>
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Possible future trend</p>
+              <span className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>based on your logged performance, not muscle size</span>
             </div>
             {forecasts.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Need at least three sessions across two weeks before forecasting.</p>}
             <div className="mt-2 space-y-2">
@@ -351,29 +309,17 @@ export default function WorkoutProfilePage() {
                 <div key={f.name} className="flex items-center gap-2">
                   <span className="w-28 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{f.name}</span>
                   <span className="flex-1 text-[9px]" style={{ color: f.status === "forecast" ? "var(--color-success)" : "var(--color-ink-muted)" }}>
-                    {f.change !== null && f.range ? `${f.change >= 0 ? "+" : ""}${f.change}% / month (${f.range[0]}–${f.range[1]}%)` : f.status}
+                    {f.change !== null && f.range ? `${f.change >= 0 ? "+" : ""}${f.change}% per month · likely ${f.range[0]}–${f.range[1]}%` : f.status === "insufficient-data" ? "Need more workouts" : "Still learning your trend"}
                   </span>
-                  <span className="text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{Math.round(f.confidence * 100)}%</span>
+                  <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}>{f.confidence >= 0.75 ? "high confidence" : f.confidence >= 0.5 ? "medium confidence" : "early estimate"}</span>
                 </div>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
-            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>What the model actually knows</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {Object.entries(algorithmSignals).map(([key, value]) => (
-                <span key={key} className="rounded-full border px-2 py-1 text-[9px]"
-                  title={`${value.source} · confidence ${Math.round(value.confidence * 100)}%`}
-                  style={{ borderColor: value.status === "missing" ? "var(--color-paper-3)" : "var(--color-accent)", color: value.status === "missing" ? "var(--color-ink-faint)" : "var(--color-ink-muted)" }}>
-                  {key}: {value.value === null ? "missing" : typeof value.value === "number" ? Math.round(value.value * 10) / 10 : value.value}
-                </span>
               ))}
             </div>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
             <span>lifetime volume <b style={{ color: "var(--color-ink)" }}>{stats?.tonnage ? `${(stats.tonnage / 1000).toFixed(1)}t` : "—"}</b></span>
             <span>this week <b style={{ color: "var(--color-ink)" }}>{stats?.tonWeek ? `${(stats.tonWeek / 1000).toFixed(1)}t` : "—"}</b></span>
-            <span>PRs <b style={{ color: "var(--color-ink)" }}>{stats?.prs || "—"}</b></span>
+            <span>Exercises tracked <b style={{ color: "var(--color-ink)" }}>{stats?.prs || "—"}</b></span>
           </div>
         </div>
       );})()}
