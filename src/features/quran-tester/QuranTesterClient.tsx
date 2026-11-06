@@ -221,6 +221,9 @@ export default function QuranTesterClient() {
   const [status, setStatus] = useState<string | null>(null);
   const [loc, setLoc] = useState<{ surah: number; ayah: number } | null>(null);
   const [wordIdx, setWordIdx] = useState<number | null>(null);
+  const wordIdxRef = useRef<number | null>(null);
+  const paintFrameRef = useRef<number | null>(null);
+  const queuedPaintRef = useRef<{ s: number; a: number; w: number } | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   const [micDenied, setMicDenied] = useState(false);
   const [storageInfo, setStorageInfo] = useState(false);
@@ -927,6 +930,7 @@ export default function QuranTesterClient() {
     const n = sessionCovRef.current.size;
     if (n > 0) setStatus(`Session saved — ${n} ayah${n === 1 ? "" : "s"} covered${isDayDone(todayKey()) ? " · today ✓" : ""}`);
     await stopQt();
+    wordIdxRef.current = null;
     setWordIdx(null);
     maybeShowStats();
   }
@@ -1207,7 +1211,8 @@ export default function QuranTesterClient() {
       }
       // Dedupe: word_progress fires per word — only re-render when the ayah
       // actually changes (was: fresh object → full mushaf re-render per word).
-      if (locShownRef.current?.s !== s || locShownRef.current?.a !== a) {
+      const ayahChanged = locShownRef.current?.s !== s || locShownRef.current?.a !== a;
+      if (ayahChanged) {
         locShownRef.current = { s, a };
         setLoc({ surah: s, ayah: a });
       }
@@ -1216,7 +1221,11 @@ export default function QuranTesterClient() {
       // 1-BASED. Normalize at the boundary — before this, the highlight lagged
       // one word and flags landed on the word before the real mistake.
       const wDisp = (ev.word_index as number) + 1;
-      setWordIdx(wDisp);
+      wordIdxRef.current = wDisp;
+      paintLiveWord(s, a, wDisp);
+      // React only needs the word when the ayah changes; the fast path above
+      // paints movement without rerendering the surrounding Quran UI.
+      if (ayahChanged) setWordIdx(wDisp);
       noteHeard(s, a, wDisp, ev.total_words as number);
       // Divergent zone cleared once the cursor is past it — the heads-up
       // was about THAT decision point, not the whole ayah.
@@ -1600,18 +1609,30 @@ export default function QuranTesterClient() {
       : null
   );
 
+  function paintLiveWord(s: number, a: number, w: number) {
+    queuedPaintRef.current = { s, a, w };
+    if (paintFrameRef.current !== null) return;
+    paintFrameRef.current = requestAnimationFrame(() => {
+      paintFrameRef.current = null;
+      const next = queuedPaintRef.current;
+      if (!next) return;
+      const nodes = document.querySelectorAll<HTMLElement>("[data-qt-cur] [data-loc]");
+      nodes.forEach((node) => {
+        node.classList.remove("qt-live-word", "qt-heard-word");
+        const [ns, na, nw] = (node.dataset.loc || "").split(":").map(Number);
+        if (ns === next.s && na === next.a) {
+          if (nw < next.w) node.classList.add("qt-heard-word");
+          if (nw === next.w) node.classList.add("qt-live-word");
+        }
+      });
+    });
+  }
+
   // Word events arrive much faster than the mushaf needs to re-render. Paint
   // the active/previous words on existing spans so recognition stays smooth
   // on phones; React still owns ayah/page changes and all durable state.
   useEffect(() => {
-    const nodes = document.querySelectorAll<HTMLElement>("[data-qt-cur] [data-loc]");
-    nodes.forEach((node) => {
-      node.classList.remove("qt-live-word", "qt-heard-word");
-      const [s, a, w] = (node.dataset.loc || "").split(":").map(Number);
-      if (!loc || s !== loc.surah || a !== loc.ayah || wordIdx == null) return;
-      if (w < wordIdx) node.classList.add("qt-heard-word");
-      if (w === wordIdx) node.classList.add("qt-live-word");
-    });
+    if (loc && wordIdx != null) paintLiveWord(loc.surah, loc.ayah, wordIdx);
   }, [loc, wordIdx]);
 
   function peek() {
@@ -1635,7 +1656,8 @@ export default function QuranTesterClient() {
         const [s, a, wiN] = w.location.split(":").map(Number);
         if (s !== loc.surah || a !== loc.ayah) continue;
         const key = `${s}:${a}:${wiN}`;
-        const heard = wordIdx !== null && wiN <= wordIdx;
+        const heardWord = wordIdxRef.current ?? wordIdx;
+        const heard = heardWord !== null && wiN <= heardWord;
         if (!heard && !revealed.has(key) && batch.length < want) batch.push(wiN);
       }
     }
