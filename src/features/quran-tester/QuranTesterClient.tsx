@@ -1055,7 +1055,7 @@ export default function QuranTesterClient() {
       if (ev.type === "verse_candidate") {
         // Unstable discovery lock — a single weak search hit can teleport
         // the tracker to a false hit (the phantom Surah-Qaf jumps). The
-        // display does NOT follow until the lock is still standing ~1.2s
+        // display does NOT follow until the lock is still standing ~0.75s
         // later; a confirmed match, a newer candidate, or `lost` cancels it.
         // candRef also gates word_progress — without it the cursor stream
         // bypasses this dwell and follows the unstable lock instantly.
@@ -1074,7 +1074,7 @@ export default function QuranTesterClient() {
               expectSurah(s);
             }
           }
-        }, 1200);
+        }, 750);
       } else {
         if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
         candRef.current = null;
