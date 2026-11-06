@@ -677,22 +677,22 @@ export default function WorkoutClient() {
               const pct = Math.min(m.effSetsWeek / (hi * 1.4), 1) * 100;
               const color = m.status === "over" ? "var(--color-error)" : m.status === "growing" ? "var(--color-success)" : m.status === "maintaining" ? "var(--color-accent)" : "var(--color-warmth)";
               return (
-                <div key={m.muscle} className="flex items-center gap-2">
-                  <span className="w-20 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{m.muscle.replace(/_/g, " ")}</span>
-                  <div className="h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-                    <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
-                  </div>
-                  <span className="w-14 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                <div key={m.muscle} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1">
+                  <span className="min-w-0 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{m.muscle.replace(/_/g, " ")}</span>
+                  <span className="shrink-0 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                     {m.effSetsWeek}/{lo}–{hi}
                   </span>
-                  <span className="w-9 shrink-0 text-right text-[9px] tabular-nums" title="Recovered — Fitbod-style freshness"
+                  <div className="col-span-2 h-1.5 min-w-0 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                    <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                  </div>
+                  <p className="col-span-2 min-w-0 text-[9px] tabular-nums" title="Recovered — enough rest to train again"
                     style={{ color: m.freshness >= 90 ? "var(--color-success)" : m.freshness >= 50 ? "var(--color-warmth)" : "var(--color-error)" }}>
-                    {m.freshness}%
-                  </span>
+                    {m.freshness}% recovered
+                  </p>
                   {m.advice && (
-                    <p className="w-full pl-[5.5rem] -mt-0.5 text-[9px]" style={{ color: "var(--color-accent)" }}>{m.advice}</p>
+                    <p className="col-span-2 min-w-0 text-[9px]" style={{ color: "var(--color-accent)" }}>{m.advice}</p>
                   )}
-                  <p className="w-full pl-[5.5rem] -mt-0.5 text-[9px]" style={{ color: "var(--color-ink-faint)" }}>
+                  <p className="col-span-2 min-w-0 text-[9px]" style={{ color: "var(--color-ink-faint)" }}>
                     {m.directSetsWeek ?? m.effSetsWeek} main-target sets
                     {(m.indirectSetsWeek ?? 0) > 0 ? ` · ${(m.indirectSetsWeek ?? 0).toFixed(1)} helper estimate` : ""}
                   </p>
