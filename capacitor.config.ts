@@ -28,8 +28,10 @@ const config: CapacitorConfig = {
     ],
     // Land on the prayer dashboard — reviewers see populated content
     appStartPath: "/prayer",
-    // Offline fallback (unreliable on iOS but better than blank screen)
-    errorPath: "offline.html",
+    // Capacitor copies webDir under the local `public/` asset root. Using
+    // the bare filename sends failures to localhost/offline.html, which does
+    // not exist in the APK and creates a second navigation failure.
+    errorPath: "public/offline.html",
   },
 
   ios: {
