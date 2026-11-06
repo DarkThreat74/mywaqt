@@ -85,6 +85,29 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
         super.onReceivedError(view, request, error);
     }
 
+    @Override
+    public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
+        String host = request.getUrl().getHost();
+        if (request.isForMainFrame() && isWaqtHost(host)) {
+            int status = errorResponse != null ? errorResponse.getStatusCode() : 0;
+            // Transient statuses (5xx, 429, 408) get the same silent retry —
+            // Capacitor's default would dump the user on the error page with
+            // no detail for ANY non-2xx main-frame response.
+            if ((status >= 500 || status == 429 || status == 408) && remoteRetries < MAX_REMOTE_RETRIES) {
+                remoteRetries++;
+                final String url = request.getUrl().toString();
+                view.postDelayed(() -> view.loadUrl(url), 1000L * remoteRetries);
+                return;
+            }
+            view.loadUrl("https://localhost/offline.html"
+                + "?code=" + status
+                + "&url=" + android.net.Uri.encode(request.getUrl().toString())
+                + "&desc=" + android.net.Uri.encode("HTTP error " + status));
+            return;
+        }
+        super.onReceivedHttpError(view, request, errorResponse);
+    }
+
     @SuppressWarnings("deprecation")
     @Override
     public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
