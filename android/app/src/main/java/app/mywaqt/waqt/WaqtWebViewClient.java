@@ -85,6 +85,23 @@ public class WaqtWebViewClient extends BridgeWebViewClient {
         super.onReceivedError(view, request, error);
     }
 
+    @SuppressWarnings("deprecation")
+    @Override
+    public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+        // WebView calls BOTH signatures for main-frame errors on API 23+ —
+        // handling only the new one lets this callback still hit the error
+        // path underneath the retry. Deprecated signature has no isForMainFrame,
+        // so it only fires for main-frame errors by definition.
+        String host = null;
+        try { host = android.net.Uri.parse(failingUrl).getHost(); } catch (Exception ignored) { }
+        if (isWaqtHost(host)) {
+            // The new-signature handler owns retry + the diagnostic error
+            // page — letting this one through would overwrite it.
+            return;
+        }
+        super.onReceivedError(view, errorCode, description, failingUrl);
+    }
+
     @Override
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
