@@ -83,7 +83,10 @@ export default function WorkoutProfilePage() {
         ];
         const lifts = bwKg > 0 ? LIFT_ROWS_DEF.map(([key, name]) => {
           const slugs = LIFT_SLUGS[key];
-          const best = Math.max(0, ...slugs.map((s) => d.progress?.find((x: { slug: string; bestE1?: number }) => x.slug === s)?.bestE1 || 0));
+          const best = Math.max(0, ...slugs.map((s) => {
+            const row = d.progress?.find((x: { slug: string; bestE1?: number; comparisonE1?: number }) => x.slug === s);
+            return row?.comparisonE1 ?? row?.bestE1 ?? 0;
+          }));
           const gain = Math.max(-99, ...slugs.map((s) => d.progress?.find((x: { slug: string; gainPct?: number | null }) => x.slug === s)?.gainPct ?? -99));
           const lv = best > 0 ? levelFor(key as "bench" | "squat" | "deadlift" | "ohp" | "row", best, bwKg, sexKey) : null;
           return best > 0 ? { name, ratio: best / bwKg, level: lv!.level, nextLevel: lv!.next, nextKg: lv!.nextKg, pctToNext: lv!.pctToNext, e1: best, gainPct: gain > -99 ? gain : null } : null;
@@ -201,19 +204,19 @@ export default function WorkoutProfilePage() {
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="grid grid-cols-3 gap-2 text-center">
               <div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength score</p>
+                <p className="text-[10px] uppercase tracking-wider" title="A simple comparison level based on your main-lift estimated maxes and bodyweight." style={{ color: "var(--color-ink-muted)" }}>Strength level</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.score ?? "—"}</p>
                 <p className="text-[10px] font-medium" style={{ color: "var(--color-accent)" }}>{stats?.scoreLabel ?? ""}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Squat + press + deadlift</p>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Main-lift total</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats && stats.total > 0 ? disp(stats.total) : "—"}</p>
-                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{wUnit} estimated max</p>
+                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>squat + press + deadlift · {wUnit} total</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider" title="A bodyweight-adjusted powerlifting comparison score" style={{ color: "var(--color-ink-muted)" }}>Relative strength</p>
+                <p className="text-[10px] uppercase tracking-wider" title="A bodyweight-adjusted comparison number. It is not a lift weight or a school grade." style={{ color: "var(--color-ink-muted)" }}>Bodyweight score</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.wilks ?? "—"}</p>
-                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>comparison points</p>
+                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>comparison points · higher = stronger for your size</p>
               </div>
             </div>
           </div>

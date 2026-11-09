@@ -21,7 +21,7 @@ export default function WorkoutClient() {
   const [view, setView] = useState<Exercise | null>(null);
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [showProgress, setShowProgress] = useState(false);
-  const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null; carryoverKg?: number; carryoverFrom?: string; familyVariations?: number; familyBestE1?: number;
+  const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; comparisonE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null; carryoverKg?: number; carryoverFrom?: string; familyVariations?: number; familyBestE1?: number;
     daysSince?: number | null; retained?: number; recommendedKg?: number | null; recommendationReason?: string | null; averageRir?: number | null; averageReps?: number | null; predictionConfidence?: number; uncertaintyRangeKg?: [number, number]; recommendationEvidence?: string; rirReliability?: number; plateau?: boolean;
     limbs?: Record<string, { bestE1?: number; lastE1?: number; gainPct?: number | null }>;
     variations?: Array<{ key: string; sets: number; bestE1: number; lastE1: number }>;
@@ -613,7 +613,10 @@ export default function WorkoutClient() {
             const levelOf = (ratio: number, [b, i, a]: [number, number, number]) =>
               ratio >= a ? "advanced" : ratio >= i ? "intermediate" : ratio >= b ? "novice" : "beginner";
             const lifts = bw > 0 ? LIFTS.map(([slugs, name, marks]) => {
-              const best = Math.max(0, ...slugs.map((s) => progress.find((p) => p.slug === s)?.bestE1 || 0));
+              const best = Math.max(0, ...slugs.map((s) => {
+                const row = progress.find((p) => p.slug === s);
+                return row?.comparisonE1 ?? row?.bestE1 ?? 0;
+              }));
               return best > 0 ? { name, ratio: best / bw, level: levelOf(best / bw, marks) } : null;
             }).filter(Boolean) : [];
             const gains = progress.filter((p) => p.gainPct != null && p.gainPct !== 0).sort((a, b) => (b.gainPct || 0) - (a.gainPct || 0)).slice(0, 4);
