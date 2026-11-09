@@ -47,7 +47,7 @@ export default function WorkoutProfilePage() {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; nextLevel: string | null; nextKg: number | null; pctToNext: number | null; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; comparisonBand: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
+  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; nextLevel: string | null; nextKg: number | null; pctToNext: number | null; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; comparisonBand: string | null; matchedLifts: number; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
   const [growth, setGrowth] = useState<{ name: string; first: number; last: number; gainPct: number | null; points: { e1: number }[] }[]>([]);
   const [forecasts, setForecasts] = useState<{ name: string; status: string; change: number | null; range: [number, number] | null; confidence: number; limiting: string[] }[]>([]);
   const router = useRouter();
@@ -91,9 +91,20 @@ export default function WorkoutProfilePage() {
           const lv = best > 0 ? levelFor(key as "bench" | "squat" | "deadlift" | "ohp" | "row", best, bwKg, sexKey) : null;
           return best > 0 ? { name, ratio: best / bwKg, level: lv!.level, nextLevel: lv!.next, nextKg: lv!.nextKg, pctToNext: lv!.pctToNext, e1: best, gainPct: gain > -99 ? gain : null } : null;
         }).filter((l): l is NonNullable<typeof l> => !!l) : [];
-        const score = lifts.length > 0 ? Math.round(lifts.reduce((s, l) => s + l.ratio, 0) / (LIFT_ROWS_DEF.length * 2.2) * 100) : null;
+        // Missing lifts use the matched beginner baseline for this body
+        // profile, never zero. This prevents an incomplete profile from being
+        // scored as weaker simply because the user has not logged every lift.
+        const comparable = LIFT_ROWS_DEF.map(([key, name]) => {
+          const logged = lifts.find((lift) => lift.name === name);
+          return logged?.e1 ?? thresholdsFor(key, bwKg, sexKey)[0];
+        });
+        const score = bwKg > 0 ? Math.round(comparable.reduce((sum, e1) => sum + e1 / bwKg, 0) / (LIFT_ROWS_DEF.length * 2.2) * 100) : null;
         const tierIndex: Record<string, number> = { beginner: 0, novice: 1, intermediate: 2, advanced: 3, elite: 4 };
-        const averageTier = lifts.length > 0 ? lifts.reduce((sum, lift) => sum + (tierIndex[lift.level] ?? 0), 0) / lifts.length : null;
+        const averageTier = bwKg > 0 ? LIFT_ROWS_DEF.reduce((sum, [, name]) => {
+          const lift = lifts.find((candidate) => candidate.name === name);
+          // Missing data is the matched beginner baseline: neutral, not zero.
+          return sum + (lift ? (tierIndex[lift.level] ?? 0) : 0);
+        }, 0) / LIFT_ROWS_DEF.length : null;
         const belowBeginner = lifts.filter((lift) => {
           const key = LIFT_ROWS_DEF.find(([, label]) => label === lift.name)?.[0];
           return key ? lift.e1 < thresholdsFor(key, bwKg, sexKey)[0] : false;
@@ -106,12 +117,14 @@ export default function WorkoutProfilePage() {
           : "very strong";
         // Powerlifting total = squat + bench + deadlift e1RMs (the big three).
         const get = (n: string) => lifts.find((l) => l.name === n)?.e1 || 0;
-        const total = get("squat") + get("press") + get("deadlift");
+        const comparableFor = (key: keyof typeof LIFT_SLUGS, name: string) =>
+          lifts.find((lift) => lift.name === name)?.e1 ?? thresholdsFor(key, bwKg, sexKey)[0];
+        const total = comparableFor("squat", "squat") + comparableFor("bench", "press") + comparableFor("deadlift", "deadlift");
         setStats({
           tonnage: d.totalTonnage || 0, tonWeek: d.tonWeek || 0,
           prs: (d.progress || []).filter((x: { bestE1?: number }) => (x.bestE1 || 0) > 0).length,
           sessions: d.totalSessions || 0,
-          lifts, score, total,
+          lifts, score, matchedLifts: lifts.length, total,
           wilks: bwKg > 0 && total > 0 ? Math.round(total * wilks(bwKg, p?.sex === "f" ? "f" : "m")) : null,
           pushPull: get("press") > 0 && get("row") > 0 ? get("press") / get("row") : null,
           upperLower: get("press") > 0 && get("squat") > 0 ? get("press") / get("squat") : null,
@@ -220,6 +233,7 @@ export default function WorkoutProfilePage() {
                 <p className="text-[10px] uppercase tracking-wider" title="A simple comparison level based on your main-lift estimated maxes and bodyweight." style={{ color: "var(--color-ink-muted)" }}>Strength level</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.score ?? "—"}</p>
                 <p className="text-[10px] font-medium capitalize" style={{ color: "var(--color-accent)" }}>{stats?.comparisonBand ?? stats?.scoreLabel ?? ""}</p>
+                <p className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}>{stats ? `${stats.matchedLifts}/5 lifts logged` : ""}</p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Main-lift total</p>
@@ -292,7 +306,7 @@ export default function WorkoutProfilePage() {
                 <span>Body-fat estimate <b>{bodyfat ? `${bodyfat}%` : "—"}</b></span>
               </div>
               <p className="mt-2 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
-                This ratio is your combined squat + press + deadlift estimate divided by bodyweight. For example, 0.42× means your combined estimated max is about 42% of your bodyweight; it is not a percentage grade.
+                This ratio is your combined squat + press + deadlift estimate divided by bodyweight. Missing lifts use the matched beginner baseline until you log them, so an incomplete profile is not scored as zero. The placement is a bodyweight-and-sex-matched strength comparison, not a claim about every untrained person.
               </p>
             </div>
           )}
