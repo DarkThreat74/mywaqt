@@ -1718,7 +1718,7 @@ export default function DayViewClient({ date }: { date: string }) {
       {/* Floating summary chip — sticky so it rides the viewport top while the
           day scrolls beneath it; never permanently covers a band. */}
       {(dayHomeworkCount > 0 || !isPastDay || goalEvents.length > 0) && (
-        <div className="pointer-events-none sticky top-2 z-30 -mb-9 flex justify-end">
+        <div className="pointer-events-none sticky top-2 z-30 mb-2 flex justify-end">
           <div
             className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[11px] font-medium shadow-sm backdrop-blur-md"
             style={{
