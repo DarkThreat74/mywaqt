@@ -12,6 +12,8 @@ export interface CachedEvent {
   recurrenceRule?: string | null;
   seriesId?: string | null;
   createdVia?: string | null;
+  hangoutWith?: string | null;
+  hangoutFriendId?: string | null;
   notify?: boolean;
   sharePublic?: boolean;
   notifiedAt?: string | null;

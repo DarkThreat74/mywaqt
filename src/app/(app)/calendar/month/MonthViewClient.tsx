@@ -26,6 +26,8 @@ interface CalendarEvent {
   startAt: string;
   endAt: string;
   type: "block" | "task" | "reminder" | "hangout";
+  hangoutWith?: string | null;
+  hangoutFriendId?: string | null;
   color?: string | null;
   recurrenceRule?: string | null;
   seriesId?: string | null;
@@ -631,6 +633,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
                         }}
                       >
                         <span className="tabular-nums">{fmt}</span> {event.title}
+                        {event.hangoutWith && <span className="ml-1 rounded-full px-1" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 14%, transparent)", color: "var(--color-warmth)" }}>Hangout · {event.hangoutWith}</span>}
                       </div>
                     );
                   })}

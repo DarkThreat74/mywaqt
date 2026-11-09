@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff, Cake, Dumbbell, Target, GraduationCap, BookOpenText, AlarmClock, Flag, Users } from "lucide-react";
+import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff, Cake, Dumbbell, Target, GraduationCap, BookOpenText, AlarmClock, Flag, Users, Tag, Search } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { layoutOverlap } from "@/lib/calendar/overlap";
@@ -26,6 +26,7 @@ interface CalendarEvent {
   endAt: string;
   type: "block" | "task" | "reminder" | "hangout";
   hangoutWith?: string | null;
+  hangoutFriendId?: string | null;
   color?: string | null;
   notify?: boolean;
   sharePublic?: boolean;
@@ -240,7 +241,11 @@ export default function DayViewClient({ date }: { date: string }) {
   const [newTitle, setNewTitle] = useState("");
   const [newDetails, setNewDetails] = useState("");
   const [hangoutWith, setHangoutWith] = useState("");
-  const [friendsList, setFriendsList] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [hangoutFriendId, setHangoutFriendId] = useState<string | null>(null);
+  const [friendsList, setFriendsList] = useState<Array<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null }> | null>(null);
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [friendSearch, setFriendSearch] = useState("");
+  const [friendProfile, setFriendProfile] = useState<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null } | null>(null);
   const [newStart, setNewStart] = useState("09:00");
   const [newEnd, setNewEnd] = useState("10:00");
   const [newType, setNewType] = useState<"block" | "task" | "reminder" | "hangout">("block");
@@ -495,6 +500,8 @@ export default function DayViewClient({ date }: { date: string }) {
             startAt: e.startAt,
             endAt: e.endAt ?? "",
             type: e.type as "block" | "task" | "reminder" | "hangout",
+            hangoutWith: e.hangoutWith,
+            hangoutFriendId: e.hangoutFriendId,
             color: e.color,
             recurrenceRule: e.recurrenceRule,
             seriesId: e.seriesId,
@@ -568,6 +575,8 @@ export default function DayViewClient({ date }: { date: string }) {
               startAt: e.startAt,
               endAt: e.endAt,
               type: e.type,
+              hangoutWith: e.hangoutWith || null,
+              hangoutFriendId: e.hangoutFriendId || null,
               color: e.color || null,
               recurrenceRule: e.recurrenceRule || null,
               seriesId: e.seriesId || null,
@@ -1044,11 +1053,12 @@ export default function DayViewClient({ date }: { date: string }) {
       details: newDetails,
       startAt: startISO,
       endAt: endISO,
-      type: newType,
+      type: newType === "hangout" ? "block" : newType,
       color: newColor,
       notify: newNotify,
       sharePublic: newSharePublic,
-      hangoutWith: newType === "hangout" ? hangoutWith.trim() || null : null,
+      hangoutWith: hangoutFriendId ? hangoutWith.trim() || null : null,
+      hangoutFriendId,
     };
     if (eventKind === "class" && classId) {
       // Class events are recurring by definition — the class picker requires
@@ -1246,7 +1256,8 @@ export default function DayViewClient({ date }: { date: string }) {
             title: newTitle,
             details: newDetails,
             type: newType,
-            hangoutWith: newType === "hangout" ? hangoutWith.trim() || null : null,
+            hangoutWith: hangoutFriendId ? hangoutWith.trim() || null : null,
+            hangoutFriendId,
             color: newColor,
             notify: newNotify,
       sharePublic: newSharePublic,
@@ -1314,7 +1325,8 @@ export default function DayViewClient({ date }: { date: string }) {
           color: newColor,
           notify: newNotify,
           sharePublic: newSharePublic,
-          hangoutWith: newType === "hangout" ? hangoutWith.trim() || null : null,
+          hangoutWith: hangoutFriendId ? hangoutWith.trim() || null : null,
+          hangoutFriendId,
         }),
       });
 
@@ -1383,8 +1395,9 @@ export default function DayViewClient({ date }: { date: string }) {
     setNewDetails(event.details || "");
     setNewStart(startStr);
     setNewEnd(endStr);
-    setNewType(event.type);
+    setNewType(event.type === "hangout" ? "block" : event.type);
     setHangoutWith(event.hangoutWith || "");
+    setHangoutFriendId(event.hangoutFriendId || null);
     setNewColor(event.color || null);
     setNewNotify(event.notify !== false); // default to true if undefined
     setNewSharePublic(event.sharePublic !== false); // default to true if undefined
@@ -2083,6 +2096,22 @@ export default function DayViewClient({ date }: { date: string }) {
                       <EyeOff className="ml-1 inline h-2.5 w-2.5 align-[-1px]" style={{ color: "var(--color-ink-muted)" }} aria-label="Hidden from public view" />
                     )}
                   </p>
+                  {event.hangoutWith && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const friend = friendsList?.find((f) => f.id === event.hangoutFriendId);
+                        setFriendProfile(friend || { id: event.hangoutFriendId || "", name: event.hangoutWith || "Friend" });
+                      }}
+                      className="inline-flex max-w-full items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
+                      style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}
+                      aria-label={`Hangout with ${event.hangoutWith}`}
+                    >
+                      <Users className="h-2.5 w-2.5 shrink-0" />
+                      <span className="truncate">Hangout · {event.hangoutWith}</span>
+                    </button>
+                  )}
                   {endStr && showTime && (
                     <p className="w-full truncate text-center text-[11px] font-normal leading-tight sm:text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                       {formatTime(startStr)} – {formatTime(endStr)}
@@ -2332,20 +2361,15 @@ export default function DayViewClient({ date }: { date: string }) {
       {plusOpen && (
         <div className="fixed bottom-36 right-5 z-30 flex w-52 flex-col gap-1 rounded-xl border p-1.5 shadow-xl lg:bottom-20"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-          {!isPastDay && (
-            <button type="button" onClick={() => { setPlusOpen(false); setPlanOpen(true); play("open"); }}
-              className="rounded-lg px-3 py-2.5 text-left text-xs font-semibold hover:bg-[var(--color-paper-2)]"
-              style={{ color: "var(--color-ink)" }}>
-              <BookOpen className="mr-2 inline h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />
-              Plan a study session
-            </button>
-          )}
           <button type="button" onClick={() => {
           setNewTitle("");
           setNewDetails("");
           setNewStart("09:00");
           setNewEnd("10:00");
           setNewType("block");
+          setHangoutWith("");
+          setHangoutFriendId(null);
+          setTagMenuOpen(false);
           setNewColor(null);
           setNewNotify(true);
           setNewSharePublic(true);
@@ -2382,6 +2406,28 @@ export default function DayViewClient({ date }: { date: string }) {
       )}
       {error && !showAddForm && !editingEvent && (
         <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }}>{error}</p>
+      )}
+
+      {friendProfile && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-3 sm:items-center" onClick={() => setFriendProfile(null)}>
+          <div className="w-full max-w-sm rounded-2xl border p-5 shadow-xl" onClick={(e) => e.stopPropagation()} style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full text-lg font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}>{friendProfile.name.slice(0, 1).toUpperCase()}</span>
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold" style={{ color: "var(--color-ink)" }}>{friendProfile.name}</h2>
+                <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{friendProfile.groupLabel || friendProfile.metTag || "Friend"}</p>
+              </div>
+            </div>
+            {friendProfile.notes && <p className="mt-4 text-sm" style={{ color: "var(--color-ink-soft)" }}>{friendProfile.notes}</p>}
+            {friendProfile.id ? (
+              <Link href={`/friends?friend=${encodeURIComponent(friendProfile.id)}`} onClick={() => setFriendProfile(null)} className="mt-5 flex min-h-11 items-center justify-center rounded-xl px-4 text-sm font-semibold" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+                Open in Friends
+              </Link>
+            ) : (
+              <p className="mt-5 text-xs" style={{ color: "var(--color-ink-muted)" }}>This friend profile is no longer available.</p>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Add/Edit event modal dialog */}
@@ -2423,9 +2469,8 @@ export default function DayViewClient({ date }: { date: string }) {
                   { kind: "reminder", label: "Reminder", desc: "One-time nudge" },
                   classesList.length > 0 && { kind: "class", label: "New class", desc: "Recurring schedule" },
                   goalsList.length > 0 && { kind: "goal", label: "Plan goal", desc: "From your goals" },
-                  pendingHw.length > 0 && { kind: "study", label: "Study", desc: "From homework" },
+                  { kind: "study", label: "Study", desc: "Plan a focused study session" },
                   workoutDays.length > 0 && { kind: "workout", label: "Workout", desc: "From your split" },
-                  { kind: "hangout", label: "Hangout", desc: "Time with a friend" },
                   { kind: "quran", label: "Read quran", desc: "Recitation time" },
                 ].filter(Boolean) as Array<{ kind: string; label: string; desc: string }>).map((opt) => (
                   <button
@@ -2434,17 +2479,13 @@ export default function DayViewClient({ date }: { date: string }) {
                     onClick={() => {
                       if (opt.kind === "reminder") { setNewType("reminder"); setEventKind("event"); }
                       else if (opt.kind === "event") { setNewType("block"); setEventKind("event"); }
-                      else if (opt.kind === "hangout") {
-                        setNewType("hangout");
-                        setEventKind("event");
-                        if (!friendsList) {
-                          fetch("/api/friends").then((r) => (r.ok ? r.json() : null)).then((d) => {
-                            const list = Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [];
-                            setFriendsList(list.map((f: { id: string; name: string }) => ({ id: f.id, name: f.name })));
-                          }).catch(() => setFriendsList([]));
-                        }
-                      }
-                      else {
+                      else if (opt.kind === "study") {
+                        setShowAddForm(false);
+                        setPlusOpen(false);
+                        setPlanOpen(true);
+                        play("open");
+                        return;
+                      } else {
                         setNewType("block");
                         setEventKind(opt.kind as typeof eventKind);
                         if (opt.kind === "class") setEnableRecurrence(true);
@@ -2470,55 +2511,13 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="self-start rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
                   style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 32 }}
                 >
-                  ← Back · {eventKind === "event" ? (newType === "reminder" ? "Reminder" : newType === "hangout" ? "Hangout" : "Event") : eventKind === "class" ? "New class" : eventKind === "goal" ? "Plan goal" : eventKind === "quran" ? "Read quran" : eventKind}
+                  ← Back · {eventKind === "event" ? (newType === "reminder" ? "Reminder" : "Event") : eventKind === "class" ? "New class" : eventKind === "goal" ? "Plan goal" : eventKind === "quran" ? "Read quran" : eventKind}
                 </button>
-              )}
-              {/* Hangout friend picker — friends from the Friends tab, plus
-                  free-text for anyone else */}
-              {newType === "hangout" && (
-                <div className="flex flex-col gap-2">
-                  <p className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>Who did you hang out with?</p>
-                  {friendsList && friendsList.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {friendsList.map((f) => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => {
-                            setHangoutWith(f.name);
-                            if (!newTitle.trim() || newTitle.startsWith("Hangout")) setNewTitle(`Hangout with ${f.name}`);
-                          }}
-                          className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
-                          style={{
-                            borderColor: hangoutWith === f.name ? "var(--color-warmth)" : "var(--color-paper-3)",
-                            backgroundColor: hangoutWith === f.name ? "color-mix(in oklab, var(--color-warmth) 12%, transparent)" : "transparent",
-                            color: hangoutWith === f.name ? "var(--color-warmth)" : "var(--color-ink)",
-                            minHeight: 36,
-                          }}
-                        >
-                          {f.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <input
-                    type="text"
-                    placeholder={friendsList && friendsList.length > 0 ? "Or type a name" : "Friend's name"}
-                    value={hangoutWith}
-                    onChange={(e) => {
-                      setHangoutWith(e.target.value);
-                      if (e.target.value.trim() && (!newTitle.trim() || newTitle.startsWith("Hangout"))) setNewTitle(`Hangout with ${e.target.value.trim()}`);
-                    }}
-                    aria-label="Hangout with"
-                    className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[var(--color-warmth)]"
-                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)", minHeight: 44 }}
-                  />
-                </div>
               )}
               {/* Title */}
               <input
                 type="text"
-                placeholder={newType === "hangout" ? "Hangout with…" : "What's this about?"}
+                placeholder="What's this about?"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 autoFocus
@@ -2527,6 +2526,67 @@ export default function DayViewClient({ date }: { date: string }) {
                 className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[var(--color-accent)]"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)", minHeight: 44 }}
               />
+
+              {/* Optional relationship tag — it never changes the event title
+                  or type; it only adds context to the rendered card. */}
+              <div className="relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>Tags</span>
+                  {hangoutFriendId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTagMenuOpen((open) => !open);
+                        if (!friendsList) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([]));
+                      }}
+                      className="inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+                      style={{ borderColor: "var(--color-warmth)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 10%, transparent)", color: "var(--color-warmth)" }}
+                    >
+                      <Users className="h-3 w-3 shrink-0" />
+                      Hangout · {hangoutWith}
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => {
+                      setTagMenuOpen((open) => !open);
+                      if (!friendsList) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([]));
+                    }} className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                      <Tag className="h-3 w-3" /> Add tag
+                    </button>
+                  )}
+                </div>
+                {tagMenuOpen && (
+                  <div className="absolute left-8 top-8 z-20 w-[min(19rem,calc(100vw-3rem))] rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                    {!friendsList && <p className="p-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading friends…</p>}
+                    {friendsList && (
+                      <>
+                        <div className="relative mt-1">
+                          <Search className="absolute left-2 top-2.5 h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
+                          <input value={friendSearch} onChange={(e) => setFriendSearch(e.target.value)} placeholder="Find a friend" className="w-full rounded-lg border py-2 pl-7 pr-2 text-xs outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
+                        </div>
+                        <div className="mt-2 max-h-48 overflow-y-auto">
+                          {Object.entries(friendsList.filter((f) => f.name.toLowerCase().includes(friendSearch.toLowerCase())).reduce<Record<string, typeof friendsList>>((groups, friend) => {
+                            const group = friend.groupLabel || "Other friends";
+                            (groups[group] ||= []).push(friend);
+                            return groups;
+                          }, {})).map(([group, groupFriends]) => (
+                            <div key={group}>
+                              <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>{group}</p>
+                              {groupFriends.map((friend) => (
+                                <button key={friend.id} type="button" onClick={() => { setHangoutFriendId(friend.id); setHangoutWith(friend.name); setTagMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
+                                  <span className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}>{friend.name.slice(0, 1).toUpperCase()}</span>
+                                  <span className="truncate">{friend.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ))}
+                          {friendsList.length === 0 && <p className="p-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>No friends yet. Add one in Friends.</p>}
+                        </div>
+                        {hangoutFriendId && <button type="button" onClick={() => { setHangoutFriendId(null); setHangoutWith(""); setTagMenuOpen(false); }} className="mt-1 w-full border-t pt-2 text-left text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Remove Hangout tag</button>}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* Details — optional note shown under the title in the calendar */}
               <textarea

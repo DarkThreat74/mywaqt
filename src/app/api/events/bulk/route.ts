@@ -93,7 +93,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { seriesId, title, details, type, color, notify, startAt, endAt, recurrenceEndDate, fromDate, hangoutWith } = body as {
+  const { seriesId, title, details, type, color, notify, startAt, endAt, recurrenceEndDate, fromDate, hangoutWith, hangoutFriendId } = body as {
     seriesId?: string;
     title?: string;
     details?: string | null;
@@ -104,6 +104,7 @@ export async function PATCH(request: NextRequest) {
     endAt?: string;
     recurrenceEndDate?: string;
     hangoutWith?: string | null;
+    hangoutFriendId?: string | null;
     fromDate?: string;
   };
 
@@ -142,6 +143,17 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Invalid event type." }, { status: 400 });
     }
     updates.type = type;
+  }
+
+  if (hangoutFriendId !== undefined) {
+    if (hangoutFriendId === null) updates.hangoutFriendId = null;
+    else {
+      if (!isValidUUID(hangoutFriendId)) return NextResponse.json({ error: "Invalid friend." }, { status: 400 });
+      const [friend] = await db.select({ id: schema.friends.id, name: schema.friends.name }).from(schema.friends).where(and(eq(schema.friends.id, hangoutFriendId), eq(schema.friends.userId, session.userId))).limit(1);
+      if (!friend) return NextResponse.json({ error: "Friend not found." }, { status: 404 });
+      updates.hangoutFriendId = friend.id;
+      updates.hangoutWith = friend.name;
+    }
   }
 
   if (hangoutWith !== undefined) {

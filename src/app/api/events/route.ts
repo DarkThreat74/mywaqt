@@ -27,6 +27,7 @@ const EVENT_COLUMNS = {
   seriesId: schema.events.seriesId,
   createdVia: schema.events.createdVia,
   hangoutWith: schema.events.hangoutWith,
+  hangoutFriendId: schema.events.hangoutFriendId,
 };
 
 // GET /api/events?date=YYYY-MM-DD — list events for a specific day (in user's timezone)
@@ -168,7 +169,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId, createdVia, hangoutWith } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId, createdVia, hangoutWith, hangoutFriendId } = body as {
     title?: string;
     details?: string;
     startAt?: string;
@@ -182,6 +183,7 @@ export async function POST(request: NextRequest) {
     clientId?: string;
     createdVia?: string;
     hangoutWith?: string;
+    hangoutFriendId?: string | null;
   };
 
   // Linked-event provenance — "goal:<id>", "class:<id>", etc. Allowlist the
@@ -223,7 +225,15 @@ export async function POST(request: NextRequest) {
   // For blocks/tasks, end must be after start
   const validTypes = ["block", "task", "reminder", "hangout"];
   const eventType = validTypes.includes(type || "") ? (type as "block" | "task" | "reminder" | "hangout") : "block";
-  const validHangoutWith = typeof hangoutWith === "string" ? hangoutWith.trim().slice(0, 80) || null : null;
+  let validHangoutWith = typeof hangoutWith === "string" ? hangoutWith.trim().slice(0, 80) || null : null;
+  let validHangoutFriendId: string | null = null;
+  if (hangoutFriendId) {
+    if (!isValidUUID(hangoutFriendId)) return NextResponse.json({ error: "Invalid friend." }, { status: 400 });
+    const [friend] = await db.select({ id: schema.friends.id, name: schema.friends.name }).from(schema.friends).where(and(eq(schema.friends.id, hangoutFriendId), eq(schema.friends.userId, session.userId))).limit(1);
+    if (!friend) return NextResponse.json({ error: "Friend not found." }, { status: 404 });
+    validHangoutFriendId = friend.id;
+    validHangoutWith = friend.name;
+  }
 
   // Validate color — must be a hex string like "#c2410c" or null
   const validColor = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
@@ -365,6 +375,7 @@ export async function POST(request: NextRequest) {
           seriesId,
           createdVia: validCreatedVia,
           hangoutWith: validHangoutWith,
+          hangoutFriendId: validHangoutFriendId,
         })),
       )
       .returning();
@@ -390,6 +401,7 @@ export async function POST(request: NextRequest) {
       seriesId: null,
       createdVia: validCreatedVia,
       hangoutWith: validHangoutWith,
+      hangoutFriendId: validHangoutFriendId,
     })
     .onConflictDoNothing({ target: schema.events.id })
     .returning();
