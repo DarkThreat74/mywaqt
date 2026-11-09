@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -35,7 +35,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceRule, hangoutWith, hangoutFriendId } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceRule, hangoutWith, hangoutFriendId, hangoutFriendIds } = body as {
     title?: string;
     details?: string | null;
     startAt?: string;
@@ -47,6 +47,7 @@ export async function PATCH(
     recurrenceRule?: string | null;
     hangoutWith?: string | null;
     hangoutFriendId?: string | null;
+    hangoutFriendIds?: string[] | null;
   };
 
   // Build update object — only update provided fields
@@ -62,6 +63,23 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid event type." }, { status: 400 });
     }
     updates.type = type;
+  }
+
+  if (hangoutFriendIds !== undefined) {
+    const ids = Array.isArray(hangoutFriendIds) ? [...new Set(hangoutFriendIds)].slice(0, 20) : [];
+    if (ids.some((friendId) => !isValidUUID(friendId))) return NextResponse.json({ error: "Invalid friend." }, { status: 400 });
+    if (ids.length === 0) {
+      updates.hangoutFriendIds = [];
+      updates.hangoutFriendId = null;
+      updates.hangoutWith = null;
+    } else {
+      const friends = await db.select({ id: schema.friends.id, name: schema.friends.name }).from(schema.friends).where(and(eq(schema.friends.userId, session.userId), inArray(schema.friends.id, ids)));
+      if (friends.length !== ids.length) return NextResponse.json({ error: "Friend not found." }, { status: 404 });
+      const ordered = ids.map((friendId) => friends.find((friend) => friend.id === friendId)!);
+      updates.hangoutFriendIds = ordered.map((friend) => friend.id);
+      updates.hangoutFriendId = ordered[0].id;
+      updates.hangoutWith = ordered.map((friend) => friend.name).join(", ");
+    }
   }
 
   if (hangoutFriendId !== undefined) {

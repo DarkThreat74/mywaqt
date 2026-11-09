@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, gte, lte, like } from "drizzle-orm";
+import { and, eq, gte, lte, like, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
@@ -28,6 +28,7 @@ const EVENT_COLUMNS = {
   createdVia: schema.events.createdVia,
   hangoutWith: schema.events.hangoutWith,
   hangoutFriendId: schema.events.hangoutFriendId,
+  hangoutFriendIds: schema.events.hangoutFriendIds,
 };
 
 // GET /api/events?date=YYYY-MM-DD — list events for a specific day (in user's timezone)
@@ -169,7 +170,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId, createdVia, hangoutWith, hangoutFriendId } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId, createdVia, hangoutWith, hangoutFriendId, hangoutFriendIds } = body as {
     title?: string;
     details?: string;
     startAt?: string;
@@ -184,6 +185,7 @@ export async function POST(request: NextRequest) {
     createdVia?: string;
     hangoutWith?: string;
     hangoutFriendId?: string | null;
+    hangoutFriendIds?: string[] | null;
   };
 
   // Linked-event provenance — "goal:<id>", "class:<id>", etc. Allowlist the
@@ -226,13 +228,19 @@ export async function POST(request: NextRequest) {
   const validTypes = ["block", "task", "reminder", "hangout"];
   const eventType = validTypes.includes(type || "") ? (type as "block" | "task" | "reminder" | "hangout") : "block";
   let validHangoutWith = typeof hangoutWith === "string" ? hangoutWith.trim().slice(0, 80) || null : null;
+  const requestedFriendIds = Array.isArray(hangoutFriendIds) && hangoutFriendIds.length > 0
+    ? [...new Set(hangoutFriendIds)].slice(0, 20)
+    : (hangoutFriendId ? [hangoutFriendId] : []);
   let validHangoutFriendId: string | null = null;
-  if (hangoutFriendId) {
-    if (!isValidUUID(hangoutFriendId)) return NextResponse.json({ error: "Invalid friend." }, { status: 400 });
-    const [friend] = await db.select({ id: schema.friends.id, name: schema.friends.name }).from(schema.friends).where(and(eq(schema.friends.id, hangoutFriendId), eq(schema.friends.userId, session.userId))).limit(1);
-    if (!friend) return NextResponse.json({ error: "Friend not found." }, { status: 404 });
-    validHangoutFriendId = friend.id;
-    validHangoutWith = friend.name;
+  let validHangoutFriendIds: string[] = [];
+  if (requestedFriendIds.length > 0) {
+    if (requestedFriendIds.some((id) => !isValidUUID(id))) return NextResponse.json({ error: "Invalid friend." }, { status: 400 });
+    const friends = await db.select({ id: schema.friends.id, name: schema.friends.name }).from(schema.friends).where(and(eq(schema.friends.userId, session.userId), inArray(schema.friends.id, requestedFriendIds)));
+    if (friends.length !== requestedFriendIds.length) return NextResponse.json({ error: "Friend not found." }, { status: 404 });
+    const ordered = requestedFriendIds.map((id) => friends.find((friend) => friend.id === id)!);
+    validHangoutFriendIds = ordered.map((friend) => friend.id);
+    validHangoutFriendId = validHangoutFriendIds[0] || null;
+    validHangoutWith = ordered.map((friend) => friend.name).join(", ");
   }
 
   // Validate color — must be a hex string like "#c2410c" or null
@@ -376,6 +384,7 @@ export async function POST(request: NextRequest) {
           createdVia: validCreatedVia,
           hangoutWith: validHangoutWith,
           hangoutFriendId: validHangoutFriendId,
+          hangoutFriendIds: validHangoutFriendIds,
         })),
       )
       .returning();
@@ -402,6 +411,7 @@ export async function POST(request: NextRequest) {
       createdVia: validCreatedVia,
       hangoutWith: validHangoutWith,
       hangoutFriendId: validHangoutFriendId,
+      hangoutFriendIds: validHangoutFriendIds,
     })
     .onConflictDoNothing({ target: schema.events.id })
     .returning();

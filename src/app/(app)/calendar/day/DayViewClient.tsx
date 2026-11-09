@@ -27,6 +27,7 @@ interface CalendarEvent {
   type: "block" | "task" | "reminder" | "hangout";
   hangoutWith?: string | null;
   hangoutFriendId?: string | null;
+  hangoutFriendIds?: string[] | null;
   color?: string | null;
   notify?: boolean;
   sharePublic?: boolean;
@@ -242,6 +243,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [newDetails, setNewDetails] = useState("");
   const [hangoutWith, setHangoutWith] = useState("");
   const [hangoutFriendId, setHangoutFriendId] = useState<string | null>(null);
+  const [hangoutFriendIds, setHangoutFriendIds] = useState<string[]>([]);
   const [friendsList, setFriendsList] = useState<Array<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null }> | null>(null);
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const [friendSearch, setFriendSearch] = useState("");
@@ -1059,6 +1061,7 @@ export default function DayViewClient({ date }: { date: string }) {
       sharePublic: newSharePublic,
       hangoutWith: hangoutFriendId ? hangoutWith.trim() || null : null,
       hangoutFriendId,
+      hangoutFriendIds,
     };
     if (eventKind === "class" && classId) {
       // Class events are recurring by definition — the class picker requires
@@ -1327,6 +1330,7 @@ export default function DayViewClient({ date }: { date: string }) {
           sharePublic: newSharePublic,
           hangoutWith: hangoutFriendId ? hangoutWith.trim() || null : null,
           hangoutFriendId,
+          hangoutFriendIds,
         }),
       });
 
@@ -1397,7 +1401,8 @@ export default function DayViewClient({ date }: { date: string }) {
     setNewEnd(endStr);
     setNewType(event.type === "hangout" ? "block" : event.type);
     setHangoutWith(event.hangoutWith || "");
-    setHangoutFriendId(event.hangoutFriendId || null);
+    setHangoutFriendIds(event.hangoutFriendIds?.length ? event.hangoutFriendIds : (event.hangoutFriendId ? [event.hangoutFriendId] : []));
+    setHangoutFriendId(event.hangoutFriendIds?.[0] || event.hangoutFriendId || null);
     setNewColor(event.color || null);
     setNewNotify(event.notify !== false); // default to true if undefined
     setNewSharePublic(event.sharePublic !== false); // default to true if undefined
@@ -2097,39 +2102,36 @@ export default function DayViewClient({ date }: { date: string }) {
                     )}
                   </p>
                   {event.hangoutWith && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const friend = friendsList?.find((f) => f.id === event.hangoutFriendId);
-                        if (friend) {
-                          setFriendProfile(friend);
-                        } else if (event.hangoutFriendId) {
-                          // Older/offline events may carry only the link.
-                          // Hydrate the profile lazily instead of showing a
-                          // bare fallback card on the first tap.
-                          fetch("/api/friends")
-                            .then((r) => (r.ok ? r.json() : null))
-                            .then((data) => {
-                              const list = (Array.isArray(data?.friends) ? data.friends : Array.isArray(data) ? data : []) as NonNullable<typeof friendsList>;
-                              setFriendsList(list);
-                              setFriendProfile(list.find((f) => f.id === event.hangoutFriendId) || { id: event.hangoutFriendId || "", name: event.hangoutWith || "Friend" });
-                            })
-                            .catch(() => setFriendProfile({ id: event.hangoutFriendId || "", name: event.hangoutWith || "Friend" }));
-                        } else {
-                          setFriendProfile({ id: "", name: event.hangoutWith || "Friend" });
-                        }
-                      }}
-                      className="group/hangout inline-flex max-w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold transition-colors hover:brightness-95"
-                      style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}
-                      aria-label={`Hangout with ${event.hangoutWith}`}
-                      title={`Open ${event.hangoutWith}'s friend profile`}
-                    >
-                      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 22%, transparent)" }}>
-                        {event.hangoutWith.slice(0, 1).toUpperCase()}
-                      </span>
-                      <span className="truncate">with {event.hangoutWith}</span>
-                    </button>
+                    <div className="flex max-w-full flex-wrap items-center justify-center gap-0.5 text-[9px] font-semibold">
+                      {(event.hangoutWith.split(",").map((name) => name.trim()).filter(Boolean)).map((name, index) => {
+                        const friendId = event.hangoutFriendIds?.[index] || (index === 0 ? event.hangoutFriendId : null);
+                        return (
+                          <span key={`${friendId || name}-${index}`} className="inline-flex max-w-[48%] items-center">
+                            {index > 0 && <span className="mr-0.5" style={{ color: "var(--color-ink-muted)" }}>,</span>}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const friend = friendsList?.find((f) => f.id === friendId);
+                                if (friend) { setFriendProfile(friend); return; }
+                                if (!friendId) { setFriendProfile({ id: "", name }); return; }
+                                fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((data) => {
+                                  const list = (Array.isArray(data?.friends) ? data.friends : Array.isArray(data) ? data : []) as NonNullable<typeof friendsList>;
+                                  setFriendsList(list);
+                                  setFriendProfile(list.find((f) => f.id === friendId) || { id: friendId, name });
+                                }).catch(() => setFriendProfile({ id: friendId, name }));
+                              }}
+                              className="max-w-full truncate rounded-full border px-1.5 py-0.5 transition-colors hover:brightness-95"
+                              style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}
+                              aria-label={`Open ${name}'s friend profile`}
+                              title={`Open ${name}'s friend profile`}
+                            >
+                              {name}
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
                   )}
                   {endStr && showTime && (
                     <p className="w-full truncate text-center text-[11px] font-normal leading-tight sm:text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -2388,6 +2390,7 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewType("block");
           setHangoutWith("");
           setHangoutFriendId(null);
+          setHangoutFriendIds([]);
           setTagMenuOpen(false);
           setNewColor(null);
           setNewNotify(true);
@@ -2551,19 +2554,28 @@ export default function DayViewClient({ date }: { date: string }) {
               <div className="relative">
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>Tags</span>
-                  {hangoutFriendId ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTagMenuOpen((open) => !open);
-                        if (!friendsList) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([]));
-                      }}
-                      className="inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
-                      style={{ borderColor: "var(--color-warmth)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 10%, transparent)", color: "var(--color-warmth)" }}
-                    >
-                      <Users className="h-3 w-3 shrink-0" />
-                      Hangout · {hangoutWith}
-                    </button>
+                  {hangoutFriendIds.length > 0 ? (
+                    <>
+                      {hangoutFriendIds.map((id, index) => {
+                        const name = friendsList?.find((friend) => friend.id === id)?.name || hangoutWith.split(",")[index]?.trim() || "Friend";
+                        return (
+                          <span key={id} className="inline-flex max-w-[45%] items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium" style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}>
+                            <span className="truncate">with {name}</span>
+                            <button type="button" onClick={() => {
+                              const next = hangoutFriendIds.filter((friendId) => friendId !== id);
+                              setHangoutFriendIds(next);
+                              setHangoutFriendId(next[0] || null);
+                              setHangoutWith(next.map((friendId) => friendsList?.find((friend) => friend.id === friendId)?.name || "").filter(Boolean).join(", "));
+                            }} className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-[color-mix(in_oklab,var(--color-warmth)_18%,transparent)]" aria-label={`Remove ${name}`}>
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                      <button type="button" onClick={() => setTagMenuOpen((open) => !open)} className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }} aria-label="Add another friend">
+                        <Tag className="h-3 w-3" /> Add
+                      </button>
+                    </>
                   ) : (
                     <button type="button" onClick={() => {
                       setTagMenuOpen((open) => !open);
@@ -2591,17 +2603,22 @@ export default function DayViewClient({ date }: { date: string }) {
                             <div key={group}>
                               <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>{group}</p>
                               {groupFriends.map((friend) => (
-                                <button key={friend.id} type="button" onClick={() => { setHangoutFriendId(friend.id); setHangoutWith(friend.name); setTagMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ backgroundColor: hangoutFriendId === friend.id ? "color-mix(in oklab, var(--color-warmth) 8%, transparent)" : "transparent", color: "var(--color-ink)" }}>
+                                <button key={friend.id} type="button" onClick={() => {
+                                  const next = hangoutFriendIds.includes(friend.id) ? hangoutFriendIds.filter((id) => id !== friend.id) : [...hangoutFriendIds, friend.id];
+                                  setHangoutFriendIds(next);
+                                  setHangoutFriendId(next[0] || null);
+                                  setHangoutWith(next.map((id) => friendsList.find((candidate) => candidate.id === id)?.name || "").filter(Boolean).join(", "));
+                                }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ backgroundColor: hangoutFriendIds.includes(friend.id) ? "color-mix(in oklab, var(--color-warmth) 8%, transparent)" : "transparent", color: "var(--color-ink)" }}>
                                   <span className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}>{friend.name.slice(0, 1).toUpperCase()}</span>
                                   <span className="truncate">{friend.name}</span>
-                                  {hangoutFriendId === friend.id && <Check className="ml-auto h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warmth)" }} />}
+                                  {hangoutFriendIds.includes(friend.id) && <Check className="ml-auto h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warmth)" }} />}
                                 </button>
                               ))}
                             </div>
                           ))}
                           {friendsList.length === 0 && <p className="p-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>No friends yet. Add one in Friends.</p>}
                         </div>
-                        {hangoutFriendId && <button type="button" onClick={() => { setHangoutFriendId(null); setHangoutWith(""); setTagMenuOpen(false); }} className="mt-1 w-full border-t pt-2 text-left text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Remove Hangout tag</button>}
+                        {hangoutFriendIds.length > 0 && <button type="button" onClick={() => { setHangoutFriendId(null); setHangoutFriendIds([]); setHangoutWith(""); setTagMenuOpen(false); }} className="mt-1 w-full border-t pt-2 text-left text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Remove Hangout tag</button>}
                       </>
                     )}
                   </div>

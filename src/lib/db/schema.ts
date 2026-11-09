@@ -683,6 +683,7 @@ export const events = pgTable('events', {
   // Friend's display name snapshot for type='hangout' events.
   hangoutWith: text('hangout_with'),
   hangoutFriendId: uuid('hangout_friend_id').references(() => friends.id, { onDelete: 'set null' }),
+  hangoutFriendIds: uuid('hangout_friend_ids').array(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   // When a push notification was sent for this event (null = not notified yet)
   notifiedAt: timestamp('notified_at', { withTimezone: true }),

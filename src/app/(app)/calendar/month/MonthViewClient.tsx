@@ -28,6 +28,7 @@ interface CalendarEvent {
   type: "block" | "task" | "reminder" | "hangout";
   hangoutWith?: string | null;
   hangoutFriendId?: string | null;
+  hangoutFriendIds?: string[] | null;
   color?: string | null;
   recurrenceRule?: string | null;
   seriesId?: string | null;

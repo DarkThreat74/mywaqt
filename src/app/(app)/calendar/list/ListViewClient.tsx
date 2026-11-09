@@ -31,6 +31,7 @@ interface CalendarEvent {
   type: "block" | "task" | "reminder" | "hangout";
   hangoutWith?: string | null;
   hangoutFriendId?: string | null;
+  hangoutFriendIds?: string[] | null;
   color?: string | null;
   notify?: boolean;
   seriesId?: string | null;
@@ -456,8 +457,12 @@ export default function ListViewClient({ today }: { today: string }) {
                                 {TYPE_LABELS[event.type]}
                               </span>
                               {event.hangoutWith && (
-                                <span className="inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 14%, transparent)", color: "var(--color-warmth)" }}>
-                                  Hangout with {event.hangoutWith}
+                                <span className="inline-flex max-w-full flex-wrap items-center gap-1" aria-label={`Hangout with ${event.hangoutWith}`}>
+                                  {event.hangoutWith.split(",").map((name, index) => (
+                                    <span key={`${name}-${index}`} className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 14%, transparent)", color: "var(--color-warmth)" }}>
+                                      {index > 0 && ", "}with {name.trim()}
+                                    </span>
+                                  ))}
                                 </span>
                               )}
                               {event.notify && (
