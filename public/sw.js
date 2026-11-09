@@ -21,7 +21,13 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v105";
+const CACHE_VERSION = "waqt-v106";
+
+// Instant cached-page hits younger than this still paint immediately with a
+// background revalidate (the SWR path). Older hits fall into network-first —
+// the stale copy is only the fallback. Keeps launches fast AND lets deploys
+// surface within minutes instead of whenever the build-stamp reload fired.
+const STALE_PAGE_MS = 15 * 60 * 1000;
 // Stamped onto cached _next/static responses when served — a cached Response
 // freezes its original headers, so a chunk cached before a CSP change can
 // birth workers under the old policy. Keep in sync with next.config.ts CSP.
@@ -1422,7 +1428,13 @@ self.addEventListener("fetch", (event) => {
           const forced = cachedHit || (uid ? await fallbackPage().catch(() => null) : null);
           if (forced) return forced;
         }
-        if (cachedHit) {
+        // Freshness bound: an instant-hit older than STALE_PAGE_MS skips the
+        // instant path and falls into the network-first race below — deploys
+        // must surface in minutes, not whenever the build-stamp happens to
+        // fire. The cached copy still serves as the race's fallback.
+        const cachedAge = Date.now() - Number(cachedHit?.headers.get("x-waqt-cached-at") || 0);
+        const isStaleHit = cachedHit && cachedAge > STALE_PAGE_MS;
+        if (cachedHit && !isStaleHit) {
           // Save-Data: fresh-enough cached page wins without a request —
           // past SAVER_MAX_AGE fall through to the normal revalidate path.
           if ((await soft(dataSaver(), 400, false)) && saverFresh(cachedHit)) return cachedHit;

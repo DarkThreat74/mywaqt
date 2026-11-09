@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { isNativeApp } from "@/lib/native-bridge";
 
-const EXPECTED_SW_VERSION = "waqt-v105";
+const EXPECTED_SW_VERSION = "waqt-v106";
 
 /**
  * Registers the service worker and handles:
