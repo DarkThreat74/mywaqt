@@ -673,18 +673,13 @@ export default function WorkoutClient() {
           </p>
           <div className="mt-2 space-y-1.5">
             {muscles.filter((m) => m.effSetsWeek > 0).map((m) => {
-              const [lo, hi] = m.landmark;
-              const pct = Math.min(m.effSetsWeek / (hi * 1.4), 1) * 100;
               const color = m.status === "over" ? "var(--color-error)" : m.status === "growing" ? "var(--color-success)" : m.status === "maintaining" ? "var(--color-accent)" : "var(--color-warmth)";
               return (
                 <div key={m.muscle} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1">
                   <span className="min-w-0 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{m.muscle.replace(/_/g, " ")}</span>
-                  <span className="shrink-0 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                    {m.effSetsWeek}/{lo}–{hi}
+                  <span className="shrink-0 text-right text-[9px]" style={{ color: color }}>
+                    {m.effSetsWeek} effective sets
                   </span>
-                  <div className="col-span-2 h-1.5 min-w-0 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-                    <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
-                  </div>
                   <p className="col-span-2 min-w-0 text-[9px] tabular-nums" title="Recovered — enough rest to train again"
                     style={{ color: m.freshness >= 90 ? "var(--color-success)" : m.freshness >= 50 ? "var(--color-warmth)" : "var(--color-error)" }}>
                     {m.freshness}% recovered

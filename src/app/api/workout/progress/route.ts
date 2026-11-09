@@ -329,7 +329,9 @@ export async function GET(request: NextRequest) {
       const muscle = muscleOf.get(row.slug) || "other";
       const age = nowMs - row.at.getTime();
       const weight = rirWeight(row.rir, row.setType || "working");
-      if (age <= weekMs) {
+      // Future-dated/offline-clock sessions must not count as current volume
+      // or keep a muscle in recovery forever.
+      if (age >= 0 && age <= weekMs) {
         effWeek.set(muscle, (effWeek.get(muscle) || 0) + weight);
         directWeek.set(muscle, (directWeek.get(muscle) || 0) + weight);
         // Synergist credit (~0.3): pulldowns/rows also grow biceps, presses
@@ -355,6 +357,7 @@ export async function GET(request: NextRequest) {
     }
     const lastTrained = new Map<string, number>();
     for (const row of rows) {
+      if (!row.done || row.at.getTime() > nowMs) continue;
       const muscle = muscleOf.get(row.slug) || "other";
       const t = row.at.getTime();
       if (!lastTrained.get(muscle) || t > lastTrained.get(muscle)!) lastTrained.set(muscle, t);
@@ -392,9 +395,11 @@ export async function GET(request: NextRequest) {
         eff < lo ? `+${Math.ceil(lo - eff)} sets` :
         eff > hi ? "deload" :
         status === "stalling" ? "vary it" : null;
-      // Fitbod-style freshness: ~48-72h to recover → % recovered
-      const hoursSince = lastTrained.get(muscle) ? (nowMs - lastTrained.get(muscle)!) / 3600000 : Infinity;
-      const freshness = Math.min(Math.round((hoursSince / 72) * 100), 100);
+      // Recovery is intentionally capped at two days. This is a readiness
+      // signal, not a volume/deload verdict: an old workout must not keep
+      // saying a muscle needs recovery after its rest window has passed.
+      const hoursSince = lastTrained.get(muscle) ? Math.max(0, (nowMs - lastTrained.get(muscle)!) / 3600000) : Infinity;
+      const freshness = Math.min(Math.round((hoursSince / 48) * 100), 100);
       return {
         muscle,
         effSetsWeek: Math.round(eff * 10) / 10,
@@ -411,7 +416,7 @@ export async function GET(request: NextRequest) {
     let tonWeek = 0, tonPrevWeek = 0;
     let failureSets = 0, weightedSets = 0, restTotal = 0, restCount = 0, painSets = 0, rirTotal = 0, rirCount = 0;
     for (const row of rows) {
-      if (!row.done) continue;
+      if (!row.done || row.at.getTime() > nowMs) continue;
       const w = parseFloat(row.weight || "");
       if (!w || !row.reps) continue;
       const age = nowMs - row.at.getTime();
