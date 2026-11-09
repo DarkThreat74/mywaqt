@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff, Cake, Dumbbell, Target, GraduationCap, BookOpenText, AlarmClock, Flag } from "lucide-react";
+import { Plus, X, MapPin, Repeat, ChevronDown, ChevronUp, Check, Bell, BellOff, BookOpen, Trash2, Pencil, Play, Sunrise, Eye, EyeOff, Cake, Dumbbell, Target, GraduationCap, BookOpenText, AlarmClock, Flag, Users } from "lucide-react";
 import Link from "next/link";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { layoutOverlap } from "@/lib/calendar/overlap";
@@ -24,7 +24,8 @@ interface CalendarEvent {
   details?: string | null;
   startAt: string;
   endAt: string;
-  type: "block" | "task" | "reminder";
+  type: "block" | "task" | "reminder" | "hangout";
+  hangoutWith?: string | null;
   color?: string | null;
   notify?: boolean;
   sharePublic?: boolean;
@@ -133,12 +134,14 @@ const TYPE_COLORS: Record<string, string> = {
   block: "var(--color-accent)",
   task: "var(--color-warmth)",
   reminder: "var(--color-ink-muted)",
+  hangout: "var(--color-warmth)",
 };
 
 const TYPE_BG: Record<string, string> = {
   block: "color-mix(in oklab, var(--color-accent) 14%, transparent)",
   task: "color-mix(in oklab, var(--color-warmth) 14%, transparent)",
   reminder: "transparent",
+  hangout: "color-mix(in oklab, var(--color-warmth) 18%, transparent)",
 };
 
 // Source-specific accents — a workout event must never look like a class.
@@ -236,9 +239,11 @@ export default function DayViewClient({ date }: { date: string }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDetails, setNewDetails] = useState("");
+  const [hangoutWith, setHangoutWith] = useState("");
+  const [friendsList, setFriendsList] = useState<Array<{ id: string; name: string }> | null>(null);
   const [newStart, setNewStart] = useState("09:00");
   const [newEnd, setNewEnd] = useState("10:00");
-  const [newType, setNewType] = useState<"block" | "task" | "reminder">("block");
+  const [newType, setNewType] = useState<"block" | "task" | "reminder" | "hangout">("block");
   // Smart event kind — links occurrences to a feature (class/goal/study/quran).
   const [eventKind, setEventKind] = useState<"event" | "class" | "goal" | "study" | "quran" | "workout">("event");
   const [workoutDays, setWorkoutDays] = useState<Array<{ id: string; name: string; weekday: number }>>([]);
@@ -489,7 +494,7 @@ export default function DayViewClient({ date }: { date: string }) {
             details: e.details,
             startAt: e.startAt,
             endAt: e.endAt ?? "",
-            type: e.type as "block" | "task" | "reminder",
+            type: e.type as "block" | "task" | "reminder" | "hangout",
             color: e.color,
             recurrenceRule: e.recurrenceRule,
             seriesId: e.seriesId,
@@ -1043,6 +1048,7 @@ export default function DayViewClient({ date }: { date: string }) {
       color: newColor,
       notify: newNotify,
       sharePublic: newSharePublic,
+      hangoutWith: newType === "hangout" ? hangoutWith.trim() || null : null,
     };
     if (eventKind === "class" && classId) {
       // Class events are recurring by definition — the class picker requires
@@ -1240,6 +1246,7 @@ export default function DayViewClient({ date }: { date: string }) {
             title: newTitle,
             details: newDetails,
             type: newType,
+            hangoutWith: newType === "hangout" ? hangoutWith.trim() || null : null,
             color: newColor,
             notify: newNotify,
       sharePublic: newSharePublic,
@@ -1306,7 +1313,8 @@ export default function DayViewClient({ date }: { date: string }) {
           type: newType,
           color: newColor,
           notify: newNotify,
-      sharePublic: newSharePublic,
+          sharePublic: newSharePublic,
+          hangoutWith: newType === "hangout" ? hangoutWith.trim() || null : null,
         }),
       });
 
@@ -1376,6 +1384,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setNewStart(startStr);
     setNewEnd(endStr);
     setNewType(event.type);
+    setHangoutWith(event.hangoutWith || "");
     setNewColor(event.color || null);
     setNewNotify(event.notify !== false); // default to true if undefined
     setNewSharePublic(event.sharePublic !== false); // default to true if undefined
@@ -2039,7 +2048,7 @@ export default function DayViewClient({ date }: { date: string }) {
               study: BookOpen, homework: BookOpen, quran: BookOpenText,
               deadline: Flag,
             };
-            const ViaIcon = VIA_ICON[viaKind] || (event.type === "reminder" ? AlarmClock : null);
+            const ViaIcon = VIA_ICON[viaKind] || (event.type === "hangout" ? Users : event.type === "reminder" ? AlarmClock : null);
 
             return (
               <div
@@ -2415,6 +2424,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   goalsList.length > 0 && { kind: "goal", label: "Plan goal", desc: "From your goals" },
                   pendingHw.length > 0 && { kind: "study", label: "Study", desc: "From homework" },
                   workoutDays.length > 0 && { kind: "workout", label: "Workout", desc: "From your split" },
+                  { kind: "hangout", label: "Hangout", desc: "Time with a friend" },
                   { kind: "quran", label: "Read quran", desc: "Recitation time" },
                 ].filter(Boolean) as Array<{ kind: string; label: string; desc: string }>).map((opt) => (
                   <button
@@ -2423,6 +2433,16 @@ export default function DayViewClient({ date }: { date: string }) {
                     onClick={() => {
                       if (opt.kind === "reminder") { setNewType("reminder"); setEventKind("event"); }
                       else if (opt.kind === "event") { setNewType("block"); setEventKind("event"); }
+                      else if (opt.kind === "hangout") {
+                        setNewType("hangout");
+                        setEventKind("event");
+                        if (!friendsList) {
+                          fetch("/api/friends").then((r) => (r.ok ? r.json() : null)).then((d) => {
+                            const list = Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [];
+                            setFriendsList(list.map((f: { id: string; name: string }) => ({ id: f.id, name: f.name })));
+                          }).catch(() => setFriendsList([]));
+                        }
+                      }
                       else {
                         setNewType("block");
                         setEventKind(opt.kind as typeof eventKind);
@@ -2449,13 +2469,55 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="self-start rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
                   style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 32 }}
                 >
-                  ← Back · {eventKind === "event" ? (newType === "reminder" ? "Reminder" : "Event") : eventKind === "class" ? "New class" : eventKind === "goal" ? "Plan goal" : eventKind === "quran" ? "Read quran" : eventKind}
+                  ← Back · {eventKind === "event" ? (newType === "reminder" ? "Reminder" : newType === "hangout" ? "Hangout" : "Event") : eventKind === "class" ? "New class" : eventKind === "goal" ? "Plan goal" : eventKind === "quran" ? "Read quran" : eventKind}
                 </button>
+              )}
+              {/* Hangout friend picker — friends from the Friends tab, plus
+                  free-text for anyone else */}
+              {newType === "hangout" && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>Who did you hang out with?</p>
+                  {friendsList && friendsList.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {friendsList.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => {
+                            setHangoutWith(f.name);
+                            if (!newTitle.trim() || newTitle.startsWith("Hangout")) setNewTitle(`Hangout with ${f.name}`);
+                          }}
+                          className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+                          style={{
+                            borderColor: hangoutWith === f.name ? "var(--color-warmth)" : "var(--color-paper-3)",
+                            backgroundColor: hangoutWith === f.name ? "color-mix(in oklab, var(--color-warmth) 12%, transparent)" : "transparent",
+                            color: hangoutWith === f.name ? "var(--color-warmth)" : "var(--color-ink)",
+                            minHeight: 36,
+                          }}
+                        >
+                          {f.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    type="text"
+                    placeholder={friendsList && friendsList.length > 0 ? "Or type a name" : "Friend's name"}
+                    value={hangoutWith}
+                    onChange={(e) => {
+                      setHangoutWith(e.target.value);
+                      if (e.target.value.trim() && (!newTitle.trim() || newTitle.startsWith("Hangout"))) setNewTitle(`Hangout with ${e.target.value.trim()}`);
+                    }}
+                    aria-label="Hangout with"
+                    className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[var(--color-warmth)]"
+                    style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)", minHeight: 44 }}
+                  />
+                </div>
               )}
               {/* Title */}
               <input
                 type="text"
-                placeholder="What's this about?"
+                placeholder={newType === "hangout" ? "Hangout with…" : "What's this about?"}
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 autoFocus
@@ -2467,7 +2529,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
               {/* Details — optional note shown under the title in the calendar */}
               <textarea
-                placeholder="Add details (optional)"
+                placeholder={newType === "hangout" ? "What did you do?" : "Add details (optional)"}
                 value={newDetails}
                 onChange={(e) => setNewDetails(e.target.value)}
                 aria-label="Event details"

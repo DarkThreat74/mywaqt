@@ -25,7 +25,7 @@ interface CalendarEvent {
   details?: string | null;
   startAt: string;
   endAt: string;
-  type: "block" | "task" | "reminder";
+  type: "block" | "task" | "reminder" | "hangout";
   color?: string | null;
   recurrenceRule?: string | null;
   seriesId?: string | null;
@@ -168,7 +168,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
               title: e.title,
               startAt: e.startAt,
               endAt: e.endAt ?? "",
-              type: e.type as "block" | "task" | "reminder",
+              type: e.type as "block" | "task" | "reminder" | "hangout",
               color: e.color,
             });
           }

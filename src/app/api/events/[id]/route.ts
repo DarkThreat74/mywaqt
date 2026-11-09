@@ -35,7 +35,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceRule } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceRule, hangoutWith } = body as {
     title?: string;
     details?: string | null;
     startAt?: string;
@@ -45,6 +45,7 @@ export async function PATCH(
     notify?: boolean;
     sharePublic?: boolean;
     recurrenceRule?: string | null;
+    hangoutWith?: string | null;
   };
 
   // Build update object — only update provided fields
@@ -55,11 +56,15 @@ export async function PATCH(
   // Previously this was processed after validation, causing a bug where changing from
   // block → reminder would still validate as block if end < start.
   if (type !== undefined) {
-    const validTypes = ["block", "task", "reminder"];
+    const validTypes = ["block", "task", "reminder", "hangout"];
     if (!validTypes.includes(type)) {
       return NextResponse.json({ error: "Invalid event type." }, { status: 400 });
     }
     updates.type = type;
+  }
+
+  if (hangoutWith !== undefined) {
+    updates.hangoutWith = typeof hangoutWith === "string" ? hangoutWith.trim().slice(0, 80) || null : null;
   }
 
   if (title !== undefined) {

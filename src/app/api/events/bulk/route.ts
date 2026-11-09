@@ -136,7 +136,7 @@ export async function PATCH(request: NextRequest) {
   const updates: Record<string, unknown> = {};
 
   if (type !== undefined) {
-    const validTypes = ["block", "task", "reminder"];
+    const validTypes = ["block", "task", "reminder", "hangout"];
     if (!validTypes.includes(type)) {
       return NextResponse.json({ error: "Invalid event type." }, { status: 400 });
     }
@@ -294,7 +294,7 @@ export async function PATCH(request: NextRequest) {
           details: "details" in updates ? (updates.details as string | null) : lastEvent.details,
           startAt: occ.startAt,
           endAt: occ.endAt,
-          type: ((updates.type as string | undefined) ?? lastEvent.type) as "block" | "task" | "reminder",
+          type: ((updates.type as string | undefined) ?? lastEvent.type) as "block" | "task" | "reminder" | "hangout",
           color: "color" in updates ? (updates.color as string | null) : lastEvent.color,
           notify: "notify" in updates ? (updates.notify as boolean) : lastEvent.notify,
           // Hidden events must stay hidden when a series is extended.

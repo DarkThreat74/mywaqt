@@ -28,7 +28,7 @@ interface CalendarEvent {
   details?: string | null;
   startAt: string;
   endAt: string;
-  type: "block" | "task" | "reminder";
+  type: "block" | "task" | "reminder" | "hangout";
   color?: string | null;
   notify?: boolean;
   seriesId?: string | null;

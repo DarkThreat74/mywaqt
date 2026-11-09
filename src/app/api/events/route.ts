@@ -26,6 +26,7 @@ const EVENT_COLUMNS = {
   recurrenceRule: schema.events.recurrenceRule,
   seriesId: schema.events.seriesId,
   createdVia: schema.events.createdVia,
+  hangoutWith: schema.events.hangoutWith,
 };
 
 // GET /api/events?date=YYYY-MM-DD — list events for a specific day (in user's timezone)
@@ -167,7 +168,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId, createdVia } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId, createdVia, hangoutWith } = body as {
     title?: string;
     details?: string;
     startAt?: string;
@@ -180,6 +181,7 @@ export async function POST(request: NextRequest) {
     recurrenceDays?: number[];
     clientId?: string;
     createdVia?: string;
+    hangoutWith?: string;
   };
 
   // Linked-event provenance — "goal:<id>", "class:<id>", etc. Allowlist the
@@ -219,8 +221,9 @@ export async function POST(request: NextRequest) {
 
   // For reminders, end can equal start (they're instantaneous lines)
   // For blocks/tasks, end must be after start
-  const validTypes = ["block", "task", "reminder"];
-  const eventType = validTypes.includes(type || "") ? (type as "block" | "task" | "reminder") : "block";
+  const validTypes = ["block", "task", "reminder", "hangout"];
+  const eventType = validTypes.includes(type || "") ? (type as "block" | "task" | "reminder" | "hangout") : "block";
+  const validHangoutWith = typeof hangoutWith === "string" ? hangoutWith.trim().slice(0, 80) || null : null;
 
   // Validate color — must be a hex string like "#c2410c" or null
   const validColor = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
@@ -361,6 +364,7 @@ export async function POST(request: NextRequest) {
           recurrenceRule: `WEEKLY_${daysToRepeat.join(",")}_UNTIL_${recurrenceEndDate}`,
           seriesId,
           createdVia: validCreatedVia,
+          hangoutWith: validHangoutWith,
         })),
       )
       .returning();
@@ -385,6 +389,7 @@ export async function POST(request: NextRequest) {
       recurrenceRule: null,
       seriesId: null,
       createdVia: validCreatedVia,
+      hangoutWith: validHangoutWith,
     })
     .onConflictDoNothing({ target: schema.events.id })
     .returning();

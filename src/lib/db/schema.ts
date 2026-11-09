@@ -67,7 +67,7 @@ export const prayerStatus = pgEnum('prayer_status', [
   'excused',
 ]);
 
-export const eventType = pgEnum('event_type', ['block', 'task', 'reminder']);
+export const eventType = pgEnum('event_type', ['block', 'task', 'reminder', 'hangout']);
 
 export const userRole = pgEnum('user_role', ['user', 'admin']);
 
@@ -680,6 +680,8 @@ export const events = pgTable('events', {
   // have the same rule string but different seriesId values.
   seriesId: uuid('series_id'),
   createdVia: text('created_via').default('manual').notNull(),
+  // Friend's display name snapshot for type='hangout' events.
+  hangoutWith: text('hangout_with'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   // When a push notification was sent for this event (null = not notified yet)
   notifiedAt: timestamp('notified_at', { withTimezone: true }),

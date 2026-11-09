@@ -47,7 +47,7 @@ interface CalendarEvent {
   title: string;
   details?: string | null;
   startAt: string;
-  type: "block" | "task" | "reminder";
+  type: "block" | "task" | "reminder" | "hangout";
   notify?: boolean;
 }
 
@@ -514,7 +514,7 @@ export default function NotificationScheduler() {
             id: e.id,
             title: e.title,
             startAt: e.startAt,
-            type: e.type as "block" | "task" | "reminder",
+            type: e.type as "block" | "task" | "reminder" | "hangout",
             notify: e.notify,
           }));
         }
