@@ -173,6 +173,7 @@ export async function POST(request: NextRequest) {
       plannedEndAt?: string | null;
       estimatedMinutes?: number | null;
       subtasks?: string[];
+      recurrence?: { freq?: string; days?: number[]; endDate?: string; startNumber?: number };
     };
     try {
       body = await request.json();
@@ -239,6 +240,72 @@ export async function POST(request: NextRequest) {
     // Offline-created homework carries a client uuid — used as the real row id
     // so queued dependent writes replay correctly and retried POSTs dedupe.
     const validClientId = body.clientId && isValidUUID(body.clientId) ? body.clientId : undefined;
+
+    // Recurring wizard — one request expands into a numbered series of
+    // homework rows sharing a series_id. Titles are "{title} {N}".
+    if (body.recurrence && typeof body.recurrence === "object") {
+      const rec = body.recurrence as { freq?: string; days?: unknown; endDate?: string; startNumber?: number };
+      const freq = ["weekly", "biweekly", "monthly"].includes(rec.freq || "") ? rec.freq! : null;
+      const endDate = typeof rec.endDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rec.endDate) ? rec.endDate : null;
+      const days = Array.isArray(rec.days)
+        ? [...new Set((rec.days as unknown[]).filter((d) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6))] as number[]
+        : [];
+      const startNum = Number.isInteger(rec.startNumber) && (rec.startNumber as number) >= 1 && (rec.startNumber as number) <= 500
+        ? (rec.startNumber as number) : 1;
+      if (!freq || !endDate) {
+        return NextResponse.json({ error: "Invalid recurrence — need a frequency and an end date." }, { status: 400 });
+      }
+      const start = new Date(`${body.dueDate}T00:00:00Z`);
+      const end = new Date(`${endDate}T00:00:00Z`);
+      if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) {
+        return NextResponse.json({ error: "End date must be after the due date." }, { status: 400 });
+      }
+
+      // Generate due dates — weekly/biweekly pick weekdays from the start
+      // week; monthly repeats the same day-of-month (clamped for short months).
+      const dates: string[] = [];
+      if (freq === "monthly") {
+        const day = start.getUTCDate();
+        for (const d = new Date(start); d <= end && dates.length < 60; d.setUTCMonth(d.getUTCMonth() + 1)) {
+          const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+          dates.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(Math.min(day, last)).padStart(2, "0")}`);
+        }
+      } else {
+        const weekdays = days.length ? days : [start.getUTCDay()];
+        const stepWeeks = freq === "biweekly" ? 2 : 1;
+        for (let t = start.getTime(); t <= end.getTime() && dates.length < 60; t += 86400000) {
+          const d = new Date(t);
+          const weeks = Math.floor((t - start.getTime()) / (7 * 86400000));
+          if (weeks % stepWeeks === 0 && weekdays.includes(d.getUTCDay())) {
+            dates.push(d.toISOString().slice(0, 10));
+          }
+        }
+      }
+      if (dates.length === 0) {
+        return NextResponse.json({ error: "No occurrences in that range — check the days and end date." }, { status: 400 });
+      }
+
+      const seriesId = crypto.randomUUID();
+      const rows = await db
+        .insert(schema.homeworks)
+        .values(dates.map((dd, i) => ({
+          userId: session.userId,
+          title: `${title} ${startNum + i}`,
+          description: typeof body.description === "string" ? body.description.trim() || null : null,
+          classId: body.classId || null,
+          dueDate: dd,
+          dueTime: body.dueTime || null,
+          priority: priority as "low" | "medium" | "high",
+          kind: kind as HomeworkKind,
+          plannedDate,
+          plannedStartTime,
+          plannedEndTime,
+          estimatedMinutes,
+          seriesId,
+        })))
+        .returning();
+      return NextResponse.json({ created: rows.length, homeworks: rows, seriesId }, { status: 201 });
+    }
 
     const inserted = await db
       .insert(schema.homeworks)

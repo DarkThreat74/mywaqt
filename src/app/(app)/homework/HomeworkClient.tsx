@@ -173,6 +173,15 @@ export default function HomeworkClient({
   const [description, setDescription] = useState("");
   const [classId, setClassId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState(tomorrowStr());
+  // Recurring wizard — expands into frequency/days/end-date/number questions.
+  const [recurring, setRecurring] = useState(false);
+  const [recurFreq, setRecurFreq] = useState<"weekly" | "biweekly" | "monthly">("weekly");
+  const [recurDays, setRecurDays] = useState<number[]>([new Date().getDay()]);
+  const [recurEnd, setRecurEnd] = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() + 2);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
+  const [startNum, setStartNum] = useState(1);
   const [dueTime, setDueTime] = useState("");
   const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
   const [kind, setKind] = useState<HomeworkKind>("homework");
@@ -339,6 +348,9 @@ export default function HomeworkClient({
     setPriority("medium");
     setKind("homework");
     setPlannedDate("");
+    setRecurring(false);
+    setRecurFreq("weekly");
+    setStartNum(1);
     setPlannedStartTime("");
     setPlannedEndTime("");
     setEstimatedMinutes("");
@@ -410,6 +422,9 @@ export default function HomeworkClient({
         plannedStartAt,
         plannedEndAt,
         estimatedMinutes: estimatedMinutes === "" ? null : Number(estimatedMinutes),
+        ...(!editingId && recurring
+          ? { recurrence: { freq: recurFreq, days: recurFreq === "monthly" ? [] : recurDays, endDate: recurEnd, startNumber: startNum } }
+          : {}),
         ...(editingId
           ? { subtasks: subtasks.map((s) => ({ id: s.id.startsWith("tmp-") ? undefined : s.id, title: s.title, done: s.done })) }
           : { subtasks: subtasks.map((s) => s.title) }),
@@ -473,10 +488,11 @@ export default function HomeworkClient({
         });
         if (res.ok) {
           const newHw = await res.json();
-          // When offline, the SW returns a synthetic object with tempId and
-          // the echoed fields. This is enough to render the item in the list.
-          setHomework((prev) => [...prev, newHw].sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
-          upsertHomeworkToCache(newHw);
+          // Recurring POST returns { created, homeworks } — append the whole
+          // series; a single POST returns the row itself.
+          const rows: HomeworkItem[] = Array.isArray(newHw?.homeworks) ? newHw.homeworks : [newHw];
+          setHomework((prev) => [...prev, ...rows].sort((a, b) => a.dueDate.localeCompare(b.dueDate)));
+          rows.forEach((h) => upsertHomeworkToCache(h));
           invalidateApiCache("/api/homework");
           resetForm();
           setShowAddForm(false);
@@ -1640,6 +1656,112 @@ export default function HomeworkClient({
               />
               <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Due time (optional)</span>
             </div>
+
+            {/* Recurring wizard — a numbered series of assignments */}
+            {!editingId && (
+              <div className="rounded-xl border px-3 py-3" style={{ borderColor: recurring ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: recurring ? "color-mix(in oklab, var(--color-accent) 6%, transparent)" : "transparent" }}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Recurring assignment</p>
+                    <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                      Numbered copies — &ldquo;{title.trim() || "Assignment"} {startNum}&rdquo;, {startNum + 1}…
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={recurring}
+                    onClick={() => setRecurring((r) => !r)}
+                    className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+                    style={{ backgroundColor: recurring ? "var(--color-accent)" : "var(--color-paper-3)" }}
+                    aria-label="Toggle recurring"
+                  >
+                    <span className="absolute top-0.5 h-5 w-5 rounded-full transition-all" style={{ backgroundColor: "var(--color-paper)", left: recurring ? "22px" : "2px" }} />
+                  </button>
+                </div>
+
+                {recurring && (
+                  <div className="mt-3 flex flex-col gap-3">
+                    {/* Frequency */}
+                    <div className="flex items-center gap-1.5">
+                      {(["weekly", "biweekly", "monthly"] as const).map((f) => (
+                        <button
+                          key={f}
+                          type="button"
+                          onClick={() => setRecurFreq(f)}
+                          className="rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+                          style={{
+                            backgroundColor: recurFreq === f ? "var(--color-ink)" : "var(--color-paper)",
+                            color: recurFreq === f ? "var(--color-paper)" : "var(--color-ink-muted)",
+                            border: "1px solid var(--color-paper-3)",
+                            minHeight: 36,
+                          }}
+                        >
+                          {f === "weekly" ? "Weekly" : f === "biweekly" ? "Biweekly" : "Monthly"}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Weekday chips — weekly/biweekly only */}
+                    {recurFreq !== "monthly" && (
+                      <div className="flex gap-1">
+                        {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() =>
+                              setRecurDays((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i].sort()))
+                            }
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition-colors"
+                            style={{
+                              backgroundColor: recurDays.includes(i) ? "var(--color-accent)" : "var(--color-paper)",
+                              color: recurDays.includes(i) ? "var(--color-paper)" : "var(--color-ink-muted)",
+                              border: "1px solid var(--color-paper-3)",
+                            }}
+                            aria-label={`Repeat on ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i]}`}
+                          >
+                            {d}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      {/* End date */}
+                      <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                        Until
+                        <input
+                          type="date"
+                          value={recurEnd}
+                          onChange={(e) => setRecurEnd(e.target.value)}
+                          className="rounded-lg border px-2 py-1.5 text-xs outline-none focus:border-[var(--color-accent)]"
+                          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+                        />
+                      </label>
+                      {/* Start number stepper */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Start at #</span>
+                        <button
+                          type="button"
+                          onClick={() => setStartNum((n) => Math.max(1, n - 1))}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-medium"
+                          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+                          aria-label="Decrease starting number"
+                        >−</button>
+                        <span className="w-7 text-center text-sm font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{startNum}</span>
+                        <button
+                          type="button"
+                          onClick={() => setStartNum((n) => Math.min(500, n + 1))}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-medium"
+                          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+                          aria-label="Increase starting number"
+                        >+</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Kind + Priority — custom styled selectors */}
             <div className="flex flex-col gap-2">

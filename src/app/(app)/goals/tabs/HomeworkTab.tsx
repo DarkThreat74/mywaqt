@@ -38,6 +38,7 @@ export default function HomeworkTab({
         plannedEndTime: h.plannedEndTime,
         estimatedMinutes: h.estimatedMinutes,
         plannedEventId: h.plannedEventId,
+        seriesId: null,
         notified3dAt: h.notified3dAt ? new Date(h.notified3dAt) : null,
         notified1dAt: h.notified1dAt ? new Date(h.notified1dAt) : null,
         notifiedMorningAt: h.notifiedMorningAt ? new Date(h.notifiedMorningAt) : null,

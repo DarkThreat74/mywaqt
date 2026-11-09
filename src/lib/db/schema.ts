@@ -975,6 +975,9 @@ export const homeworks = pgTable('homeworks', {
   // Feeds the study planner's estimate adjustment.
   grade: text('grade'),
   plannedEventId: uuid('planned_event_id').references(() => events.id, { onDelete: 'set null' }),
+  // Groups the occurrences of a recurring assignment created by the
+  // recurring wizard — every generated row in a series shares this id.
+  seriesId: uuid('series_id'),
   // Deadline reminder stages — set once each stage push is sent (cron)
   notified3dAt: timestamp('notified_3d_at', { withTimezone: true }),
   notified1dAt: timestamp('notified_1d_at', { withTimezone: true }),
