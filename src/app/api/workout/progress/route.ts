@@ -5,7 +5,7 @@ import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
 import { estimateE1rm, recommendLoadKg } from "@/lib/workout/recommend";
 import { buildAlgorithmSignals, forecastGrowth } from "@/lib/workout/forecast";
-import { isUnilateralExercise, exerciseFamilyKey, EXERCISES } from "@/lib/workout/exercises";
+import { isUnilateralExercise, exerciseFamilyKey, EXERCISES as EXERCISE_BANK } from "@/lib/workout/exercises";
 
 export const dynamic = "force-dynamic";
 
@@ -163,7 +163,7 @@ export async function GET(request: NextRequest) {
     // A session only counts as a workout after at least one completed set.
     const sessCount = new Set(rows.filter((r) => r.done).map((r) => r.sessionId)).size;
     const comparisonMultiplier = (slug: string) =>
-      EXERCISES.find((exercise) => exercise.slug === slug)?.equip === "dumbbell" ? 2 : 1;
+      EXERCISE_BANK.find((exercise) => exercise.slug === slug)?.equip === "dumbbell" ? 2 : 1;
     const out = [...bySlug.entries()].map(([slug, v]) => ({
       slug,
       points: v.points.reverse(), // oldest → newest
