@@ -2102,7 +2102,23 @@ export default function DayViewClient({ date }: { date: string }) {
                       onClick={(e) => {
                         e.stopPropagation();
                         const friend = friendsList?.find((f) => f.id === event.hangoutFriendId);
-                        setFriendProfile(friend || { id: event.hangoutFriendId || "", name: event.hangoutWith || "Friend" });
+                        if (friend) {
+                          setFriendProfile(friend);
+                        } else if (event.hangoutFriendId) {
+                          // Older/offline events may carry only the link.
+                          // Hydrate the profile lazily instead of showing a
+                          // bare fallback card on the first tap.
+                          fetch("/api/friends")
+                            .then((r) => (r.ok ? r.json() : null))
+                            .then((data) => {
+                              const list = (Array.isArray(data?.friends) ? data.friends : Array.isArray(data) ? data : []) as NonNullable<typeof friendsList>;
+                              setFriendsList(list);
+                              setFriendProfile(list.find((f) => f.id === event.hangoutFriendId) || { id: event.hangoutFriendId || "", name: event.hangoutWith || "Friend" });
+                            })
+                            .catch(() => setFriendProfile({ id: event.hangoutFriendId || "", name: event.hangoutWith || "Friend" }));
+                        } else {
+                          setFriendProfile({ id: "", name: event.hangoutWith || "Friend" });
+                        }
                       }}
                       className="inline-flex max-w-full items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
                       style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}
@@ -2572,9 +2588,10 @@ export default function DayViewClient({ date }: { date: string }) {
                             <div key={group}>
                               <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>{group}</p>
                               {groupFriends.map((friend) => (
-                                <button key={friend.id} type="button" onClick={() => { setHangoutFriendId(friend.id); setHangoutWith(friend.name); setTagMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
+                                <button key={friend.id} type="button" onClick={() => { setHangoutFriendId(friend.id); setHangoutWith(friend.name); setTagMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ backgroundColor: hangoutFriendId === friend.id ? "color-mix(in oklab, var(--color-warmth) 8%, transparent)" : "transparent", color: "var(--color-ink)" }}>
                                   <span className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}>{friend.name.slice(0, 1).toUpperCase()}</span>
                                   <span className="truncate">{friend.name}</span>
+                                  {hangoutFriendId === friend.id && <Check className="ml-auto h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warmth)" }} />}
                                 </button>
                               ))}
                             </div>
