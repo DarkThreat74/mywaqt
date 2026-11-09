@@ -2106,7 +2106,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       {(event.hangoutWith.split(",").map((name) => name.trim()).filter(Boolean)).map((name, index) => {
                         const friendId = event.hangoutFriendIds?.[index] || (index === 0 ? event.hangoutFriendId : null);
                         return (
-                          <span key={`${friendId || name}-${index}`} className="inline-flex max-w-[48%] items-center">
+                          <span key={`${friendId || name}-${index}`} className="inline-flex max-w-full items-center">
                             {index > 0 && <span className="mr-0.5" style={{ color: "var(--color-ink-muted)" }}>,</span>}
                             <button
                               type="button"
@@ -2121,7 +2121,7 @@ export default function DayViewClient({ date }: { date: string }) {
                                   setFriendProfile(list.find((f) => f.id === friendId) || { id: friendId, name });
                                 }).catch(() => setFriendProfile({ id: friendId, name }));
                               }}
-                              className="max-w-full truncate rounded-full border px-1.5 py-0.5 transition-colors hover:brightness-95"
+                              className="max-w-full break-words rounded-full border px-1.5 py-0.5 text-center leading-tight transition-colors hover:brightness-95"
                               style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}
                               aria-label={`Open ${name}'s friend profile`}
                               title={`Open ${name}'s friend profile`}
