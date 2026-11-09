@@ -1715,84 +1715,6 @@ export default function DayViewClient({ date }: { date: string }) {
         </div>
       )}
 
-      {/* Floating summary chip — sticky so it rides the viewport top while the
-          day scrolls beneath it; never permanently covers a band. */}
-      {(dayHomeworkCount > 0 || !isPastDay || goalEvents.length > 0) && (
-        <div className="pointer-events-none sticky top-2 z-30 mb-2 flex justify-end">
-          <div
-            className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[11px] font-medium shadow-sm backdrop-blur-md"
-            style={{
-              borderColor: "var(--color-paper-3)",
-              backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
-              color: "var(--color-ink)",
-            }}
-          >
-            {dayHomeworkCount > 0 && (
-              <Link
-                href="/goals#homework"
-                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ color: "var(--color-warmth)", minHeight: 32 }}
-              >
-                <BookOpen className="h-3 w-3 shrink-0" />
-                {dayHomeworkCount} due
-              </Link>
-            )}
-            {goalEvents.length > 0 && (
-              <button
-                onClick={() => setGoalsOpen((o) => !o)}
-                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{
-                  color: "var(--color-ink)",
-                  minHeight: 32,
-                  // Green outline when every goal-event is checked, red while
-                  // anything remains — the whole-chip outline signals state.
-                  outline: `1.5px solid ${goalDoneCount === goalEvents.length ? "var(--color-success)" : "var(--color-error)"}`,
-                  outlineOffset: "-1.5px",
-                  borderRadius: 0,
-                }}
-                aria-label={`Goals today — ${goalDoneCount} of ${goalEvents.length} done`}
-              >
-                <Check className="h-3 w-3 shrink-0" style={{ color: goalDoneCount === goalEvents.length ? "var(--color-success)" : "var(--color-error)" }} />
-                {goalDoneCount}/{goalEvents.length} goals
-              </button>
-            )}
-            {dayHomeworkCount > 0 && !isPastDay && (
-              <span className="w-px self-stretch" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden />
-            )}
-            {goalsOpen && goalEvents.length > 0 && (
-              <div
-                className="absolute right-0 top-9 z-40 w-56 rounded-xl border p-2 shadow-xl"
-                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
-              >
-                {goalEvents.map((ev) => {
-                  const done = goalChecks.has(ev.id);
-                  return (
-                    <button
-                      key={ev.id}
-                      type="button"
-                      onClick={() => toggleGoalCheck(ev)}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-xs transition-colors hover:bg-[var(--color-paper-2)]"
-                      style={{ color: "var(--color-ink)", minHeight: 40 }}
-                    >
-                      <span
-                        className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border"
-                        style={{
-                          borderColor: done ? "var(--color-success)" : "var(--color-paper-3)",
-                          backgroundColor: done ? "var(--color-success)" : "transparent",
-                        }}
-                      >
-                        {done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
-                      </span>
-                      <span className={done ? "line-through opacity-60" : ""}>{ev.title}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Day grid */}
       <div
         className="relative overflow-hidden rounded-2xl border"
@@ -2171,6 +2093,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   </button>
                 </div>
               </div>
+
             );
           })}
 
@@ -2277,6 +2200,84 @@ export default function DayViewClient({ date }: { date: string }) {
           </div>
         </div>
       </div>
+
+      {/* Day summary chip — under the calendar card, right-aligned. */}
+      {(dayHomeworkCount > 0 || !isPastDay || goalEvents.length > 0) && (
+        <div className="pointer-events-none mt-2 mb-2 flex justify-end">
+          <div
+            className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[11px] font-medium shadow-sm backdrop-blur-md"
+            style={{
+              borderColor: "var(--color-paper-3)",
+              backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
+              color: "var(--color-ink)",
+            }}
+          >
+            {dayHomeworkCount > 0 && (
+              <Link
+                href="/goals#homework"
+                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-warmth)", minHeight: 32 }}
+              >
+                <BookOpen className="h-3 w-3 shrink-0" />
+                {dayHomeworkCount} due
+              </Link>
+            )}
+            {goalEvents.length > 0 && (
+              <button
+                onClick={() => setGoalsOpen((o) => !o)}
+                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{
+                  color: "var(--color-ink)",
+                  minHeight: 32,
+                  // Green outline when every goal-event is checked, red while
+                  // anything remains — the whole-chip outline signals state.
+                  outline: `1.5px solid ${goalDoneCount === goalEvents.length ? "var(--color-success)" : "var(--color-error)"}`,
+                  outlineOffset: "-1.5px",
+                  borderRadius: 0,
+                }}
+                aria-label={`Goals today — ${goalDoneCount} of ${goalEvents.length} done`}
+              >
+                <Check className="h-3 w-3 shrink-0" style={{ color: goalDoneCount === goalEvents.length ? "var(--color-success)" : "var(--color-error)" }} />
+                {goalDoneCount}/{goalEvents.length} goals
+              </button>
+            )}
+            {dayHomeworkCount > 0 && !isPastDay && (
+              <span className="w-px self-stretch" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden />
+            )}
+            {goalsOpen && goalEvents.length > 0 && (
+              <div
+                className="absolute right-0 top-9 z-40 w-56 rounded-xl border p-2 shadow-xl"
+                style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+              >
+                {goalEvents.map((ev) => {
+                  const done = goalChecks.has(ev.id);
+                  return (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      onClick={() => toggleGoalCheck(ev)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-xs transition-colors hover:bg-[var(--color-paper-2)]"
+                      style={{ color: "var(--color-ink)", minHeight: 40 }}
+                    >
+                      <span
+                        className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border"
+                        style={{
+                          borderColor: done ? "var(--color-success)" : "var(--color-paper-3)",
+                          backgroundColor: done ? "var(--color-success)" : "transparent",
+                        }}
+                      >
+                        {done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
+                      </span>
+                      <span className={done ? "line-through opacity-60" : ""}>{ev.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
 
       {/* Pick mode — big X + hint */}
       {pickMode && (
