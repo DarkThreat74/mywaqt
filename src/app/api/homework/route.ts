@@ -304,7 +304,27 @@ export async function POST(request: NextRequest) {
           seriesId,
         })))
         .returning();
-      return NextResponse.json({ created: rows.length, homeworks: rows, seriesId }, { status: 201 });
+
+      // Copy the checklist onto every occurrence — a recurring assignment
+      // keeps its steps, otherwise they'd silently vanish from 2..N.
+      let subtasks: typeof schema.homeworkSubtasks.$inferSelect[] = [];
+      if (subtaskTitles.length > 0) {
+        subtasks = await db
+          .insert(schema.homeworkSubtasks)
+          .values(rows.flatMap((h) => subtaskTitles.map((t, i) => ({ userId: session.userId, homeworkId: h.id, title: t, sortOrder: i }))))
+          .returning();
+      }
+      const subsByHw = new Map<string, typeof subtasks>();
+      for (const s of subtasks) {
+        const list = subsByHw.get(s.homeworkId) ?? [];
+        list.push(s);
+        subsByHw.set(s.homeworkId, list);
+      }
+      return NextResponse.json({
+        created: rows.length,
+        homeworks: rows.map((h) => ({ ...h, subtasks: subsByHw.get(h.id) ?? [] })),
+        seriesId,
+      }, { status: 201 });
     }
 
     const inserted = await db

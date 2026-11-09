@@ -94,7 +94,7 @@ export async function proxy(request: NextRequest) {
     '/calendar', '/settings', '/onboarding', '/prayer', '/goals', '/learn',
     '/dhikr', '/names', '/qibla', '/talks', '/study', '/homework', '/messages',
     '/friends', '/birthdays', '/masjids', '/quran', '/mutashabihat', '/nasheeds',
-    '/store', '/shield', '/subscriptions', '/guide', '/profile', '/plan',
+    '/store', '/subscriptions', '/guide', '/profile', '/plan',
     '/quran-tester', '/sadaqah', '/hijri',
   ];
   const authPaths = ['/login', '/signup'];

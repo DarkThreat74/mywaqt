@@ -56,6 +56,7 @@ const TYPE_LABELS: Record<string, string> = {
   block: "Event",
   task: "Task",
   reminder: "Reminder",
+  hangout: "Hangout",
 };
 
 function addDays(dateStr: string, days: number): string {

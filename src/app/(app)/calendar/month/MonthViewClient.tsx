@@ -382,6 +382,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
     block: "var(--color-accent)",
     task: "var(--color-warmth)",
     reminder: "var(--color-ink-muted)",
+    hangout: "var(--color-warmth)",
   };
 
   return (

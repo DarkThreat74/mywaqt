@@ -1420,6 +1420,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setShowAddForm(false);
     setEditingEvent(null);
     setNewTitle("");
+    setHangoutWith("");
           setNewDetails("");
     setNewColor(null);
     setNewNotify(true);

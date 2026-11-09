@@ -93,7 +93,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { seriesId, title, details, type, color, notify, startAt, endAt, recurrenceEndDate, fromDate } = body as {
+  const { seriesId, title, details, type, color, notify, startAt, endAt, recurrenceEndDate, fromDate, hangoutWith } = body as {
     seriesId?: string;
     title?: string;
     details?: string | null;
@@ -103,6 +103,7 @@ export async function PATCH(request: NextRequest) {
     startAt?: string;
     endAt?: string;
     recurrenceEndDate?: string;
+    hangoutWith?: string | null;
     fromDate?: string;
   };
 
@@ -141,6 +142,10 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Invalid event type." }, { status: 400 });
     }
     updates.type = type;
+  }
+
+  if (hangoutWith !== undefined) {
+    updates.hangoutWith = typeof hangoutWith === "string" ? hangoutWith.trim().slice(0, 80) || null : null;
   }
 
   if (title !== undefined) {
