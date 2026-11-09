@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { exerciseName } from "@/lib/workout/exercises";
-import { levelFor, LIFT_SLUGS } from "@/lib/workout/standards";
+import { levelFor, thresholdsFor, LIFT_SLUGS } from "@/lib/workout/standards";
 
 type WUnit = "kg" | "lb";
 type HUnit = "cm" | "ft";
@@ -47,7 +47,7 @@ export default function WorkoutProfilePage() {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; nextLevel: string | null; nextKg: number | null; pctToNext: number | null; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
+  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; nextLevel: string | null; nextKg: number | null; pctToNext: number | null; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; comparisonBand: string | null; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
   const [growth, setGrowth] = useState<{ name: string; first: number; last: number; gainPct: number | null; points: { e1: number }[] }[]>([]);
   const [forecasts, setForecasts] = useState<{ name: string; status: string; change: number | null; range: [number, number] | null; confidence: number; limiting: string[] }[]>([]);
   const router = useRouter();
@@ -92,6 +92,18 @@ export default function WorkoutProfilePage() {
           return best > 0 ? { name, ratio: best / bwKg, level: lv!.level, nextLevel: lv!.next, nextKg: lv!.nextKg, pctToNext: lv!.pctToNext, e1: best, gainPct: gain > -99 ? gain : null } : null;
         }).filter((l): l is NonNullable<typeof l> => !!l) : [];
         const score = lifts.length > 0 ? Math.round(lifts.reduce((s, l) => s + l.ratio, 0) / (LIFT_ROWS_DEF.length * 2.2) * 100) : null;
+        const tierIndex: Record<string, number> = { beginner: 0, novice: 1, intermediate: 2, advanced: 3, elite: 4 };
+        const averageTier = lifts.length > 0 ? lifts.reduce((sum, lift) => sum + (tierIndex[lift.level] ?? 0), 0) / lifts.length : null;
+        const belowBeginner = lifts.filter((lift) => {
+          const key = LIFT_ROWS_DEF.find(([, label]) => label === lift.name)?.[0];
+          return key ? lift.e1 < thresholdsFor(key, bwKg, sexKey)[0] : false;
+        }).length;
+        const comparisonBand = averageTier === null ? null
+          : averageTier < 0.5 && belowBeginner > lifts.length / 2 ? "below average"
+          : averageTier < 1 ? "around average"
+          : averageTier < 2 ? "above average"
+          : averageTier < 3 ? "strong"
+          : "very strong";
         // Powerlifting total = squat + bench + deadlift e1RMs (the big three).
         const get = (n: string) => lifts.find((l) => l.name === n)?.e1 || 0;
         const total = get("squat") + get("press") + get("deadlift");
@@ -104,6 +116,7 @@ export default function WorkoutProfilePage() {
           pushPull: get("press") > 0 && get("row") > 0 ? get("press") / get("row") : null,
           upperLower: get("press") > 0 && get("squat") > 0 ? get("press") / get("squat") : null,
           scoreLabel: score === null ? null : score >= 90 ? "elite" : score >= 60 ? "advanced" : score >= 40 ? "intermediate" : score >= 20 ? "novice" : "beginner",
+          comparisonBand,
         });
         // Growth-over-time — every logged exercise with its first vs latest e1RM.
         setGrowth((d.progress || [])
@@ -206,7 +219,7 @@ export default function WorkoutProfilePage() {
               <div>
                 <p className="text-[10px] uppercase tracking-wider" title="A simple comparison level based on your main-lift estimated maxes and bodyweight." style={{ color: "var(--color-ink-muted)" }}>Strength level</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.score ?? "—"}</p>
-                <p className="text-[10px] font-medium" style={{ color: "var(--color-accent)" }}>{stats?.scoreLabel ?? ""}</p>
+                <p className="text-[10px] font-medium capitalize" style={{ color: "var(--color-accent)" }}>{stats?.comparisonBand ?? stats?.scoreLabel ?? ""}</p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Main-lift total</p>
@@ -216,7 +229,7 @@ export default function WorkoutProfilePage() {
               <div>
                 <p className="text-[10px] uppercase tracking-wider" title="A bodyweight-adjusted comparison number. It is not a lift weight or a school grade." style={{ color: "var(--color-ink-muted)" }}>Bodyweight score</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.wilks ?? "—"}</p>
-                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>comparison points · higher = stronger for your size</p>
+                <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>comparison points · placement: {stats?.comparisonBand ?? "not enough data"}</p>
               </div>
             </div>
           </div>
