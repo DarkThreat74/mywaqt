@@ -457,7 +457,7 @@ export default function ListViewClient({ today }: { today: string }) {
                               </span>
                               {event.hangoutWith && (
                                 <span className="inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 14%, transparent)", color: "var(--color-warmth)" }}>
-                                  Hangout · {event.hangoutWith}
+                                  Hangout with {event.hangoutWith}
                                 </span>
                               )}
                               {event.notify && (

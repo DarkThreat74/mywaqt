@@ -633,7 +633,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
                         }}
                       >
                         <span className="tabular-nums">{fmt}</span> {event.title}
-                        {event.hangoutWith && <span className="ml-1 rounded-full px-1" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 14%, transparent)", color: "var(--color-warmth)" }}>Hangout · {event.hangoutWith}</span>}
+                        {event.hangoutWith && <span className="ml-1 rounded-full px-1" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 14%, transparent)", color: "var(--color-warmth)" }}>with {event.hangoutWith}</span>}
                       </div>
                     );
                   })}

@@ -2120,12 +2120,15 @@ export default function DayViewClient({ date }: { date: string }) {
                           setFriendProfile({ id: "", name: event.hangoutWith || "Friend" });
                         }
                       }}
-                      className="inline-flex max-w-full items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
-                      style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}
+                      className="group/hangout inline-flex max-w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold transition-colors hover:brightness-95"
+                      style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}
                       aria-label={`Hangout with ${event.hangoutWith}`}
+                      title={`Open ${event.hangoutWith}'s friend profile`}
                     >
-                      <Users className="h-2.5 w-2.5 shrink-0" />
-                      <span className="truncate">Hangout · {event.hangoutWith}</span>
+                      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 22%, transparent)" }}>
+                        {event.hangoutWith.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="truncate">with {event.hangoutWith}</span>
                     </button>
                   )}
                   {endStr && showTime && (
