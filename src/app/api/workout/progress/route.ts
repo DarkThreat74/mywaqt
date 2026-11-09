@@ -81,10 +81,13 @@ export async function GET(request: NextRequest) {
         points: [], last: null, sessionIds: new Set<string>(), tonnage: 0, best: 0,
         positions: [], rirSum: 0, rirCount: 0, repSum: 0, repCount: 0, exposures: new Map(),
       };
-      const validE1 = r <= 12;
+      const validE1 = r <= 10;
       // RIR-adjusted e1RM (Zourdos/Helms): effective reps = performed + in
       // reserve — a set stopped at RIR 2 undercounts true strength.
-      const val = validE1 ? e1rm(w, Math.min(12, r + (row.rir ?? 0))) : w;
+      // RIR is useful context, but adding every reserved rep made ordinary
+      // sets look like maxes (especially wide-grip/incline work). Count at
+      // most one reserved rep and keep high-rep estimates out of 1RM math.
+      const val = validE1 ? e1rm(w, Math.min(10, r + Math.min(row.rir ?? 0, 1))) : w;
       const hand = row.side === "left" || row.variation === "hand:left" ? "left"
         : row.side === "right" || row.variation === "hand:right" ? "right"
           : row.side === "both" || row.variation === "hand:both" ? "both" : null;
@@ -293,10 +296,11 @@ export async function GET(request: NextRequest) {
       (e as Record<string, unknown>).familyKey = exerciseFamilyKey(e.slug);
       (e as Record<string, unknown>).familyVariations = fam.variationCount;
       (e as Record<string, unknown>).familyBestE1 = Math.round(fam.bestE1 * 10) / 10;
-      // Carryover: an under-trained variation starts near the family best at
-      // a conservative 90%, attributed to the variation it inherited from.
+      // Carryover is guidance only. It is never used as the variation's
+      // estimated max: grip, triceps strength, stability, and range of motion
+      // can make a related exercise dramatically weaker.
       if (fam.variationCount > 1 && fam.bestSlug !== e.slug && e.sets < 3 && fam.bestE1 > 0) {
-        (e as Record<string, unknown>).carryoverKg = Math.round(fam.bestE1 * 0.9 * 10) / 10;
+        (e as Record<string, unknown>).carryoverKg = Math.round(fam.bestE1 * 0.75 * 10) / 10;
         (e as Record<string, unknown>).carryoverFrom = fam.bestSlug;
       }
     }

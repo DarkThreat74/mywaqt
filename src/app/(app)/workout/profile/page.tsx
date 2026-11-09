@@ -222,7 +222,7 @@ export default function WorkoutProfilePage() {
           </div>
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>How your main lifts compare</p>
-            <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Compared with people of a similar bodyweight and sex. These are estimates, not tested maxes.</p>
+                <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Compared with people of a similar bodyweight and sex. These use direct barbell lifts only; dumbbells and grip variations stay separate.</p>
             <div className="mt-3 space-y-3">
               {LIFT_ROWS.map((l) => {
                 const TIER = ["beginner", "novice", "intermediate", "advanced", "elite"];
@@ -266,12 +266,21 @@ export default function WorkoutProfilePage() {
           {(stats || bmi) && (
             <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
               <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Body & training</p>
-              <div className="mt-2 grid grid-cols-2 gap-y-1.5 text-[11px]" style={{ color: "var(--color-ink)" }}>
+              <div className="mt-2 grid grid-cols-1 gap-y-1.5 text-[11px] sm:grid-cols-2" style={{ color: "var(--color-ink)" }}>
                 <span>BMI <b>{bmi ?? "—"}</b></span>
                 <span>Workouts logged <b>{stats?.sessions || "—"}</b></span>
-                <span>Strength relative to bodyweight <b>{bw > 0 && stats && stats.total > 0 ? `${(stats.total / bw).toFixed(2)}×` : "—"}</b></span>
+                <span className="min-w-0">Strength relative to bodyweight <b>{bw > 0 && stats && stats.total > 0 ? `${(stats.total / bw).toFixed(2)}×` : "—"}</b>
+                  {bw > 0 && stats && stats.total > 0 && (() => {
+                    const ratio = stats.total / bw;
+                    const label = ratio < 1 ? "below beginner range" : ratio < 2 ? "beginner range" : ratio < 3 ? "developing" : ratio < 4 ? "strong" : "advanced";
+                    return <span className="ml-1" style={{ color: ratio < 1 ? "var(--color-warmth)" : "var(--color-accent)" }}>({label})</span>;
+                  })()}
+                </span>
                 <span>Body-fat estimate <b>{bodyfat ? `${bodyfat}%` : "—"}</b></span>
               </div>
+              <p className="mt-2 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
+                This ratio is your combined squat + press + deadlift estimate divided by bodyweight. For example, 0.42× means your combined estimated max is about 42% of your bodyweight; it is not a percentage grade.
+              </p>
             </div>
           )}
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
@@ -321,10 +330,11 @@ export default function WorkoutProfilePage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-            <span>lifetime volume <b style={{ color: "var(--color-ink)" }}>{stats?.tonnage ? `${(stats.tonnage / 1000).toFixed(1)}t` : "—"}</b></span>
-            <span>this week <b style={{ color: "var(--color-ink)" }}>{stats?.tonWeek ? `${(stats.tonWeek / 1000).toFixed(1)}t` : "—"}</b></span>
+            <span title="Total weight × reps across completed loaded sets since your first workout">lifetime volume <b style={{ color: "var(--color-ink)" }}>{stats?.tonnage ? `${(stats.tonnage / 1000).toFixed(1)}t` : "—"}</b></span>
+            <span title="Total weight × reps across completed loaded sets in the last seven days">last 7 days <b style={{ color: "var(--color-ink)" }}>{stats?.tonWeek ? `${(stats.tonWeek / 1000).toFixed(1)}t` : "—"}</b></span>
             <span>Exercises tracked <b style={{ color: "var(--color-ink)" }}>{stats?.prs || "—"}</b></span>
           </div>
+          <p className="px-1 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Volume is workload, not strength: weight × reps. It helps show training consistency and fatigue, while estimated max describes a single-lift effort.</p>
         </div>
       );})()}
       {loaded && editing && (

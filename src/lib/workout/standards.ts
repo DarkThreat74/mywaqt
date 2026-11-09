@@ -47,9 +47,12 @@ export function levelFor(lift: keyof typeof REF75, e1Kg: number, bwKg: number, s
 
 /** Map our exercise slugs onto the standard lift families. */
 export const LIFT_SLUGS: Record<string, string[]> = {
-  bench: ["barbell-bench-press", "incline-barbell-press", "machine-chest-press", "incline-dumbbell-press", "smith-bench-press", "dumbbell-bench-press"],
-  squat: ["barbell-squat", "back-squat", "front-squat", "leg-press", "hack-squat", "smith-squat", "goblet-squat"],
-  deadlift: ["conventional-deadlift", "sumo-deadlift", "trap-bar-deadlift", "romanian-deadlift", "rdl", "deadlift"],
-  ohp: ["barbell-overhead-press", "overhead-press", "military-press", "seated-ohp", "push-press", "dumbbell-shoulder-press", "machine-shoulder-press"],
-  row: ["barbell-row", "pendlay-row", "bent-dumbbell-row", "chest-supported-row", "seated-cable-row", "single-arm-cable-row", "helms-row", "t-bar-row"],
+  // Standards compare like-for-like. Incline, wide/close grip, machines, and
+  // dumbbells remain visible in their own exercise history; they must not
+  // silently become a barbell bench/squat/deadlift max.
+  bench: ["barbell-bench-press"],
+  squat: ["barbell-squat", "back-squat"],
+  deadlift: ["conventional-deadlift", "deadlift"],
+  ohp: ["barbell-overhead-press", "overhead-press", "military-press"],
+  row: ["barbell-row", "pendlay-row"],
 };

@@ -2572,7 +2572,10 @@ export default function DayViewClient({ date }: { date: string }) {
                           </span>
                         );
                       })}
-                      <button type="button" onClick={() => setTagMenuOpen((open) => !open)} className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }} aria-label="Add another friend">
+                      <button type="button" onClick={() => {
+                        setTagMenuOpen((open) => !open);
+                        if (!friendsList) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([]));
+                      }} className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }} aria-label="Add another friend">
                         <Tag className="h-3 w-3" /> Add
                       </button>
                     </>

@@ -604,10 +604,10 @@ export default function WorkoutClient() {
             // Symmetric-Strength-style categories — the best lift in each
             // family scores the category; the mean is your overall score.
             const LIFTS: [string[], string, [number, number, number]][] = [
-              [["back-squat", "front-squat", "hack-squat", "low-bar-squat", "safety-bar-squat"], "squat", [1.0, 1.5, 2.0]],
-              [["deadlift", "rdl", "stiff-leg-deadlift"], "pull", [1.25, 2.0, 2.5]],
-              [["barbell-bench-press", "machine-chest-press", "weighted-dip", "incline-bench-30"], "press", [0.75, 1.0, 1.5]],
-              [["barbell-ohp", "seated-db-press", "machine-shoulder-press", "standing-db-press"], "ohp", [0.5, 0.75, 1.0]],
+              [["barbell-squat", "back-squat"], "squat", [1.0, 1.5, 2.0]],
+              [["conventional-deadlift", "deadlift"], "pull", [1.25, 2.0, 2.5]],
+              [["barbell-bench-press"], "press", [0.75, 1.0, 1.5]],
+              [["barbell-overhead-press", "overhead-press", "military-press"], "ohp", [0.5, 0.75, 1.0]],
               [["pull-up", "weighted-pullup", "chin-up"], "pull-up", [0.9, 1.2, 1.5]],
             ];
             const levelOf = (ratio: number, [b, i, a]: [number, number, number]) =>
