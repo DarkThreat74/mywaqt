@@ -19,6 +19,7 @@ interface BDayBody {
   birthYear?: number | null;
   remindDays?: number[];
   categoryId?: string | null;
+  friendId?: string | null;
   clientId?: string;
 }
 
@@ -31,6 +32,14 @@ async function ownedCategoryId(userId: string, categoryId: unknown): Promise<str
     .from(schema.birthdayCategories)
     .where(and(eq(schema.birthdayCategories.id, categoryId), eq(schema.birthdayCategories.userId, userId)))
     .limit(1);
+  return row?.id ?? null;
+}
+
+async function ownedFriendId(userId: string, friendId: unknown): Promise<string | null> {
+  if (friendId === null || friendId === undefined) return null;
+  if (typeof friendId !== "string" || !isValidUUID(friendId)) return null;
+  const [row] = await db.select({ id: schema.friends.id }).from(schema.friends)
+    .where(and(eq(schema.friends.id, friendId), eq(schema.friends.userId, userId))).limit(1);
   return row?.id ?? null;
 }
 
@@ -134,6 +143,7 @@ export async function POST(request: NextRequest) {
         birthYear: (out.birthYear as number | null) ?? null,
         remindDays: (out.remindDays as number[]) ?? [0, 1],
         categoryId: await ownedCategoryId(session.userId, body.categoryId),
+        friendId: await ownedFriendId(session.userId, body.friendId),
       })
       .onConflictDoNothing({ target: schema.birthdays.id })
       .returning();
@@ -185,6 +195,14 @@ export async function PATCH(request: NextRequest) {
         const owned = await ownedCategoryId(session.userId, body.categoryId);
         if (!owned) return NextResponse.json({ error: "Invalid category" }, { status: 400 });
         out.categoryId = owned;
+      }
+    }
+    if (body.friendId !== undefined) {
+      if (body.friendId === null) out.friendId = null;
+      else {
+        const owned = await ownedFriendId(session.userId, body.friendId);
+        if (!owned) return NextResponse.json({ error: "Invalid friend" }, { status: 400 });
+        out.friendId = owned;
       }
     }
     if (Object.keys(out).length === 0) {

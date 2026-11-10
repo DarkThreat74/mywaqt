@@ -1372,6 +1372,7 @@ export const birthdays = pgTable('birthdays', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   categoryId: uuid('category_id').references(() => birthdayCategories.id, { onDelete: 'set null' }),
+  friendId: uuid('friend_id').references(() => friends.id, { onDelete: 'set null' }),
   name: text('name').notNull(),
   birthMonth: integer('birth_month').notNull(), // 1-12
   birthDay: integer('birth_day').notNull(),     // 1-31

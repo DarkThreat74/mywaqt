@@ -30,9 +30,10 @@ interface FormState {
   year: string;
   remindDays: number[];
   categoryId: string | null;
+  friendId: string | null;
 }
 
-const EMPTY_FORM: FormState = { name: "", month: 1, day: "", year: "", remindDays: [0, 1], categoryId: null };
+const EMPTY_FORM: FormState = { name: "", month: 1, day: "", year: "", remindDays: [0, 1], categoryId: null, friendId: null };
 
 /** Theme-styled dropdown — replaces native <select> for pickers. */
 function CustomSelect({
@@ -130,6 +131,7 @@ export default function BirthdaysClient() {
   });
   const [birthdays, setBirthdays] = useState<Birthday[]>(seed?.birthdays ?? []);
   const [categories, setCategories] = useState<BirthdayCategory[]>(seed?.categories ?? []);
+  const [friends, setFriends] = useState<Array<{ id: string; name: string; hasPhoto?: boolean; updatedAt?: string | null }>>([]);
   const [loaded, setLoaded] = useState(!!seed);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -184,6 +186,12 @@ export default function BirthdaysClient() {
       .finally(() => setLoaded(true));
   }, []);
 
+  useEffect(() => {
+    fetch("/api/friends", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
+      if (Array.isArray(d?.friends)) setFriends(d.friends);
+    }).catch(() => {});
+  }, []);
+
   // A persisted category filter can outlive its category — fall back to All.
   const effectiveCat = catFilter !== "all" && !categories.some((c) => c.id === catFilter) ? "all" : catFilter;
 
@@ -228,13 +236,15 @@ export default function BirthdaysClient() {
   function startEdit(b: Birthday) {
     setEditingId(b.id);
     setAdding(false);
+    const linkedFriend = b.friendId ? friends.find((friend) => friend.id === b.friendId) : undefined;
     setForm({
-      name: b.name,
+      name: linkedFriend?.name || b.name,
       month: b.birthMonth,
       day: String(b.birthDay),
       year: b.birthYear ? String(b.birthYear) : "",
       remindDays: b.remindDays.length > 0 ? b.remindDays : [0],
       categoryId: b.categoryId,
+      friendId: b.friendId ?? null,
     });
     setError(null);
   }
@@ -319,6 +329,7 @@ export default function BirthdaysClient() {
       birthYear: year,
       remindDays: form.remindDays,
       categoryId: form.categoryId,
+      friendId: form.friendId,
     };
     try {
       const res = editingId
@@ -344,6 +355,7 @@ export default function BirthdaysClient() {
           birthYear: payload.birthYear,
           remindDays: payload.remindDays,
           categoryId: payload.categoryId,
+          friendId: payload.friendId,
           lastNotifiedOn: null,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -380,11 +392,11 @@ export default function BirthdaysClient() {
   const next = sorted[0];
   const now = new Date();
   const thisMonthCount = birthdays.filter((b) => b.birthMonth === now.getMonth() + 1).length;
+  // Earliest/latest is a global ordering. Keeping the old time-window
+  // sections made the sort look broken because each section reordered itself
+  // independently. The calendar view still provides month grouping.
   const groups: { label: string; items: Birthday[] }[] = [
-    { label: "Today", items: visible.filter((b) => daysUntilBirthday(b) === 0) },
-    { label: "This week", items: visible.filter((b) => { const d = daysUntilBirthday(b); return d >= 1 && d <= 7; }) },
-    { label: "This month", items: visible.filter((b) => { const d = daysUntilBirthday(b); return d >= 8 && d <= 31; }) },
-    { label: "Later", items: visible.filter((b) => daysUntilBirthday(b) > 31) },
+    { label: sort === "earliest" ? "Earliest upcoming" : "Latest upcoming", items: visible },
   ].filter((g) => g.items.length > 0);
   const byMonth = MONTHS.map((_, i) =>
     visible
@@ -528,6 +540,30 @@ export default function BirthdaysClient() {
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
               />
             </label>
+            <div className="sm:col-span-2 rounded-xl border p-3" style={{ borderColor: form.friendId ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.friendId ? "color-mix(in oklab, var(--color-accent) 6%, transparent)" : "var(--color-paper)" }}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Sync to Friends</p>
+                  <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Name and profile photo stay current automatically.</p>
+                </div>
+                {form.friendId && <button type="button" onClick={() => setForm({ ...form, friendId: null })} className="text-[10px] font-semibold" style={{ color: "var(--color-ink-muted)" }}>Unlink</button>}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {friends.length === 0 ? (
+                  <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Add a person in Friends first.</span>
+                ) : friends.map((friend) => (
+                  <button
+                    key={friend.id}
+                    type="button"
+                    onClick={() => setForm({ ...form, friendId: form.friendId === friend.id ? null : friend.id, name: friend.name })}
+                    className="rounded-full border px-2.5 py-1.5 text-[11px] font-medium"
+                    style={{ borderColor: form.friendId === friend.id ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.friendId === friend.id ? "var(--color-accent-faint)" : "transparent", color: form.friendId === friend.id ? "var(--color-accent)" : "var(--color-ink-soft)" }}
+                  >
+                    {friend.name}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="block">
               <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Month</span>
               <CustomSelect
@@ -833,6 +869,8 @@ export default function BirthdaysClient() {
                   const d = daysUntilBirthday(b);
                   const age = turningAge(b);
                   const cat = b.categoryId ? catMap.get(b.categoryId) : undefined;
+                  const linkedFriend = b.friendId ? friends.find((friend) => friend.id === b.friendId) : undefined;
+                  const displayName = linkedFriend?.name || b.name;
                   const reminds = b.remindDays
                     .map((r) => (r === 0 ? "day-of" : r >= 7 ? `${r / 7}w` : `${r}d`))
                     .join(" · ");
@@ -853,11 +891,16 @@ export default function BirthdaysClient() {
                         }
                         aria-hidden
                       >
-                        {d === 0 ? <Cake className="h-4 w-4" /> : b.name.trim().charAt(0).toUpperCase()}
+                        {d === 0 ? <Cake className="h-4 w-4" /> : linkedFriend?.hasPhoto ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element -- private friend photo endpoint */}
+                            <img src={`/api/friends/${linkedFriend.id}/photo?v=${Date.parse(linkedFriend.updatedAt ?? "") || 0}`} alt="" className="h-full w-full object-cover" />
+                          </>
+                        ) : displayName.trim().charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
-                          {b.name}
+                          {displayName}
                         </p>
                         {(cat || age !== null) && (
                           <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
@@ -890,7 +933,7 @@ export default function BirthdaysClient() {
                         onClick={() => startEdit(b)}
                         className="shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
                         style={{ color: "var(--color-ink-muted)" }}
-                        aria-label={`Edit ${b.name}`}
+                        aria-label={`Edit ${displayName}`}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
