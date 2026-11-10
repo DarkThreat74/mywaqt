@@ -288,6 +288,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to save friend" }, { status: 500 });
     }
 
+    if (row && out.photoData && out.photoMime) {
+      await db.insert(schema.friendPhotos).values({ userId: session.userId, friendId: row.id, photoData: out.photoData as string, photoMime: out.photoMime as string }).catch((err) => logError(err, { route: "friends/POST", phase: "photo-history" }));
+    }
     return NextResponse.json({ friend: row });
   } catch (err) {
     logError(err, { route: "friends/POST" });
@@ -331,6 +334,9 @@ export async function PATCH(request: NextRequest) {
       .returning();
 
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (out.photoData && out.photoMime) {
+      await db.insert(schema.friendPhotos).values({ userId: session.userId, friendId: row.id, photoData: out.photoData as string, photoMime: out.photoMime as string }).catch((err) => logError(err, { route: "friends/PATCH", phase: "photo-history" }));
+    }
     if (scored) {
       const [rescored] = await db
         .update(schema.friends)

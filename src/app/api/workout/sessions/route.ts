@@ -82,8 +82,10 @@ export async function GET(request: NextRequest) {
   const sessionBestE1 = new Map<string, Map<string, number>>();
   for (const set of completed) {
     const w = Number.parseFloat(set.weight || "");
-    if (!(w > 0) || !(set.reps && set.reps > 0) || set.reps > 12) continue;
-    const e1 = estimateE1rm(w, Math.min(12, set.reps + (set.rir ?? 0)));
+    // Keep historical PR detection aligned with progress calculations:
+    // high-rep sets are not 1RM evidence and RIR adds at most one rep.
+    if (!(w > 0) || !(set.reps && set.reps > 0) || set.reps > 10) continue;
+    const e1 = estimateE1rm(w, Math.min(10, set.reps + Math.min(set.rir ?? 0, 1)));
     const m = sessionBestE1.get(set.sessionId) || new Map<string, number>();
     m.set(set.slug, Math.max(m.get(set.slug) || 0, e1));
     sessionBestE1.set(set.sessionId, m);

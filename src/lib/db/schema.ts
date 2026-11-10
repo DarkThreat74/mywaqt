@@ -1325,6 +1325,19 @@ export const friends = pgTable('friends', {
 export type Friend = typeof friends.$inferSelect;
 export type NewFriend = typeof friends.$inferInsert;
 
+// Immutable photo history for friend profiles. The current avatar remains on
+// friends for fast list rendering; this table powers the timestamped gallery.
+export const friendPhotos = pgTable('friend_photos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  friendId: uuid('friend_id').notNull().references(() => friends.id, { onDelete: 'cascade' }),
+  photoData: text('photo_data').notNull(),
+  photoMime: text('photo_mime').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userFriendIdx: index('friend_photos_user_friend_idx').on(table.userId, table.friendId),
+}));
+
 // ─── Friend Crews (named friend groups; hidden crews don't show in All) ───
 
 export const friendCrews = pgTable('friend_crews', {

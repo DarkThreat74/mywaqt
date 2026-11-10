@@ -435,12 +435,13 @@ export async function GET(request: NextRequest) {
       if (row.rir != null) { rirTotal += row.rir; rirCount += 1; }
       if (row.restAfterSec != null) { restTotal += row.restAfterSec; restCount++; }
       if (row.pain != null && row.pain >= 5) painSets++;
-      if (age <= weekMs) tonWeek += vol;
-      else if (age <= 2 * weekMs) tonPrevWeek += vol;
+      if (age >= 0 && age <= weekMs) tonWeek += vol;
+      else if (age > weekMs && age <= 2 * weekMs) tonPrevWeek += vol;
     }
     const latestReadiness = rows.find((row) => row.readiness)?.readiness as { sleepHours?: number; soreness?: number; energy?: number; stress?: number } | null;
     return NextResponse.json({
       progress: out, totalSessions: sessCount, muscles, totalTonnage: Math.round(totalTonnage),
+      workoutAlgorithmVersion: 4,
       tonWeek: Math.round(tonWeek), tonPrevWeek: Math.round(tonPrevWeek),
       // ACWR-style flag — >30% weekly load jump is the documented injury-risk line
       volumeSpike: tonPrevWeek > 0 && tonWeek > tonPrevWeek * 1.3,

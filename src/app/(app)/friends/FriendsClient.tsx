@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, Phone, EyeOff } from "lucide-react";
+import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, EyeOff } from "lucide-react";
 import { friendScore, friendTier } from "@/lib/friends-score";
 import { compressImage } from "@/lib/image";
 import PhotoLightbox from "@/components/photo-lightbox";
@@ -47,6 +47,12 @@ interface Friend {
   hasPhoto: boolean;
   // Just-uploaded pixels shown instantly while the server's copy loads.
   localPhoto?: string | null;
+}
+
+interface FriendPhoto {
+  id: string;
+  createdAt: string;
+  mime: string;
 }
 
 const MET_TAGS = [
@@ -166,21 +172,6 @@ const TELL = [
   { id: "rarely", label: "I wouldn't go out of my way" },
 ];
 
-// Answers saved by older questionnaire versions that no longer appear as
-// chips — still render readable on the profile card.
-const LEGACY_LABELS: Record<string, string> = {
-  mix: "A bit of both", easy: "Whoever — it's easy, no keeping score",
-  unsure: "Not sure",
-  doing: "Something to do — gym, games, food",
-  talking: "Actually sitting and talking",
-  chilling: "Chilling — same room, our own thing",
-};
-const optLabel = (list: { id: string; label: string }[], id: string | null) =>
-  id ? list.find((x) => x.id === id)?.label ?? LEGACY_LABELS[id] ?? id : null;
-
-const OPENNESS_LEGACY_LABELS: Record<string, string> = { always: "Completely", mostly: "Mostly", rarely: "I hold back" };
-const openLabel = (v: string | null) =>
-  (v && (OPENNESS.find((x) => x.id === v)?.label ?? OPENNESS_LEGACY_LABELS[v])) ?? null;
 const VIBE = [
   { id: "person", label: "One of my people" },
   { id: "goodtime", label: "A good time — always down" },
@@ -257,6 +248,7 @@ export default function FriendsClient() {
   const fileRef = useRef<HTMLInputElement>(null);
   const selfRef = useRef<HTMLInputElement>(null);
   const [photo, setPhoto] = useState<{ data: string; mime: string; dirty: boolean }>({ data: "", mime: "", dirty: false });
+  const [photoHistory, setPhotoHistory] = useState<FriendPhoto[]>([]);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [crop, setCrop] = useState<{ file: Blob; target: "friend" | "self" } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -376,6 +368,7 @@ export default function FriendsClient() {
     setError(null);
     setContactHint(null);
     setPhoto({ data: "", mime: "", dirty: false });
+    setPhotoHistory([]);
     if (f && f !== "new" && f !== "self") {
       const parts = f.name.split(" ");
       setFirstName(parts[0] ?? "");
@@ -389,6 +382,10 @@ export default function FriendsClient() {
       setGroupLabel(f.groupLabel ?? "");
       setPhone(f.phone ?? "");
       setNotes(f.notes ?? "");
+      fetch(`/api/friends/${f.id}/photos`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setPhotoHistory(Array.isArray(d?.photos) ? d.photos : []))
+        .catch(() => setPhotoHistory([]));
     } else {
       setFirstName(""); setLastName("");
       setMetTag(null); setMetDetail(""); setFreq(null);
@@ -1027,23 +1024,7 @@ export default function FriendsClient() {
               const t = TIERS[tierOf(f)];
               const rows: [string, string][] = [
                 f.groupLabel ? ["Crew", f.groupLabel] : null,
-                f.metTag ? ["Met", [metLabel(f.metTag), f.metDetail].filter(Boolean).join(" · ")] : null,
-                f.vibe ? ["They're", optLabel(VIBE, f.vibe)] : null,
-                f.knownYears ? ["Known", YEARS.find((y) => y.id === f.knownYears)?.label ?? f.knownYears] : null,
-                f.talkFreq ? ["Talk", freqLabel(f.talkFreq) ?? f.talkFreq] : null,
-                f.trust ? ["3am call", optLabel(TRUST, f.trust)] : null,
-                f.sacrifice ? ["If they needed real help", optLabel(SACRIFICE, f.sacrifice)] : null,
-                f.hangout ? ["Hanging out is", optLabel(HANGOUT, f.hangout)] : null,
-                f.plans ? ["Plans", optLabel(PLANS, f.plans)] : null,
-                f.volition ? ["If the context ended", optLabel(VOLITION, f.volition)] : null,
-                f.openness ? ["They know", openLabel(f.openness) ?? f.openness] : null,
-                f.tell ? ["Big news", optLabel(TELL, f.tell)] : null,
-                f.loyalty ? ["Backs you up", optLabel(LOYALTY, f.loyalty)] : null,
-                f.attune ? ["If you're off", optLabel(ATTUNE, f.attune)] : null,
-                f.gap ? ["After 2 months apart", optLabel(GAP, f.gap)] : null,
-                f.shortlist ? ["The short list", optLabel(SHORTLIST, f.shortlist)] : null,
-                f.phase ? ["Right now", optLabel(PHASE, f.phase)] : null,
-                f.miss ? ["If they moved away", f.miss] : null,
+                f.metTag ? ["Where you met", [metLabel(f.metTag), f.metDetail].filter(Boolean).join(" · ")] : null,
               ].filter((r): r is [string, string] => !!r);
               return (
                 <div>
@@ -1068,7 +1049,7 @@ export default function FriendsClient() {
                         className="mt-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
                         style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}
                       >
-                        {t.label} · {f.score}
+                        {t.label} · {f.score}/100
                       </span>
                     )}
                   </div>
@@ -1084,14 +1065,35 @@ export default function FriendsClient() {
                     </div>
                   )}
 
-                  {f.phone && (
-                    <a
-                      href={`tel:${f.phone}`}
-                      className="mb-3 flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold"
-                      style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-accent)" }}
-                    >
-                      <Phone className="h-4 w-4" /> {f.phone}
-                    </a>
+                  {f.notes && (
+                    <div className="mb-3 rounded-xl px-3 py-2.5" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Notes</p>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>{f.notes}</p>
+                    </div>
+                  )}
+
+                  {(f.hasPhoto || photoHistory.length > 0) && (
+                    <div className="mb-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Photos</p>
+                        <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{photoHistory.length + (f.hasPhoto && photoHistory.length === 0 ? 1 : 0)}</span>
+                      </div>
+                      <div className="flex snap-x gap-2 overflow-x-auto pb-1">
+                        {f.hasPhoto && (
+                          <button type="button" onClick={() => setLightbox({ src: photoSrc(f), alt: f.name })} className="h-28 w-28 shrink-0 snap-start overflow-hidden rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element -- private photo endpoint */}
+                            <img src={photoSrc(f)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                          </button>
+                        )}
+                        {photoHistory.map((p) => (
+                          <button key={p.id} type="button" onClick={() => setLightbox({ src: `/api/friends/${f.id}/photos/${p.id}`, alt: f.name })} className="relative h-28 w-28 shrink-0 snap-start overflow-hidden rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element -- private photo endpoint */}
+                            <img src={`/api/friends/${f.id}/photos/${p.id}`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                            <span className="absolute inset-x-1 bottom-1 rounded bg-black/55 px-1 py-0.5 text-[9px] text-white">{new Date(p.createdAt).toLocaleDateString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
 
                   {f.notes && (
