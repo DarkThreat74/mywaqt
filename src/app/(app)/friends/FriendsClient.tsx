@@ -531,6 +531,25 @@ export default function FriendsClient() {
     }
   }
 
+  async function editHistoryPhoto(photoId: string) {
+    if (!sheet || sheet === "new" || sheet === "self") return;
+    try {
+      const response = await fetch(`/api/friends/${sheet.id}/photos/${photoId}`);
+      if (!response.ok) return;
+      const blob = await response.blob();
+      setCrop({ file: new File([blob], "friend-photo.jpg", { type: blob.type || "image/jpeg" }), target: "friend" });
+    } catch {
+      setContactHint("Couldn't open that photo.");
+    }
+  }
+
+  async function deleteHistoryPhoto(photoId: string) {
+    if (!sheet || sheet === "new" || sheet === "self") return;
+    if (!window.confirm("Delete this saved photo?")) return;
+    const res = await fetch(`/api/friends/${sheet.id}/photos?photoId=${encodeURIComponent(photoId)}`, { method: "DELETE" }).catch(() => null);
+    if (res?.ok) setPhotoHistory((photos) => photos.filter((photo) => photo.id !== photoId));
+  }
+
   async function remove() {
     if (sheet === "new" || sheet === "self" || !sheet) return;
     setSaving(true);
@@ -1164,6 +1183,25 @@ export default function FriendsClient() {
                 }}
               />
             </div>
+
+            {sheet !== "new" && photoHistory.length > 0 && (
+              <div className="mb-4 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Saved photos</p>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {photoHistory.map((savedPhoto) => (
+                    <div key={savedPhoto.id} className="relative w-24 shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- private photo endpoint */}
+                      <img src={`/api/friends/${(sheet as Friend).id}/photos/${savedPhoto.id}`} alt="" className="h-24 w-24 rounded-lg object-cover" loading="lazy" />
+                      <div className="mt-1 flex gap-1">
+                        <button type="button" onClick={() => void editHistoryPhoto(savedPhoto.id)} className="flex-1 rounded-md border px-1 py-1 text-[10px] font-semibold" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Edit</button>
+                        <button type="button" onClick={() => void deleteHistoryPhoto(savedPhoto.id)} className="rounded-md border px-2 py-1 text-[10px] font-semibold" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-error)" }} aria-label="Delete photo">×</button>
+                      </div>
+                      <p className="mt-1 truncate text-[9px]" style={{ color: "var(--color-ink-muted)" }}>{new Date(savedPhoto.createdAt).toLocaleDateString()}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>Name</label>
             <div className="mb-4 grid grid-cols-2 gap-2">

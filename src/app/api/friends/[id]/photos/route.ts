@@ -23,3 +23,19 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Failed to fetch photos" }, { status: 500 });
   }
 }
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const session = await getSessionFromRequest(request);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { id } = await params;
+    const photoId = new URL(request.url).searchParams.get("photoId");
+    if (!isValidUUID(id) || !photoId || !isValidUUID(photoId)) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const deleted = await db.delete(schema.friendPhotos).where(and(eq(schema.friendPhotos.id, photoId), eq(schema.friendPhotos.friendId, id), eq(schema.friendPhotos.userId, session.userId))).returning({ id: schema.friendPhotos.id });
+    if (!deleted.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    logError(err, { route: "friends/photos/DELETE" });
+    return NextResponse.json({ error: "Failed to delete photo" }, { status: 500 });
+  }
+}
