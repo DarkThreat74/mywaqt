@@ -53,6 +53,7 @@ interface FriendPhoto {
   id: string;
   createdAt: string;
   mime: string;
+  isCurrent?: boolean;
 }
 
 const MET_TAGS = [
@@ -548,6 +549,21 @@ export default function FriendsClient() {
     if (!window.confirm("Delete this saved photo?")) return;
     const res = await fetch(`/api/friends/${sheet.id}/photos?photoId=${encodeURIComponent(photoId)}`, { method: "DELETE" }).catch(() => null);
     if (res?.ok) setPhotoHistory((photos) => photos.filter((photo) => photo.id !== photoId));
+  }
+
+  async function starHistoryPhoto(photoId: string) {
+    if (!sheet || sheet === "new" || sheet === "self") return;
+    const res = await fetch(`/api/friends/${sheet.id}/photos`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoId }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      setContactHint("Couldn't set that as the profile photo.");
+      return;
+    }
+    setPhotoHistory((photos) => photos.map((photo) => ({ ...photo, isCurrent: photo.id === photoId })));
+    setFriends((all) => all.map((friend) => friend.id === sheet.id ? { ...friend, hasPhoto: true, updatedAt: new Date().toISOString(), localPhoto: `/api/friends/${sheet.id}/photos/${photoId}` } : friend));
   }
 
   async function remove() {
@@ -1107,6 +1123,7 @@ export default function FriendsClient() {
                           <button key={p.id} type="button" onClick={() => setLightbox({ src: `/api/friends/${f.id}/photos/${p.id}`, alt: f.name })} className="relative h-28 w-28 shrink-0 snap-start overflow-hidden rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
                             {/* eslint-disable-next-line @next/next/no-img-element -- private photo endpoint */}
                             <img src={`/api/friends/${f.id}/photos/${p.id}`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                            <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); void starHistoryPhoto(p.id); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); void starHistoryPhoto(p.id); } }} className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-sm" style={{ color: p.isCurrent ? "#facc15" : "white" }} aria-label={p.isCurrent ? "Current profile photo" : "Set as profile photo"} title={p.isCurrent ? "Current profile photo" : "Set as profile photo"}>★</span>
                             <span className="absolute inset-x-1 bottom-1 rounded bg-black/55 px-1 py-0.5 text-[9px] text-white">{new Date(p.createdAt).toLocaleDateString()}</span>
                           </button>
                         ))}
@@ -1190,8 +1207,11 @@ export default function FriendsClient() {
                 <div className="flex gap-2 overflow-x-auto pb-1">
                   {photoHistory.map((savedPhoto) => (
                     <div key={savedPhoto.id} className="relative w-24 shrink-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- private photo endpoint */}
-                      <img src={`/api/friends/${(sheet as Friend).id}/photos/${savedPhoto.id}`} alt="" className="h-24 w-24 rounded-lg object-cover" loading="lazy" />
+                      <div className="relative h-24 w-24 overflow-hidden rounded-lg">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- private photo endpoint */}
+                        <img src={`/api/friends/${(sheet as Friend).id}/photos/${savedPhoto.id}`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        <button type="button" onClick={() => void starHistoryPhoto(savedPhoto.id)} className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-sm" style={{ color: savedPhoto.isCurrent ? "#facc15" : "white" }} aria-label={savedPhoto.isCurrent ? "Current profile photo" : "Set as profile photo"} title={savedPhoto.isCurrent ? "Current profile photo" : "Set as profile photo"}>★</button>
+                      </div>
                       <div className="mt-1 flex gap-1">
                         <button type="button" onClick={() => void editHistoryPhoto(savedPhoto.id)} className="flex-1 rounded-md border px-1 py-1 text-[10px] font-semibold" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Edit</button>
                         <button type="button" onClick={() => void deleteHistoryPhoto(savedPhoto.id)} className="rounded-md border px-2 py-1 text-[10px] font-semibold" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-error)" }} aria-label="Delete photo">×</button>
