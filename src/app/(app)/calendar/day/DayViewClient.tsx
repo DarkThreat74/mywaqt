@@ -257,11 +257,14 @@ export default function DayViewClient({ date }: { date: string }) {
   const [classId, setClassId] = useState<string | null>(null);
   const [classStartDate, setClassStartDate] = useState("");
   const [goalTab, setGoalTab] = useState<string>("all");
+  const [dailyGoalDraft, setDailyGoalDraft] = useState("");
   // Add-event stepper: 1 = type picker, 2 = fields. Editing skips step 1.
   const [formStep, setFormStep] = useState(1);
   const [entityId, setEntityId] = useState<string | null>(null);
   const [classesList, setClassesList] = useState<Array<{ id: string; name: string; color: string }>>([]);
   const [goalsList, setGoalsList] = useState<Array<{ id: string; title: string; goalType?: string; progressCurrent: number; progressTarget: number | null }>>([]);
+  const [dailyGoals, setDailyGoals] = useState<Array<{ id: string; title: string; progressCurrent: number; progressTarget: number | null }>>([]);
+  const [dailyGoalsOpen, setDailyGoalsOpen] = useState(false);
   // Today's goal-event check-offs, per date — local intent, not server truth.
   const [goalChecks, setGoalChecks] = useState<Set<string>>(new Set());
   const [goalsOpen, setGoalsOpen] = useState(false);
@@ -644,7 +647,9 @@ export default function DayViewClient({ date }: { date: string }) {
             const data = await goalsRes.json();
             const arr = Array.isArray(data) ? data : data?.goals;
             if (Array.isArray(arr)) {
-              setGoalsList(arr.filter((g: { status?: string }) => g.status === "active")
+              const active = arr.filter((g: { status?: string; goalType?: string; targetDate?: string | null }) => g.status === "active");
+              setDailyGoals(active.filter((g: { goalType?: string; targetDate?: string | null }) => g.goalType === "daily" && g.targetDate === date).map((g: { id: string; title: string; progressCurrent?: number; progressTarget?: number | null }) => ({ id: g.id, title: g.title, progressCurrent: g.progressCurrent ?? 0, progressTarget: g.progressTarget ?? null })));
+              setGoalsList(active
                 .map((g: { id: string; title: string; goalType?: string; progressCurrent?: number; progressTarget?: number | null }) => ({
                   id: g.id, title: g.title, goalType: g.goalType,
                   progressCurrent: g.progressCurrent ?? 0,
@@ -2262,7 +2267,7 @@ export default function DayViewClient({ date }: { date: string }) {
       </div>
 
       {/* Day summary chip — under the calendar card, right-aligned. */}
-      {(dayHomeworkCount > 0 || !isPastDay || goalEvents.length > 0) && (
+      {(dayHomeworkCount > 0 || dailyGoals.length > 0 || !isPastDay || goalEvents.length > 0) && (
         <div className="pointer-events-none mt-2 mb-2 flex justify-end">
           <div
             className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[11px] font-medium shadow-sm backdrop-blur-md"
@@ -2301,6 +2306,17 @@ export default function DayViewClient({ date }: { date: string }) {
                 {goalDoneCount}/{goalEvents.length} goals
               </button>
             )}
+            {dailyGoals.length > 0 && (
+              <button
+                onClick={() => setDailyGoalsOpen((open) => !open)}
+                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-accent)", minHeight: 32 }}
+                aria-label={`Daily goals — ${dailyGoals.filter((g) => g.progressTarget !== null && g.progressCurrent >= g.progressTarget).length} of ${dailyGoals.length} done`}
+              >
+                <Check className="h-3 w-3" />
+                {dailyGoals.filter((g) => g.progressTarget !== null && g.progressCurrent >= g.progressTarget).length}/{dailyGoals.length} goals
+              </button>
+            )}
             {dayHomeworkCount > 0 && !isPastDay && (
               <span className="w-px self-stretch" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden />
             )}
@@ -2329,6 +2345,23 @@ export default function DayViewClient({ date }: { date: string }) {
                         {done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
                       </span>
                       <span className={done ? "line-through opacity-60" : ""}>{ev.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {dailyGoalsOpen && dailyGoals.length > 0 && (
+              <div className="absolute right-0 top-9 z-40 w-64 rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                {dailyGoals.map((goal) => {
+                  const done = goal.progressTarget !== null && goal.progressCurrent >= goal.progressTarget;
+                  return (
+                    <button key={goal.id} type="button" onClick={() => {
+                      const next = done ? "active" : "done";
+                      void fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: goal.id, status: next }) });
+                      setDailyGoals((items) => items.map((item) => item.id === goal.id ? { ...item, progressCurrent: next === "done" ? (item.progressTarget || 1) : 0 } : item));
+                    }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border" style={{ borderColor: done ? "var(--color-success)" : "var(--color-paper-3)", backgroundColor: done ? "var(--color-success)" : "transparent" }}>{done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}</span>
+                      <span className={done ? "line-through opacity-60" : ""}>{goal.title}</span>
                     </button>
                   );
                 })}
@@ -2490,7 +2523,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   { kind: "event", label: "Event", desc: "Time slot on your day" },
                   { kind: "reminder", label: "Reminder", desc: "One-time nudge" },
                   classesList.length > 0 && { kind: "class", label: "New class", desc: "Recurring schedule" },
-                  goalsList.length > 0 && { kind: "goal", label: "Plan goal", desc: "From your goals" },
+                  { kind: "goal", label: "Plan goal", desc: "Daily or long-term" },
                   { kind: "study", label: "Study", desc: "Plan a focused study session" },
                   workoutDays.length > 0 && { kind: "workout", label: "Workout", desc: "From your split" },
                   { kind: "quran", label: "Read quran", desc: "Recitation time" },
@@ -2510,6 +2543,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       } else {
                         setNewType("block");
                         setEventKind(opt.kind as typeof eventKind);
+                        if (opt.kind === "goal") setGoalTab("daily");
                         if (opt.kind === "class") setEnableRecurrence(true);
                         if (opt.kind === "quran" && !newTitle.trim()) setNewTitle("Quran recitation");
                       }
@@ -2643,6 +2677,21 @@ export default function DayViewClient({ date }: { date: string }) {
               {/* Goal / Study pickers — one-tap chips; Class picker is below */}
               {eventKind === "goal" && (
                 <div>
+                  {goalTab === "daily" && (
+                    <div className="mb-3 flex gap-2">
+                      <input value={dailyGoalDraft} onChange={(e) => setDailyGoalDraft(e.target.value)} placeholder="Add a daily goal…" className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
+                      <button type="button" disabled={!dailyGoalDraft.trim()} onClick={async () => {
+                        const res = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: dailyGoalDraft.trim(), goalType: "daily", targetDate: date }) });
+                        const data = await res.json().catch(() => ({}));
+                        const goal = data.goal;
+                        if (res.ok && goal) {
+                          setGoalsList((items) => [...items, { id: goal.id, title: goal.title, goalType: "daily", progressCurrent: 0, progressTarget: goal.progressTarget ?? 1 }]);
+                          setDailyGoals((items) => [...items, { id: goal.id, title: goal.title, progressCurrent: 0, progressTarget: goal.progressTarget ?? 1 }]);
+                          setDailyGoalDraft("");
+                        }
+                      }} className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Add</button>
+                    </div>
+                  )}
                   {/* Horizon tabs — filter goals by type before picking */}
                   <div className="mb-2 flex gap-1 overflow-x-auto">
                     {["all", ...new Set(goalsList.map((g) => g.goalType).filter((t): t is string => !!t))].map((t) => (
