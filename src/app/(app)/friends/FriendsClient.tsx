@@ -241,6 +241,7 @@ export default function FriendsClient() {
       return [];
     }
   });
+  const [syncedBirthdays, setSyncedBirthdays] = useState<Array<{ friendId: string | null; birthMonth: number; birthDay: number; birthYear: number | null }>>([]);
   const [loaded, setLoaded] = useState(false);
   const [netErr, setNetErr] = useState(false); // fetch failed — not "no friends"
   const [sheet, setSheet] = useState<null | Friend | "new" | "self">(null);
@@ -296,6 +297,10 @@ export default function FriendsClient() {
         setSelfie(d?.avatarUrl ?? null);
         setMe({ name: d?.name ?? "You", avatarUrl: d?.avatarUrl ?? null });
       })
+      .catch(() => {});
+    fetch("/api/birthdays", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (Array.isArray(d?.birthdays)) setSyncedBirthdays(d.birthdays); })
       .catch(() => {});
   }, []);
 
@@ -1060,6 +1065,11 @@ export default function FriendsClient() {
               const rows: [string, string][] = [
                 f.groupLabel ? ["Crew", f.groupLabel] : null,
                 f.metTag ? ["Where you met", [metLabel(f.metTag), f.metDetail].filter(Boolean).join(" · ")] : null,
+                f.phone ? ["Phone", f.phone] : null,
+                (() => {
+                  const birthday = syncedBirthdays.find((entry) => entry.friendId === f.id);
+                  return birthday ? ["Birthday", `${birthday.birthMonth}/${birthday.birthDay}${birthday.birthYear ? `/${birthday.birthYear}` : ""}`] : null;
+                })(),
               ].filter((r): r is [string, string] => !!r);
               return (
                 <div>

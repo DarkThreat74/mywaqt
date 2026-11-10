@@ -137,6 +137,7 @@ export default function BirthdaysClient() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [showFriendSync, setShowFriendSync] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "year">("list");
@@ -247,6 +248,7 @@ export default function BirthdaysClient() {
       friendId: b.friendId ?? null,
     });
     setError(null);
+    setShowFriendSync(false);
   }
 
   async function createCategory() {
@@ -540,7 +542,12 @@ export default function BirthdaysClient() {
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
               />
             </label>
-            <div className="sm:col-span-2 rounded-xl border p-3" style={{ borderColor: form.friendId ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.friendId ? "color-mix(in oklab, var(--color-accent) 6%, transparent)" : "var(--color-paper)" }}>
+            <div className="sm:col-span-2">
+              <button type="button" onClick={() => setShowFriendSync((open) => !open)} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold" style={{ borderColor: form.friendId ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.friendId ? "var(--color-accent-faint)" : "var(--color-paper)", color: form.friendId ? "var(--color-accent)" : "var(--color-ink-soft)" }}>
+                {form.friendId ? "Synced to a friend" : "Sync to Friends"}
+                <ChevronDown className="h-3 w-3" style={{ transform: showFriendSync ? "rotate(180deg)" : undefined }} />
+              </button>
+            {showFriendSync && <div className="mt-2 rounded-xl border p-3" style={{ borderColor: form.friendId ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Sync to Friends</p>
@@ -551,7 +558,7 @@ export default function BirthdaysClient() {
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {friends.length === 0 ? (
                   <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Add a person in Friends first.</span>
-                ) : friends.map((friend) => (
+                ) : [...friends].sort((a, b) => `${a.groupLabel || "Other"}:${a.name}`.localeCompare(`${b.groupLabel || "Other"}:${b.name}`)).map((friend) => (
                   <button
                     key={friend.id}
                     type="button"
@@ -563,6 +570,7 @@ export default function BirthdaysClient() {
                   </button>
                 ))}
               </div>
+            </div>}
             </div>
             <div className="block">
               <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Month</span>
