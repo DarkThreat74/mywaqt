@@ -3,14 +3,13 @@ import { eq, and, desc, isNotNull, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
-import { estimateE1rm, recommendLoadKg } from "@/lib/workout/recommend";
+import { estimateLoggedE1rm, recommendLoadKg } from "@/lib/workout/recommend";
 import { buildAlgorithmSignals, forecastGrowth } from "@/lib/workout/forecast";
 import { isUnilateralExercise, exerciseFamilyKey, EXERCISES as EXERCISE_BANK } from "@/lib/workout/exercises";
 
 export const dynamic = "force-dynamic";
 
 // e1RM via Epley: w * (1 + r/30); bodyweight/no-weight rows excluded.
-const e1rm = estimateE1rm;
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -87,7 +86,7 @@ export async function GET(request: NextRequest) {
       // RIR is useful context, but adding every reserved rep made ordinary
       // sets look like maxes (especially wide-grip/incline work). Count at
       // most one reserved rep and keep high-rep estimates out of 1RM math.
-      const val = validE1 ? e1rm(w, Math.min(10, r + Math.min(row.rir ?? 0, 1))) : w;
+      const val = validE1 ? estimateLoggedE1rm(w, r, row.rir) : w;
       const hand = row.side === "left" || row.variation === "hand:left" ? "left"
         : row.side === "right" || row.variation === "hand:right" ? "right"
           : row.side === "both" || row.variation === "hand:both" ? "both" : null;
@@ -138,7 +137,7 @@ export async function GET(request: NextRequest) {
       // warmups so the "try X" hint suggests a real working weight.
       if (row.setType !== "warmup") {
         if (!e.last) e.last = { w, r, rir: row.rir, at: row.at.toISOString(), pos, sessionId: row.sessionId, readiness: row.readiness };
-        else if (row.sessionId === e.last.sessionId && (r > 12 || val > e1rm(e.last.w, e.last.r))) {
+        else if (row.sessionId === e.last.sessionId && (r > 10 || val > estimateLoggedE1rm(e.last.w, e.last.r, e.last.rir))) {
           e.last = { w, r, rir: row.rir, at: row.at.toISOString(), pos, sessionId: row.sessionId, readiness: row.readiness };
         }
       }

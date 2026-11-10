@@ -4,7 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
 import { isValidUUID } from "@/lib/validation";
-import { recommendLoadKg, estimateE1rm } from "@/lib/workout/recommend";
+import { recommendLoadKg, estimateLoggedE1rm } from "@/lib/workout/recommend";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     // Keep historical PR detection aligned with progress calculations:
     // high-rep sets are not 1RM evidence and RIR adds at most one rep.
     if (!(w > 0) || !(set.reps && set.reps > 0) || set.reps > 10) continue;
-    const e1 = estimateE1rm(w, Math.min(10, set.reps + Math.min(set.rir ?? 0, 1)));
+    const e1 = estimateLoggedE1rm(w, set.reps, set.rir);
     const m = sessionBestE1.get(set.sessionId) || new Map<string, number>();
     m.set(set.slug, Math.max(m.get(set.slug) || 0, e1));
     sessionBestE1.set(set.sessionId, m);

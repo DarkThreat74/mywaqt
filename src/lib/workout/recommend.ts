@@ -9,6 +9,12 @@ export function estimateE1rm(weightKg: number, reps: number): number {
   return reps > 0 && reps <= 12 ? weightKg * (1 + reps / 30) : weightKg;
 }
 
+/** Conservative shared estimate for logged sets and legacy recalculation. */
+export function estimateLoggedE1rm(weightKg: number, reps: number, rir: number | null | undefined): number {
+  if (!(weightKg > 0) || !(reps > 0) || reps > 10) return weightKg;
+  return estimateE1rm(weightKg, Math.min(10, reps + Math.min(rir ?? 0, 1)));
+}
+
 // One source of truth for next-load guidance. Missing RIR is deliberately
 // neutral: it must not be interpreted as failure and cause an aggressive jump.
 export function recommendLoadKg(weightKg: number, rir: number | null | undefined, position = 0): LoadRecommendation {
