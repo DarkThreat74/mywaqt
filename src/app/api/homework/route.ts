@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
     const fromStr = searchParams.get("from");
     const toStr = searchParams.get("to");
     const dateStr = searchParams.get("date");
+    const includeOverdue = searchParams.get("overdue") === "1";
 
     // Project only the columns the client needs — reduces payload at 100k scale
     const columns = {
@@ -82,7 +83,8 @@ export async function GET(request: NextRequest) {
         .where(
           and(
             eq(schema.homeworks.userId, session.userId),
-            eq(schema.homeworks.dueDate, dateStr),
+            includeOverdue ? lte(schema.homeworks.dueDate, dateStr) : eq(schema.homeworks.dueDate, dateStr),
+            eq(schema.homeworks.status, "pending"),
           ),
         )
         .orderBy(asc(schema.homeworks.dueDate), asc(schema.homeworks.dueTime))

@@ -544,7 +544,7 @@ export default function DayViewClient({ date }: { date: string }) {
           fetch(`/api/events?date=${date}`).catch(() => null),
           fetch(`/api/prayer-times?date=${date}`).catch(() => null),
           fetch(`/api/prayer-log?date=${date}`).catch(() => null),
-          fetch(`/api/homework?date=${date}`).catch(() => null),
+          fetch(`/api/homework?date=${date}&overdue=1`).catch(() => null),
           fetch(`/api/blocks?date=${date}`).catch(() => null),
           fetch(`/api/classes`).catch(() => null),
           fetch(`/api/goals`).catch(() => null),
@@ -599,7 +599,7 @@ export default function DayViewClient({ date }: { date: string }) {
             const hwData = await hwRes.json();
             if (Array.isArray(hwData)) {
               const dueToday = hwData.filter((h: { dueDate: string; status: string }) =>
-                h.dueDate === date && h.status === "pending"
+                h.dueDate <= date && h.status === "pending"
               );
               if (!cancelled) {
                 setDayHomeworkCount(dueToday.length);
