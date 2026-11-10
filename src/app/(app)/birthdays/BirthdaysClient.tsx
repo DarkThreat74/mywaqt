@@ -131,7 +131,7 @@ export default function BirthdaysClient() {
   });
   const [birthdays, setBirthdays] = useState<Birthday[]>(seed?.birthdays ?? []);
   const [categories, setCategories] = useState<BirthdayCategory[]>(seed?.categories ?? []);
-  const [friends, setFriends] = useState<Array<{ id: string; name: string; hasPhoto?: boolean; updatedAt?: string | null }>>([]);
+  const [friends, setFriends] = useState<Array<{ id: string; name: string; groupLabel?: string | null; hasPhoto?: boolean; updatedAt?: string | null }>>([]);
   const [loaded, setLoaded] = useState(!!seed);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
