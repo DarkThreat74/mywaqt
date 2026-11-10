@@ -1072,14 +1072,13 @@ export default function FriendsClient() {
                     </div>
                   )}
 
-                  {(f.hasPhoto || photoHistory.length > 0) && (
-                    <div className="mb-4">
+                  <div className="mb-4">
                       <div className="mb-2 flex items-center justify-between">
                         <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Photos</p>
-                        <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{photoHistory.length + (f.hasPhoto && photoHistory.length === 0 ? 1 : 0)}</span>
+                        <button type="button" onClick={() => { setEditing(true); window.setTimeout(() => fileRef.current?.click(), 0); }} className="text-[10px] font-semibold" style={{ color: "var(--color-accent)" }}>+ Add photo</button>
                       </div>
                       <div className="flex snap-x gap-2 overflow-x-auto pb-1">
-                        {f.hasPhoto && (
+                        {photoHistory.length === 0 && f.hasPhoto && (
                           <button type="button" onClick={() => setLightbox({ src: photoSrc(f), alt: f.name })} className="h-28 w-28 shrink-0 snap-start overflow-hidden rounded-xl border" style={{ borderColor: "var(--color-paper-3)" }}>
                             {/* eslint-disable-next-line @next/next/no-img-element -- private photo endpoint */}
                             <img src={photoSrc(f)} alt="" className="h-full w-full object-cover" loading="lazy" />
@@ -1092,15 +1091,9 @@ export default function FriendsClient() {
                             <span className="absolute inset-x-1 bottom-1 rounded bg-black/55 px-1 py-0.5 text-[9px] text-white">{new Date(p.createdAt).toLocaleDateString()}</span>
                           </button>
                         ))}
+                        {photoHistory.length === 0 && !f.hasPhoto && <p className="py-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>No photos yet.</p>}
                       </div>
                     </div>
-                  )}
-
-                  {f.notes && (
-                    <p className="mb-4 whitespace-pre-wrap rounded-xl px-3 py-2.5 text-sm leading-relaxed" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }}>
-                      {f.notes}
-                    </p>
-                  )}
 
                   <div className="flex gap-2">
                     <button
