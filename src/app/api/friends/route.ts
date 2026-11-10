@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -326,6 +326,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
+    const [before] = await db
+      .select({ photoData: schema.friends.photoData })
+      .from(schema.friends)
+      .where(and(eq(schema.friends.id, body.id), eq(schema.friends.userId, session.userId)))
+      .limit(1);
+    if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
     const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell", "phase", "vibe", "sacrifice", "loyalty", "gap", "plans", "hangout", "shortlist", "volition", "attune"].some((k) => k in out);
     const [row] = await db
       .update(schema.friends)
@@ -334,6 +341,31 @@ export async function PATCH(request: NextRequest) {
       .returning();
 
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (out.photoData === null) {
+      // Remove the image that was actually current. If a history photo
+      // remains, promote the newest one; otherwise the profile stays a clean
+      // initials avatar instead of resurrecting the deleted image.
+      if (before.photoData) {
+        await db.delete(schema.friendPhotos).where(and(
+          eq(schema.friendPhotos.friendId, row.id),
+          eq(schema.friendPhotos.userId, session.userId),
+          eq(schema.friendPhotos.photoData, before.photoData),
+        ));
+      }
+      const [replacement] = await db.select({
+        photoData: schema.friendPhotos.photoData,
+        photoMime: schema.friendPhotos.photoMime,
+      }).from(schema.friendPhotos)
+        .where(and(eq(schema.friendPhotos.friendId, row.id), eq(schema.friendPhotos.userId, session.userId)))
+        .orderBy(desc(schema.friendPhotos.createdAt)).limit(1);
+      if (replacement) {
+        const [promoted] = await db.update(schema.friends)
+          .set({ photoData: replacement.photoData, photoMime: replacement.photoMime, updatedAt: new Date() })
+          .where(and(eq(schema.friends.id, row.id), eq(schema.friends.userId, session.userId)))
+          .returning();
+        if (promoted) return NextResponse.json({ friend: promoted });
+      }
+    }
     if (out.photoData && out.photoMime) {
       await db.insert(schema.friendPhotos).values({ userId: session.userId, friendId: row.id, photoData: out.photoData as string, photoMime: out.photoMime as string }).catch((err) => logError(err, { route: "friends/PATCH", phase: "photo-history" }));
     }
