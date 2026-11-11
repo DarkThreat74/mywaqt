@@ -1,0 +1,96 @@
+{
+ "id": "./",
+ "name": "Sirat",
+ "short_name": "Sirat",
+ "description": "Halal food, places and masjids within 40 miles of Glen Ellyn.",
+ "lang": "en-US",
+ "dir": "ltr",
+ "start_url": "./?source=pwa",
+ "scope": "./",
+ "display": "standalone",
+ "orientation": "any",
+ "background_color": "#0B6B50",
+ "theme_color": "#EFEEE9",
+ "categories": [
+  "travel",
+  "food",
+  "navigation"
+ ],
+ "icons": [
+  {
+   "src": "icons/icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "icons/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "icons/icon-maskable-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ],
+ "shortcuts": [
+  {
+   "name": "Eat",
+   "url": "./?tab=E&source=shortcut",
+   "icons": [
+    {
+     "src": "icons/icon-192.png",
+     "sizes": "192x192"
+    }
+   ]
+  },
+  {
+   "name": "Things to do",
+   "short_name": "Do",
+   "url": "./?tab=D&source=shortcut",
+   "icons": [
+    {
+     "src": "icons/icon-192.png",
+     "sizes": "192x192"
+    }
+   ]
+  },
+  {
+   "name": "Masjids",
+   "short_name": "Pray",
+   "url": "./?tab=M&source=shortcut",
+   "icons": [
+    {
+     "src": "icons/icon-192.png",
+     "sizes": "192x192"
+    }
+   ]
+  }
+ ],
+ "screenshots": [
+  {
+   "src": "shots/phone-1.png",
+   "sizes": "786x1704",
+   "type": "image/png",
+   "form_factor": "narrow",
+   "label": "Map and list"
+  },
+  {
+   "src": "shots/phone-2.png",
+   "sizes": "786x1704",
+   "type": "image/png",
+   "form_factor": "narrow",
+   "label": "Filters"
+  },
+  {
+   "src": "shots/desktop.png",
+   "sizes": "1280x800",
+   "type": "image/png",
+   "form_factor": "wide",
+   "label": "Desktop"
+  }
+ ]
+}

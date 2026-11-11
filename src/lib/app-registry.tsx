@@ -231,6 +231,17 @@ export function StoreArt() {
   );
 }
 
+export function SiratArt() {
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <path d="M8 34c7-10 13-15 20-18 4-2 8-3 12-3" />
+      <path d="M8 38h32" opacity="0.35" />
+      <circle cx="12" cy="31" r="3" fill="currentColor" stroke="none" opacity="0.8" />
+      <path d="M33 10l7 3-4 6" />
+    </svg>
+  );
+}
+
 export function QuranTesterArt() {
   return (
     <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
@@ -260,6 +271,7 @@ export const ALL_APPS: AppDef[] = [
   { key: "/qibla", href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba, live compass", rating: "4.9", installs: "18K", art: QiblaArt },
   { key: "/dhikr", href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter with sequences", rating: "4.8", installs: "24K", art: DhikrArt },
   { key: "/masjids", href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah times", rating: "4.7", installs: "9K", art: MasjidArt },
+  { key: "/myapps/sirat/", href: "/myapps/sirat/", label: "Sirat", arabic: "سير", description: "Offline-first halal places, masjids and things to do", rating: "New", installs: "Private", art: SiratArt },
 
   { key: "/quran", href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah from a verse", rating: "4.9", installs: "15K", art: QuranArt, ranked: true },
   { key: "/quran-tester", href: "/quran-tester", label: "Quran Tester", arabic: "تلاوة", description: "Recite from memory — it follows and catches mistakes", rating: "5.0", installs: "1K", art: QuranTesterArt },
@@ -281,7 +293,7 @@ export const ALL_APPS: AppDef[] = [
 export const APP_BY_KEY = new Map(ALL_APPS.map((a) => [a.key, a]));
 
 export const CATEGORIES: { title: string; keys: string[] }[] = [
-  { title: "Prayer", keys: ["/qibla", "/dhikr", "/masjids"] },
+  { title: "Prayer", keys: ["/qibla", "/dhikr", "/masjids", "/myapps/sirat/"] },
   { title: "Quran", keys: ["/quran", "/quran-tester", "/recite", "/mutashabihat", "/names"] },
   { title: "Study", keys: ["/study", "/learn", "/talks", "/nasheeds"] },
   { title: "Life", keys: ["/workout", "/subscriptions", "/birthdays"] },
