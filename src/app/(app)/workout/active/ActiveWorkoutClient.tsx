@@ -20,6 +20,7 @@ type HandMode = "both" | "one";
 // default to paired L/R rows instead of requiring the manual 1-hand toggle.
 const handedCapable = (slug: string) => HANDED.has(slug) || isUnilateralExercise(slug);
 const requiresLoad = (slug: string) => EXERCISES.find((exercise) => exercise.slug === slug)?.equip !== "bodyweight";
+const isDumbbell = (slug: string) => EXERCISES.find((exercise) => exercise.slug === slug)?.equip === "dumbbell";
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
@@ -959,7 +960,7 @@ function ActiveInner() {
               <div className="mt-3 space-y-1.5">
                 <div className="flex items-center gap-2 px-1 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
                   <span className="w-6 text-center">#</span>
-                  <span className="w-16 text-center">{units}</span>
+                  <span className="w-16 text-center">{units}{isDumbbell(x.slug) ? " / hand" : ""}</span>
                   <span className="w-16 text-center">reps</span>
                   <span className="w-8 text-center" title="N normal working set · W warmup · F taken to failure">type</span>
                   <span className="w-12 text-center" title="Reps in reserve — how many more you could have done">RIR</span>
@@ -1137,7 +1138,6 @@ function ActiveInner() {
                     ? availableExercises.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: "", equip: "", sets: exercise.sets, reps: exercise.reps }))
                     : EXERCISES.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: exercise.muscle, equip: exercise.equip, sets: 1, reps: "8-12" }));
                   return items
-                  .filter((exercise) => !exercises.some((item) => item.slug === exercise.slug))
                   .filter((exercise) => !exerciseQuery.trim() || `${exercise.name} ${exercise.muscle} ${exercise.equip}`.toLowerCase().includes(exerciseQuery.toLowerCase()))
                   .slice(0, 60)
                   .map((exercise) => (

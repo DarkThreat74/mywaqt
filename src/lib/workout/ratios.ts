@@ -282,6 +282,7 @@ export const HANDED = new Set([
   "wrist-curl", "db-wrist-curl", "standing-leg-curl", "leg-extension",
   "leg-curl-toes-in", "leg-curl-toes-out", "single-leg-press",
   "single-arm-cable-rear-flye", "chest-supported-row", "bent-dumbbell-row",
+  "reverse-pec-deck",
   "kroc-row", "seated-cable-row", "renegade-row", "incline-db-overhead-ext",
   "dips", "incline-db-press", "dumbbell-press", "cable-curl", "bb-curl",
 ]);
