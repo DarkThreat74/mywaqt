@@ -1855,7 +1855,7 @@ export default function DayViewClient({ date }: { date: string }) {
               </div>
             )}
             {homeworkOpen && dayHomeworkItems.length > 0 && (
-              <div className="absolute left-0 top-9 z-40 w-72 rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+              <div className="pointer-events-auto absolute left-0 top-9 z-40 w-72 rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
                 <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Assignments due</p>
                 <div className="max-h-44 overflow-y-auto">
                   {dayHomeworkItems.map((homework) => (
@@ -2641,7 +2641,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       })}
                       <button type="button" onClick={() => {
                         setTagMenuOpen((open) => !open);
-                        if (!friendsList) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([]));
+                        if (!friendsList || friendsList.length === 0) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([]));
                       }} className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }} aria-label="Add another friend">
                         <Tag className="h-3 w-3" /> Add
                       </button>
@@ -2649,7 +2649,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   ) : (
                     <button type="button" onClick={() => {
                       setTagMenuOpen((open) => !open);
-                      if (!friendsList) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([]));
+                      if (!friendsList || friendsList.length === 0) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([]));
                     }} className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
                       <Tag className="h-3 w-3" /> Add tag
                     </button>
