@@ -363,6 +363,9 @@ export default function DayViewClient({ date }: { date: string }) {
   const [userMadhab, setUserMadhab] = useState<string>("hanafi");
   const [locationSet, setLocationSet] = useState(true);
   const [dayHomeworkCount, setDayHomeworkCount] = useState<number>(0);
+  const [dayHomeworkItems, setDayHomeworkItems] = useState<Array<{ id: string; title: string; dueDate: string; status: string }>>([]);
+  const [homeworkOpen, setHomeworkOpen] = useState(false);
+  const [homeworkGoalDraft, setHomeworkGoalDraft] = useState("");
   // Study-block planning window — settings-controlled, defaults 7:00–22:00
   const [studyStartMin, setStudyStartMin] = useState(DAY_START);
   const [studyEndMin, setStudyEndMin] = useState(DAY_END);
@@ -606,6 +609,7 @@ export default function DayViewClient({ date }: { date: string }) {
               );
               if (!cancelled) {
                 setDayHomeworkCount(dueToday.length);
+                setDayHomeworkItems(dueToday);
                 setPendingHw(hwData.filter((h: { status: string }) => h.status === "pending")
                   .map((h: { id: string; title: string }) => ({ id: h.id, title: h.title })));
               }
@@ -1750,7 +1754,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
       {/* Day summary chip — under the calendar card, right-aligned. */}
       {(dayHomeworkCount > 0 || dailyGoals.length > 0 || !isPastDay || goalEvents.length > 0) && (
-        <div className="pointer-events-none mt-2 mb-2 flex justify-end">
+        <div className="relative z-40 pointer-events-none mt-2 -mb-4 flex justify-end">
           <div
             className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[11px] font-medium shadow-sm backdrop-blur-md"
             style={{
@@ -1760,14 +1764,15 @@ export default function DayViewClient({ date }: { date: string }) {
             }}
           >
             {dayHomeworkCount > 0 && (
-              <Link
-                href="/goals#homework"
+              <button
+                type="button"
+                onClick={() => setHomeworkOpen((open) => !open)}
                 className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-warmth)", minHeight: 32 }}
               >
                 <BookOpen className="h-3 w-3 shrink-0" />
                 {dayHomeworkCount} due
-              </Link>
+              </button>
             )}
             {goalEvents.length > 0 && (
               <button
@@ -1847,6 +1852,33 @@ export default function DayViewClient({ date }: { date: string }) {
                     </button>
                   );
                 })}
+              </div>
+            )}
+            {homeworkOpen && dayHomeworkItems.length > 0 && (
+              <div className="absolute left-0 top-9 z-40 w-72 rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Assignments due</p>
+                <div className="max-h-44 overflow-y-auto">
+                  {dayHomeworkItems.map((homework) => (
+                    <div key={homework.id} className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs" style={{ color: "var(--color-ink)" }}>
+                      <span className="min-w-0 flex-1 truncate">{homework.title}</span>
+                      {homework.dueDate < date && <span className="shrink-0 text-[10px]" style={{ color: "var(--color-error)" }}>overdue</span>}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-1 border-t pt-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <div className="flex gap-1.5">
+                    <input value={homeworkGoalDraft} onChange={(e) => setHomeworkGoalDraft(e.target.value)} placeholder="Add today's goal…" className="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-[11px] outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
+                    <button type="button" disabled={!homeworkGoalDraft.trim()} onClick={async () => {
+                      const res = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: homeworkGoalDraft.trim(), goalType: "daily", targetDate: date, progressTarget: 1 }) });
+                      const data = await res.json().catch(() => ({}));
+                      if (res.ok && data.goal) {
+                        setDailyGoals((items) => [...items, { id: data.goal.id, title: data.goal.title, progressCurrent: 0, progressTarget: 1 }]);
+                        setHomeworkGoalDraft("");
+                      }
+                    }} className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>+ Goal</button>
+                  </div>
+                  <Link href="/goals#homework" className="mt-2 block text-center text-[10px] font-semibold" style={{ color: "var(--color-accent)" }}>Open Homework planner</Link>
+                </div>
               </div>
             )}
           </div>
