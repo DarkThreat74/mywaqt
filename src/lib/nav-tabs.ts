@@ -5,7 +5,7 @@
 export const HIDEABLE_TABS = [
   { key: "messages", label: "Messages" },
   { key: "/masjids", label: "Masjids" },
-  { key: "/myapps/sirat/", label: "Sirat" },
+  { key: "/myapps/sirat/index.html", label: "Sirat" },
   { key: "/shield", label: "Salah Shield" },
   { key: "/talks", label: "Talks" },
   { key: "/nasheeds", label: "Nasheeds" },
