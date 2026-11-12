@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v117";
+const CACHE_VERSION = "waqt-v118";
 
 // Instant cached-page hits younger than this still paint immediately with a
 // background revalidate (the SWR path). Older hits fall into network-first —
