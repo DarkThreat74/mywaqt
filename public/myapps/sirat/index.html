@@ -481,7 +481,18 @@ function draw(){
   if(boxes.some(b=>bx[0]<b[2]&&bx[2]>b[0]&&bx[1]<b[3]&&bx[3]>b[1])||dots.some(b=>bx[0]<b[2]&&bx[2]>b[0]&&bx[1]<b[3]&&bx[3]>b[1]))continue;boxes.push(bx);ctx.fillStyle=col.sub;halo(t.n,X,Y)}}
  // origin marker
  const ox=sx(rx),oy=sy(ry);
- if(ref.user){ctx.fillStyle=col.brand;ctx.globalAlpha=.18;ctx.beginPath();ctx.arc(ox,oy,16,0,7);ctx.fill();ctx.globalAlpha=1;ctx.beginPath();ctx.arc(ox,oy,7,0,7);ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke()}
+ if(ref.user){
+  // User position is deliberately not another place dot: it is a teal
+  // target marker with a halo, crosshair, and white center.
+  ctx.save();
+  ctx.strokeStyle=col.brand;ctx.lineWidth=2;ctx.globalAlpha=.35;
+  ctx.beginPath();ctx.arc(ox,oy,18,0,7);ctx.stroke();
+  ctx.globalAlpha=.8;ctx.beginPath();
+  ctx.moveTo(ox-24,oy);ctx.lineTo(ox-12,oy);ctx.moveTo(ox+12,oy);ctx.lineTo(ox+24,oy);
+  ctx.moveTo(ox,oy-24);ctx.lineTo(ox,oy-12);ctx.moveTo(ox,oy+12);ctx.lineTo(ox,oy+24);ctx.stroke();
+  ctx.globalAlpha=1;ctx.fillStyle=col.brand;ctx.beginPath();ctx.arc(ox,oy,8,0,7);ctx.fill();
+  ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.stroke();ctx.restore();
+ }
  else{ctx.fillStyle=col.sub;ctx.strokeStyle=col.halo;ctx.lineWidth=2;ctx.beginPath();ctx.rect(ox-4,oy-4,8,8);ctx.fill();ctx.stroke();if(!ref.home||s>=7){ctx.textAlign='left';ctx.font='500 12px '+FONT;ctx.fillStyle=col.sub;halo(ref.home?'Glen Ellyn':ref.name,ox+9,oy+4)}}
  if(sel){const X=sx(sel.x),Y=sy(sel.y);
   ctx.beginPath();ctx.moveTo(X,Y);ctx.quadraticCurveTo(X-6,Y-13,X-15.5,Y-24);ctx.arc(X,Y-30,16.2,2.77,2*Math.PI+.37,false);ctx.quadraticCurveTo(X+6,Y-13,X,Y);ctx.closePath();
