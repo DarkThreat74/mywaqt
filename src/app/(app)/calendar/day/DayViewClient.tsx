@@ -251,7 +251,8 @@ export default function DayViewClient({ date }: { date: string }) {
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const [friendSearch, setFriendSearch] = useState("");
   const [placeSearch, setPlaceSearch] = useState("");
-  const [placeList, setPlaceList] = useState<Array<{ id: string; name: string; address?: string }>>([]);
+  const [placeList, setPlaceList] = useState<Array<{ id: string; name: string; address?: string; kind?: string }>>([]);
+  const [placeCategory, setPlaceCategory] = useState<"E" | "M" | "D">("D");
   const [tagType, setTagType] = useState<"menu" | "friend" | "place">("menu");
   const [tagPlace, setTagPlace] = useState<{ id: string; name: string; address?: string } | null>(null);
   const [friendProfile, setFriendProfile] = useState<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null } | null>(null);
@@ -2750,19 +2751,24 @@ export default function DayViewClient({ date }: { date: string }) {
                         setTagType("place");
                         if (placeList.length === 0) fetch("/myapps/sirat/index.html").then((r) => r.text()).then((html) => {
                           const data = new DOMParser().parseFromString(html, "text/html").querySelector("#data")?.textContent || "[]";
-                          const places = JSON.parse(data) as Array<{ i?: string; n?: string; a?: string }>;
-                          setPlaceList(places.filter((p) => p.n).slice(0, 500).map((p) => ({ id: p.i || p.n!, name: p.n!, address: p.a || "" })));
+                          const places = JSON.parse(data) as Array<{ i?: string; n?: string; a?: string; k?: string }>;
+                          setPlaceList(places.filter((p) => p.n).slice(0, 500).map((p) => ({ id: p.i || p.n!, name: p.n!, address: p.a || "", kind: p.k })));
                         }).catch(() => setPlaceList([]));
                       }} className="rounded-lg py-2 text-[11px] font-semibold" style={{ backgroundColor: tagType === "place" ? "var(--color-paper-2)" : "transparent", color: tagType === "place" ? "var(--color-accent)" : "var(--color-ink-muted)" }}><MapPin className="mr-1 inline h-3 w-3" />Place</button>
                     </div>
                     {tagType === "place" ? (
                       <div>
+                        <div className="mb-2 flex gap-1">
+                          {([["E", "Eat"], ["M", "Pray"], ["D", "Hangout"]] as const).map(([kind, label]) => (
+                            <button key={kind} type="button" onClick={() => setPlaceCategory(kind)} className="flex-1 rounded-lg py-1.5 text-[10px] font-semibold" style={{ backgroundColor: placeCategory === kind ? "var(--color-paper-2)" : "transparent", color: placeCategory === kind ? "var(--color-accent)" : "var(--color-ink-muted)" }}>{label}</button>
+                          ))}
+                        </div>
                         <div className="relative">
                           <Search className="absolute left-2 top-2.5 h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
                           <input value={placeSearch} onChange={(e) => setPlaceSearch(e.target.value)} placeholder="Find a Sirat place" className="w-full rounded-lg border py-2 pl-7 pr-2 text-xs outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
                         </div>
                         <div className="mt-2 max-h-48 overflow-y-auto">
-                          {placeList.filter((p) => `${p.name} ${p.address}`.toLowerCase().includes(placeSearch.toLowerCase())).slice(0, 80).map((place) => (
+                          {placeList.filter((p) => (p.kind || "D") === placeCategory && `${p.name} ${p.address}`.toLowerCase().includes(placeSearch.toLowerCase())).slice(0, 80).map((place) => (
                             <button key={place.id} type="button" onClick={() => { setTagPlace(place); setTagMenuOpen(false); }} className="flex w-full flex-col rounded-lg px-2 py-2 text-left hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
                               <span className="truncate text-xs font-medium">{place.name}</span><span className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{place.address}</span>
                             </button>
