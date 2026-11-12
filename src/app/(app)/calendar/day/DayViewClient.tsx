@@ -247,7 +247,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [hangoutWith, setHangoutWith] = useState("");
   const [hangoutFriendId, setHangoutFriendId] = useState<string | null>(null);
   const [hangoutFriendIds, setHangoutFriendIds] = useState<string[]>([]);
-  const [friendsList, setFriendsList] = useState<Array<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null }> | null>(null);
+  const [friendsList, setFriendsList] = useState<Array<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null; hasPhoto?: boolean; updatedAt?: string | null }> | null>(null);
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const [friendSearch, setFriendSearch] = useState("");
   const [placeSearch, setPlaceSearch] = useState("");
@@ -1946,7 +1946,7 @@ export default function DayViewClient({ date }: { date: string }) {
         {/* View More / Hide button for early hours */}
         <button
           onClick={() => setShowEarlyHours(!showEarlyHours)}
-          className="flex w-full items-center justify-center gap-1 border-b py-1.5 text-[11px] font-medium"
+          className="flex w-full items-center justify-start gap-1 border-b py-1.5 pl-4 text-[11px] font-medium"
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
         >
           {showEarlyHours ? (
@@ -2565,7 +2565,12 @@ export default function DayViewClient({ date }: { date: string }) {
         <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-3 sm:items-center" onClick={() => setFriendProfile(null)}>
           <div className="w-full max-w-sm rounded-2xl border p-5 shadow-xl" onClick={(e) => e.stopPropagation()} style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
             <div className="flex items-center gap-3">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full text-lg font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}>{friendProfile.name.slice(0, 1).toUpperCase()}</span>
+              {friendsList?.find((friend) => friend.id === friendProfile.id)?.hasPhoto ? (
+                // eslint-disable-next-line @next/next/no-img-element -- private friend photo endpoint
+                <img src={`/api/friends/${friendProfile.id}/photo?v=${Date.parse(friendsList.find((friend) => friend.id === friendProfile.id)?.updatedAt ?? "") || 0}`} alt="" className="h-12 w-12 rounded-full object-cover" />
+              ) : (
+                <span className="flex h-12 w-12 items-center justify-center rounded-full text-lg font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}>{friendProfile.name.slice(0, 1).toUpperCase()}</span>
+              )}
               <div className="min-w-0">
                 <h2 className="truncate text-base font-semibold" style={{ color: "var(--color-ink)" }}>{friendProfile.name}</h2>
                 <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{friendProfile.groupLabel || friendProfile.metTag || "Friend"}</p>
@@ -2707,8 +2712,15 @@ export default function DayViewClient({ date }: { date: string }) {
                     <>
                       {hangoutFriendIds.map((id, index) => {
                         const name = friendsList?.find((friend) => friend.id === id)?.name || hangoutWith.split(",")[index]?.trim() || "Friend";
+                        const taggedFriend = friendsList?.find((friend) => friend.id === id);
                         return (
                           <span key={id} className="inline-flex max-w-[45%] items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium" style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}>
+                            {taggedFriend?.hasPhoto ? (
+                              // eslint-disable-next-line @next/next/no-img-element -- private friend photo endpoint
+                              <img src={`/api/friends/${id}/photo?v=${Date.parse(taggedFriend.updatedAt ?? "") || 0}`} alt="" className="h-3.5 w-3.5 shrink-0 rounded-full object-cover" />
+                            ) : (
+                              <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 22%, transparent)" }}>{name.slice(0, 1).toUpperCase()}</span>
+                            )}
                             <span className="truncate">with {name}</span>
                             <button type="button" onClick={() => {
                               const next = hangoutFriendIds.filter((friendId) => friendId !== id);
