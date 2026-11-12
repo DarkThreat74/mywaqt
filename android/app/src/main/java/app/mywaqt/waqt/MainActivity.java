@@ -18,6 +18,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SalahShieldPlugin.class);
+        registerPlugin(QiblaSensorPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Serve _next/static bundle assets from the APK instead of the

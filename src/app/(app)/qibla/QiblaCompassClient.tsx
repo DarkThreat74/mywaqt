@@ -176,6 +176,32 @@ export default function QiblaCompassClient() {
   const startListening = useCallback(() => {
     const SENSOR_ALPHA = 0.22; // low-pass on raw readings, kills sensor noise
 
+    // Capacitor Android gets the fused rotation-vector sensor plus WMM-style
+    // magnetic declination from native code. Do not mix that true-north stream
+    // with browser alpha events.
+    const native = (window as Window & {
+      Capacitor?: { Plugins?: { QiblaSensor?: {
+        start: (args: { latitude: number; longitude: number }) => Promise<void>;
+        stop: () => Promise<void>;
+        addListener: (event: string, cb: (data: { heading: number; declination?: number; sensorAccuracy?: number }) => void) => Promise<{ remove: () => Promise<void> }>;
+      } } };
+    }).Capacitor?.Plugins?.QiblaSensor;
+    if (native && data) {
+      let removeListener: (() => void) | null = null;
+      void native.addListener("heading", (reading) => {
+        setSensorState(reading.sensorAccuracy === 0 ? "unavailable" : "live");
+        updateHeading(reading.heading);
+      }).then((handle) => {
+        removeListener = () => { void handle.remove(); };
+      }).catch(() => {});
+      void native.start({ latitude: data.userLocation.latitude, longitude: data.userLocation.longitude }).catch(() => setSensorState("unavailable"));
+      cleanupRef.current = () => {
+        void native.stop().catch(() => {});
+        removeListener?.();
+      };
+      return;
+    }
+
     function updateHeading(raw: number) {
       const prev = filteredHeadingRef.current;
       if (prev === null) {
@@ -247,7 +273,7 @@ export default function QiblaCompassClient() {
       clearTimeout(stateTimer);
       clearInterval(liveTimer);
     };
-  }, []);
+  }, [data]);
 
   // ── Enable compass (iOS needs a user-gesture permission request) ──
   const handleEnableCompass = useCallback(async () => {
