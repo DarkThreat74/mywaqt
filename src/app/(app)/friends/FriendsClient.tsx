@@ -40,6 +40,7 @@ interface Friend {
   volition: string | null;
   attune: string | null;
   groupLabel: string | null;
+  groupLabels?: string[] | null;
   score: number | null;
   phone: string | null;
   updatedAt?: string | null;
@@ -309,13 +310,16 @@ export default function FriendsClient() {
   // Crews are user-named groups; the constellation key falls back to
   // met context so ungrouped friends still cluster sensibly.
   const crewNames = crews.map((c) => c.name);
-  const groups = [...new Set([...crewNames, ...friends.map((f) => f.groupLabel)].filter((g): g is string => !!g))].sort();
+  const groups = [...new Set([...crewNames, ...friends.flatMap((f) => f.groupLabels?.length ? f.groupLabels : (f.groupLabel ? [f.groupLabel] : []))])].sort();
   const hiddenCrews = new Set(crews.filter((c) => c.hiddenFromAll).map((c) => c.name));
   // All view hides members of hidden crews; selecting the crew shows them.
   const shown = groupFilter
-    ? friends.filter((f) => f.groupLabel === groupFilter)
-    : friends.filter((f) => !f.groupLabel || !hiddenCrews.has(f.groupLabel));
-  const clusterOf = (f: Friend) => f.groupLabel ?? f.metTag ?? "";
+    ? friends.filter((f) => (f.groupLabels?.length ? f.groupLabels : (f.groupLabel ? [f.groupLabel] : [])).includes(groupFilter))
+    : friends.filter((f) => {
+      const labels = f.groupLabels?.length ? f.groupLabels : (f.groupLabel ? [f.groupLabel] : []);
+      return labels.length === 0 || !labels.some((label) => hiddenCrews.has(label));
+    });
+  const clusterOf = (f: Friend) => f.groupLabels?.[0] ?? f.groupLabel ?? f.metTag ?? "";
   const photoSrc = (f: Friend) => f.localPhoto ?? `/api/friends/${f.id}/photo?v=${Date.parse(f.updatedAt ?? "") || 0}`;
   const openCrewSheet = (c: { id: string; name: string; hiddenFromAll: boolean }) => {
     setCrewSheet(c);
@@ -365,6 +369,7 @@ export default function FriendsClient() {
   const [volition, setVolition] = useState<string | null>(null);
   const [attune, setAttune] = useState<string | null>(null);
   const [groupLabel, setGroupLabel] = useState("");
+  const [groupLabels, setGroupLabels] = useState<string[]>([]);
   const [step, setStep] = useState(0);
   const [notes, setNotes] = useState("");
 
@@ -387,6 +392,7 @@ export default function FriendsClient() {
       setPlans(f.plans); setHangout(f.hangout); setShortlist(f.shortlist);
       setVolition(f.volition); setAttune(f.attune);
       setGroupLabel(f.groupLabel ?? "");
+      setGroupLabels(f.groupLabels?.length ? f.groupLabels : (f.groupLabel ? [f.groupLabel] : []));
       setPhone(f.phone ?? "");
       setNotes(f.notes ?? "");
       fetch(`/api/friends/${f.id}/photos`, { cache: "no-store" })
@@ -399,7 +405,7 @@ export default function FriendsClient() {
       setYears(null); setTrust(null); setOpenness(null); setMiss(null); setTell(null); setPhase(null); setVibe(null); setGroupLabel("");
       setSacrifice(null); setLoyalty(null); setGap(null); setPlans(null); setHangout(null); setShortlist(null);
       setVolition(null); setAttune(null);
-      setPhone(""); setNotes("");
+      setPhone(""); setNotes(""); setGroupLabels([]);
     }
   }
 
@@ -503,7 +509,7 @@ export default function FriendsClient() {
         knownYears: metTag === "childhood" ? "y7p" : years,
         trust, openness, miss, tell, phase, vibe,
         sacrifice, loyalty, gap, plans, hangout, shortlist, volition, attune,
-        groupLabel: groupLabel.trim() || null, phone: phone || null, notes: notes || null,
+        groupLabel: groupLabels[0] || groupLabel.trim() || null, groupLabels, phone: phone || null, notes: notes || null,
       };
       if (photo.dirty) {
         payload.photo = photo.data || null;
@@ -1357,7 +1363,11 @@ export default function FriendsClient() {
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={qlabel}>Their crew — optional</label>
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               {crewNames.map((g) => (
-                <button key={g} onClick={() => setGroupLabel(groupLabel === g ? "" : g)} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(groupLabel === g)}>
+                <button key={g} onClick={() => {
+                  const next = groupLabels.includes(g) ? groupLabels.filter((label) => label !== g) : [...groupLabels, g];
+                  setGroupLabels(next);
+                  setGroupLabel(next[0] || "");
+                }} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={chip(groupLabels.includes(g))}>
                   {g}
                 </button>
               ))}

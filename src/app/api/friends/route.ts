@@ -28,6 +28,7 @@ const VOLITION = new Set(["choose", "mix", "context", "occasional", "touch"]);
 const ATTUNE = new Set(["notice", "eventually", "told", "wouldnt"]);
 const PHOTO_MIMES = new Set(["image/jpeg", "image/webp", "image/png"]);
 const MAX_PHOTO_B64 = 1_200_000;
+const phoneKey = (value: string) => value.replace(/\D/g, "").slice(-10);
 
 interface FriendBody {
   id?: string;
@@ -51,6 +52,7 @@ interface FriendBody {
   volition?: string | null;
   attune?: string | null;
   groupLabel?: string | null;
+  groupLabels?: string[] | null;
   phone?: string | null;
   notes?: string | null;
   photo?: string | null;
@@ -139,6 +141,11 @@ function validateFields(body: FriendBody, partial: boolean) {
     if (g && g.length > 60) errors.push("Group name too long");
     else out.groupLabel = g;
   }
+  if (body.groupLabels !== undefined) {
+    const labels = Array.isArray(body.groupLabels) ? [...new Set(body.groupLabels.filter((g): g is string => typeof g === "string").map((g) => g.trim()).filter(Boolean))].slice(0, 20) : [];
+    if (labels.some((g) => g.length > 60)) errors.push("Group name too long");
+    else out.groupLabels = labels;
+  }
   if (body.phone !== undefined) {
     const p = typeof body.phone === "string" ? body.phone.trim() || null : null;
     if (p && (p.length > 40 || !/^[\d+\-()\s.]+$/.test(p))) errors.push("Invalid phone number");
@@ -202,6 +209,7 @@ export async function GET(request: NextRequest) {
         volition: schema.friends.volition,
         attune: schema.friends.attune,
         groupLabel: schema.friends.groupLabel,
+        groupLabels: schema.friends.groupLabels,
         phone: schema.friends.phone,
         notes: schema.friends.notes,
         hasPhoto: sql<boolean>`${schema.friends.photoData} IS NOT NULL`,
@@ -243,6 +251,13 @@ export async function POST(request: NextRequest) {
     }
 
     const validClientId = body.clientId && isValidUUID(body.clientId) ? body.clientId : undefined;
+    if (out.phone) {
+      const key = phoneKey(out.phone as string);
+      const existing = await db.select({ id: schema.friends.id, name: schema.friends.name, phone: schema.friends.phone })
+        .from(schema.friends).where(eq(schema.friends.userId, session.userId)).limit(500);
+      const duplicate = existing.find((friend) => friend.phone && phoneKey(friend.phone) === key);
+      if (duplicate) return NextResponse.json({ error: `${duplicate.name} already has that number.` }, { status: 409 });
+    }
 
     const [row] = await db
       .insert(schema.friends)
@@ -269,7 +284,8 @@ export async function POST(request: NextRequest) {
         shortlist: (out.shortlist as string | null) ?? null,
         volition: (out.volition as string | null) ?? null,
         attune: (out.attune as string | null) ?? null,
-        groupLabel: (out.groupLabel as string | null) ?? null,
+        groupLabel: (out.groupLabel as string | null) ?? ((out.groupLabels as string[] | undefined)?.[0] ?? null),
+        groupLabels: (out.groupLabels as string[] | undefined) ?? (out.groupLabel ? [out.groupLabel as string] : []),
         phone: (out.phone as string | null) ?? null,
         notes: (out.notes as string | null) ?? null,
         photoData: (out.photoData as string | null) ?? null,
@@ -334,6 +350,13 @@ export async function PATCH(request: NextRequest) {
     if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     const scored = ["metTag", "talkFreq", "knownYears", "trust", "openness", "miss", "tell", "phase", "vibe", "sacrifice", "loyalty", "gap", "plans", "hangout", "shortlist", "volition", "attune"].some((k) => k in out);
+    if (out.phone) {
+      const key = phoneKey(out.phone as string);
+      const existingPhones = await db.select({ id: schema.friends.id, name: schema.friends.name, phone: schema.friends.phone })
+        .from(schema.friends).where(eq(schema.friends.userId, session.userId)).limit(500);
+      const duplicate = existingPhones.find((friend) => friend.id !== body.id && friend.phone && phoneKey(friend.phone) === key);
+      if (duplicate) return NextResponse.json({ error: `${duplicate.name} already has that number.` }, { status: 409 });
+    }
     const [row] = await db
       .update(schema.friends)
       .set({ ...out, updatedAt: new Date() })

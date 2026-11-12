@@ -1309,6 +1309,7 @@ export const friends = pgTable('friends', {
   // User-named group — "school crew", "the guys". One group per friend;
   // matches friend_crews.name.
   groupLabel: varchar('group_label', { length: 60 }),
+  groupLabels: text('group_labels').array(),
   // Computed server-side from the questionnaire (0–100).
   score: integer('score'),
   // Phone — optional, imported from device contacts or typed.
