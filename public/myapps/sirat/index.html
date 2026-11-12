@@ -66,7 +66,7 @@ svg.i{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke
 #sheet.drag{transition:none}
 #sheet[data-snap=full] #locate{opacity:0;pointer-events:none}
 #locate{transition:opacity .2s}
-#locate{position:absolute;right:14px;top:-62px;width:48px;height:48px;border-radius:24px;background:var(--surface);box-shadow:var(--sh2);display:grid;place-items:center;color:var(--text)}
+#locate{position:absolute;right:14px;top:-62px;width:48px;height:48px;border-radius:24px;background:var(--tonal);border:1px solid color-mix(in srgb,var(--brand) 35%,var(--line));box-shadow:var(--sh2);display:grid;place-items:center;color:var(--brand)}
 #head{flex:none;touch-action:none}
 #grab{display:block;width:100%;height:22px;position:relative}
 #grab:after{content:"";position:absolute;left:50%;top:9px;width:32px;height:4px;margin-left:-16px;border-radius:2px;background:var(--outline);opacity:.7}
@@ -314,13 +314,12 @@ function matches(p){
  if(F.area.length&&!F.area.includes(p.ar))return false;
  if(F.io!=='any'&&!(p.io===F.io||p.io==='both'))return false;
  if(F.noAlc&&p.al&&p.al!=='none')return false;
- if(F.fav&&!saved.fav.includes(p.i))return false;
  if(F.q&&!(p.n+' '+p.a+' '+(p.tr?TRN[p.tr]:'')).toLowerCase().includes(F.q.toLowerCase()))return false;
  return true}
 const SORTS={near:'Nearest',rate:'Top rated',az:'A to Z'};
 function results(){const r=P.filter(matches);
  if(sortMode==='rate')r.sort((a,b)=>(b.r||0)-(a.r||0)||a.mi-b.mi);else if(sortMode==='az')r.sort((a,b)=>a.n.localeCompare(b.n));else r.sort((a,b)=>a.mi-b.mi);return r}
-function nFilters(){let n=0;if(F.price.length)n++;if(F.when!=='any')n++;if(F.dist!==40)n++;if(F.cert!=='any')n++;if(F.tr!=='any')n++;if(F.ac.length)n++;if(F.area.length)n++;if(F.io!=='any')n++;if(F.noAlc)n++;if(F.fav)n++;return n}
+function nFilters(){let n=0;if(F.price.length)n++;if(F.when!=='any')n++;if(F.dist!==40)n++;if(F.cert!=='any')n++;if(F.tr!=='any')n++;if(F.ac.length)n++;if(F.area.length)n++;if(F.io!=='any')n++;if(F.noAlc)n++;return n}
 const priceTxt=p=>p.p===0?'Free':p.p==null?'':'$'.repeat(Math.min(p.p,3))+(p.p>3?'+':'');
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const iconFor=p=>p.k==='D'?(p.ac||'park'):LAYERS[p.k].ic;
@@ -539,12 +538,12 @@ function subline(p){const a=[];
  const pr=priceTxt(p);if(pr)a.push(pr);
  let s=esc(a.join(' · '));
  if(p.h){const st=status(p);s+=(s?' · ':'')+`<span class="${st.k==='o'?'ok':st.k==='c'?'no':''}">${esc(st.t)}</span>`}
- if(saved.fav.includes(p.i))s+=' · Saved';if(saved.vis.includes(p.i))s+=' · Been here';return s}
+ return s}
 function renderChips(){const n=nFilters(),hrs=layer==='E'||layer==='S',isD=layer==='D';
  const c=(id,label,on,icon)=>`<button class="chip ${on?'on':''}" data-c="${id}" aria-pressed="${on}">${icon||''}${label}</button>`;
  const areaL=F.area.length===0?'Area':F.area.length===1?F.area[0]:'Area · '+F.area.length;
  $('#chips').innerHTML=
-  (hrs?c('now','Open now',F.when==='now',F.when==='now'?svg('check'):'')+c('mag','After Maghrib',F.when==='mag',F.when==='mag'?svg('check'):''):'')+
+  (hrs?c('now','Open now',F.when==='now',F.when==='now'?svg('check'):''):'')+
   (layer==='M'?c('trS','Sunni',F.tr==='S',F.tr==='S'?svg('check'):'')+c('trH','Shia',F.tr==='H',F.tr==='H'?svg('check'):''):'')+
   c('area',areaL,F.area.length>0)+
   (layer==='M'?'':c('price',F.price.length?F.price.map(v=>v===0?'Free':'$'.repeat(v)).join(' · '):'Price',F.price.length>0))+
@@ -574,7 +573,7 @@ function emptyHTML(){let hint='';
 function item(icon,html,sub){return `<div class="it">${svg(icon)}<div>${html}${sub?`<small>${sub}</small>`:''}</div></div>`}
 function hoursHTML(p){if(!p.h){if(!p.ht)return 'Hours not verified';return p.ht.split(/;\s*/).filter(Boolean).map(esc).join('<br>')+(p.hs?'<br><span style="color:var(--sub)">Only Monday and Saturday were checked.</span>':'')}
  const st=status(p);return `<span class="${st.k==='o'?'ok':'no'}">${esc(st.t.split(' · ')[0])}</span>${st.t.includes('·')?' · '+esc(st.t.split(' · ')[1]):''}<table class="wk">${p.h.map((t,i)=>`<tr class="${i===DAY?'today':''}"><td>${SD[i]}</td><td>${t?fmt(t[0])+' – '+fmt(t[1]):'Closed'}</td></tr>`).join('')}</table>`}
-function renderDetail(){const p=sel,isF=saved.fav.includes(p.i),isV=saved.vis.includes(p.i);
+function renderDetail(){const p=sel;
  const tags=[];if(p.k==='E'||p.k==='S')tags.push(`<span class="tag b">${esc(p.c)} certified</span>`);if(p.cx)tags.push(`<span class="tag w">Confirm certification</span>`);
  if(p.k==='D'){tags.push(`<span class="tag b">${esc(ACT[p.ac])}</span>`);if(p.io)tags.push(`<span class="tag">${esc(p.io)}</span>`);if(p.al&&p.al!=='none')tags.push(`<span class="tag">Serves alcohol</span>`)}
  if(p.k==='M')tags.push(`<span class="tag b">Masjid</span>`,`<span class="tag${p.tr==='A'?' w':''}">${esc(TRN[p.tr]||'')}</span>`);
@@ -590,10 +589,9 @@ function renderDetail(){const p=sel,isF=saved.fav.includes(p.i),isV=saved.vis.in
  if(p.no)rows.push(item('info',esc(p.no)));
  rows.push(item('check','Verified '+esc(p.v||''),p.ce&&p.ce!==p.c?esc(p.ce):''));
  $('#body').innerHTML=`<div class="rec"><div class="tags" style="padding-top:14px">${tags.join('')}</div>
- <div class="acts"><a class="btn f" href="https://www.google.com/maps/dir/?api=1&destination=${p.la},${p.ln}" target="_blank" rel="noopener">${svg('dir')}Directions</a><button class="btn ${isF?'t':''}" id="bFav" aria-pressed="${isF}">${svg('mark')}${isF?'Saved':'Save'}</button><button class="btn" id="bShare">${svg('share')}Share</button></div>
+ <div class="acts"><a class="btn f" href="https://www.google.com/search?q=${encodeURIComponent(p.n+' '+p.a)}" target="_blank" rel="noopener noreferrer">${svg('dir')}Google</a><a class="btn" href="https://www.google.com/maps/dir/?api=1&destination=${p.la},${p.ln}" target="_blank" rel="noopener noreferrer">${svg('dir')}Directions</a><button class="btn" id="bShare">${svg('share')}Share</button></div>
  <div class="kv">${rows.map((r,i)=>i?`<div class="sep"></div>${r}`:r).join('')}</div>
- <div class="kv"><div class="sep"></div><button class="it sw" id="bVis" aria-pressed="${isV}" style="padding:6px 20px;gap:18px;min-height:56px"><span style="display:flex;gap:18px;align-items:center">${svg('check')}I've been here</span><i></i></button></div>
- <div style="padding:6px 20px 0"><textarea id="note" placeholder="Add a note (stays on this phone)" aria-label="Note">${esc(saved.notes[p.i]||'')}</textarea></div></div>`;draw()}
+ </div>`;draw()}
 
 /* actions */
 const HS=[];let skip=0;
@@ -611,11 +609,8 @@ $('#body').addEventListener('click',e=>{
  const r=e.target.closest('.row');if(r){select(P.find(p=>p.i===r.dataset.i));return}
  if(e.target.closest('#bMore')){limit+=60;render(false);return}
  if(e.target.closest('#bClear')){F=F0();$('#q').value='';$('#qx').hidden=true;limit=60;render();return}
- if(e.target.closest('#bFav')){const i=sel.i,a=saved.fav,k=a.indexOf(i);k<0?a.push(i):a.splice(k,1);persist();renderDetail();toast(k<0?'Saved':'Removed from saved');return}
- if(e.target.closest('#bVis')){const i=sel.i,a=saved.vis,k=a.indexOf(i);k<0?a.push(i):a.splice(k,1);persist();renderDetail();return}
- if(e.target.closest('#bShare')){const t=`${sel.n}\n${sel.a}\nhttps://www.google.com/maps/search/?api=1&query=${sel.la},${sel.ln}`;
+   if(e.target.closest('#bShare')){const t=`${sel.n}\n${sel.a}\nhttps://www.google.com/maps/search/?api=1&query=${sel.la},${sel.ln}`;
   if(navigator.share)navigator.share({title:sel.n,text:t}).catch(()=>{});else if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>toast('Copied'),()=>toast('Could not copy'))}});
-$('#body').addEventListener('input',e=>{if(e.target.id==='note'){saved.notes[sel.i]=e.target.value;persist()}});
 $('#q').addEventListener('input',e=>{F.q=e.target.value;$('#qx').hidden=!F.q;limit=60;if(view==='detail')toList();if(snap==='peek'&&!wide())setSnap('half');render(false)});
 $('#q').addEventListener('focus',()=>{if(snap==='peek'&&!wide())setSnap('half')});
 $('#qx').addEventListener('click',()=>{$('#q').value='';F.q='';$('#qx').hidden=true;render(false)});
@@ -649,13 +644,12 @@ function buildFilter(){
  const chosen=F.area.filter(a=>cnt[a]);let shown=allAreas?areas:areas.slice(0,14);
  for(const a of chosen)if(!shown.find(x=>x[0]===a))shown.push([a,cnt[a]]);
  h+=grp('area','Area','area',shown.map(([a,n])=>[a,a,n]),true,'',areas.length>14?`<em role="button" tabindex="0" id="areaMore" style="cursor:pointer">${allAreas?'Show fewer':'Show all '+areas.length}</em>`:'');
- if(layer==='E'||layer==='S')h+=grp('when','Open','when',[['any','Any time'],['now','Open now'],['mag','After Maghrib'],['late','Late (10 PM)']],false,F.when!=='any'?`Only places with verified hours can match. After Maghrib is ${fmt(MAGH+30)} today.`:'');
+ if(layer==='E'||layer==='S')h+=grp('when','Open','when',[['any','Any time'],['now','Open now'],['late','Late (10 PM)']],false,F.when!=='any'?'Only places with verified hours can match.':' ');
  if(layer!=='M')h+=grp('price','Price','price',[[0,'Free'],[1,'$'],[2,'$$'],[3,'$$$']],true,F.price.length&&unpriced?`${unpriced} places have no verified price and are hidden while a price is selected.`:'');
  h+=grp('dist','Distance','dist',[[5,'5 mi'],[10,'10 mi'],[20,'20 mi'],[30,'30 mi'],[40,'40 mi']],false,'Straight-line distance from '+esc(ref.home?'Glen Ellyn':ref.name)+'. Change the starting point in the menu.');
  if(layer==='E'||layer==='S')h+=grp('cert','Certified by','cert',[['any','Either'],['HMS','HMS'],['HFSAA','HFSAA']],false);
  if(layer==='D'){h+=grp('io','Setting','io',[['any','Either'],['indoor','Indoor'],['outdoor','Outdoor']],false);
   h+=`<button class="sw" data-sw="noAlc" aria-pressed="${F.noAlc}">Hide places that serve alcohol<i></i></button>`}
- h+=`<button class="sw" data-sw="fav" aria-pressed="${F.fav}">Only my saved places<i></i></button>`;
  $('#fBody').innerHTML=h;const n=results().length;$('#fDone').textContent='Show '+n+(n===1?' place':' places')}
 $('#fBody').addEventListener('click',e=>{if(e.target.id==='areaMore'){allAreas=!allAreas;const st=$('#fBody').scrollTop;buildFilter();$('#fBody').scrollTop=st;return}
  const b=e.target.closest('button');if(!b)return;
