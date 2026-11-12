@@ -371,10 +371,11 @@ class DlErr extends Error{constructor(m,kind){super(m);this.kind=kind}}
 async function ovp(q,dl){let last=new DlErr('Could not reach the map server','server');
  for(let a=0;a<6;a++){
   if(dl.cancel)throw new DlErr('Paused','cancel');
-  if(navigator.onLine===false)throw new DlErr('No internet connection','offline');
-  const ep=EPS[a%EPS.length],ac=new AbortController();dl.acs.add(ac);let timedOut=false;const to=setTimeout(()=>{timedOut=true;ac.abort()},200000);
+  const ep=EPS[a%EPS.length],ac=new AbortController();dl.acs.add(ac);let timedOut=false;const to=setTimeout(()=>{timedOut=true;ac.abort()},90000);
   try{
-   const r=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ac.signal});
+   // GET with a query parameter is more reliable across mobile WebViews and
+   // Overpass CORS/proxy layers than a form POST body.
+   const r=await fetch(ep+'?data='+encodeURIComponent(q),{method:'GET',headers:{Accept:'application/json'},signal:ac.signal});
    if(r.status===429){last=new DlErr('The map server is busy (429). It limits how fast you can download.','busy')}
    else if(r.status===504||r.status===503||r.status===502){last=new DlErr('The map server timed out ('+r.status+')','big')}
    else if(!r.ok){last=new DlErr('Map server error '+r.status,'server')}
