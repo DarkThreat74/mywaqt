@@ -422,16 +422,28 @@ export default function QuranTesterClient() {
     setCovSnap(covRef.current);
     loadAyahPages().then((ap) => {
       setAyahPages(ap); ixRef.current = buildIndex(ap); refreshSpan();
-      // Open where the last session ended — jump straight to that ayah's
-      // page and pin the last-heard word instead of landing on page 1 with
-      // only the resume chip for company.
-      const lp = loadLastPos();
-      const p = lp ? ap?.[lp.s]?.[lp.a] : null;
-      if (lp && typeof p === "number" && p >= 1) {
-        setPage(p);
-        setPin({ s: lp.s, a: lp.a, w: Math.max(1, lp.w || 1) });
+      applyResumePos(ap);
+    }).catch(() => {});
+    // Roaming resume point — adopt the server copy when it's newer so the
+    // listener opens where you left off on ANY device, not just this one.
+    // Runs alongside (never blocks) the local index load.
+    fetch("/api/settings/prefs", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
+      const q = d?.prefs?.quranPosition as { surah?: unknown; ayah?: unknown; w?: unknown; updatedAt?: unknown } | undefined;
+      const local = loadLastPos();
+      const serverT = typeof q?.updatedAt === "string" ? Date.parse(q.updatedAt) : 0;
+      if (q && typeof q.surah === "number" && typeof q.ayah === "number" && serverT > (local?.t ?? 0)) {
+        const lp: LastPos = { s: q.surah, a: q.ayah, w: typeof q.w === "number" ? q.w : 1, t: serverT };
+        saveLastPos(lp);
+        setLastPos(lp);
+        applyResumePos(ayahPagesRef.current);
       }
     }).catch(() => {});
+    // Persist the resume point server-side when the tab dies mid-session —
+    // localStorage alone can't follow you to another device.
+    const onPageHide = () => {
+      if (lastWordRef.current) { saveLastPos(lastWordRef.current); pushQuranPosition(); }
+    };
+    window.addEventListener("pagehide", onPageHide);
     loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
     loadSurahMeta().then(setSurahMeta).catch(() => {});
     // Look-alike index (shared with the Mutashabihat game) — one small JSON,
@@ -474,6 +486,7 @@ export default function QuranTesterClient() {
       unsub();
       window.removeEventListener("online", onUp);
       window.removeEventListener("offline", onDown);
+      window.removeEventListener("pagehide", onPageHide);
       for (const t of [retryTimerRef.current, candTimerRef.current, lockFxTimer.current, turnTimer.current, pleasedTimerRef.current, mutaTimerRef.current])
         if (t) clearTimeout(t as ReturnType<typeof setTimeout>);
       retryTimerRef.current = candTimerRef.current = lockFxTimer.current = turnTimer.current = pleasedTimerRef.current = mutaTimerRef.current = null;
@@ -784,6 +797,36 @@ export default function QuranTesterClient() {
     if (p) setPage(p);
   }
 
+  const resumeAppliedRef = useRef(false);
+  /** Open on the last-heard ayah's page once, pinning its last word.
+   *  Runs when the ayah index lands, and again if the roaming server copy
+   *  arrives later and turns out newer. Skips once the user has navigated. */
+  function applyResumePos(ap: AyahPages | null) {
+    if (resumeAppliedRef.current || !ap) return;
+    const lp = loadLastPos();
+    if (!lp) return; // no local pos yet — the server copy may still arrive
+    const p = ap[lp.s]?.[lp.a];
+    if (typeof p !== "number" || p < 1 || pageRef.current !== 1) {
+      resumeAppliedRef.current = true;
+      return;
+    }
+    resumeAppliedRef.current = true;
+    setPage(p);
+    setPin({ s: lp.s, a: lp.a, w: Math.max(1, lp.w || 1) });
+  }
+
+  /** Write the resume point to roaming prefs — fire-and-forget; the
+   *  localStorage copy stays the offline fallback. */
+  function pushQuranPosition() {
+    const lp = lastWordRef.current ?? loadLastPos();
+    if (!lp) return;
+    void fetch("/api/settings/prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quranPosition: { surah: lp.s, ayah: lp.a, w: lp.w } }),
+    }).catch(() => {});
+  }
+
   /** Arabic text of an ayah for the notification orb — the first words plus
    *  "…" for long ayahs, with the s:a ref appended. loadPage is cache-first,
    *  so this stays offline once the page's been seen (and the warm covers all). */
@@ -964,10 +1007,12 @@ export default function QuranTesterClient() {
         const h = heardRef.current;
         if (h.loc && heardEnough(h.loc, h.max, h.total)) coverLoc(h.loc);
         heardRef.current = { loc: null, max: 0, total: 0 };
-        // Persist the resume point — "Continue from here" reads this.
+        // Persist the resume point — "Continue from here" reads this, and
+        // the roaming prefs copy follows it to other devices.
         if (lastWordRef.current) {
           saveLastPos(lastWordRef.current);
           setLastPos({ ...lastWordRef.current });
+          pushQuranPosition();
         }
         setLoc(null);
         setWordIdx(null);

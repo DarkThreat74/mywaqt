@@ -99,6 +99,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
   function dismiss() {
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
     drag.current = null;
+    flushLayout(); // a pending debounced save still lands before close
     setClosing(true);
     setTimeout(() => { setOpen(false); setClosing(false); setEditing(false); setFolderOpen(null); }, 220);
   }
@@ -116,6 +117,18 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     drag.current = { item, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, mergeItem: null, mergeTimer: null, dropIdx: -1 };
   }
 
+  // Debounce the remote write — folder renames fire commit() per keystroke
+  // and the prefs endpoint rate-limits at 60/15min, so un-debounced PATCHes
+  // silently 429'd and the layout never reached the DB.
+  const prefsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function flushLayout() {
+    if (prefsTimer.current) { clearTimeout(prefsTimer.current); prefsTimer.current = null; }
+    void fetch("/api/settings/prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appLayout: itemsRef.current }),
+    }).catch(() => {});
+  }
   function commit(next: LayoutItem[]) {
     // A folder holding one app dissolves back into a tile.
     const norm = next.flatMap((i): LayoutItem[] =>
@@ -124,11 +137,8 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     itemsRef.current = norm;
     setItems(norm);
     saveLayout(norm);
-    void fetch("/api/settings/prefs", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ appLayout: norm }),
-    }).catch(() => {});
+    if (prefsTimer.current) clearTimeout(prefsTimer.current);
+    prefsTimer.current = setTimeout(flushLayout, 800);
   }
 
   async function hideApp(key: string) {
@@ -216,12 +226,19 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
 
+  // Flush a pending layout save if the tab closes mid-debounce.
+  useEffect(() => {
+    const onHide = () => { if (prefsTimer.current) flushLayout(); };
+    window.addEventListener("pagehide", onHide);
+    return () => window.removeEventListener("pagehide", onHide);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") dismiss(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Warm every installed route while the drawer is open — the RSC payloads

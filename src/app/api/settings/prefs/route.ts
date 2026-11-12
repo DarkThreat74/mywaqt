@@ -58,9 +58,10 @@ async function updatePrefs(request: NextRequest) {
   if (b.sex === "m" || b.sex === "f") patch.sex = b.sex;
   const qp = b.quranPosition;
   if (qp && typeof qp === "object") {
-    const q = qp as { surah?: unknown; ayah?: unknown };
+    const q = qp as { surah?: unknown; ayah?: unknown; w?: unknown };
+    const w = typeof q.w === "number" && q.w >= 1 && q.w <= 400 ? Math.floor(q.w) : undefined;
     if (typeof q.surah === "number" && typeof q.ayah === "number" && q.surah >= 1 && q.surah <= 114 && q.ayah >= 1 && q.ayah <= 286) {
-      patch.quranPosition = { surah: q.surah, ayah: q.ayah, updatedAt: new Date().toISOString() };
+      patch.quranPosition = { surah: q.surah, ayah: q.ayah, ...(w !== undefined ? { w } : {}), updatedAt: new Date().toISOString() };
     }
   }
   if (Object.keys(patch).length === 0) {

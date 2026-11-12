@@ -42,7 +42,7 @@ export interface UiPrefs {
   bodyfatPct?: number;      // optional — enables FFMI
   birthYear?: number;      // age-aware recovery/standards without storing DOB
   // Where the user left off reading — syncs across devices.
-  quranPosition?: { surah: number; ayah: number; updatedAt?: string };
+  quranPosition?: { surah: number; ayah: number; w?: number; updatedAt?: string };
 }
 
 // ─── Enums ───

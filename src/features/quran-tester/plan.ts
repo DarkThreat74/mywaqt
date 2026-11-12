@@ -45,7 +45,7 @@ const GRACE_KEY = "qt:grace-credits";
 const KHATMAS_KEY = "qt:khatmas";
 const LAST_POS_KEY = "qt:last-position";
 
-export interface LastPos { s: number; a: number; w: number }
+export interface LastPos { s: number; a: number; w: number; t?: number }
 
 /** "Continue from here" — the last word the tracker heard, persisted so a
  *  closed session offers a resume chip on next open. */
@@ -56,7 +56,7 @@ export function loadLastPos(): LastPos | null {
   } catch { return null; }
 }
 export function saveLastPos(l: LastPos | null) {
-  if (l) ls.set(LAST_POS_KEY, JSON.stringify(l));
+  if (l) ls.set(LAST_POS_KEY, JSON.stringify({ ...l, t: Date.now() }));
   else try { localStorage.removeItem(LAST_POS_KEY); } catch { /* ignore */ }
 }
 

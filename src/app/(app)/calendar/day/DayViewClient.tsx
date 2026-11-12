@@ -352,23 +352,51 @@ export default function DayViewClient({ date }: { date: string }) {
     return () => document.removeEventListener("pointerdown", onDown);
   }, [tagMenuOpen]);
 
-  const toggleGoalCheck = (ev: CalendarEvent) => {
-    const gid = ev.createdVia!.split(":")[1];
+  /** Keep planned-goal checkboxes in lockstep with the underlying goal —
+   *  a daily goal and its planned event are the same goal, so completing
+   *  one completes the other in both directions. */
+  const syncChecksForGoal = (goalId: string, checked: boolean) => {
+    const evIds = goalEvents.filter((e) => (e.createdVia || "") === `goal:${goalId}`).map((e) => e.id);
+    if (evIds.length === 0) return;
     setGoalChecks((prev) => {
       const next = new Set(prev);
-      const wasChecked = next.has(ev.id);
-      if (wasChecked) next.delete(ev.id); else next.add(ev.id);
+      for (const id of evIds) { if (checked) next.add(id); else next.delete(id); }
       try { localStorage.setItem(`waqt:goal-checks:${date}`, JSON.stringify([...next])); } catch { /* full */ }
       return next;
     });
-    // Count the completion toward a target-tracker goal when it has one.
-    const goal = goalsList.find((g) => g.id === gid);
-    if (goal?.progressTarget) {
+  };
+
+  const toggleGoalCheck = (ev: CalendarEvent) => {
+    const gid = ev.createdVia!.split(":")[1];
+    const marking = !goalChecks.has(ev.id);
+    setGoalChecks((prev) => {
+      const next = new Set(prev);
+      if (marking) next.add(ev.id); else next.delete(ev.id);
+      try { localStorage.setItem(`waqt:goal-checks:${date}`, JSON.stringify([...next])); } catch { /* full */ }
+      return next;
+    });
+    // Count the completion toward a target-tracker goal when it has one —
+    // and mirror it onto today's daily-goal row when it's the same goal.
+    const goal = goalsList.find((g) => g.id === gid) ?? dailyGoals.find((g) => g.id === gid);
+    const isDaily = dailyGoals.some((g) => g.id === gid);
+    if (goal?.progressTarget || isDaily) {
+      const progressCurrent = goal?.progressTarget
+        ? (marking ? Math.min(goal.progressTarget, goal.progressCurrent + 1) : Math.max(0, goal.progressCurrent - 1))
+        : undefined;
       void fetch("/api/goals", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: gid, progressCurrent: Math.min(goal.progressTarget, goal.progressCurrent + 1) }),
+        body: JSON.stringify({
+          id: gid,
+          ...(isDaily ? { status: marking ? "done" : "active" } : {}),
+          ...(progressCurrent !== undefined ? { progressCurrent } : {}),
+        }),
       }).catch(() => {});
+    }
+    if (isDaily) {
+      setDailyGoals((items) => items.map((g) => g.id === gid
+        ? { ...g, progressCurrent: marking ? (g.progressTarget || 1) : 0 }
+        : g));
     }
   };
   const [pendingHw, setPendingHw] = useState<Array<{ id: string; title: string }>>([]);
@@ -1914,6 +1942,7 @@ export default function DayViewClient({ date }: { date: string }) {
                           const next = done ? "active" : "done";
                           void fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: goal.id, status: next }) });
                           setDailyGoals((items) => items.map((item) => item.id === goal.id ? { ...item, progressCurrent: next === "done" ? (item.progressTarget || 1) : 0 } : item));
+                          syncChecksForGoal(goal.id, next === "done");
                         }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
                           <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border" style={{ borderColor: done ? "var(--color-success)" : "var(--color-paper-3)", backgroundColor: done ? "var(--color-success)" : "transparent" }}>{done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}</span>
                           <span className={done ? "line-through opacity-60" : ""}>{goal.title}</span>
