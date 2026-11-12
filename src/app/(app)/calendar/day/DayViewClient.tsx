@@ -1756,7 +1756,12 @@ export default function DayViewClient({ date }: { date: string }) {
       {(dayHomeworkCount > 0 || dailyGoals.length > 0 || !isPastDay || goalEvents.length > 0) && (
         <div className="relative z-40 pointer-events-none mt-2 -mb-4 flex justify-end">
           <div
-            className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[10px] font-medium shadow-sm backdrop-blur-md"
+            className="pointer-events-auto flex cursor-pointer items-stretch overflow-hidden rounded-full border text-[10px] font-medium shadow-sm backdrop-blur-md"
+            onClick={() => setHomeworkOpen(true)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setHomeworkOpen(true); } }}
+            aria-label="Open today's assignments and goals"
             style={{
               borderColor: "var(--color-paper-3)",
               backgroundColor: "color-mix(in oklab, var(--color-paper) 76%, transparent)",
@@ -1865,8 +1870,8 @@ export default function DayViewClient({ date }: { date: string }) {
                 })}
               </div>
             )}
-            {homeworkOpen && dayHomeworkItems.length > 0 && (
-              <div className="pointer-events-auto absolute left-0 top-9 z-40 w-72 rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+            {homeworkOpen && !isPastDay && (
+              <div onClick={(e) => e.stopPropagation()} className="pointer-events-auto absolute left-0 top-9 z-40 w-72 rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
                 <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Assignments due</p>
                 <div className="max-h-44 overflow-y-auto">
                   {dayHomeworkItems.map((homework) => (
