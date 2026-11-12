@@ -1754,7 +1754,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
       {/* Day summary chip — under the calendar card, right-aligned. */}
       {(dayHomeworkCount > 0 || dailyGoals.length > 0 || !isPastDay || goalEvents.length > 0) && (
-        <div className="relative z-40 pointer-events-none mt-2 -mb-4 flex justify-end">
+        <div className="relative z-40 pointer-events-auto mt-2 -mb-4 flex justify-end">
           <div
             className="pointer-events-auto flex cursor-pointer items-stretch overflow-hidden rounded-full border text-[10px] font-medium shadow-sm backdrop-blur-md"
             onClick={() => setHomeworkOpen(true)}
@@ -1771,7 +1771,7 @@ export default function DayViewClient({ date }: { date: string }) {
             {(!isPastDay || dayHomeworkCount > 0) && (
               <button
                 type="button"
-                onClick={() => setHomeworkOpen((open) => !open)}
+                onClick={(e) => { e.stopPropagation(); setHomeworkOpen((open) => !open); }}
                 className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-warmth)", minHeight: 28 }}
               >
@@ -1781,7 +1781,7 @@ export default function DayViewClient({ date }: { date: string }) {
             )}
             {goalEvents.length > 0 && (
               <button
-                onClick={() => setGoalsOpen((o) => !o)}
+                onClick={(e) => { e.stopPropagation(); setGoalsOpen((o) => !o); }}
                 className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{
                   color: "var(--color-ink)",
@@ -1800,7 +1800,7 @@ export default function DayViewClient({ date }: { date: string }) {
             )}
             {!isPastDay && (
               <button
-                onClick={() => setDailyGoalsOpen((open) => !open)}
+                onClick={(e) => { e.stopPropagation(); setDailyGoalsOpen((open) => !open); }}
                 className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-accent)", minHeight: 28 }}
                 aria-label={`Daily goals — ${dailyGoals.filter((g) => g.progressTarget !== null && g.progressCurrent >= g.progressTarget).length} of ${dailyGoals.length} done`}
