@@ -43,6 +43,9 @@ async function updatePrefs(request: NextRequest) {
   const patch: Record<string, unknown> = {};
   if (typeof b.theme === "string" && THEMES.has(b.theme)) patch.theme = b.theme;
   if (typeof b.funfactDisabled === "boolean") patch.funfactDisabled = b.funfactDisabled;
+  if (Array.isArray(b.appLayout) && b.appLayout.length <= 100) {
+    patch.appLayout = b.appLayout;
+  }
   // Fitness profile — canonical metric values; display units stored too.
   const num = (v: unknown, lo: number, hi: number) => (typeof v === "number" && v >= lo && v <= hi ? v : undefined);
   const bw = num(b.bodyWeightKg, 20, 500); if (bw !== undefined) patch.bodyWeightKg = bw;

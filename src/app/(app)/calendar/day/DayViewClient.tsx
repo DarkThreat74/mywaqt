@@ -67,6 +67,14 @@ const HOUR_HEIGHT = 56; // px per hour
 const TIME_COL = 44; // px — time label column
 const DEFAULT_START_HOUR = 5; // 5 AM — default visible start
 
+function roundedCurrentEventRange(): [string, string] {
+  const now = new Date();
+  const startHour = Math.round(now.getHours() + now.getMinutes() / 60) % 24;
+  const endHour = (startHour + 1) % 24;
+  const fmt = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
+  return [fmt(startHour), fmt(endHour)];
+}
+
 type PrayerTimeKey = "fajr" | "sunrise" | "dhuhr" | "asr" | "maghrib" | "isha";
 
 const PRAYER_NAMES: Array<{
@@ -2514,8 +2522,9 @@ export default function DayViewClient({ date }: { date: string }) {
           <button type="button" onClick={() => {
           setNewTitle("");
           setNewDetails("");
-          setNewStart("09:00");
-          setNewEnd("10:00");
+          const [start, end] = roundedCurrentEventRange();
+          setNewStart(start);
+          setNewEnd(end);
           setNewType("block");
           setHangoutWith("");
     setHangoutFriendId(null);

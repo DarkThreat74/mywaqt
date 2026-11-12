@@ -124,6 +124,11 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     itemsRef.current = norm;
     setItems(norm);
     saveLayout(norm);
+    void fetch("/api/settings/prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appLayout: norm }),
+    }).catch(() => {});
   }
 
   async function hideApp(key: string) {
@@ -195,6 +200,18 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
 
   useEffect(() => { itemsRef.current = items; }, [items]);
   useEffect(() => { editingRef.current = editing; }, [editing]);
+
+  useEffect(() => {
+    fetch("/api/settings/prefs", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
+      const remote = d?.prefs?.appLayout;
+      if (Array.isArray(remote) && remote.length > 0) {
+        saveLayout(remote as LayoutItem[]);
+        setItems(loadLayout(installedKeys));
+      }
+    }).catch(() => {});
+    // The local layout remains the instant/offline fallback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);

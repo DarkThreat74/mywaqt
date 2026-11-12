@@ -43,6 +43,9 @@ function getInitialFact(): { fact: FunFact | null; shouldShow: boolean; factInde
   let seenStr: string | null = null;
   let lastIndexStr: string | null = null;
   try {
+    if (localStorage.getItem(STORAGE_KEY_DISABLED) === "1") {
+      return { fact: null, shouldShow: false, factIndex: -1 };
+    }
     nextShowStr = localStorage.getItem(STORAGE_KEY_NEXT_SHOW);
     currentStr = localStorage.getItem(STORAGE_KEY_CURRENT);
     seenStr = localStorage.getItem(STORAGE_KEY_SEEN);
