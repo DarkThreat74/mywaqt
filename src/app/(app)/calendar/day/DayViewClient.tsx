@@ -278,6 +278,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [friendSearch, setFriendSearch] = useState("");
   const [placeSearch, setPlaceSearch] = useState("");
   const [placeList, setPlaceList] = useState<Array<{ id: string; name: string; address?: string; kind?: string }>>([]);
+  const [placeStatus, setPlaceStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [placeCategory, setPlaceCategory] = useState<"E" | "M" | "D">("D");
   const [tagType, setTagType] = useState<"menu" | "friend" | "place">("menu");
   const [tagPlace, setTagPlace] = useState<{ id: string; name: string; address?: string } | null>(null);
@@ -2792,9 +2793,13 @@ export default function DayViewClient({ date }: { date: string }) {
                       <button type="button" onClick={() => { setTagType("friend"); if (!friendsList || friendsList.length === 0) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([])); }} className="rounded-lg py-2 text-[11px] font-semibold" style={{ backgroundColor: tagType === "friend" ? "var(--color-paper-2)" : "transparent", color: tagType === "friend" ? "var(--color-warmth)" : "var(--color-ink-muted)" }}><Users className="mr-1 inline h-3 w-3" />Friend</button>
                       <button type="button" onClick={() => {
                         setTagType("place");
-                        if (placeList.length === 0) fetch("/data/sirat-places.json").then((r) => r.ok ? r.json() : []).then((places) => {
-                          setPlaceList((Array.isArray(places) ? places : []).filter((p) => p?.name).map((p) => ({ id: p.id || p.name, name: p.name, address: p.address || "", kind: p.kind })));
-                        }).catch(() => setPlaceList([]));
+                        if (placeList.length === 0 && placeStatus !== "loading") {
+                          setPlaceStatus("loading");
+                          fetch("/data/sirat-places.json").then((r) => r.ok ? r.json() : Promise.reject(new Error(String(r.status)))).then((places) => {
+                            setPlaceList((Array.isArray(places) ? places : []).filter((p) => p?.name).map((p) => ({ id: p.id || p.name, name: p.name, address: p.address || "", kind: p.kind })));
+                            setPlaceStatus("ready");
+                          }).catch(() => setPlaceStatus("error"));
+                        }
                       }} className="rounded-lg py-2 text-[11px] font-semibold" style={{ backgroundColor: tagType === "place" ? "var(--color-paper-2)" : "transparent", color: tagType === "place" ? "var(--color-accent)" : "var(--color-ink-muted)" }}><MapPin className="mr-1 inline h-3 w-3" />Place</button>
                     </div>
                     {tagType === "place" ? (
@@ -2814,7 +2819,9 @@ export default function DayViewClient({ date }: { date: string }) {
                               <span className="truncate text-xs font-medium">{place.name}</span><span className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{place.address}</span>
                             </button>
                           ))}
-                          {placeList.length === 0 && <p className="p-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading Sirat places…</p>}
+                          {placeStatus === "loading" && <p className="p-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading Sirat places…</p>}
+                          {placeStatus === "error" && <p className="p-2 text-xs" style={{ color: "var(--color-error)" }}>Couldn&rsquo;t load places. Tap Place to retry.</p>}
+                          {placeStatus === "ready" && placeList.filter((p) => (p.kind || "D") === placeCategory && `${p.name} ${p.address}`.toLowerCase().includes(placeSearch.toLowerCase())).length === 0 && <p className="p-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>No places match.</p>}
                         </div>
                       </div>
                     ) : friendsList ? (
