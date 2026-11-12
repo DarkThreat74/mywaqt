@@ -582,10 +582,11 @@ export default function FriendsClient() {
       const response = await fetch(`/api/friends/${sheet.id}/share`, { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.url) throw new Error("share");
-      const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void>; clipboard?: Clipboard };
-      if (nav.share) await nav.share({ title: `${sheet.name} · Waqt`, url: data.url }).catch(() => {});
+      const nav = navigator as unknown as { share?: (data: ShareData) => Promise<void>; clipboard?: Clipboard };
+      const shareFn = nav.share;
+      if (typeof shareFn === "function") await shareFn({ title: `${sheet.name} · Waqt`, url: data.url }).catch(() => {});
       else await nav.clipboard?.writeText(data.url);
-      setContactHint(nav.share ? "Share sheet opened." : "Share link copied.");
+      setContactHint(typeof shareFn === "function" ? "Share sheet opened." : "Share link copied.");
     } catch {
       setContactHint("Couldn't create the share link.");
     } finally {

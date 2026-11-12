@@ -21,7 +21,7 @@ export default async function FriendSharePage({ params }: { params: Promise<{ to
       <div className="mx-auto max-w-md rounded-3xl border bg-[var(--color-paper)] p-6 shadow-sm" style={{ borderColor: "var(--color-paper-3)" }}>
         <div className="flex flex-col items-center text-center">
           <div className="h-24 w-24 overflow-hidden rounded-full border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-            {photo ? <><span className="sr-only">Profile photo</span>{/* eslint-disable-next-line @next/next/no-img-element -- data URL from private profile */}<img src={photo} alt="" className="h-full w-full object-cover" /></> : <span className="flex h-full items-center justify-center text-3xl font-semibold text-[var(--color-accent)]">{friend.name[0]?.toUpperCase()}</span>}
+            {photo ? <><span className="sr-only">Profile photo</span><img src={photo} alt="" className="h-full w-full object-cover" /></> : <span className="flex h-full items-center justify-center text-3xl font-semibold text-[var(--color-accent)]">{friend.name[0]?.toUpperCase()}</span>}
           </div>
           <h1 className="mt-4 text-2xl font-semibold">{friend.name}</h1>
           {friend.groupLabel && <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{friend.groupLabel}</p>}
