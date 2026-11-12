@@ -1763,7 +1763,7 @@ export default function DayViewClient({ date }: { date: string }) {
               color: "var(--color-ink)",
             }}
           >
-            {dayHomeworkCount > 0 && (
+            {(!isPastDay || dayHomeworkCount > 0) && (
               <button
                 type="button"
                 onClick={() => setHomeworkOpen((open) => !open)}
@@ -1771,7 +1771,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 style={{ color: "var(--color-warmth)", minHeight: 32 }}
               >
                 <BookOpen className="h-3 w-3 shrink-0" />
-                {dayHomeworkCount} due
+                {dayHomeworkCount} assignments
               </button>
             )}
             {goalEvents.length > 0 && (
@@ -1793,7 +1793,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 {goalDoneCount}/{goalEvents.length} goals
               </button>
             )}
-            {dailyGoals.length > 0 && (
+            {!isPastDay && (
               <button
                 onClick={() => setDailyGoalsOpen((open) => !open)}
                 className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
@@ -1802,6 +1802,7 @@ export default function DayViewClient({ date }: { date: string }) {
               >
                 <Check className="h-3 w-3" />
                 {dailyGoals.filter((g) => g.progressTarget !== null && g.progressCurrent >= g.progressTarget).length}/{dailyGoals.length} goals
+                <span className="ml-0.5 text-[10px]">+ Goal</span>
               </button>
             )}
             {dayHomeworkCount > 0 && !isPastDay && (
@@ -1837,8 +1838,19 @@ export default function DayViewClient({ date }: { date: string }) {
                 })}
               </div>
             )}
-            {dailyGoalsOpen && dailyGoals.length > 0 && (
+            {dailyGoalsOpen && !isPastDay && (
               <div className="absolute right-0 top-9 z-40 w-64 rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                <div className="mb-2 flex gap-1.5 border-b pb-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                  <input value={homeworkGoalDraft} onChange={(e) => setHomeworkGoalDraft(e.target.value)} placeholder="Add today's goal…" className="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-[11px] outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
+                  <button type="button" disabled={!homeworkGoalDraft.trim()} onClick={async () => {
+                    const res = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: homeworkGoalDraft.trim(), goalType: "daily", targetDate: date, progressTarget: 1 }) });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && data.goal) {
+                      setDailyGoals((items) => [...items, { id: data.goal.id, title: data.goal.title, progressCurrent: 0, progressTarget: 1 }]);
+                      setHomeworkGoalDraft("");
+                    }
+                  }} className="rounded-lg px-2 py-1.5 text-[11px] font-semibold disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Add</button>
+                </div>
                 {dailyGoals.map((goal) => {
                   const done = goal.progressTarget !== null && goal.progressCurrent >= goal.progressTarget;
                   return (
