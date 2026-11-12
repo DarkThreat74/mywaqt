@@ -2737,8 +2737,8 @@ export default function DayViewClient({ date }: { date: string }) {
 
               {/* Optional relationship tag — it never changes the event title
                   or type; it only adds context to the rendered card. */}
-              <div className="relative">
-                <div ref={tagWrapRef} className="flex flex-wrap items-center gap-1.5">
+              <div className="relative" ref={tagWrapRef}>
+                <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>Tags</span>
                   {hangoutFriendIds.length > 0 ? (
                     <>
