@@ -420,7 +420,18 @@ export default function QuranTesterClient() {
     takeRef.current = qtTake();
     covRef.current = loadCoverage();
     setCovSnap(covRef.current);
-    loadAyahPages().then((ap) => { setAyahPages(ap); ixRef.current = buildIndex(ap); refreshSpan(); }).catch(() => {});
+    loadAyahPages().then((ap) => {
+      setAyahPages(ap); ixRef.current = buildIndex(ap); refreshSpan();
+      // Open where the last session ended — jump straight to that ayah's
+      // page and pin the last-heard word instead of landing on page 1 with
+      // only the resume chip for company.
+      const lp = loadLastPos();
+      const p = lp ? ap?.[lp.s]?.[lp.a] : null;
+      if (lp && typeof p === "number" && p >= 1) {
+        setPage(p);
+        setPin({ s: lp.s, a: lp.a, w: Math.max(1, lp.w || 1) });
+      }
+    }).catch(() => {});
     loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
     loadSurahMeta().then(setSurahMeta).catch(() => {});
     // Look-alike index (shared with the Mutashabihat game) — one small JSON,
