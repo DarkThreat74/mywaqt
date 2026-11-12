@@ -303,7 +303,7 @@ function status(p){const o=openAt(p,DAY,MIN);if(o===null)return{k:'?',t:'Hours n
 /* state */
 const TRN={S:'Sunni',H:'Shia',A:'Ahmadiyya'};
 const F0=()=>({tr:'any',price:[],when:'any',dist:40,cert:'any',io:'any',ac:[],area:[],noAlc:false,fav:false,q:''});
-let layer=(()=>{try{const t=new URLSearchParams(location.search).get('tab');return t&&'EDMS'.includes(t)&&t.length===1?t:'E'}catch(e){return 'E'}})(),F=F0(),sel=null,snap='peek',view='list',limit=60,sortMode='near',allAreas=false;
+let layer=(()=>{try{const t=new URLSearchParams(location.search).get('tab');return t&&'EDMS'.includes(t)&&t.length===1?t:'E'}catch(e){return 'E'}})(),F=Object.assign(F0(),{q:(new URLSearchParams(location.search).get('q')||'')}),sel=null,snap='peek',view='list',limit=60,sortMode='near',allAreas=false;
 function matches(p){
  if(p.k!==layer||p.mi>F.dist)return false;
  if(F.price.length){if(p.p==null||!F.price.includes(Math.min(p.p,3)))return false}
@@ -720,7 +720,7 @@ async function locErr(err){let m='Could not get your location. Try again.';
 $('#locate').addEventListener('click',locate);
 
 /* boot */
-function boot(){applyTheme();size();renderNav();metrics();setSnap('peek');visPx=VIS.peek;render();layout();V.x=0;V.y=0;V.s=Math.max(4.4,Math.min(W,H-TOPH-VIS.peek-navPx())/2/44);draw()}
+function boot(){applyTheme();size();$('#q').value=F.q;$('#qx').hidden=!F.q;renderNav();metrics();setSnap('peek');visPx=VIS.peek;render();layout();V.x=0;V.y=0;V.s=Math.max(4.4,Math.min(W,H-TOPH-VIS.peek-navPx())/2/44);draw()}
 addEventListener('resize',()=>{size();renderChips();metrics();setSnap(snap);draw()});
 refreshKeys().then(()=>{need()});
 boot();

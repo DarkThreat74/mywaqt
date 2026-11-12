@@ -255,6 +255,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [tagType, setTagType] = useState<"menu" | "friend" | "place">("menu");
   const [tagPlace, setTagPlace] = useState<{ id: string; name: string; address?: string } | null>(null);
   const [friendProfile, setFriendProfile] = useState<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null } | null>(null);
+  const [placeProfile, setPlaceProfile] = useState<{ name: string; address?: string | null } | null>(null);
   const [newStart, setNewStart] = useState("09:00");
   const [newEnd, setNewEnd] = useState("10:00");
   const [newType, setNewType] = useState<"block" | "task" | "reminder" | "hangout">("block");
@@ -2300,9 +2301,9 @@ export default function DayViewClient({ date }: { date: string }) {
                     </span>
                   )}
                   {event.tagPlaceName && (
-                    <a href="/myapps/sirat/index.html" onClick={(e) => e.stopPropagation()} className="inline-flex max-w-full items-center rounded-full border px-1.5 py-0.5 text-[9px] font-semibold" style={{ borderColor: "color-mix(in oklab, var(--color-accent) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))", color: "var(--color-accent)" }} title={event.tagPlaceAddress || event.tagPlaceName}>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setPlaceProfile({ name: event.tagPlaceName!, address: event.tagPlaceAddress }); }} className="inline-flex max-w-full items-center rounded-full border px-1.5 py-0.5 text-[9px] font-semibold" style={{ borderColor: "color-mix(in oklab, var(--color-accent) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))", color: "var(--color-accent)" }} title={event.tagPlaceAddress || event.tagPlaceName}>
                       <MapPin className="mr-0.5 h-2.5 w-2.5 shrink-0" />{event.tagPlaceName}
-                    </a>
+                    </button>
                   )}
                   {event.hangoutWith && (
                     <div className="flex max-w-full flex-wrap items-center justify-center gap-0.5 text-[9px] font-semibold">
@@ -2577,6 +2578,23 @@ export default function DayViewClient({ date }: { date: string }) {
             ) : (
               <p className="mt-5 text-xs" style={{ color: "var(--color-ink-muted)" }}>This friend profile is no longer available.</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {placeProfile && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-3 sm:items-center" onClick={() => setPlaceProfile(null)}>
+          <div className="w-full max-w-sm rounded-2xl border p-5 shadow-xl" onClick={(e) => e.stopPropagation()} style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 14%, transparent)", color: "var(--color-accent)" }}><MapPin className="h-5 w-5" /></span>
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold" style={{ color: "var(--color-ink)" }}>{placeProfile.name}</h2>
+                <p className="truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>{placeProfile.address || "Sirat place"}</p>
+              </div>
+            </div>
+            <a href={`/myapps/sirat/index.html?q=${encodeURIComponent(placeProfile.name)}`} onClick={() => setPlaceProfile(null)} className="mt-5 flex min-h-11 items-center justify-center rounded-xl px-4 text-sm font-semibold" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+              See profile in Sirat
+            </a>
           </div>
         </div>
       )}
