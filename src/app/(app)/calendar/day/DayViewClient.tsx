@@ -366,6 +366,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [dayHomeworkItems, setDayHomeworkItems] = useState<Array<{ id: string; title: string; dueDate: string; status: string }>>([]);
   const [homeworkOpen, setHomeworkOpen] = useState(false);
   const [homeworkGoalDraft, setHomeworkGoalDraft] = useState("");
+  const [homeworkGoalOpen, setHomeworkGoalOpen] = useState(false);
   // Study-block planning window — settings-controlled, defaults 7:00–22:00
   const [studyStartMin, setStudyStartMin] = useState(DAY_START);
   const [studyEndMin, setStudyEndMin] = useState(DAY_END);
@@ -1872,17 +1873,28 @@ export default function DayViewClient({ date }: { date: string }) {
               </div>
             )}
             {homeworkOpen && !isPastDay && (
-              <div onClick={(e) => e.stopPropagation()} className="pointer-events-auto absolute left-0 top-9 z-40 w-72 rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-                <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Assignments due</p>
-                <div className="max-h-44 overflow-y-auto">
+              <div onClick={(e) => e.stopPropagation()} className="pointer-events-auto absolute left-0 top-9 z-40 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 6%, var(--color-paper))" }}>
+                  <div>
+                    <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>Assignments due</p>
+                    <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{dayHomeworkCount} pending · {date}</p>
+                  </div>
+                  <BookOpen className="h-4 w-4" style={{ color: "var(--color-warmth)" }} />
+                </div>
+                <div className="max-h-52 overflow-y-auto p-2">
                   {dayHomeworkItems.map((homework) => (
-                    <div key={homework.id} className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs" style={{ color: "var(--color-ink)" }}>
+                    <div key={homework.id} className="flex items-center gap-2 rounded-xl border-b px-3 py-2.5 text-xs last:border-0" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
                       <span className="min-w-0 flex-1 truncate">{homework.title}</span>
-                      {homework.dueDate < date && <span className="shrink-0 text-[10px]" style={{ color: "var(--color-error)" }}>overdue</span>}
+                      {homework.dueDate < date && <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-error) 10%, transparent)", color: "var(--color-error)" }}>overdue</span>}
                     </div>
                   ))}
                 </div>
-                <div className="mt-1 border-t pt-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                <div className="border-t px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+                  {!homeworkGoalOpen ? (
+                    <button type="button" onClick={() => setHomeworkGoalOpen(true)} className="flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-[11px] font-semibold" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)" }}>
+                      <Plus className="h-3 w-3" /> Goal for today
+                    </button>
+                  ) : (
                   <div className="flex gap-1.5">
                     <input value={homeworkGoalDraft} onChange={(e) => setHomeworkGoalDraft(e.target.value)} placeholder="Add today's goal…" className="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-[11px] outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
                     <button type="button" disabled={!homeworkGoalDraft.trim()} onClick={async () => {
@@ -1894,6 +1906,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       }
                     }} className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>+ Goal</button>
                   </div>
+                  )}
                   <Link href="/goals#homework" className="mt-2 block text-center text-[10px] font-semibold" style={{ color: "var(--color-accent)" }}>Open Homework planner</Link>
                 </div>
               </div>
