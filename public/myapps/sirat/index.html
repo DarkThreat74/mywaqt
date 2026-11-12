@@ -371,11 +371,12 @@ class DlErr extends Error{constructor(m,kind){super(m);this.kind=kind}}
 async function ovp(q,dl){let last=new DlErr('Could not reach the map server','server');
  for(let a=0;a<6;a++){
   if(dl.cancel)throw new DlErr('Paused','cancel');
-  const ep=EPS[a%EPS.length],ac=new AbortController();dl.acs.add(ac);let timedOut=false;const to=setTimeout(()=>{timedOut=true;ac.abort()},90000);
+  const ep=EPS[a%EPS.length],ac=new AbortController();dl.acs.add(ac);dl.ep=ep;dl.tries=(dl.tries||0)+1;dl.status='';let timedOut=false;const to=setTimeout(()=>{timedOut=true;ac.abort()},90000);
   try{
    // GET with a query parameter is more reliable across mobile WebViews and
    // Overpass CORS/proxy layers than a form POST body.
    const r=await fetch(ep+'?data='+encodeURIComponent(q),{method:'GET',headers:{Accept:'application/json'},signal:ac.signal});
+   dl.status=r.status;
    if(r.status===429){last=new DlErr('The map server is busy (429). It limits how fast you can download.','busy')}
    else if(r.status===504||r.status===503||r.status===502){last=new DlErr('The map server timed out ('+r.status+')','big')}
    else if(!r.ok){last=new DlErr('Map server error '+r.status,'server')}
@@ -386,7 +387,7 @@ async function ovp(q,dl){let last=new DlErr('Could not reach the map server','se
   }catch(e){
    if(dl.cancel)throw new DlErr('Paused','cancel');
    if(e instanceof DlErr)last=e;
-   else if(timedOut||(e&&e.name==='AbortError'))last=new DlErr('The map server took too long','big');
+   else if(timedOut||(e&&e.name==='AbortError')){dl.status='timeout';last=new DlErr('The map server took too long','big')}
    else last=new DlErr(navigator.onLine===false?'No internet connection':'Could not reach the map server ('+(e&&e.message||'network error')+')',navigator.onLine===false?'offline':'server')}
   finally{clearTimeout(to);dl.acs.delete(ac)}
   if(last.kind==='offline')throw last;
@@ -401,7 +402,7 @@ async function fetchTile(t,b,dl,depth=0){
 function wakeOn(){try{if(navigator.wakeLock)navigator.wakeLock.request('screen').then(l=>{ST.wl=l}).catch(()=>{})}catch(e){}}
 function wakeOff(){try{ST.wl&&ST.wl.release();ST.wl=null}catch(e){}}
 async function startDownload(t){if(ST.dl&&ST.dl.running)return;
- const dl={t,running:true,cancel:false,done:tierCount(t),fail:0,streak:0,err:'',errKind:'',acs:new Set(),paused:false};ST.dl=dl;
+ const dl={t,running:true,cancel:false,done:tierCount(t),fail:0,streak:0,err:'',errKind:'',acs:new Set(),paused:false,ep:'',status:'',tries:0,online:navigator.onLine!==false};ST.dl=dl;
  if(navigator.onLine===false){dl.running=false;dl.stopped=true;dl.err='No internet connection';dl.errKind='offline';infoProgress();toast('No internet connection');return}
  try{await getdb()}catch(e){dl.running=false;dl.stopped=true;dl.err='This browser will not let the app save files (private mode?)';dl.errKind='storage';infoProgress();toast(dl.err);return}
  infoProgress();wakeOn();
@@ -709,7 +710,9 @@ function renderDl(){const box=$('#dlBox');if(!box)return;const dl=ST.dl,run=!!(d
  else if(dl&&dl.stopped&&dl.done<TOTAL){const hint={offline:'Connect to the internet, then tap the button to resume.',busy:'Wait a few minutes, then tap the button to resume.',storage:'Free up space on your phone, then tap the button to resume.',big:'Try again later, then tap the button to resume.'}[dl.errKind]||'Tap the button to resume.';msg='Stopped: '+dl.err.replace(/\.$/,'')+'. '+hint;cls='no'}
  else if(dl&&dl.paused&&dl.done<TOTAL)msg=`Paused at ${dl.done} of ${TOTAL} areas. Tap the button to resume.`;
  const n=run?dl.done:(dl&&dl.t===2?t2:t1);
- box.innerHTML=`<h3>Offline streets</h3><p>Main roads ${t1} of ${TOTAL} areas · All streets ${t2} of ${TOTAL}${_est?' · '+_est:''}</p><div class="bar"><i style="width:${Math.min(100,100*(run?dl.done:Math.max(t1,t2))/TOTAL)}%"></i></div><p class="${cls}" id="dlMsg" style="min-height:1.4em">${esc(msg)}</p>
+ let diag='';
+ if(dl&&(run||dl.stopped||dl.err)){const host=dl.ep?dl.ep.replace(/^https?:\/\//,'').split('/')[0]:'—';diag=`diag: ${dl.errKind||'ok'} · ${host} · http ${dl.status||'—'} · ${dl.tries||0} tries · ${navigator.onLine===false?'offline':'online'} · ${dl.done}/${TOTAL} tiles`}
+ box.innerHTML=`<h3>Offline streets</h3><p>Main roads ${t1} of ${TOTAL} areas · All streets ${t2} of ${TOTAL}${_est?' · '+_est:''}</p><div class="bar"><i style="width:${Math.min(100,100*(run?dl.done:Math.max(t1,t2))/TOTAL)}%"></i></div><p class="${cls}" id="dlMsg" style="min-height:1.4em">${esc(msg)}</p>${diag?`<p class="sub" style="font-size:10px;opacity:.6">${esc(diag)}</p>`:''}
  <div class="btns"><button class="btn f" id="bDl1" ${run||t1>=TOTAL?'disabled':''}>${svg('down')}${lab(1,t1,'Main roads')}</button><button class="btn" id="bDl2" ${run||t2>=TOTAL?'disabled':''}>${svg('down')}${lab(2,t2,'All streets')}</button>${run?`<button class="btn" id="bStop" ${dl.cancel?'disabled':''}>Pause</button>`:''}${(t1||t2)&&!run?'<button class="btn txt" id="bWipe">Delete</button>':''}</div>
  <p style="margin-top:10px">Roads are fetched once from OpenStreetMap and kept on this phone, so the map works with no signal. Main roads is the quick one. All streets is large and slow, so use Wi-Fi and keep the screen on. You can pause and resume.</p>`}
 $('#iBody').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;

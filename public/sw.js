@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v121";
+const CACHE_VERSION = "waqt-v122";
 
 // Instant cached-page hits younger than this still paint immediately with a
 // background revalidate (the SWR path). Older hits fall into network-first —
@@ -44,7 +44,7 @@ const CURRENT_CSP = [
   "style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org https://fonts.openfreemap.org",
   "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tiles.openfreemap.org",
   "font-src 'self' data: https://fonts.openfreemap.org https://tiles.openfreemap.org",
-  "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com https://*.r2.cloudflarestorage.com",
+  "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com https://*.r2.cloudflarestorage.com https://overpass-api.de https://overpass.kumi.systems https://overpass.private.coffee",
   "worker-src 'self' blob:",
   "media-src 'self' blob: https:",
   "frame-src https://challenges.cloudflare.com",
@@ -76,6 +76,7 @@ const PRECACHE_URLS = [
   "/offline.html",
   "/data/ayah-pages.json",
   "/data/surah-meta.json",
+  "/data/sirat-places.json",
   "/worklets/qt-capture.js",
   "/rc/pitch-worklet.js",
   // ~4MB quran.json/mutashabihat.json deliberately NOT precached — the /data/

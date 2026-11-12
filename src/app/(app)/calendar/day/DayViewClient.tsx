@@ -67,12 +67,29 @@ const HOUR_HEIGHT = 56; // px per hour
 const TIME_COL = 44; // px — time label column
 const DEFAULT_START_HOUR = 5; // 5 AM — default visible start
 
-function roundedCurrentEventRange(): [string, string] {
-  const now = new Date();
-  const startHour = Math.round(now.getHours() + now.getMinutes() / 60) % 24;
-  const endHour = (startHour + 1) % 24;
+function roundedCurrentEventRange(timeZone?: string): [string, string] {
+  // Wall-clock "now" in the user's stored timezone — browser-local time would
+  // default events to the wrong hour for travelers.
+  let h = new Date().getHours();
+  let m = new Date().getMinutes();
+  if (timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour: "numeric",
+        minute: "numeric",
+        hour12: false,
+      }).formatToParts(new Date());
+      h = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10) % 24;
+      m = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+    } catch { /* fall back to browser tz */ }
+  }
+  let startHour = Math.round(h + m / 60) % 24;
+  // 23:30+ rounds up to midnight — keep the event inside the viewed day.
+  if (startHour === 0 && h >= 23) startHour = 23;
+  if (startHour === 23) return ["23:00", "23:59"];
   const fmt = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
-  return [fmt(startHour), fmt(endHour)];
+  return [fmt(startHour), fmt((startHour + 1) % 24)];
 }
 
 type PrayerTimeKey = "fajr" | "sunrise" | "dhuhr" | "asr" | "maghrib" | "isha";
@@ -257,6 +274,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [hangoutFriendIds, setHangoutFriendIds] = useState<string[]>([]);
   const [friendsList, setFriendsList] = useState<Array<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null; hasPhoto?: boolean; updatedAt?: string | null }> | null>(null);
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const tagWrapRef = useRef<HTMLDivElement>(null);
   const [friendSearch, setFriendSearch] = useState("");
   const [placeSearch, setPlaceSearch] = useState("");
   const [placeList, setPlaceList] = useState<Array<{ id: string; name: string; address?: string; kind?: string }>>([]);
@@ -281,7 +299,6 @@ export default function DayViewClient({ date }: { date: string }) {
   const [classesList, setClassesList] = useState<Array<{ id: string; name: string; color: string }>>([]);
   const [goalsList, setGoalsList] = useState<Array<{ id: string; title: string; goalType?: string; targetDate?: string | null; progressCurrent: number; progressTarget: number | null }>>([]);
   const [dailyGoals, setDailyGoals] = useState<Array<{ id: string; title: string; progressCurrent: number; progressTarget: number | null }>>([]);
-  const [dailyGoalsOpen, setDailyGoalsOpen] = useState(false);
   const [dailyGoalComposerOpen, setDailyGoalComposerOpen] = useState(false);
   // Today's goal-event check-offs, per date — local intent, not server truth.
   const [goalChecks, setGoalChecks] = useState<Set<string>>(new Set());
@@ -290,7 +307,30 @@ export default function DayViewClient({ date }: { date: string }) {
     () => events.filter((e) => e.createdVia?.startsWith("goal:")),
     [events],
   );
-  const goalDoneCount = goalEvents.filter((e) => goalChecks.has(e.id)).length;
+  // Combined goals pill — today's daily goals plus planned goal events,
+  // counted once per underlying goal so a planned daily goal isn't doubled.
+  const plannedGoalIds = useMemo(
+    () => new Set(goalEvents.map((e) => (e.createdVia || "").split(":")[1]).filter(Boolean)),
+    [goalEvents],
+  );
+  const goalAllIds = useMemo(
+    () => new Set([...dailyGoals.map((g) => g.id), ...plannedGoalIds]),
+    [dailyGoals, plannedGoalIds],
+  );
+  const goalDoneIds = useMemo(() => {
+    const done = new Set<string>();
+    for (const g of dailyGoals) {
+      if (g.progressTarget !== null && g.progressCurrent >= g.progressTarget) done.add(g.id);
+    }
+    for (const ev of goalEvents) {
+      if (!goalChecks.has(ev.id)) continue;
+      const gid = (ev.createdVia || "").split(":")[1];
+      if (gid) done.add(gid);
+    }
+    return done;
+  }, [dailyGoals, goalEvents, goalChecks]);
+  const goalDoneCount = goalDoneIds.size;
+  const goalTotalCount = goalAllIds.size;
   useEffect(() => {
     // Deferred — a sync setState in the effect body trips the cascade rule.
     Promise.resolve().then(() => {
@@ -300,6 +340,17 @@ export default function DayViewClient({ date }: { date: string }) {
       } catch { setGoalChecks(new Set()); }
     });
   }, [date]);
+
+  // Close the add-tag popup on any outside pointer-down.
+  useEffect(() => {
+    if (!tagMenuOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (tagWrapRef.current && !tagWrapRef.current.contains(e.target as Node)) setTagMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [tagMenuOpen]);
+
   const toggleGoalCheck = (ev: CalendarEvent) => {
     const gid = ev.createdVia!.split(":")[1];
     setGoalChecks((prev) => {
@@ -384,7 +435,6 @@ export default function DayViewClient({ date }: { date: string }) {
   const [dayHomeworkItems, setDayHomeworkItems] = useState<Array<{ id: string; title: string; dueDate: string; status: string }>>([]);
   const [homeworkOpen, setHomeworkOpen] = useState(false);
   const [homeworkGoalDraft, setHomeworkGoalDraft] = useState("");
-  const [homeworkGoalOpen, setHomeworkGoalOpen] = useState(false);
   // Study-block planning window — settings-controlled, defaults 7:00–22:00
   const [studyStartMin, setStudyStartMin] = useState(DAY_START);
   const [studyEndMin, setStudyEndMin] = useState(DAY_END);
@@ -1805,103 +1855,100 @@ export default function DayViewClient({ date }: { date: string }) {
                 {dayHomeworkCount} assignments
               </button>
             )}
-            {goalEvents.length > 0 && (
+            {(!isPastDay || goalTotalCount > 0) && (
               <button
                 onClick={(e) => { e.stopPropagation(); setGoalsOpen((o) => !o); }}
                 className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{
                   color: "var(--color-ink)",
                   minHeight: 28,
-                  // Green outline when every goal-event is checked, red while
-                  // anything remains — the whole-chip outline signals state.
-                  outline: `1.5px solid ${goalDoneCount === goalEvents.length ? "var(--color-success)" : "var(--color-error)"}`,
-                  outlineOffset: "-1.5px",
-                  borderRadius: 0,
+                  // Translucent red that fades as goals complete — the pill
+                  // itself carries the "nothing done yet" signal.
+                  backgroundColor: goalTotalCount > 0
+                    ? `color-mix(in oklab, var(--color-error) ${Math.round(16 * (1 - goalDoneCount / goalTotalCount))}%, transparent)`
+                    : "transparent",
                 }}
-                aria-label={`Goals today — ${goalDoneCount} of ${goalEvents.length} done`}
+                aria-label={goalTotalCount > 0 ? `Goals — ${goalDoneCount} of ${goalTotalCount} done${goalEvents.length > 0 ? ", includes planned" : ""}` : "Goals"}
               >
-                <Check className="h-3 w-3 shrink-0" style={{ color: goalDoneCount === goalEvents.length ? "var(--color-success)" : "var(--color-error)" }} />
-                {goalDoneCount}/{goalEvents.length} goals
-              </button>
-            )}
-            {!isPastDay && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setDailyGoalsOpen((open) => !open); }}
-                className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ color: "var(--color-accent)", minHeight: 28 }}
-                aria-label={`Daily goals — ${dailyGoals.filter((g) => g.progressTarget !== null && g.progressCurrent >= g.progressTarget).length} of ${dailyGoals.length} done`}
-              >
-                <Check className="h-3 w-3" />
-                {dailyGoals.filter((g) => g.progressTarget !== null && g.progressCurrent >= g.progressTarget).length}/{dailyGoals.length} goals
+                <Check className="h-3 w-3 shrink-0" style={{ color: goalTotalCount > 0 && goalDoneCount === goalTotalCount ? "var(--color-success)" : goalTotalCount > 0 ? "var(--color-error)" : "var(--color-ink-muted)" }} />
+                {goalTotalCount > 0 ? `${goalDoneCount}/${goalTotalCount} goals` : "Goals"}
+                {goalEvents.length > 0 && (
+                  <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-accent)" }} title="Planned goal events today" aria-hidden />
+                )}
               </button>
             )}
             {dayHomeworkCount > 0 && !isPastDay && (
               <span className="w-px self-stretch" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden />
             )}
           </div>
-            {goalsOpen && goalEvents.length > 0 && (
+            {goalsOpen && (!isPastDay || goalTotalCount > 0) && (
               <div
-                className="absolute right-0 top-9 z-40 w-56 rounded-xl border p-2 shadow-xl"
+                className="absolute right-0 top-9 z-40 w-64 rounded-xl border p-2 shadow-xl"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
               >
-                {goalEvents.map((ev) => {
-                  const done = goalChecks.has(ev.id);
-                  return (
-                    <button
-                      key={ev.id}
-                      type="button"
-                      onClick={() => toggleGoalCheck(ev)}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-xs transition-colors hover:bg-[var(--color-paper-2)]"
-                      style={{ color: "var(--color-ink)", minHeight: 40 }}
-                    >
-                      <span
-                        className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border"
-                        style={{
-                          borderColor: done ? "var(--color-success)" : "var(--color-paper-3)",
-                          backgroundColor: done ? "var(--color-success)" : "transparent",
-                        }}
-                      >
-                        {done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
-                      </span>
-                      <span className={done ? "line-through opacity-60" : ""}>{ev.title}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {dailyGoalsOpen && !isPastDay && (
-              <div className="absolute right-0 top-9 z-40 w-64 rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-                <div className="mb-2 flex items-center justify-between border-b pb-2" style={{ borderColor: "var(--color-paper-3)" }}>
-                  <p className="px-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Today’s goals</p>
-                  <button type="button" onClick={() => setDailyGoalComposerOpen((open) => !open)} className="flex h-7 w-7 items-center justify-center rounded-full border text-sm font-semibold" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }} aria-label="Add a daily goal">+</button>
-                </div>
-                {dailyGoalComposerOpen && (
-                  <div className="mb-2 flex gap-1.5 border-b pb-2" style={{ borderColor: "var(--color-paper-3)" }}>
-                    <input autoFocus value={homeworkGoalDraft} onChange={(e) => setHomeworkGoalDraft(e.target.value)} placeholder="Goal for today…" className="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-[11px] outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
-                    <button type="button" disabled={!homeworkGoalDraft.trim()} onClick={async () => {
-                      const res = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: homeworkGoalDraft.trim(), goalType: "daily", targetDate: date, progressTarget: 1 }) });
-                      const data = await res.json().catch(() => ({}));
-                      if (res.ok && data.goal) {
-                        setDailyGoals((items) => [...items, { id: data.goal.id, title: data.goal.title, progressCurrent: 0, progressTarget: 1 }]);
-                        setHomeworkGoalDraft("");
-                        setDailyGoalComposerOpen(false);
-                      }
-                    }} className="rounded-lg px-2 py-1.5 text-[11px] font-semibold disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Add</button>
-                  </div>
+                {!isPastDay && (
+                  <>
+                    <div className="mb-2 flex items-center justify-between border-b pb-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                      <p className="px-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Today’s goals</p>
+                      <button type="button" onClick={() => setDailyGoalComposerOpen((open) => !open)} className="flex h-6 w-6 items-center justify-center rounded-full border text-xs font-semibold" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }} aria-label="Add a daily goal">+</button>
+                    </div>
+                    {dailyGoalComposerOpen && (
+                      <div className="mb-2 flex gap-1 border-b pb-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                        <input autoFocus value={homeworkGoalDraft} onChange={(e) => setHomeworkGoalDraft(e.target.value)} placeholder="Goal for today…" className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-[11px] outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
+                        <button type="button" disabled={!homeworkGoalDraft.trim()} onClick={async () => {
+                          const res = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: homeworkGoalDraft.trim(), goalType: "daily", targetDate: date, progressTarget: 1 }) });
+                          const data = await res.json().catch(() => ({}));
+                          if (res.ok && data.goal) {
+                            setDailyGoals((items) => [...items, { id: data.goal.id, title: data.goal.title, progressCurrent: 0, progressTarget: 1 }]);
+                            setHomeworkGoalDraft("");
+                            setDailyGoalComposerOpen(false);
+                          }
+                        }} className="rounded-lg px-2 py-1 text-[11px] font-semibold disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Add</button>
+                      </div>
+                    )}
+                    {dailyGoals.map((goal) => {
+                      const done = goal.progressTarget !== null && goal.progressCurrent >= goal.progressTarget;
+                      return (
+                        <button key={goal.id} type="button" onClick={() => {
+                          const next = done ? "active" : "done";
+                          void fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: goal.id, status: next }) });
+                          setDailyGoals((items) => items.map((item) => item.id === goal.id ? { ...item, progressCurrent: next === "done" ? (item.progressTarget || 1) : 0 } : item));
+                        }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
+                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border" style={{ borderColor: done ? "var(--color-success)" : "var(--color-paper-3)", backgroundColor: done ? "var(--color-success)" : "transparent" }}>{done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}</span>
+                          <span className={done ? "line-through opacity-60" : ""}>{goal.title}</span>
+                        </button>
+                      );
+                    })}
+                  </>
                 )}
-                {dailyGoals.map((goal) => {
-                  const done = goal.progressTarget !== null && goal.progressCurrent >= goal.progressTarget;
-                  return (
-                    <button key={goal.id} type="button" onClick={() => {
-                      const next = done ? "active" : "done";
-                      void fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: goal.id, status: next }) });
-                      setDailyGoals((items) => items.map((item) => item.id === goal.id ? { ...item, progressCurrent: next === "done" ? (item.progressTarget || 1) : 0 } : item));
-                    }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
-                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border" style={{ borderColor: done ? "var(--color-success)" : "var(--color-paper-3)", backgroundColor: done ? "var(--color-success)" : "transparent" }}>{done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}</span>
-                      <span className={done ? "line-through opacity-60" : ""}>{goal.title}</span>
-                    </button>
-                  );
-                })}
+                {goalEvents.length > 0 && (
+                  <>
+                    <p className={`${!isPastDay ? "mt-2 border-t pt-2" : ""} px-1 text-[10px] font-semibold uppercase tracking-wider`} style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Planned</p>
+                    {goalEvents.map((ev) => {
+                      const done = goalChecks.has(ev.id);
+                      return (
+                        <button
+                          key={ev.id}
+                          type="button"
+                          onClick={() => toggleGoalCheck(ev)}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-xs transition-colors hover:bg-[var(--color-paper-2)]"
+                          style={{ color: "var(--color-ink)", minHeight: 40 }}
+                        >
+                          <span
+                            className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border"
+                            style={{
+                              borderColor: done ? "var(--color-success)" : "var(--color-paper-3)",
+                              backgroundColor: done ? "var(--color-success)" : "transparent",
+                            }}
+                          >
+                            {done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}
+                          </span>
+                          <span className={done ? "line-through opacity-60" : ""}>{ev.title}</span>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
               </div>
             )}
             {homeworkOpen && !isPastDay && (
@@ -1922,24 +1969,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   ))}
                 </div>
                 <div className="border-t px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
-                  {!homeworkGoalOpen ? (
-                    <button type="button" onClick={() => setHomeworkGoalOpen(true)} className="flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-[11px] font-semibold" style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, transparent)" }}>
-                      <Plus className="h-3 w-3" /> Goal for today
-                    </button>
-                  ) : (
-                  <div className="flex gap-1.5">
-                    <input value={homeworkGoalDraft} onChange={(e) => setHomeworkGoalDraft(e.target.value)} placeholder="Add today's goal…" className="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-[11px] outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
-                    <button type="button" disabled={!homeworkGoalDraft.trim()} onClick={async () => {
-                      const res = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: homeworkGoalDraft.trim(), goalType: "daily", targetDate: date, progressTarget: 1 }) });
-                      const data = await res.json().catch(() => ({}));
-                      if (res.ok && data.goal) {
-                        setDailyGoals((items) => [...items, { id: data.goal.id, title: data.goal.title, progressCurrent: 0, progressTarget: 1 }]);
-                        setHomeworkGoalDraft("");
-                      }
-                    }} className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>+ Goal</button>
-                  </div>
-                  )}
-                  <Link href="/goals#homework" className="mt-2 block text-center text-[10px] font-semibold" style={{ color: "var(--color-accent)" }}>Open Homework planner</Link>
+                  <Link href="/goals#homework" className="block text-center text-[10px] font-semibold" style={{ color: "var(--color-accent)" }}>Open Homework planner</Link>
                 </div>
               </div>
             )}
@@ -2309,14 +2339,9 @@ export default function DayViewClient({ date }: { date: string }) {
                       Goal · {goalsList.find((goal) => goal.id === (event.createdVia || "").split(":")[1])?.title || "planned"}
                     </span>
                   )}
-                  {event.tagPlaceName && (
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setPlaceProfile({ name: event.tagPlaceName!, address: event.tagPlaceAddress }); }} className="inline-flex max-w-full items-center rounded-full border px-1.5 py-0.5 text-[9px] font-semibold" style={{ borderColor: "color-mix(in oklab, var(--color-accent) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))", color: "var(--color-accent)" }} title={event.tagPlaceAddress || event.tagPlaceName}>
-                      <MapPin className="mr-0.5 h-2.5 w-2.5 shrink-0" />{event.tagPlaceName}
-                    </button>
-                  )}
-                  {event.hangoutWith && (
+                  {(event.hangoutWith || event.tagPlaceName) && (
                     <div className="flex max-w-full flex-wrap items-center justify-center gap-0.5 text-[9px] font-semibold">
-                      {(event.hangoutWith.split(",").map((name) => name.trim()).filter(Boolean)).map((name, index) => {
+                      {event.hangoutWith && (event.hangoutWith.split(",").map((name) => name.trim()).filter(Boolean)).map((name, index) => {
                         const friendId = event.hangoutFriendIds?.[index] || (index === 0 ? event.hangoutFriendId : null);
                         return (
                           <span key={`${friendId || name}-${index}`} className="inline-flex max-w-full items-center">
@@ -2344,6 +2369,11 @@ export default function DayViewClient({ date }: { date: string }) {
                           </span>
                         );
                       })}
+                      {event.tagPlaceName && (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setPlaceProfile({ name: event.tagPlaceName!, address: event.tagPlaceAddress }); }} className="inline-flex max-w-full items-center rounded-full border px-1.5 py-0.5 font-semibold" style={{ borderColor: "color-mix(in oklab, var(--color-accent) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))", color: "var(--color-accent)" }} title={event.tagPlaceAddress || event.tagPlaceName}>
+                          <MapPin className="mr-0.5 h-2.5 w-2.5 shrink-0" />{event.tagPlaceName}
+                        </button>
+                      )}
                     </div>
                   )}
                   {endStr && showTime && (
@@ -2356,14 +2386,6 @@ export default function DayViewClient({ date }: { date: string }) {
                       {event.details}
                     </p>
                   )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteConfirm(event); }}
-                    className="absolute right-0.5 top-0.5 shrink-0 rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 sm:opacity-40"
-                    aria-label="Delete event"
-                    style={{ minHeight: 44, minWidth: 44 }}
-                  >
-                    <X className="h-3 w-3" style={{ color: "var(--color-ink-muted)" }} />
-                  </button>
                 </div>
               </div>
 
@@ -2522,7 +2544,7 @@ export default function DayViewClient({ date }: { date: string }) {
           <button type="button" onClick={() => {
           setNewTitle("");
           setNewDetails("");
-          const [start, end] = roundedCurrentEventRange();
+          const [start, end] = roundedCurrentEventRange(userTimezone);
           setNewStart(start);
           setNewEnd(end);
           setNewType("block");
@@ -2715,7 +2737,7 @@ export default function DayViewClient({ date }: { date: string }) {
               {/* Optional relationship tag — it never changes the event title
                   or type; it only adds context to the rendered card. */}
               <div className="relative">
-                <div className="flex items-center gap-2">
+                <div ref={tagWrapRef} className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>Tags</span>
                   {hangoutFriendIds.length > 0 ? (
                     <>
@@ -2770,10 +2792,8 @@ export default function DayViewClient({ date }: { date: string }) {
                       <button type="button" onClick={() => { setTagType("friend"); if (!friendsList || friendsList.length === 0) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([])); }} className="rounded-lg py-2 text-[11px] font-semibold" style={{ backgroundColor: tagType === "friend" ? "var(--color-paper-2)" : "transparent", color: tagType === "friend" ? "var(--color-warmth)" : "var(--color-ink-muted)" }}><Users className="mr-1 inline h-3 w-3" />Friend</button>
                       <button type="button" onClick={() => {
                         setTagType("place");
-                        if (placeList.length === 0) fetch("/myapps/sirat/index.html").then((r) => r.text()).then((html) => {
-                          const data = new DOMParser().parseFromString(html, "text/html").querySelector("#data")?.textContent || "[]";
-                          const places = JSON.parse(data) as Array<{ i?: string; n?: string; a?: string; k?: string }>;
-                          setPlaceList(places.filter((p) => p.n).slice(0, 500).map((p) => ({ id: p.i || p.n!, name: p.n!, address: p.a || "", kind: p.k })));
+                        if (placeList.length === 0) fetch("/data/sirat-places.json").then((r) => r.ok ? r.json() : []).then((places) => {
+                          setPlaceList((Array.isArray(places) ? places : []).filter((p) => p?.name).map((p) => ({ id: p.id || p.name, name: p.name, address: p.address || "", kind: p.kind })));
                         }).catch(() => setPlaceList([]));
                       }} className="rounded-lg py-2 text-[11px] font-semibold" style={{ backgroundColor: tagType === "place" ? "var(--color-paper-2)" : "transparent", color: tagType === "place" ? "var(--color-accent)" : "var(--color-ink-muted)" }}><MapPin className="mr-1 inline h-3 w-3" />Place</button>
                     </div>
@@ -2789,7 +2809,7 @@ export default function DayViewClient({ date }: { date: string }) {
                           <input value={placeSearch} onChange={(e) => setPlaceSearch(e.target.value)} placeholder="Find a Sirat place" className="w-full rounded-lg border py-2 pl-7 pr-2 text-xs outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
                         </div>
                         <div className="mt-2 max-h-48 overflow-y-auto">
-                          {placeList.filter((p) => (p.kind || "D") === placeCategory && `${p.name} ${p.address}`.toLowerCase().includes(placeSearch.toLowerCase())).slice(0, 80).map((place) => (
+                          {placeList.filter((p) => (p.kind || "D") === placeCategory && `${p.name} ${p.address}`.toLowerCase().includes(placeSearch.toLowerCase())).slice(0, 120).map((place) => (
                             <button key={place.id} type="button" onClick={() => { setTagPlace(place); setTagMenuOpen(false); }} className="flex w-full flex-col rounded-lg px-2 py-2 text-left hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
                               <span className="truncate text-xs font-medium">{place.name}</span><span className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{place.address}</span>
                             </button>
@@ -2850,8 +2870,8 @@ export default function DayViewClient({ date }: { date: string }) {
               {eventKind === "goal" && (
                 <div>
                   {goalTab === "daily" && (
-                    <div className="mb-3 flex gap-2">
-                      <input value={dailyGoalDraft} onChange={(e) => setDailyGoalDraft(e.target.value)} placeholder="Add a daily goal…" className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
+                    <div className="mb-3 flex gap-1.5">
+                      <input value={dailyGoalDraft} onChange={(e) => setDailyGoalDraft(e.target.value)} placeholder="Add a daily goal…" className="min-w-0 flex-1 rounded-lg border px-2.5 py-1.5 text-[11px] outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
                       <button type="button" disabled={!dailyGoalDraft.trim()} onClick={async () => {
                         const res = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: dailyGoalDraft.trim(), goalType: "daily", targetDate: date }) });
                         const data = await res.json().catch(() => ({}));
@@ -2861,7 +2881,7 @@ export default function DayViewClient({ date }: { date: string }) {
                           setDailyGoals((items) => [...items, { id: goal.id, title: goal.title, progressCurrent: 0, progressTarget: goal.progressTarget ?? 1 }]);
                           setDailyGoalDraft("");
                         }
-                      }} className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Add</button>
+                      }} className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50" style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Add</button>
                     </div>
                   )}
                   {/* Horizon tabs — filter goals by type before picking */}
