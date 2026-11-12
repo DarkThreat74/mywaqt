@@ -265,6 +265,7 @@ export default function FriendsClient() {
   const [crewBusy, setCrewBusy] = useState(false);
   const [importReport, setImportReport] = useState<{ name: string; linked: boolean }[] | null>(null);
   const [importing, setImporting] = useState(false);
+  const openedDeepLink = useRef(false);
 
   const refresh = () =>
     fetch("/api/friends", { cache: "no-store" })
@@ -401,6 +402,17 @@ export default function FriendsClient() {
       setPhone(""); setNotes("");
     }
   }
+
+  useEffect(() => {
+    if (openedDeepLink.current || friends.length === 0) return;
+    const id = new URLSearchParams(window.location.search).get("friend");
+    if (!id) return;
+    const friend = friends.find((item) => item.id === id);
+    if (friend) {
+      openedDeepLink.current = true;
+      openSheet(friend);
+    }
+  }, [friends]);
 
   async function pickFromContacts() {
     const api = contactsApi();
