@@ -1812,6 +1812,7 @@ export default function DayViewClient({ date }: { date: string }) {
             {dayHomeworkCount > 0 && !isPastDay && (
               <span className="w-px self-stretch" style={{ backgroundColor: "var(--color-paper-3)" }} aria-hidden />
             )}
+          </div>
             {goalsOpen && goalEvents.length > 0 && (
               <div
                 className="absolute right-0 top-9 z-40 w-56 rounded-xl border p-2 shadow-xl"
@@ -1897,7 +1898,6 @@ export default function DayViewClient({ date }: { date: string }) {
                 </div>
               </div>
             )}
-          </div>
         </div>
       )}
 
