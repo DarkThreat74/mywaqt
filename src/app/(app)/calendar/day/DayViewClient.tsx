@@ -1756,10 +1756,10 @@ export default function DayViewClient({ date }: { date: string }) {
       {(dayHomeworkCount > 0 || dailyGoals.length > 0 || !isPastDay || goalEvents.length > 0) && (
         <div className="relative z-40 pointer-events-none mt-2 -mb-4 flex justify-end">
           <div
-            className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[11px] font-medium shadow-sm backdrop-blur-md"
+            className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[10px] font-medium shadow-sm backdrop-blur-md"
             style={{
               borderColor: "var(--color-paper-3)",
-              backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)",
+              backgroundColor: "color-mix(in oklab, var(--color-paper) 76%, transparent)",
               color: "var(--color-ink)",
             }}
           >
@@ -1767,8 +1767,8 @@ export default function DayViewClient({ date }: { date: string }) {
               <button
                 type="button"
                 onClick={() => setHomeworkOpen((open) => !open)}
-                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ color: "var(--color-warmth)", minHeight: 32 }}
+                className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-warmth)", minHeight: 28 }}
               >
                 <BookOpen className="h-3 w-3 shrink-0" />
                 {dayHomeworkCount} assignments
@@ -1777,10 +1777,10 @@ export default function DayViewClient({ date }: { date: string }) {
             {goalEvents.length > 0 && (
               <button
                 onClick={() => setGoalsOpen((o) => !o)}
-                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{
                   color: "var(--color-ink)",
-                  minHeight: 32,
+                  minHeight: 28,
                   // Green outline when every goal-event is checked, red while
                   // anything remains — the whole-chip outline signals state.
                   outline: `1.5px solid ${goalDoneCount === goalEvents.length ? "var(--color-success)" : "var(--color-error)"}`,
@@ -1796,13 +1796,12 @@ export default function DayViewClient({ date }: { date: string }) {
             {!isPastDay && (
               <button
                 onClick={() => setDailyGoalsOpen((open) => !open)}
-                className="flex items-center gap-1 px-2.5 py-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ color: "var(--color-accent)", minHeight: 32 }}
+                className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                style={{ color: "var(--color-accent)", minHeight: 28 }}
                 aria-label={`Daily goals — ${dailyGoals.filter((g) => g.progressTarget !== null && g.progressCurrent >= g.progressTarget).length} of ${dailyGoals.length} done`}
               >
                 <Check className="h-3 w-3" />
                 {dailyGoals.filter((g) => g.progressTarget !== null && g.progressCurrent >= g.progressTarget).length}/{dailyGoals.length} goals
-                <span className="ml-0.5 text-[10px]">+ Goal</span>
               </button>
             )}
             {dayHomeworkCount > 0 && !isPastDay && (
