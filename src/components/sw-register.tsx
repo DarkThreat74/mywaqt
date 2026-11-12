@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { isNativeApp } from "@/lib/native-bridge";
 
-const EXPECTED_SW_VERSION = "waqt-v113";
+const EXPECTED_SW_VERSION = "waqt-v114";
 
 /**
  * Registers the service worker and handles:
@@ -20,7 +20,7 @@ export default function ServiceWorkerRegister() {
     // Version the registration URL itself. A stale controlled page can keep
     // an old /sw.js registration alive even when its response changed; the
     // query key forces the browser to create/update the new worker script.
-    const SW_BUILD = "113";
+    const SW_BUILD = "114";
     // Skip SW registration inside native app — it caches stale assets in the WebView.
     // Also unregister any worker that ever got registered on this origin in the
     // WebView (earlier build, future WebView gaining SW support) — a lingering
