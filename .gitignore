@@ -17,6 +17,11 @@
 /.next/
 /out/
 
+# python tooling
+__pycache__/
+*.pyc
+scripts/sirat/out/
+
 # production
 /build
 

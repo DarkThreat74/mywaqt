@@ -437,9 +437,41 @@ All installed at `.devin/skills/`:
 | `brandkit` | Brand guidelines boards, logo systems, identity decks. |
 | `stitch-design-taste` | Semantic design system DESIGN.md generation. |
 | `design-taste-frontend-v1` | Backward-compatible v1 taste-skill (only if needed). |
+| `unslop` | Targeted audit/polish for UI that looks AI-generated or generic. |
+| `html` | Self-contained HTML artifacts; routes to the matching specialist. |
+| `html-wireframe` | Low-fidelity HTML wireframes for flows before implementation. |
+| `html-prototype` | Polished interactive HTML prototypes/mockups. |
+| `html-plan` | Self-contained HTML plans and review documents. |
+| `html-diagram` | HTML diagrams for architecture, flows, and relationships. |
+| `design-artifact` | Visual direction for HTML artifacts, reports, and demos. |
+| `one-pager` | One-page HTML idea brief or work recap. |
+| `big-pics-little-words` | Big-visual/minimal-text HTML explanations. |
 
 **Invoke with the `skill` tool. When multiple match, invoke ALL relevant ones in
 parallel — do not stop at the single most obvious one.**
+
+---
+
+## 17. External Research & Data Tooling
+
+- **Scrapling park collector:** `scripts/sirat/collect-parks.py` is a
+  maintainer-side ingestion tool for Sirat place data. Install with
+  `python -m pip install -r scripts/sirat/requirements.txt`, then run
+  `python scripts/sirat/collect-parks.py --output scripts/sirat/out/parks-candidates.json`.
+  It writes reviewable JSON only; it does not edit `public/myapps/sirat`.
+  Review names, addresses, amenities, coordinates, source URLs, and safety claims
+  before merging approved records into Sirat. Respect robots.txt, rate limits,
+  source attribution, and each site's terms. Do not scrape from the browser or a
+  serverless request path.
+- **Kensaku:** optional local desktop search tool for repository files, PDFs,
+  screenshots, park documents, workout notes, migrations, and other local
+  research material. Keep it outside the PWA/APK runtime.
+- **effective-html skills:** use `html-wireframe` or `html-prototype` before
+  large UI flow changes, `html-plan` for reviewable implementation plans, and
+  `html-diagram` for architecture/flow visuals.
+- **unslop:** use for targeted visual audits of existing Waqt screens or
+  prototypes, especially when UI looks generic, overly glowing, or
+  template-like. Preserve Waqt's warm prayer-centered identity.
 
 ---
 
