@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { BookOpen, BookOpenCheck, Check, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, Home, ListChecks, Loader2, Mic, MicOff, Pause, Play, Settings, Square, Trash2, User2, X } from "lucide-react";
+import { BookOpen, BookOpenCheck, Check, ChevronLeft, ChevronRight, Download, Eye, EyeOff, FolderOpen, HardDriveDownload, Home, ListChecks, Loader2, Mic, MicOff, Pause, Play, Settings, Square, Trash2, User2, X } from "lucide-react";
 import { ENGINE_ASSETS, downloadEngine, engineInstalled, wipeQuranTesterData } from "./engine";
 import { loadAyahPages, loadBasmalaFont, loadMutashabihat, loadPage, loadPageFont, loadSurahMeta, warmMushaf, type AyahPages, type MushafPage, type SurahMetaEntry } from "./mushaf";
 import { removeMistakeAt, saveMistake, syncMistakes, type Mistake } from "./mistakes";
@@ -1976,19 +1976,30 @@ export default function QuranTesterClient() {
             card at the real mushaf page ratio, with an inner double frame.
             In listener mode the whole card swaps for the watching figure. */}
         {viewMode === "listener" ? (
-          <ListenerView
-            loc={loc}
-            wordIdx={wordIdx}
-            level={level}
-            alert={!!pending || (!!jump && !jump.silent)}
-            pleased={pleased}
-            pages={pages}
-            ayahPages={ayahPages}
-            suspects={suspects}
-            pin={pin}
-            surahName={surahName}
-            listening={listen === "listening"}
-          />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <ListenerView
+              loc={loc}
+              wordIdx={wordIdx}
+              level={level}
+              alert={!!pending || (!!jump && !jump.silent)}
+              pleased={pleased}
+              pages={pages}
+              ayahPages={ayahPages}
+              suspects={suspects}
+              pin={pin}
+              surahName={surahName}
+              listening={listen === "listening"}
+            />
+            <div className="flex shrink-0 items-center justify-between border-t px-4 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+              <button type="button" onClick={() => commitTurn(1)} disabled={page <= 1 || turn !== 0} className="flex min-h-10 items-center gap-1 rounded-full border px-3 text-xs font-semibold disabled:opacity-40" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                <ChevronLeft className="h-4 w-4" /> Previous
+              </button>
+              <span className="text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>Page {page} / {PAGE_COUNT}</span>
+              <button type="button" onClick={() => commitTurn(-1)} disabled={page >= PAGE_COUNT || turn !== 0} className="flex min-h-10 items-center gap-1 rounded-full border px-3 text-xs font-semibold disabled:opacity-40" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                Next <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         ) : (
         <div
           className="qt-mushaf relative mt-2 min-h-0 flex-1 touch-manipulation select-none overflow-hidden rounded-lg border"
