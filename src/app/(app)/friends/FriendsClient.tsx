@@ -57,6 +57,16 @@ interface FriendPhoto {
   isCurrent?: boolean;
 }
 
+interface HangoutSummary {
+  id: string;
+  title: string;
+  details: string | null;
+  startAt: string;
+  endAt: string;
+  placeName: string | null;
+  placeAddress: string | null;
+}
+
 const MET_TAGS = [
   { id: "childhood", label: "Childhood" },
   { id: "family", label: "Family" },
@@ -252,6 +262,8 @@ export default function FriendsClient() {
   const selfRef = useRef<HTMLInputElement>(null);
   const [photo, setPhoto] = useState<{ data: string; mime: string; dirty: boolean }>({ data: "", mime: "", dirty: false });
   const [photoHistory, setPhotoHistory] = useState<FriendPhoto[]>([]);
+  const [hangouts, setHangouts] = useState<HangoutSummary[]>([]);
+  const [hangoutStats, setHangoutStats] = useState<{ total: number; last30: number; last90: number; lastAt: string | null }>({ total: 0, last30: 0, last90: 0, lastAt: null });
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [crop, setCrop] = useState<{ file: Blob; target: "friend" | "self" } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -400,6 +412,10 @@ export default function FriendsClient() {
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => setPhotoHistory(Array.isArray(d?.photos) ? d.photos : []))
         .catch(() => setPhotoHistory([]));
+      fetch(`/api/friends/${f.id}/hangouts`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { setHangouts(Array.isArray(d?.hangouts) ? d.hangouts : []); setHangoutStats(d?.stats ?? { total: 0, last30: 0, last90: 0, lastAt: null }); })
+        .catch(() => { setHangouts([]); setHangoutStats({ total: 0, last30: 0, last90: 0, lastAt: null }); });
     } else {
       setFirstName(""); setLastName("");
       setMetTag(null); setMetDetail(""); setFreq(null);
@@ -1159,6 +1175,31 @@ export default function FriendsClient() {
                       <p className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>{f.notes}</p>
                     </div>
                   )}
+
+                  <div className="mb-4 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Hangouts</p>
+                      <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{hangoutStats.total} total · {hangoutStats.last30} in 30d</span>
+                    </div>
+                    <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                      {hangoutStats.lastAt ? `Last seen ${new Date(hangoutStats.lastAt).toLocaleDateString()}` : "No tagged hangouts yet"}
+                      {hangoutStats.last90 > 0 ? ` · ${hangoutStats.last90} in 90d` : ""}
+                    </p>
+                    {hangouts.length > 0 && (
+                      <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto">
+                        {hangouts.slice(0, 20).map((hangout) => (
+                          <div key={hangout.id} className="rounded-lg border px-2.5 py-2" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+                            <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>{hangout.title}</p>
+                            <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                              {new Date(hangout.startAt).toLocaleDateString()}
+                              {hangout.placeName ? ` · ${hangout.placeName}` : ""}
+                            </p>
+                            {hangout.details && <p className="mt-0.5 truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{hangout.details}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   <div className="mb-4">
                       <div className="mb-2 flex items-center justify-between">
