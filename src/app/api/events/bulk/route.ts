@@ -93,7 +93,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { seriesId, title, details, type, color, notify, startAt, endAt, recurrenceEndDate, fromDate, hangoutWith, hangoutFriendId, hangoutFriendIds } = body as {
+  const { seriesId, title, details, type, color, notify, startAt, endAt, recurrenceEndDate, fromDate, hangoutWith, hangoutFriendId, hangoutFriendIds, tagPlaceId, tagPlaceName, tagPlaceAddress } = body as {
     seriesId?: string;
     title?: string;
     details?: string | null;
@@ -106,6 +106,9 @@ export async function PATCH(request: NextRequest) {
     hangoutWith?: string | null;
     hangoutFriendId?: string | null;
     hangoutFriendIds?: string[] | null;
+    tagPlaceId?: string | null;
+    tagPlaceName?: string | null;
+    tagPlaceAddress?: string | null;
     fromDate?: string;
   };
 
@@ -162,6 +165,10 @@ export async function PATCH(request: NextRequest) {
       updates.hangoutWith = ordered.map((friend) => friend.name).join(", ");
     }
   }
+
+  if (tagPlaceId !== undefined) updates.tagPlaceId = typeof tagPlaceId === "string" ? tagPlaceId.trim().slice(0, 100) || null : null;
+  if (tagPlaceName !== undefined) updates.tagPlaceName = typeof tagPlaceName === "string" ? tagPlaceName.trim().slice(0, 160) || null : null;
+  if (tagPlaceAddress !== undefined) updates.tagPlaceAddress = typeof tagPlaceAddress === "string" ? tagPlaceAddress.trim().slice(0, 240) || null : null;
 
   if (hangoutFriendId !== undefined) {
     if (hangoutFriendId === null) updates.hangoutFriendId = null;

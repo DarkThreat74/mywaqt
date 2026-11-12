@@ -35,7 +35,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceRule, hangoutWith, hangoutFriendId, hangoutFriendIds } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceRule, hangoutWith, hangoutFriendId, hangoutFriendIds, tagPlaceId, tagPlaceName, tagPlaceAddress } = body as {
     title?: string;
     details?: string | null;
     startAt?: string;
@@ -48,6 +48,9 @@ export async function PATCH(
     hangoutWith?: string | null;
     hangoutFriendId?: string | null;
     hangoutFriendIds?: string[] | null;
+    tagPlaceId?: string | null;
+    tagPlaceName?: string | null;
+    tagPlaceAddress?: string | null;
   };
 
   // Build update object — only update provided fields
@@ -81,6 +84,10 @@ export async function PATCH(
       updates.hangoutWith = ordered.map((friend) => friend.name).join(", ");
     }
   }
+
+  if (tagPlaceId !== undefined) updates.tagPlaceId = typeof tagPlaceId === "string" ? tagPlaceId.trim().slice(0, 100) || null : null;
+  if (tagPlaceName !== undefined) updates.tagPlaceName = typeof tagPlaceName === "string" ? tagPlaceName.trim().slice(0, 160) || null : null;
+  if (tagPlaceAddress !== undefined) updates.tagPlaceAddress = typeof tagPlaceAddress === "string" ? tagPlaceAddress.trim().slice(0, 240) || null : null;
 
   if (hangoutFriendId !== undefined) {
     if (hangoutFriendId === null) updates.hangoutFriendId = null;

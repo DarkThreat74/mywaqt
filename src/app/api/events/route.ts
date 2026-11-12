@@ -29,6 +29,9 @@ const EVENT_COLUMNS = {
   hangoutWith: schema.events.hangoutWith,
   hangoutFriendId: schema.events.hangoutFriendId,
   hangoutFriendIds: schema.events.hangoutFriendIds,
+  tagPlaceId: schema.events.tagPlaceId,
+  tagPlaceName: schema.events.tagPlaceName,
+  tagPlaceAddress: schema.events.tagPlaceAddress,
 };
 
 // GET /api/events?date=YYYY-MM-DD — list events for a specific day (in user's timezone)
@@ -170,7 +173,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId, createdVia, hangoutWith, hangoutFriendId, hangoutFriendIds } = body as {
+  const { title, details, startAt, endAt, type, color, notify, sharePublic, recurrenceEndDate, recurrenceDays, clientId, createdVia, hangoutWith, hangoutFriendId, hangoutFriendIds, tagPlaceId, tagPlaceName, tagPlaceAddress } = body as {
     title?: string;
     details?: string;
     startAt?: string;
@@ -186,6 +189,9 @@ export async function POST(request: NextRequest) {
     hangoutWith?: string;
     hangoutFriendId?: string | null;
     hangoutFriendIds?: string[] | null;
+    tagPlaceId?: string | null;
+    tagPlaceName?: string | null;
+    tagPlaceAddress?: string | null;
   };
 
   // Linked-event provenance — "goal:<id>", "class:<id>", etc. Allowlist the
@@ -242,6 +248,10 @@ export async function POST(request: NextRequest) {
     validHangoutFriendId = validHangoutFriendIds[0] || null;
     validHangoutWith = ordered.map((friend) => friend.name).join(", ");
   }
+
+  const validTagPlaceId = typeof tagPlaceId === "string" ? tagPlaceId.trim().slice(0, 100) || null : null;
+  const validTagPlaceName = typeof tagPlaceName === "string" ? tagPlaceName.trim().slice(0, 160) || null : null;
+  const validTagPlaceAddress = typeof tagPlaceAddress === "string" ? tagPlaceAddress.trim().slice(0, 240) || null : null;
 
   // Validate color — must be a hex string like "#c2410c" or null
   const validColor = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
@@ -385,6 +395,9 @@ export async function POST(request: NextRequest) {
           hangoutWith: validHangoutWith,
           hangoutFriendId: validHangoutFriendId,
           hangoutFriendIds: validHangoutFriendIds,
+          tagPlaceId: validTagPlaceId,
+          tagPlaceName: validTagPlaceName,
+          tagPlaceAddress: validTagPlaceAddress,
         })),
       )
       .returning();
@@ -412,6 +425,9 @@ export async function POST(request: NextRequest) {
       hangoutWith: validHangoutWith,
       hangoutFriendId: validHangoutFriendId,
       hangoutFriendIds: validHangoutFriendIds,
+      tagPlaceId: validTagPlaceId,
+      tagPlaceName: validTagPlaceName,
+      tagPlaceAddress: validTagPlaceAddress,
     })
     .onConflictDoNothing({ target: schema.events.id })
     .returning();

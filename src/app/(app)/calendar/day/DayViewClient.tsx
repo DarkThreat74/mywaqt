@@ -28,6 +28,9 @@ interface CalendarEvent {
   hangoutWith?: string | null;
   hangoutFriendId?: string | null;
   hangoutFriendIds?: string[] | null;
+  tagPlaceId?: string | null;
+  tagPlaceName?: string | null;
+  tagPlaceAddress?: string | null;
   color?: string | null;
   notify?: boolean;
   sharePublic?: boolean;
@@ -247,6 +250,10 @@ export default function DayViewClient({ date }: { date: string }) {
   const [friendsList, setFriendsList] = useState<Array<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null }> | null>(null);
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const [friendSearch, setFriendSearch] = useState("");
+  const [placeSearch, setPlaceSearch] = useState("");
+  const [placeList, setPlaceList] = useState<Array<{ id: string; name: string; address?: string }>>([]);
+  const [tagType, setTagType] = useState<"menu" | "friend" | "place">("menu");
+  const [tagPlace, setTagPlace] = useState<{ id: string; name: string; address?: string } | null>(null);
   const [friendProfile, setFriendProfile] = useState<{ id: string; name: string; groupLabel?: string | null; metTag?: string | null; notes?: string | null } | null>(null);
   const [newStart, setNewStart] = useState("09:00");
   const [newEnd, setNewEnd] = useState("10:00");
@@ -1073,6 +1080,9 @@ export default function DayViewClient({ date }: { date: string }) {
       hangoutWith: hangoutFriendId ? hangoutWith.trim() || null : null,
       hangoutFriendId,
       hangoutFriendIds,
+      tagPlaceId: tagPlace?.id || null,
+      tagPlaceName: tagPlace?.name || null,
+      tagPlaceAddress: tagPlace?.address || null,
     };
     if (eventKind === "class" && classId) {
       // Class events are recurring by definition — the class picker requires
@@ -1342,6 +1352,9 @@ export default function DayViewClient({ date }: { date: string }) {
           hangoutWith: hangoutFriendId ? hangoutWith.trim() || null : null,
           hangoutFriendId,
           hangoutFriendIds,
+          tagPlaceId: tagPlace?.id || null,
+          tagPlaceName: tagPlace?.name || null,
+          tagPlaceAddress: tagPlace?.address || null,
         }),
       });
 
@@ -1414,6 +1427,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setHangoutWith(event.hangoutWith || "");
     setHangoutFriendIds(event.hangoutFriendIds?.length ? event.hangoutFriendIds : (event.hangoutFriendId ? [event.hangoutFriendId] : []));
     setHangoutFriendId(event.hangoutFriendIds?.[0] || event.hangoutFriendId || null);
+    setTagPlace(event.tagPlaceName ? { id: event.tagPlaceId || event.tagPlaceName, name: event.tagPlaceName, address: event.tagPlaceAddress || "" } : null);
     setNewColor(event.color || null);
     setNewNotify(event.notify !== false); // default to true if undefined
     setNewSharePublic(event.sharePublic !== false); // default to true if undefined
@@ -2285,6 +2299,11 @@ export default function DayViewClient({ date }: { date: string }) {
                       Goal · {goalsList.find((goal) => goal.id === (event.createdVia || "").split(":")[1])?.title || "planned"}
                     </span>
                   )}
+                  {event.tagPlaceName && (
+                    <a href="/myapps/sirat/index.html" onClick={(e) => e.stopPropagation()} className="inline-flex max-w-full items-center rounded-full border px-1.5 py-0.5 text-[9px] font-semibold" style={{ borderColor: "color-mix(in oklab, var(--color-accent) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))", color: "var(--color-accent)" }} title={event.tagPlaceAddress || event.tagPlaceName}>
+                      <MapPin className="mr-0.5 h-2.5 w-2.5 shrink-0" />{event.tagPlaceName}
+                    </a>
+                  )}
                   {event.hangoutWith && (
                     <div className="flex max-w-full flex-wrap items-center justify-center gap-0.5 text-[9px] font-semibold">
                       {(event.hangoutWith.split(",").map((name) => name.trim()).filter(Boolean)).map((name, index) => {
@@ -2497,8 +2516,10 @@ export default function DayViewClient({ date }: { date: string }) {
           setNewEnd("10:00");
           setNewType("block");
           setHangoutWith("");
-          setHangoutFriendId(null);
-          setHangoutFriendIds([]);
+    setHangoutFriendId(null);
+    setHangoutFriendIds([]);
+    setTagPlace(null);
+    setTagType("menu");
           setTagMenuOpen(false);
           setNewColor(null);
           setNewNotify(true);
@@ -2696,11 +2717,42 @@ export default function DayViewClient({ date }: { date: string }) {
                       <Tag className="h-3 w-3" /> Add tag
                     </button>
                   )}
+                  {tagPlace && (
+                    <span className="inline-flex max-w-[48%] items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium" style={{ borderColor: "color-mix(in oklab, var(--color-accent) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, var(--color-paper))", color: "var(--color-accent)" }}>
+                      <span className="truncate">Place · {tagPlace.name}</span>
+                      <button type="button" onClick={() => setTagPlace(null)} className="flex h-4 w-4 items-center justify-center rounded-full" aria-label="Remove place tag"><X className="h-2.5 w-2.5" /></button>
+                    </span>
+                  )}
                 </div>
                 {tagMenuOpen && (
                   <div className="absolute left-8 top-8 z-20 w-[min(19rem,calc(100vw-3rem))] rounded-xl border p-2 shadow-xl" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-                    {!friendsList && <p className="p-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading friends…</p>}
-                    {friendsList && (
+                    <div className="mb-2 grid grid-cols-2 gap-1 border-b pb-2" style={{ borderColor: "var(--color-paper-3)" }}>
+                      <button type="button" onClick={() => { setTagType("friend"); if (!friendsList || friendsList.length === 0) fetch("/api/friends").then((r) => r.ok ? r.json() : null).then((d) => setFriendsList(Array.isArray(d?.friends) ? d.friends : Array.isArray(d) ? d : [])).catch(() => setFriendsList([])); }} className="rounded-lg py-2 text-[11px] font-semibold" style={{ backgroundColor: tagType === "friend" ? "var(--color-paper-2)" : "transparent", color: tagType === "friend" ? "var(--color-warmth)" : "var(--color-ink-muted)" }}><Users className="mr-1 inline h-3 w-3" />Friend</button>
+                      <button type="button" onClick={() => {
+                        setTagType("place");
+                        if (placeList.length === 0) fetch("/myapps/sirat/index.html").then((r) => r.text()).then((html) => {
+                          const data = new DOMParser().parseFromString(html, "text/html").querySelector("#data")?.textContent || "[]";
+                          const places = JSON.parse(data) as Array<{ i?: string; n?: string; a?: string }>;
+                          setPlaceList(places.filter((p) => p.n).slice(0, 500).map((p) => ({ id: p.i || p.n!, name: p.n!, address: p.a || "" })));
+                        }).catch(() => setPlaceList([]));
+                      }} className="rounded-lg py-2 text-[11px] font-semibold" style={{ backgroundColor: tagType === "place" ? "var(--color-paper-2)" : "transparent", color: tagType === "place" ? "var(--color-accent)" : "var(--color-ink-muted)" }}><MapPin className="mr-1 inline h-3 w-3" />Place</button>
+                    </div>
+                    {tagType === "place" ? (
+                      <div>
+                        <div className="relative">
+                          <Search className="absolute left-2 top-2.5 h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
+                          <input value={placeSearch} onChange={(e) => setPlaceSearch(e.target.value)} placeholder="Find a Sirat place" className="w-full rounded-lg border py-2 pl-7 pr-2 text-xs outline-none" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }} />
+                        </div>
+                        <div className="mt-2 max-h-48 overflow-y-auto">
+                          {placeList.filter((p) => `${p.name} ${p.address}`.toLowerCase().includes(placeSearch.toLowerCase())).slice(0, 80).map((place) => (
+                            <button key={place.id} type="button" onClick={() => { setTagPlace(place); setTagMenuOpen(false); }} className="flex w-full flex-col rounded-lg px-2 py-2 text-left hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
+                              <span className="truncate text-xs font-medium">{place.name}</span><span className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{place.address}</span>
+                            </button>
+                          ))}
+                          {placeList.length === 0 && <p className="p-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading Sirat places…</p>}
+                        </div>
+                      </div>
+                    ) : friendsList ? (
                       <>
                         <div className="relative mt-1">
                           <Search className="absolute left-2 top-2.5 h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
@@ -2732,7 +2784,7 @@ export default function DayViewClient({ date }: { date: string }) {
                         </div>
                         {hangoutFriendIds.length > 0 && <button type="button" onClick={() => { setHangoutFriendId(null); setHangoutFriendIds([]); setHangoutWith(""); setTagMenuOpen(false); }} className="mt-1 w-full border-t pt-2 text-left text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Remove Hangout tag</button>}
                       </>
-                    )}
+                    ) : <p className="p-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading friends…</p>}
                   </div>
                 )}
               </div>

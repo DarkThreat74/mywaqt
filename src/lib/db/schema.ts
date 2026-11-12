@@ -684,6 +684,9 @@ export const events = pgTable('events', {
   hangoutWith: text('hangout_with'),
   hangoutFriendId: uuid('hangout_friend_id').references(() => friends.id, { onDelete: 'set null' }),
   hangoutFriendIds: uuid('hangout_friend_ids').array(),
+  tagPlaceId: text('tag_place_id'),
+  tagPlaceName: text('tag_place_name'),
+  tagPlaceAddress: text('tag_place_address'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   // When a push notification was sent for this event (null = not notified yet)
   notifiedAt: timestamp('notified_at', { withTimezone: true }),

@@ -410,7 +410,7 @@ export default function FriendsClient() {
     const friend = friends.find((item) => item.id === id);
     if (friend) {
       openedDeepLink.current = true;
-      openSheet(friend);
+      Promise.resolve().then(() => openSheet(friend));
     }
   }, [friends]);
 
