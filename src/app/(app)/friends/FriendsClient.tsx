@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, EyeOff } from "lucide-react";
+import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, EyeOff, Share2 } from "lucide-react";
 import { friendScore, friendTier } from "@/lib/friends-score";
 import { compressImage } from "@/lib/image";
 import PhotoLightbox from "@/components/photo-lightbox";
@@ -266,6 +266,7 @@ export default function FriendsClient() {
   const [crewBusy, setCrewBusy] = useState(false);
   const [importReport, setImportReport] = useState<{ name: string; linked: boolean }[] | null>(null);
   const [importing, setImporting] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
   const openedDeepLink = useRef(false);
 
   const refresh = () =>
@@ -572,6 +573,24 @@ export default function FriendsClient() {
     if (!window.confirm("Delete this saved photo?")) return;
     const res = await fetch(`/api/friends/${sheet.id}/photos?photoId=${encodeURIComponent(photoId)}`, { method: "DELETE" }).catch(() => null);
     if (res?.ok) setPhotoHistory((photos) => photos.filter((photo) => photo.id !== photoId));
+  }
+
+  async function shareFriendProfile() {
+    if (!sheet || sheet === "new" || sheet === "self") return;
+    setShareBusy(true);
+    try {
+      const response = await fetch(`/api/friends/${sheet.id}/share`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.url) throw new Error("share");
+      const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void>; clipboard?: Clipboard };
+      if (nav.share) await nav.share({ title: `${sheet.name} · Waqt`, url: data.url }).catch(() => {});
+      else await nav.clipboard?.writeText(data.url);
+      setContactHint(nav.share ? "Share sheet opened." : "Share link copied.");
+    } catch {
+      setContactHint("Couldn't create the share link.");
+    } finally {
+      setShareBusy(false);
+    }
   }
 
   async function starHistoryPhoto(photoId: string) {
@@ -1032,6 +1051,11 @@ export default function FriendsClient() {
                 {sheet === "new" ? "New friend" : sheet === "self" ? "You" : `${firstName} ${lastName}`.trim() || "Friend"}
               </p>
               <div className="flex items-center gap-1">
+                {sheet !== "new" && sheet !== "self" && !editing && (
+                  <button type="button" onClick={() => void shareFriendProfile()} disabled={shareBusy} className="flex items-center justify-center rounded-full disabled:opacity-50" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Share friend profile">
+                    <Share2 className="h-4 w-4" />
+                  </button>
+                )}
                 {sheet !== "new" && sheet !== "self" && editing && (
                   <button onClick={remove} disabled={saving} className="flex items-center justify-center rounded-full" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Remove friend">
                     <Trash2 className="h-4 w-4" />
