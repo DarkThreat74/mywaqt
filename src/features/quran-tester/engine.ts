@@ -62,14 +62,21 @@ const RUNTIME_FILES: [string, string][] = [
 
 // Shared offline assets — cached by the service worker, not the engine
 // bucket, but "installed" must mean the whole listener works offline.
+// NOTE: /data/quran.json is deliberately NOT required — the listener never
+// reads it (quiz/match features fetch it themselves), and the only writer
+// is warmMushaf(), which is gated behind engineInstalled(). Requiring it
+// deadlocked installs: "not downloaded" forever with the model in the bucket.
 const SHARED_FILES = [
   "/data/ayah-pages.json",
   "/data/surah-meta.json",
-  "/data/quran.json",
-  // Look-alike index — offline muta detection silently disables without it.
   "/data/mutashabihat.json",
   "/rc/pitch-worklet.js",
 ];
+// Engine-bucket keys that don't match the public path's basename —
+// downloadEngine stores the pitch worklet as /qt/rc-pitch-worklet.js.
+const SHARED_QT_KEYS: Record<string, string> = {
+  "/rc/pitch-worklet.js": "/qt/rc-pitch-worklet.js",
+};
 
 // A cached entry whose body is empty is poison, not an install — a HEAD
 // response (or a truncated download) put() under the key still *matches*,
@@ -105,10 +112,10 @@ export async function engineInstalled(): Promise<boolean> {
     // These land under two keys depending on who cached them: the SW writes
     // through under the public path (/data/…), while cachedAsset/prefetch
     // stores the same bytes under /qt/<basename> so no-SW contexts survive.
-    return Boolean(
-      (await caches.match(p)) ||
-      (await caches.match(`${self.location.origin}/qt/${p.split("/").pop()}`)),
-    );
+    const qtKey = SHARED_QT_KEYS[p]
+      ? `${self.location.origin}${SHARED_QT_KEYS[p]}`
+      : `${self.location.origin}/qt/${p.split("/").pop()}`;
+    return Boolean((await caches.match(p)) || (await caches.match(qtKey)));
   }));
   if (sharedOk.some((ok) => !ok)) return false;
   return true;
