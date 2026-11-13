@@ -33,8 +33,12 @@ export default function WorkoutPill() {
       if (l) { setLive(l); setElapsed((Date.now() - l.startedAt) / 1000); }
       else setLive((prev) => (prev ? { ...prev } : null)); // keep DB state if live
     }, 1000);
-    // 10s DB tick — authoritative open-session check; survives reload + devices.
+    // 60s DB tick, visible tabs only — this hits the app's heaviest endpoint
+    // (50 sessions + set math). The 1s local tick already drives the pill;
+    // the DB check only needs to notice a workout started on another device
+    // or ended elsewhere, which doesn't need 10s freshness.
     const dbTick = async () => {
+      if (document.hidden || !navigator.onLine) return;
       try {
         const r = await fetch("/api/workout/sessions", { cache: "no-store" });
         if (!r.ok) return;
@@ -47,7 +51,7 @@ export default function WorkoutPill() {
       } catch { /* offline — local copy carries the pill */ }
     };
     void dbTick();
-    const t2 = setInterval(() => void dbTick(), 10 * 1000);
+    const t2 = setInterval(() => void dbTick(), 60 * 1000);
     // Sweep pending offline workouts on mount, every reconnect, and whenever
     // the app regains focus — so an "unsynced" entry always gets retried even
     // if the browser never fires an `online` event. Idempotent upserts.

@@ -35,7 +35,9 @@ interface MatchState {
 }
 
 const DIFF_LABEL: Record<string, string> = { easy: "Easy", medium: "Medium", advanced: "Advanced", elite: "Elite" };
-const POLL_MS = 1400;
+// 2.5s, not 1.4s — rounds run ~90s, so sub-2s polling buys nothing but
+// doubles function invocations during every match (both players polling).
+const POLL_MS = 2500;
 const RESULT_PAUSE_MS = 3200;
 
 export default function MatchView({

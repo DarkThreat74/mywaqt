@@ -716,11 +716,13 @@ export default function NotificationScheduler() {
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    // Re-schedule every 5 minutes (tighter than 30 min for better timing)
+    // Re-schedule every 15 minutes — local notification timers persist
+    // between reschedules, so the 5-min cadence only bought fresher API
+    // reads, not fresher alarms. Visibility refires cover tab returns.
     const interval = setInterval(() => {
       clearAllTimers();
       scheduleAll();
-    }, 5 * 60 * 1000);
+    }, 15 * 60 * 1000);
 
     return () => {
       clearTimeout(bootTimer);

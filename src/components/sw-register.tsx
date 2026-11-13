@@ -165,7 +165,16 @@ export default function ServiceWorkerRegister() {
       "/calendar/day", "/calendar/month", "/prayer", "/goals",
       "/quran", "/quran-tester", "/workout", "/settings",
     ];
+    // Each warm = 8 full force-dynamic page renders server-side. Once an
+    // hour is plenty — SW page/RSC caches persist across boots, so repeat
+    // warms inside the window re-fetch identical payloads.
+    const RSC_WARM_KEY = "waqt:rsc-warm";
     const warmRsc = () => {
+      try {
+        const last = Number(localStorage.getItem(RSC_WARM_KEY) || 0);
+        if (Date.now() - last < 60 * 60 * 1000) return;
+        localStorage.setItem(RSC_WARM_KEY, String(Date.now()));
+      } catch { /* storage blocked — warm anyway */ }
       let i = 0;
       const step = () => {
         if (i >= APP_ROUTES.length) return;

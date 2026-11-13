@@ -81,3 +81,5 @@ public/audio/nasheeds/*.mp3
 public/audio/nasheeds/*.m4a
 public/audio/nasheeds/*.ogg
 public/audio/nasheeds/*.opus
+
+.vercel

@@ -42,7 +42,9 @@ const MODE_LABEL: Record<MutashabihMode, string> = {
   ending: "Which ending?",
 };
 
-const POLL_MS = 1400;
+// 2.5s, not 1.4s — rounds run ~90s, so sub-2s polling buys nothing but
+// doubles function invocations during every match (both players polling).
+const POLL_MS = 2500;
 const RESULT_PAUSE_MS = 4200; // a beat longer than AyaTrace — the family reveal is worth reading
 
 export default function MutashabihMatchView({

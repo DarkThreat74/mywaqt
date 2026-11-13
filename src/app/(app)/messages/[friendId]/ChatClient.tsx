@@ -20,7 +20,7 @@ type Msg = {
 
 type Friend = { id: string; name: string; avatarUrl: string | null };
 
-const POLL_MS = 4000;
+const POLL_MS = 8000;
 
 export default function ChatClient({ friendId }: { friendId: string }) {
   const router = useRouter();

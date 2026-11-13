@@ -38,7 +38,9 @@ export default function MessagesClient() {
         })
         .catch(() => setNetErr(true));
     void load();
-    const t = setInterval(() => { if (!document.hidden) void load(); }, 8000);
+    // 15s, not 8s — new-message badges already arrive via the 30s inbox
+    // poll + push; this list doesn't need faster freshness.
+    const t = setInterval(() => { if (!document.hidden) void load(); }, 15000);
     const onFocus = () => void load();
     window.addEventListener("focus", onFocus);
     window.addEventListener("pageshow", onFocus);

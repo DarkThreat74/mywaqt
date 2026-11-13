@@ -89,7 +89,7 @@ export default function SidebarSalah() {
     // replaces the old every-60s poll (halves this app-wide API traffic).
     const onPrayerUpdated = () => void load();
     window.addEventListener("waqt:prayer-updated", onPrayerUpdated);
-    const t = setInterval(load, 120_000);
+    const t = setInterval(load, 300_000);
     const onVis = () => { if (!document.hidden) void load(); };
     document.addEventListener("visibilitychange", onVis);
     return () => {
