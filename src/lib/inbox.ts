@@ -51,7 +51,11 @@ export type Inbox = {
 };
 
 const EMPTY: Inbox = { notifications: [], recent: [], friendRequests: [], gameInvites: [], outgoingInvites: [], qadaaReview: null, unreadMessages: 0, activeMatch: null };
-const POLL_MS = 12_000;
+// 30s, not 12s — this poll runs on EVERY visible tab app-wide and was the
+// single biggest driver of function invocations (each call = ~8 DB queries).
+// Push notifications still deliver invites/messages instantly when enabled;
+// this is the fallback path.
+const POLL_MS = 30_000;
 
 let snapshot: Inbox = EMPTY;
 const listeners = new Set<() => void>();

@@ -433,12 +433,16 @@ export default function PrayerDashboard() {
     };
   }, [fetchTodayData, refreshFriends]);
 
+  // Remote friends' prayer-status dots don't need 15s freshness — prayer
+  // states change at prayer times, not continuously. 60s cuts this poll's
+  // invocation volume 4x; own check-ins still refresh instantly via the
+  // waqt:prayer-updated event above.
   useEffect(() => {
     if (activeTab === "stats") return;
     const t = setInterval(() => {
       if (document.hidden || !navigator.onLine) return;
       void refreshFriends();
-    }, 15_000);
+    }, 60_000);
     return () => clearInterval(t);
   }, [activeTab, refreshFriends]);
 
