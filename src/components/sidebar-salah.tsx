@@ -83,10 +83,21 @@ export default function SidebarSalah() {
       } catch { /* best-effort — the sidebar line just stays hidden */ }
     }
     void load();
-    const t = setInterval(load, 60_000);
+    // Prayer times come from the IndexedDB month cache; the only thing that
+    // changes intraday is MY prayer log — and check-ins already broadcast
+    // waqt:prayer-updated app-wide. 2min safety net + event-driven refresh
+    // replaces the old every-60s poll (halves this app-wide API traffic).
+    const onPrayerUpdated = () => void load();
+    window.addEventListener("waqt:prayer-updated", onPrayerUpdated);
+    const t = setInterval(load, 120_000);
     const onVis = () => { if (!document.hidden) void load(); };
     document.addEventListener("visibilitychange", onVis);
-    return () => { cancelled = true; clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+    return () => {
+      cancelled = true;
+      window.removeEventListener("waqt:prayer-updated", onPrayerUpdated);
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, []);
 
   // Recompute the line on every 30s tick from the loaded times.
