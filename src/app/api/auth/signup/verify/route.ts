@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { eq, and, gt } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { setSessionCookie } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { createUserWithPrayerCode, trustDevice } from "@/lib/auth/create-user";
 import { logError } from "@/lib/logError";
 
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("signup-verify", ip, 10, 15 * 60 * 1000)) {
+    if (!await checkRateLimitAsync("signup-verify", ip, 10, 15 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many attempts. Please try again later." }, { status: 429 });
     }
 

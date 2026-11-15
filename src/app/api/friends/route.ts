@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
 import { friendScore } from "@/lib/friends-score";
@@ -181,7 +181,7 @@ export async function GET(request: NextRequest) {
   try {
     const session = await getSessionFromRequest(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (!checkRateLimit("friends-read", getClientIp(request.headers), 60, 60000)) {
+    if (!await checkRateLimitAsync("friends-read", getClientIp(request.headers), 60, 60000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
     const session = await getSessionFromRequest(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("friends-post", ip, 30, 60000)) {
+    if (!await checkRateLimitAsync("friends-post", ip, 30, 60000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
@@ -320,7 +320,7 @@ export async function PATCH(request: NextRequest) {
     const session = await getSessionFromRequest(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("friends-patch", ip, 30, 60000)) {
+    if (!await checkRateLimitAsync("friends-patch", ip, 30, 60000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
@@ -413,7 +413,7 @@ export async function DELETE(request: NextRequest) {
     const session = await getSessionFromRequest(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("friends-delete", ip, 30, 60000)) {
+    if (!await checkRateLimitAsync("friends-delete", ip, 30, 60000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { isFeedbackEnabled } from "@/lib/app-settings";
 import { logError } from "@/lib/logError";
 
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("feedback", ip, 10, 15 * 60 * 1000)) {
+    if (!await checkRateLimitAsync("feedback", ip, 10, 15 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 

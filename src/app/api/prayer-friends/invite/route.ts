@@ -3,7 +3,7 @@ import { eq, and, or, gt, isNull } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { sendPrayerPush } from "@/lib/notifications/push";
 import { logError } from "@/lib/logError";
 
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("prayer-invite-create", ip, 10, 15 * 60 * 1000)) {
+  if (!await checkRateLimitAsync("prayer-invite-create", ip, 10, 15 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
@@ -55,7 +55,7 @@ export async function PUT(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("prayer-invite-accept", ip, 20, 15 * 60 * 1000)) {
+  if (!await checkRateLimitAsync("prayer-invite-accept", ip, 20, 15 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

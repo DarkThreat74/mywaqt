@@ -3,7 +3,7 @@ import { eq, and, or, inArray, gte } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { calculateStreak, weekStartInTimezone } from "@/lib/prayer/checkin";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!checkRateLimit("pf-list", getClientIp(request.headers), 60, 60 * 1000)) {
+  if (!await checkRateLimitAsync("pf-list", getClientIp(request.headers), 60, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

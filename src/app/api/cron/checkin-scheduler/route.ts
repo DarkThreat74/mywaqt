@@ -12,19 +12,26 @@ import { logError } from "@/lib/logError";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-// POST /api/cron/checkin-scheduler — runs once daily (Vercel Hobby limitation)
+// Vercel Cron invokes GET — alias it to the same handler.
+export { POST as GET };
+
+// Runs HOURLY (vercel.json). Each user is assigned deterministic daily slots
+// so every user is still processed ~once/day, but each invocation only handles
+// its slice — at 100k users that's ~10k users/run instead of 100k in 300s.
 //
-// Since this only runs once daily, it CANNOT send real-time prayer notifications.
-// Real-time prayer notifications are handled by the client-side NotificationScheduler
-// while the app is open or in a background tab.
+// Slot assignment (all deterministic hashes of userId — no stored state):
+//  - resolve slot: hash % 24 === UTC hour → prayer-log resolution + the
+//    ungated reminders (subscription renewals, birthdays). Timing within the
+//    day doesn't matter for these.
+//  - notify slot: one of the UTC hours that lands in the user's LOCAL 6:00–20:59
+//    window → homework digest (6–21), morning prayer-times push (4–11), and
+//    every other hour-gated feature still fires. Without this, a fixed-hour
+//    shard would permanently miss users whose local hour fell outside the
+//    windows.
+//  - Jumu'ah: weekly slot — local Thursday, hour 18–20, sub-slot by hash.
 //
-// This cron does four things:
-// 1. Sends a daily morning push with today's prayer times (so users start the
-//    day knowing when each prayer is)
-// 2. Resolves any prayers from yesterday whose windows have closed as
-//    assumed_prayed (the "never assume the worst" principle)
-// 3. Cleans up login_attempts older than 24 hours (per-account brute-force table)
-// 4. Cleans up trusted_devices unused for 90 days (stale device hygiene)
+// Client-side NotificationScheduler still covers real-time pushes while the
+// app is open; this cron is the always-on backstop.
 //
 // Idempotent — safe to run multiple times.
 //
@@ -34,9 +41,56 @@ export const maxDuration = 300;
 // - Memory exhaustion from loading all data at once
 // - Single-function timeout from processing too many users sequentially
 const BATCH_SIZE = 500;
+// Stop starting new batches past this — a sharded run that can't finish just
+// means some slots were too heavy; the next hourly run covers its own slice.
+const TIME_BUDGET_MS = 250_000;
 const STALE_DEVICE_DAYS = 90;
 const LOGIN_ATTEMPT_RETENTION_HOURS = 24;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Deterministic 32-bit hash (FNV-1a) — stable across runs/instances. */
+function hash32(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+const offsetCache = new Map<string, number>();
+/** User's timezone offset in minutes (local − UTC), cached per timezone. */
+function tzOffsetMinutes(tz: string): number {
+  const cached = offsetCache.get(tz);
+  if (cached !== undefined) return cached;
+  let off = 0;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date());
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+    const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"), get("second"));
+    off = Math.round((asUtc - Date.now()) / 60000);
+  } catch {
+    off = 0;
+  }
+  offsetCache.set(tz, off);
+  return off;
+}
+
+/** UTC hours whose local hour (in `tz`) falls inside [fromHour, toHour]. */
+function eligibleUtcHours(offMin: number, fromHour: number, toHour: number): number[] {
+  const out: number[] = [];
+  for (let h = 0; h < 24; h++) {
+    const localMin = (((h * 60 + offMin) % 1440) + 1440) % 1440;
+    const hr = Math.floor(localMin / 60);
+    if (hr >= fromHour && hr <= toHour) out.push(h);
+  }
+  return out;
+}
 
 function fmtLocal(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -75,35 +129,85 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const startedAt = Date.now();
   let notificationsSent = 0;
   let assumedResolved = 0;
 
-  // Fetch all user IDs first (lightweight — just IDs, not full settings)
+  // Fetch all user IDs + timezones (lightweight — the per-user work needs
+  // nothing else; batch queries below pull the heavy rows by userId).
   const allSettings = await db.select({
     userId: schema.prayerSettings.userId,
     timezone: schema.prayerSettings.timezone,
-    latitude: schema.prayerSettings.latitude,
-    longitude: schema.prayerSettings.longitude,
-    calculationMethod: schema.prayerSettings.calculationMethod,
-    madhab: schema.prayerSettings.madhab,
   }).from(schema.prayerSettings);
 
   if (allSettings.length === 0) {
     return NextResponse.json({ ok: true, notificationsSent: 0, assumedResolved: 0 });
   }
 
-  // Process in batches to avoid inArray with 100k+ IDs
-  for (let batchStart = 0; batchStart < allSettings.length; batchStart += BATCH_SIZE) {
-    const batch = allSettings.slice(batchStart, batchStart + BATCH_SIZE);
+  // Assign each user to this run's slice. See the header comment for the
+  // slot scheme — resolve runs once/day at hash%24, notify once/day at a
+  // local-morning UTC hour, Jumu'ah weekly on local Thursday evening.
+  const utcHour = new Date(startedAt).getUTCHours();
+  const due = new Map<string, SchedulerSetting>();
+  for (const s of allSettings) {
+    const tz = s.timezone || "UTC";
+    const off = tzOffsetMinutes(tz);
+    const h = hash32(s.userId);
+
+    const resolve = (h % 24) === utcHour;
+    let notify = false;
+
+    // Notify slot: pick one UTC hour that lands in local 06:00–20:59 — wide
+    // enough for the digest (6–21) and morning push (4–11) gates to fire.
+    const elig = eligibleUtcHours(off, 6, 20);
+    if (elig.length > 0 && elig[(hash32(`${s.userId}:n`) % elig.length)] === utcHour) {
+      notify = true;
+    }
+
+    // Jumu'ah weekly slot: local Thursday, local hour 18–20, sub-slot by hash.
+    if (!notify) {
+      const local = new Date(startedAt + off * 60000);
+      const lh = local.getUTCHours();
+      if (local.getUTCDay() === 4 && lh >= 18 && lh < 21 && lh === 18 + (hash32(`${s.userId}:j`) % 3)) {
+        notify = true;
+      }
+    }
+
+    if (resolve || notify) {
+      due.set(s.userId, { userId: s.userId, timezone: tz, resolve });
+    }
+  }
+
+  const dueUsers = Array.from(due.values());
+  if (dueUsers.length === 0) {
+    // Nothing scheduled this hour — still run the cheap housekeeping sweeps.
+  }
+
+  // Process in batches; stop starting new ones past the time budget.
+  let batchesDone = 0;
+  let truncated = false;
+  for (let batchStart = 0; batchStart < dueUsers.length; batchStart += BATCH_SIZE) {
+    if (Date.now() - startedAt > TIME_BUDGET_MS) {
+      truncated = true;
+      break;
+    }
+    const batch = dueUsers.slice(batchStart, batchStart + BATCH_SIZE);
     const batchUserIds = batch.map((s) => s.userId);
 
     try {
       const result = await processUserBatch(batch, batchUserIds);
       notificationsSent += result.notificationsSent;
       assumedResolved += result.assumedResolved;
+      batchesDone++;
     } catch (batchErr) {
       logError(batchErr, { route: "cron/checkin-scheduler", phase: "batch", offset: batchStart });
     }
+  }
+  if (truncated) {
+    logError(new Error("checkin-scheduler time budget exceeded"), {
+      route: "cron/checkin-scheduler", phase: "time-budget",
+      dueUsers: dueUsers.length, batchesDone,
+    });
   }
 
   // ── Cleanup: prune stale login attempts and trusted devices ──
@@ -159,11 +263,13 @@ export async function POST(request: NextRequest) {
     logError(err, { route: "cron/checkin-scheduler", phase: "sweep-pending-signups" });
   }
 
-  return NextResponse.json({ ok: true, notificationsSent, assumedResolved, loginAttemptsDeleted, staleDevicesDeleted, accountsDeleted, pendingSignupsDeleted });
+  return NextResponse.json({ ok: true, notificationsSent, assumedResolved, dueUsers: dueUsers.length, batchesDone, truncated, loginAttemptsDeleted, staleDevicesDeleted, accountsDeleted, pendingSignupsDeleted });
 }
 
+type SchedulerSetting = { userId: string; timezone: string; resolve: boolean };
+
 async function processUserBatch(
-  settings: Array<{ userId: string; timezone: string; latitude: string; longitude: string; calculationMethod: number; madhab: string | null }>,
+  settings: SchedulerSetting[],
   userIds: string[],
 ): Promise<{ notificationsSent: number; assumedResolved: number }> {
   let notificationsSent = 0;
@@ -180,19 +286,26 @@ async function processUserBatch(
   }
   const dateList = Array.from(allDates);
 
+  // Resolution data is only needed for users on their resolve slot —
+  // notify-only users skip section 1 entirely.
+  const needsResolve = settings.some((s) => s.resolve);
+
   // Batch 1: prayer times cache rows for relevant dates. MUST filter by
   // userIds — the index is (user_id, date), so a date-only query reads every
   // user's rows for those dates (at 100k users that's the whole table per
   // batch). With the user filter it's an index range scan per user.
-  const allCachedTimes = await db
-    .select()
-    .from(schema.prayerTimesCache)
-    .where(
-      and(
-        inArray(schema.prayerTimesCache.userId, userIds),
-        inArray(schema.prayerTimesCache.date, dateList),
-      ),
-    );
+  const resolveUserIds = needsResolve ? userIds : [];
+  const allCachedTimes = needsResolve
+    ? await db
+        .select()
+        .from(schema.prayerTimesCache)
+        .where(
+          and(
+            inArray(schema.prayerTimesCache.userId, resolveUserIds),
+            inArray(schema.prayerTimesCache.date, dateList),
+          ),
+        )
+    : [];
 
   const cachedTimesMap = new Map<string, Map<string, typeof allCachedTimes[0]>>();
   for (const row of allCachedTimes) {
@@ -202,21 +315,23 @@ async function processUserBatch(
   }
 
   // Batch 2: pending prayer logs for yesterday's dates
-  const allPendingLogs = await db
-    .select()
-    .from(schema.prayerLog)
-    .where(
-      and(
-        inArray(schema.prayerLog.userId, userIds),
-        // Also resolve stragglers older than every user's "yesterday" —
-        // a missed run or pre-Fajr skip must never leave pending forever.
-        or(
-          inArray(schema.prayerLog.date, Array.from(yesterdayDates)),
-          lt(schema.prayerLog.date, Array.from(yesterdayDates).sort()[0] ?? ""),
-        ),
-        eq(schema.prayerLog.status, "pending"),
-      ),
-    );
+  const allPendingLogs = needsResolve
+    ? await db
+        .select()
+        .from(schema.prayerLog)
+        .where(
+          and(
+            inArray(schema.prayerLog.userId, resolveUserIds),
+            // Also resolve stragglers older than every user's "yesterday" —
+            // a missed run or pre-Fajr skip must never leave pending forever.
+            or(
+              inArray(schema.prayerLog.date, Array.from(yesterdayDates)),
+              lt(schema.prayerLog.date, Array.from(yesterdayDates).sort()[0] ?? ""),
+            ),
+            eq(schema.prayerLog.status, "pending"),
+          ),
+        )
+    : [];
 
   const pendingLogsMap = new Map<string, Map<string, Map<string, typeof allPendingLogs[0]>>>();
   for (const log of allPendingLogs) {
@@ -296,19 +411,21 @@ async function processUserBatch(
   // Batch 6b: hayd periods overlapping any user's "yesterday" — those days
   // resolve as excused, not assumed_prayed (the obligation was lifted).
   const yestList = Array.from(yesterdayDates).sort();
-  const batchHayd = await db
-    .select({
-      userId: schema.haydPeriods.userId,
-      startDate: schema.haydPeriods.startDate,
-      endDate: schema.haydPeriods.endDate,
-    })
-    .from(schema.haydPeriods)
-    .where(
-      and(
-        inArray(schema.haydPeriods.userId, userIds),
-        lte(schema.haydPeriods.startDate, yestList[yestList.length - 1]),
-      ),
-    );
+  const batchHayd = needsResolve
+    ? await db
+        .select({
+          userId: schema.haydPeriods.userId,
+          startDate: schema.haydPeriods.startDate,
+          endDate: schema.haydPeriods.endDate,
+        })
+        .from(schema.haydPeriods)
+        .where(
+          and(
+            inArray(schema.haydPeriods.userId, resolveUserIds),
+            lte(schema.haydPeriods.startDate, yestList[yestList.length - 1]),
+          ),
+        )
+    : [];
   const haydMap = new Map<string, typeof batchHayd>();
   for (const p of batchHayd) {
     if (!haydMap.has(p.userId)) haydMap.set(p.userId, []);
@@ -333,7 +450,9 @@ async function processUserBatch(
       const { today, yesterdayStr } = userNowAsLocalDate(s.timezone);
 
       // 1. Resolve yesterday's unmarked prayers — excused on hayd days (the
-      //    obligation was lifted), assumed_prayed otherwise.
+      //    obligation was lifted), assumed_prayed otherwise. Only on the
+      //    user's resolve slot — notify-only visits skip the writes entirely.
+      if (s.resolve) {
       const haydCovered = (haydMap.get(s.userId) ?? []).some(
         (p) => p.startDate <= yesterdayStr && (!p.endDate || p.endDate >= yesterdayStr),
       );
@@ -425,6 +544,7 @@ async function processUserBatch(
         if (logIdsToUpdate.length > 0 || rowsToInsert.length > 0) {
           await recordDayCompletion(s.userId, yesterdayStr);
         }
+      }
       }
 
       // 2. Homework deadline digest — one push per user per day. Only sent

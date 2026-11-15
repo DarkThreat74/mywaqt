@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { sendPrayerPush } from "@/lib/notifications/push";
 import { logError } from "@/lib/logError";
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("pf-dua", ip, 30, 60 * 1000)) {
+  if (!await checkRateLimitAsync("pf-dua", ip, 30, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

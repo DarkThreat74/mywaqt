@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { FRIEND_REQUEST_TTL_MS } from "@/lib/friend-requests";
 
@@ -16,7 +16,7 @@ const SNOOZE_CUTOFF_MS = 2 * 60 * 60 * 1000; // no dismiss in the last 2h of lif
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!checkRateLimit("pf-snooze", getClientIp(request.headers), 30, 60 * 1000)) {
+  if (!await checkRateLimitAsync("pf-snooze", getClientIp(request.headers), 30, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

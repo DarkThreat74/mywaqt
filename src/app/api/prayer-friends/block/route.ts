@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("prayer-friend-block", ip, 10, 15 * 60 * 1000)) {
+  if (!await checkRateLimitAsync("prayer-friend-block", ip, 10, 15 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
@@ -65,7 +65,7 @@ export async function DELETE(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!checkRateLimit("prayer-friend-unblock", getClientIp(request.headers), 10, 900000)) {
+  if (!await checkRateLimitAsync("prayer-friend-unblock", getClientIp(request.headers), 10, 900000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

@@ -4,7 +4,7 @@ import { db, schema } from "@/lib/db/client";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logError } from "@/lib/logError";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("goals-share-post", ip, 10, 15 * 60 * 1000)) {
+    if (!await checkRateLimitAsync("goals-share-post", ip, 10, 15 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("goals-share-delete", ip, 10, 15 * 60 * 1000)) {
+    if (!await checkRateLimitAsync("goals-share-delete", ip, 10, 15 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 

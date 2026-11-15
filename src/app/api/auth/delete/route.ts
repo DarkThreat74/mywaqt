@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest, DELETION_GRACE_MS } from "@/lib/auth/session";
 import { db, schema } from "@/lib/db/client";
 import { eq } from "drizzle-orm";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("account-delete", ip, 10, 60 * 60 * 1000)) {
+    if (!await checkRateLimitAsync("account-delete", ip, 10, 60 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { db, schema } from "@/lib/db/client";
 import { eq, and, count } from "drizzle-orm";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { isValidUUID } from "@/lib/validation";
 import { logError } from "@/lib/logError";
 
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (!checkRateLimit("goals-read", getClientIp(request.headers), 60, 60000)) {
+    if (!await checkRateLimitAsync("goals-read", getClientIp(request.headers), 60, 60000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
 
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("goals-post", ip, 30, 60 * 1000)) {
+    if (!await checkRateLimitAsync("goals-post", ip, 30, 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
@@ -163,7 +163,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("goals-patch", ip, 60, 60 * 1000)) {
+    if (!await checkRateLimitAsync("goals-patch", ip, 60, 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
@@ -381,7 +381,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("goals-delete", ip, 20, 60 * 60 * 1000)) {
+    if (!await checkRateLimitAsync("goals-delete", ip, 20, 60 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 

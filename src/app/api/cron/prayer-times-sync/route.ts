@@ -7,6 +7,9 @@ import { fetchMonthPrayerTimes, parseTime } from "@/lib/aladhan/client";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+// Vercel Cron invokes GET — alias it to the same handler.
+export { POST as GET };
+
 // POST /api/cron/prayer-times-sync — monthly, re-fetches prayer times for all users
 //
 // ─── Scalability for 100k+ users ───
@@ -148,8 +151,14 @@ export async function POST(request: NextRequest) {
   let failCount = 0;
   const apiCallsSaved = staleSettings.length - uniqueLocations.length;
 
-  // Process unique locations in batches with concurrency limit
+  // Process unique locations in batches with concurrency limit.
+  // Time-boxed: inserts commit per chunk, so a truncated run leaves the
+  // already-synced users out of the stale set on the next run — progress
+  // is self-healing rather than all-or-nothing.
+  const deadline = Date.now() + 240_000;
+  let truncated = false;
   for (let batchStart = 0; batchStart < uniqueLocations.length; batchStart += SYNC_BATCH_SIZE) {
+    if (Date.now() > deadline) { truncated = true; break; }
     const batch = uniqueLocations.slice(batchStart, batchStart + SYNC_BATCH_SIZE);
 
     // Process with concurrency limit
@@ -233,6 +242,7 @@ export async function POST(request: NextRequest) {
     ok: true,
     success: successCount,
     failed: failCount,
+    truncated,
     totalUsers: allSettings.length,
     staleUsers: staleSettings.length,
     uniqueLocations: uniqueLocations.length,

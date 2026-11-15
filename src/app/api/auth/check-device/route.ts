@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { isValidEmail, isValidFingerprintHash } from "@/lib/validation";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 //   (we run a dummy query to equalize timing)
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("check-device", ip, 10, 15 * 60 * 1000)) {
+  if (!await checkRateLimitAsync("check-device", ip, 10, 15 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

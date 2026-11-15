@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and, or, desc, inArray, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { logError } from "@/lib/logError";
 import { sendPrayerPush } from "@/lib/notifications/push";
 
@@ -60,7 +60,7 @@ function shape(m: typeof schema.friendMessages.$inferSelect, replyToContent: str
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!checkRateLimit("messages", getClientIp(request.headers), 60, 60 * 1000)) {
+  if (!await checkRateLimitAsync("messages", getClientIp(request.headers), 60, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
@@ -194,7 +194,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!checkRateLimit("messages", getClientIp(request.headers), 60, 60 * 1000)) {
+  if (!await checkRateLimitAsync("messages", getClientIp(request.headers), 60, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

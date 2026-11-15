@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and, desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("trusted-devices-read", ip, 30, 60 * 1000)) {
+  if (!await checkRateLimitAsync("trusted-devices-read", ip, 30, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
@@ -40,7 +40,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("trusted-devices-delete", ip, 10, 60 * 1000)) {
+  if (!await checkRateLimitAsync("trusted-devices-delete", ip, 10, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { randomInt } from "crypto";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { slugifyName } from "@/lib/slugify";
 import { logError } from "@/lib/logError";
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
   // Rate limit: 5 generations per hour per IP
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("share-generate", ip, 5, 60 * 60 * 1000)) {
+  if (!await checkRateLimitAsync("share-generate", ip, 5, 60 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
@@ -75,7 +75,7 @@ export async function DELETE(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!checkRateLimit("share-revoke", getClientIp(request.headers), 20, 60 * 1000)) {
+  if (!await checkRateLimitAsync("share-revoke", getClientIp(request.headers), 20, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!checkRateLimit("share-generate-read", getClientIp(request.headers), 60, 60000)) {
+  if (!await checkRateLimitAsync("share-generate-read", getClientIp(request.headers), 60, 60000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
@@ -150,7 +150,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("share-settings", ip, 30, 60 * 1000)) {
+  if (!await checkRateLimitAsync("share-settings", ip, 30, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

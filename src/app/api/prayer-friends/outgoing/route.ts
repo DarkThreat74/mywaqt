@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { expireStaleFriendRequests, profilesFor, FRIEND_REQUEST_TTL_MS } from "@/lib/friend-requests";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!checkRateLimit("pf-outgoing", getClientIp(request.headers), 60, 60 * 1000)) {
+  if (!await checkRateLimitAsync("pf-outgoing", getClientIp(request.headers), 60, 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

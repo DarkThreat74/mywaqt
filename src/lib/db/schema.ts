@@ -208,6 +208,7 @@ export const friendMessages = pgTable(
   },
   (table) => [
     index('friend_messages_pair_idx').on(table.recipientId, table.senderId, table.createdAt),
+    index('friend_messages_sender_pair_idx').on(table.senderId, table.recipientId, table.createdAt),
     index('friend_messages_recipient_unread_idx').on(table.recipientId, table.readAt),
   ],
 );

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 import { sendPrayerPush } from "@/lib/notifications/push";
 import { FRIEND_REQUEST_TTL_MS } from "@/lib/friend-requests";
 
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("prayer-friend-add", ip, 10, 15 * 60 * 1000)) {
+  if (!await checkRateLimitAsync("prayer-friend-add", ip, 10, 15 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

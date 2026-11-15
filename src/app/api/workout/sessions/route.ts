@@ -36,21 +36,46 @@ export async function GET(request: NextRequest) {
     .where(eq(schema.workoutSessions.userId, session.userId))
     .orderBy(desc(schema.workoutSessions.startedAt)).limit(50);
   // Abandoned sessions: >30min old, still open → purge if empty, else end at
-  // the last logged set's time (the session's real duration).
-  for (const s of sessions.filter((x) => !x.endedAt && Date.now() - x.startedAt.getTime() > 30 * 60000)) {
-    const doneSets = await db.select().from(schema.workoutSets)
-      .where(and(eq(schema.workoutSets.sessionId, s.id), eq(schema.workoutSets.done, true)));
-    if (!doneSets.length) {
-      await db.delete(schema.workoutSessions).where(eq(schema.workoutSessions.id, s.id));
-      sessions.splice(sessions.indexOf(s), 1);
-    } else {
-      const lastLoggedAt = doneSets.reduce((latest, set) => {
-        const at = set.loggedAt?.getTime() ?? s.startedAt.getTime();
-        return Math.max(latest, at);
-      }, s.startedAt.getTime());
-      s.endedAt = new Date(Math.max(s.startedAt.getTime(), Math.min(lastLoggedAt, Date.now())));
-      await db.update(schema.workoutSessions).set({ endedAt: s.endedAt }).where(eq(schema.workoutSessions.id, s.id));
+  // the last logged set's time (the session's real duration). Done-sets are
+  // batch-loaded in ONE query — the old per-session loop was an N+1 that
+  // issued up to 50 sequential round-trips per request.
+  const abandoned = sessions.filter((x) => !x.endedAt && Date.now() - x.startedAt.getTime() > 30 * 60000);
+  if (abandoned.length > 0) {
+    const abandonedIds = abandoned.map((s) => s.id);
+    const doneSets = await db.select({
+      sessionId: schema.workoutSets.sessionId,
+      loggedAt: schema.workoutSets.loggedAt,
+    }).from(schema.workoutSets)
+      .where(and(inArray(schema.workoutSets.sessionId, abandonedIds), eq(schema.workoutSets.done, true)));
+    const setsBySession = new Map<string, Array<Date | null>>();
+    for (const set of doneSets) {
+      const list = setsBySession.get(set.sessionId) || [];
+      list.push(set.loggedAt);
+      setsBySession.set(set.sessionId, list);
     }
+    const toDelete: string[] = [];
+    const toEnd: Array<{ id: string; endedAt: Date }> = [];
+    for (const s of abandoned) {
+      const logged = setsBySession.get(s.id) ?? [];
+      if (logged.length === 0) {
+        toDelete.push(s.id);
+        sessions.splice(sessions.indexOf(s), 1);
+      } else {
+        const lastLoggedAt = logged.reduce((latest, at) =>
+          Math.max(latest, at?.getTime() ?? s.startedAt.getTime()), s.startedAt.getTime());
+        const endedAt = new Date(Math.max(s.startedAt.getTime(), Math.min(lastLoggedAt, Date.now())));
+        s.endedAt = endedAt;
+        toEnd.push({ id: s.id, endedAt });
+      }
+    }
+    for (let i = 0; i < toDelete.length; i += 500) {
+      await db.delete(schema.workoutSessions)
+        .where(and(inArray(schema.workoutSessions.id, toDelete.slice(i, i + 500)), eq(schema.workoutSessions.userId, session.userId)));
+    }
+    await Promise.allSettled(toEnd.map(({ id, endedAt }) =>
+      db.update(schema.workoutSessions).set({ endedAt })
+        .where(and(eq(schema.workoutSessions.id, id), eq(schema.workoutSessions.userId, session.userId))),
+    ));
   }
   const sessionIds = sessions.map((s) => s.id);
   const completed = sessionIds.length

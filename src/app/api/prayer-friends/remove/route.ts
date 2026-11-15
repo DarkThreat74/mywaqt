@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and, or } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   const ip = getClientIp(request.headers);
-  if (!checkRateLimit("prayer-friend-remove", ip, 20, 15 * 60 * 1000)) {
+  if (!await checkRateLimitAsync("prayer-friend-remove", ip, 20, 15 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
@@ -30,8 +30,10 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Invalid friendId." }, { status: 400 });
   }
 
-  // Remove both directions — you unfriend them, they unfriend you
-  await db
+  // Remove both directions — you unfriend them, they unfriend you.
+  // returning() tells us whether a friendship actually existed — without it
+  // anyone could spam "Friend removed" notifications to arbitrary user IDs.
+  const removed = await db
     .delete(schema.prayerFriends)
     .where(
       or(
@@ -44,7 +46,12 @@ export async function DELETE(request: NextRequest) {
           eq(schema.prayerFriends.friendId, session.userId),
         ),
       ),
-    );
+    )
+    .returning({ userId: schema.prayerFriends.userId });
+
+  if (removed.length === 0) {
+    return NextResponse.json({ ok: true, removed: false });
+  }
 
   // Both sides stay in sync: the removed friend is unlocked and told.
   const [me] = await db

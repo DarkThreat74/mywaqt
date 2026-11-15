@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db, schema } from "@/lib/db/client";
 import { eq, ne, and } from "drizzle-orm";
 import { logError } from "@/lib/logError";
-import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
+import { getClientIp, checkRateLimitAsync } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const ip = getClientIp(request.headers);
-    if (!checkRateLimit("goals-shared", ip, 10, 15 * 60 * 1000)) {
+    if (!await checkRateLimitAsync("goals-shared", ip, 10, 15 * 60 * 1000)) {
       return NextResponse.json({ error: "Too many requests." }, { status: 429 });
     }
 
