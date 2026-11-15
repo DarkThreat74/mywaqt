@@ -478,6 +478,16 @@ parallel — do not stop at the single most obvious one.**
 *This file is maintained alongside the codebase. When you learn a new pattern or
 lesson, add it here. The audit never ends.*
 
+## Known Risks
+
+- **`public/exercises/*.gif` licensing** — the 367 technique GIFs came from the
+  ExerciseDB non-commercial API and a scraped commercial site. Fine for a free
+  product; **must be replaced or removed before monetization**. Fix path: swap
+  `ExerciseMedia` GIF source to Open-GYM CC BY-SA art (with attribution page) or
+  drop to SVG-only (`src/lib/workout/diagrams.tsx`). Catalog metadata imports
+  (`exercises-extra.ts`, `exercises-wger.ts`) are license-clean — regenerate via
+  `scripts/import-exercise-db.mjs` / `scripts/import-wger.mjs`.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
