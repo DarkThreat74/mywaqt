@@ -485,6 +485,8 @@ export default function WorkoutClient() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Workout</h1>
         <div className="flex gap-1.5">
+          <Link href="/workout/muscles" className="rounded-full border px-3 py-1 text-[10px] font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Muscles</Link>
           <Link href="/workout/library" className="rounded-full border px-3 py-1 text-[10px] font-medium"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Library</Link>
           <Link href="/workout/profile" className="rounded-full border px-3 py-1 text-[10px] font-medium"

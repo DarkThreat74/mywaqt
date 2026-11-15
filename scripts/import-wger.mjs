@@ -27,7 +27,7 @@ const EQUIP = {
   bands: "band", band: "band", smith: "smith", "e-z curl bar": "barbell",
 };
 
-function pattern(name, instr, muscle) {
+function pattern(name, instr) {
   const t = `${name} ${instr}`.toLowerCase();
   const has = (...ws) => ws.some((w) => t.includes(w));
   if (has("neck")) return "neck_multi";
@@ -98,7 +98,7 @@ for (const x of raw) {
   const desc = (x.translations?.[0]?.description || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   out.push({
     slug, name, muscle,
-    pattern: pattern(name, desc.slice(0, 200), muscle),
+    pattern: pattern(name, desc.slice(0, 200)),
     equip,
     cue: (desc || name).slice(0, 110),
     howto: desc ? desc.slice(0, 400) : undefined,
