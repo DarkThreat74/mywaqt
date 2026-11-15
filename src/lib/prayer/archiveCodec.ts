@@ -58,7 +58,7 @@ function decodeOffset(v: number, dateStr: string): Date | null {
 }
 
 /** Pack one user's rows for a single month into the fixed-layout blob. */
-export function packMonth(rows: ArchiveSourceRow[], year: number, month: number): string {
+export function packMonth(rows: ArchiveSourceRow[], year: number, month: number): Buffer {
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const buf = Buffer.alloc(MAX_DAY * DAY_BYTES);
   const prayerIdx = new Map(PRAYER_ORDER.map((p, i) => [p, i]));
@@ -75,12 +75,12 @@ export function packMonth(rows: ArchiveSourceRow[], year: number, month: number)
     buf.writeUInt16LE(marked, o + 2);
     buf.writeUInt16LE(checkin, o + 4);
   }
-  return buf.toString("base64");
+  return buf;
 }
 
 /** Unpack an archive payload back into log-shaped rows (id omitted). */
-export function unpackMonth(payload: string, year: number, month: number): ArchiveLogRow[] {
-  const buf = Buffer.from(payload, "base64");
+export function unpackMonth(payload: Buffer | Uint8Array, year: number, month: number): ArchiveLogRow[] {
+  const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const out: ArchiveLogRow[] = [];
   for (let day = 1; day <= daysInMonth; day++) {

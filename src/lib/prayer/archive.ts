@@ -14,7 +14,7 @@ import {
  * path (check-in, range ≤180d, sunnah, qadaa, cron resolution) stays inside
  * it by design. Older rows are packed into prayer_log_archive: ONE row per
  * (user, month) whose payload is the fixed-layout blob from archiveCodec.ts
- * (base64 text so the Neon HTTP driver round-trips it safely).
+ * (bytea column; the driver maps it through "\\x<hex>" text).
  *
  * ~1KB per user-month vs ~150B × ~150 rows — roughly a 25-30× size cut while
  * retaining status, masjid flag, checkin stage, and both timestamps to the
@@ -125,7 +125,7 @@ export async function fetchPrayerLogsRange(
           .select({ month: schema.prayerLogArchive.month, payload: schema.prayerLogArchive.payload })
           .from(schema.prayerLogArchive)
           .where(and(eq(schema.prayerLogArchive.userId, userId), lt(schema.prayerLogArchive.month, cutoff.slice(0, 7))))
-      : Promise.resolve([] as Array<{ month: string; payload: string }>),
+      : Promise.resolve([] as Array<{ month: string; payload: Buffer }>),
   ]);
 
   const out: Array<ArchiveLogRow & { userId: string }> = hot.map((r) => ({ ...r, userId }));

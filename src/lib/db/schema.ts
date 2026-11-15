@@ -26,7 +26,23 @@ import {
   primaryKey,
   pgEnum,
   jsonb,
+  customType,
 } from 'drizzle-orm/pg-core';
+
+// Postgres bytea — driver round-trips as "\\x<hex>" text on the Neon HTTP path.
+const bytea = customType<{ data: Buffer; driverData: string }>({
+  dataType() { return 'bytea'; },
+  toDriver: (v) => `\\x${v.toString('hex')}`,
+  fromDriver: (v) => {
+    if (Buffer.isBuffer(v)) return v;
+    if (typeof v === 'string') {
+      if (v.startsWith('\\x')) return Buffer.from(v.slice(2), 'hex');
+      // Tolerate base64 payloads written before the bytea migration.
+      return Buffer.from(v, 'base64');
+    }
+    return Buffer.alloc(0);
+  },
+});
 
 export interface UiPrefs {
   theme?: 'light' | 'dark' | 'system';
@@ -605,7 +621,7 @@ export const prayerLogArchive = pgTable(
   {
     userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     month: text('month').notNull(), // 'YYYY-MM'
-    payload: text('payload').notNull(),
+    payload: bytea('payload').notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
