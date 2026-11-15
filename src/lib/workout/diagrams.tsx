@@ -10,7 +10,7 @@ const S = { fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLineca
 
 function fig(bars: React.ReactNode, person: React.ReactNode) {
   return (
-    <svg viewBox="0 0 56 56" {...S} aria-hidden="true">
+    <svg viewBox="0 0 56 56" width="100%" height="100%" {...S} aria-hidden="true" preserveAspectRatio="xMidYMid meet">
       {bars}
       {person}
     </svg>
@@ -290,19 +290,47 @@ export function ExerciseDiagram({ pattern, className, style }: { pattern: string
 }
 
 /**
- * Real technique GIF when one was downloaded to /public/exercises, else the
- * SVG diagram — so every exercise always shows something.
+ * Exercise visual — SVG frame art by default (offline-safe, always renders),
+ * with a small toggle to swap in the self-hosted technique GIF. GIF failures
+ * fall back to the diagram permanently for that mount.
  */
-export function ExerciseMedia({ slug, pattern, className, style }: { slug: string; pattern: string; className?: string; style?: React.CSSProperties }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) return <ExerciseDiagram pattern={pattern} className={className} style={style} />;
+export function ExerciseMedia({ slug, pattern, className, style, showToggle = true }: { slug: string; pattern: string; className?: string; style?: React.CSSProperties; showToggle?: boolean }) {
+  const [mode, setMode] = useState<"art" | "gif">("art");
+  const [gifFailed, setGifFailed] = useState(false);
+  const useGif = mode === "gif" && !gifFailed;
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- self-hosted GIF, next/image can't optimize
-    <img
-      src={`/exercises/${slug}.gif`} alt="" loading="lazy"
-      className={className}
-      style={{ objectFit: "cover", backgroundColor: "var(--color-paper-2)", ...style }}
-      onError={() => setFailed(true)}
-    />
+    <span className={className} style={{ position: "relative", display: "inline-flex", overflow: "hidden", ...style }}>
+      {useGif ? (
+        // eslint-disable-next-line @next/next/no-img-element -- self-hosted GIF, next/image can't optimize
+        <img
+          src={`/exercises/${slug}.gif`} alt="" loading="lazy"
+          style={{ width: "100%", height: "100%", objectFit: "cover", backgroundColor: "var(--color-paper-2)" }}
+          onError={() => setGifFailed(true)}
+        />
+      ) : (
+        <ExerciseDiagram pattern={pattern} style={{ width: "100%", height: "100%" }} />
+      )}
+      {showToggle && (
+        <button
+          type="button"
+          aria-label={useGif ? "Show illustration" : "Show technique GIF"}
+          title={useGif ? "Illustration" : "Technique GIF"}
+          onClick={(e) => { e.stopPropagation(); setMode((m) => (m === "art" ? "gif" : "art")); }}
+          style={{
+            position: "absolute", right: 2, bottom: 2, width: 18, height: 18,
+            borderRadius: 5, border: "1px solid var(--color-paper-3)",
+            background: "var(--color-paper)", color: "var(--color-ink-muted)",
+            display: "grid", placeItems: "center", cursor: "pointer", padding: 0,
+            opacity: 0.85,
+          }}
+        >
+          {useGif ? (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M4 5h16M4 12h10M4 19h7"/></svg>
+          ) : (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor" stroke="none"/></svg>
+          )}
+        </button>
+      )}
+    </span>
   );
 }

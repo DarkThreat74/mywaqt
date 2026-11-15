@@ -272,19 +272,20 @@ export const VARIATIONS: Record<string, { key: string; label: string; note: stri
 
 // Unilateral-capable exercises — each set can be tagged left/right/both.
 // One-hand load ≈ 55–60% of the two-hand weight (bilateral deficit ~18–20%).
+// Only free-weight moves qualify — a fixed bar/machine path can't be split.
 export const HANDED = new Set([
   "bayesian-curl", "preacher-curl", "preacher-hammer-curl", "ez-preacher-curl",
   "machine-preacher-curl", "concentration-curl", "standing-db-curl",
   "incline-curl-30", "incline-curl-60", "hammer-curl", "zottman-curl",
   "behind-back-db-curl", "single-arm-pressdown", "cable-kickback",
-  "cuff-kickback", "skullcrusher", "two-arm-db-overhead",
+  "cuff-kickback", "two-arm-db-overhead",
   "db-lateral-raise", "cable-lateral-raise", "db-front-raise",
   "wrist-curl", "db-wrist-curl", "standing-leg-curl", "leg-extension",
   "leg-curl-toes-in", "leg-curl-toes-out", "single-leg-press",
   "single-arm-cable-rear-flye", "chest-supported-row", "bent-dumbbell-row",
   "reverse-pec-deck",
   "kroc-row", "seated-cable-row", "renegade-row", "incline-db-overhead-ext",
-  "dips", "incline-db-press", "dumbbell-press", "cable-curl", "bb-curl",
+  "dips", "incline-db-press", "dumbbell-press", "cable-curl",
 ]);
 
 // Estimate a target lift's e1RM from the user's logged bests on related lifts.

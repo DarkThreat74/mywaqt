@@ -5,6 +5,8 @@
  * MuscleWiki's CDN; cards fall back to the cue text if it 404s.
  * tier: S > A > B > C (omit = solid unranked pick).
  */
+export type LoadKind = "total" | "per_implement" | "added" | "band_estimate";
+
 export interface Exercise {
   slug: string;
   name: string;
@@ -20,6 +22,9 @@ export interface Exercise {
   cons?: string;         // what makes it worse than alternatives
   source?: string;       // expert/study attribution
   img: string;
+  uni?: boolean;         // inherently one-side-at-a-time → paired L/R set rows
+  load?: LoadKind;       // how `weight` should be interpreted (defaulted from equip)
+  family?: string;       // explicit variation-family override (else derived)
 }
 
 // muscle → parent group (two-level filter: group → head)
@@ -213,7 +218,7 @@ export const HEAD_OF: Record<string, string> = {
 
 const mw = (slug: string) => `/exercises/${slug}.gif`; // self-hosted — musclewiki CDN 404s
 
-type Detail = Pick<Exercise, "howto" | "pros" | "cons" | "source">;
+type Detail = Pick<Exercise, "howto" | "pros" | "cons" | "source" | "uni" | "load" | "family">;
 const e = (
   slug: string, name: string, muscle: string, pattern: string, equip: string,
   tier: "S" | "A" | "B" | "C" | "D" | "F" | undefined, cue: string,
@@ -224,6 +229,32 @@ const e = (
   const d = typeof compound === "object" ? compound : detail;
   return { slug, name, muscle, pattern, equip, tier, cue, compound: compound === true, img: mw(slug), ...d };
 };
+
+// Load convention defaults by equipment — dumbbell/kettlebell values are
+// per implement, bodyweight is added load only, bands are estimates.
+const LOAD_DEFAULT: Record<string, LoadKind> = {
+  barbell: "total", smith: "total", machine: "total", cable: "total",
+  dumbbell: "per_implement", kettlebell: "per_implement",
+  bodyweight: "added", band: "band_estimate",
+};
+
+// Inherently one-side-at-a-time exercises — each set is performed L then R
+// (or one side per set) and gets paired side rows. This is the single source
+// of truth; name/slug regexes must not decide this.
+const UNI_SLUGS = new Set([
+  "half-kneeling-pulldown", "meadows-row", "meadows-pulldown", "helms-row",
+  "single-arm-cable-row", "single-arm-cable-rear-flye", "single-arm-pulldown",
+  "single-arm-pressdown", "one-arm-cable-preacher", "single-arm-cable-kickback",
+  "lean-back-pressdown", "crossface-overhead", "db-overhead-extension",
+  "concentration-curl", "one-arm-dead-hang", "hangboard-one-arm",
+  "pallof-press", "pallof-kneeling",
+  "bulgarian-split-squat", "atg-split-squat", "forward-lunge", "reverse-lunge",
+  "deficit-reverse-lunge", "walking-lunge", "ffe-lunge", "lateral-lunge",
+  "cossack-squat", "step-up", "high-step-up",
+  "single-leg-calf", "single-leg-press", "single-leg-extension",
+  "standing-leg-curl", "single-leg-rdl", "single-leg-hip-thrust",
+  "side-plank", "side-plank-hip-dip",
+]);
 
 export const EXERCISES: Exercise[] = [
   // ── CHEST ──
@@ -1004,13 +1035,19 @@ export const EXERCISES: Exercise[] = [
     { howto: "Prone, raise the head in a Y pattern.", pros: "Neck extension plus scap Y together.", cons: "Very light.", source: "Cools scap series" }),
   e("wrestlers-bridge", "Wrestler's Bridge", "neck", "neck_isometric", "bodyweight", "C", "Bridge on the head — loaded neck isometric. INJURY CAUTION.",
     { howto: "Bridge on the head and feet — the classic wrestler's neck isometric.", pros: "Heaviest neck isometric you can do without equipment.", cons: "Loaded cervical compression — real injury risk; only for adapted necks, light and brief.", source: "Wrestling tradition; CAUTION — spinal compression risk" }),
-].map((x) => ({ ...x, head: HEAD_OF[x.slug] ?? ({ upper_chest: "upper", lower_chest: "lower", chest: "mid", abs: "all_abs" } as Record<string, string>)[x.muscle] }));
+].map((x) => ({
+  ...x,
+  head: HEAD_OF[x.slug] ?? ({ upper_chest: "upper", lower_chest: "lower", chest: "mid", abs: "all_abs" } as Record<string, string>)[x.muscle],
+  uni: UNI_SLUGS.has(x.slug) || x.uni === true || undefined,
+  load: x.load ?? LOAD_DEFAULT[x.equip],
+}));
 
-// Inherently one-side-at-a-time movements (Single-Arm X, One-Arm Y, Single-Leg
-// Z). Used for paired L/R set rows by default, and so legacy sets logged
-// before side tracking still count toward each arm's history.
+// Inherently one-side-at-a-time movements. Catalog `uni` flag is authoritative;
+// the regex only covers custom/user exercises with no catalog record.
 export const isUnilateralExercise = (slug: string) => {
-  const name = (EXERCISES.find((e) => e.slug === slug)?.name || slug).toLowerCase();
+  const ex = EXERCISES.find((e) => e.slug === slug);
+  if (ex) return ex.uni === true;
+  const name = slug.toLowerCase();
   return /single-arm|one-arm|single-leg|unilateral/.test(name) || /^(single-arm|one-arm|single-leg)/.test(slug);
 };
 
