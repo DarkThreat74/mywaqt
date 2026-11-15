@@ -20,6 +20,7 @@ export default function WorkoutClient() {
   const [step, setStep] = useState<number | null>(null); // 0=type, 1=name, 2=exercises
   const [view, setView] = useState<Exercise | null>(null);
   const [tierFilter, setTierFilter] = useState<string>("all");
+  const [pickerAll, setPickerAll] = useState(false);
   const [showProgress, setShowProgress] = useState(false);
   const [progress, setProgress] = useState<Array<{ slug: string; points: { at: string; e1: number }[]; last: { w: number; r: number; rir: number | null; at: string } | null; sets: number; bestE1?: number; comparisonE1?: number; firstE1?: number | null; lastE1?: number | null; gainPct?: number | null; carryoverKg?: number; carryoverFrom?: string; familyVariations?: number; familyBestE1?: number;
     daysSince?: number | null; retained?: number; recommendedKg?: number | null; recommendationReason?: string | null; averageRir?: number | null; averageReps?: number | null; predictionConfidence?: number; uncertaintyRangeKg?: [number, number]; recommendationEvidence?: string; rirReliability?: number; plateau?: boolean;
@@ -426,7 +427,7 @@ export default function WorkoutClient() {
         )}
 
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
-          {filtered.map((x) => (
+          {(pickerAll ? filtered : filtered.slice(0, 120)).map((x) => (
             <div key={x.slug} role="button" tabIndex={0} onClick={() => setView(x)} onKeyDown={(e) => e.key === "Enter" && setView(x)}
               className="cursor-pointer rounded-lg border p-2 transition-colors hover:bg-[var(--color-paper-2)]" style={{ borderColor: "var(--color-paper-3)" }}>
               <div className="flex items-center gap-2.5">
@@ -457,6 +458,13 @@ export default function WorkoutClient() {
           ))}
           {filtered.length === 0 && (
             <p className="py-6 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>No exercises match.</p>
+          )}
+          {!pickerAll && filtered.length > 120 && (
+            <button type="button" onClick={() => setPickerAll(true)}
+              className="w-full rounded-lg border py-2 text-[11px] font-medium"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+              Show all {filtered.length}
+            </button>
           )}
         </div>
 

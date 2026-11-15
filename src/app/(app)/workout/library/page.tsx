@@ -17,6 +17,7 @@ export default function LibraryPage() {
   const [view, setView] = useState<Exercise | null>(null);
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = useState(false);
 
   const list = EXERCISES.filter((x) => {
     if (groupFilter !== "all") {
@@ -37,7 +38,9 @@ export default function LibraryPage() {
     arr.push(x);
     fams.set(k, arr);
   }
-  const groups = [...fams.values()].map((m) => m.slice().sort((a, b) => a.name.length - b.name.length));
+  const allGroups = [...fams.values()].map((m) => m.slice().sort((a, b) => a.name.length - b.name.length));
+  const filtering = !!search || tierFilter !== "all" || groupFilter !== "all" || headFilter !== "all";
+  const groups = filtering || showAll ? allGroups : allGroups.slice(0, 60);
 
   return (
     <div className="page-fade mx-auto w-full max-w-2xl px-4 py-6">
@@ -128,6 +131,13 @@ export default function LibraryPage() {
           </div>
         ))}
       </div>
+      {!filtering && !showAll && allGroups.length > 60 && (
+        <button type="button" onClick={() => setShowAll(true)}
+          className="mt-3 w-full rounded-lg border py-2.5 text-xs font-medium"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+          Show all {allGroups.length} exercises
+        </button>
+      )}
 
       {view && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setView(null)}>
