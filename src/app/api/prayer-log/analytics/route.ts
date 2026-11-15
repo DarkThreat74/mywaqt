@@ -3,6 +3,7 @@ import { eq, and, gte } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { calculateStreak, calculateBestStreak } from "@/lib/prayer/checkin";
+import { fetchPrayerLogsRange } from "@/lib/prayer/archive";
 import { logError } from "@/lib/logError";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
@@ -89,23 +90,9 @@ export async function GET(request: NextRequest) {
     // Use the earliest of all date filters for the DB query
     const dbFromDate = [rangeStart, streakFromDate, heatmapFromDate].sort()[0];
 
-    const allLogs = await db
-      .select({
-        id: schema.prayerLog.id,
-        date: schema.prayerLog.date,
-        prayerName: schema.prayerLog.prayerName,
-        status: schema.prayerLog.status,
-        wentToMasjid: schema.prayerLog.wentToMasjid,
-        markedAt: schema.prayerLog.markedAt,
-      })
-      .from(schema.prayerLog)
-      .where(
-        and(
-          eq(schema.prayerLog.userId, session.userId),
-          gte(schema.prayerLog.date, dbFromDate),
-        ),
-      )
-      .limit(10000);
+    // Hot table + packed archive — analytics is the only reader that reaches
+    // past the ~200-day hot window (heatmap = 365d, all-time = everything).
+    const allLogs = await fetchPrayerLogsRange(session.userId, dbFromDate, todayStr);
 
     // Fetch cached prayer times covering the full DB range
     const prayerTimesRows = await db

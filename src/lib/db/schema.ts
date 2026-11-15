@@ -595,6 +595,24 @@ export const prayerLog = pgTable(
   ],
 );
 
+// ─── Prayer Log Archive (packed monthly cold storage for prayer_log) ───
+// One row per (user, month); payload is a base64 fixed-layout binary blob —
+// see src/lib/prayer/archive.ts for the format. prayer_log keeps a rolling
+// ~200-day hot window; everything older lives here, losslessly.
+
+export const prayerLogArchive = pgTable(
+  'prayer_log_archive',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    month: text('month').notNull(), // 'YYYY-MM'
+    payload: text('payload').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.month] }),
+  ],
+);
+
 // ─── Sunnah Log (tracks sunnah/nafl prayers associated with fard prayers) ───
 
 export const sunnahLog = pgTable(

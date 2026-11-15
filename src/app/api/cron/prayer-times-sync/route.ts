@@ -3,6 +3,8 @@ import { sql, and } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { verifyCronAuth } from "@/lib/cronAuth";
 import { fetchMonthPrayerTimes, parseTime } from "@/lib/aladhan/client";
+import { archivePrayerLogsForUsers, archiveCutoffDate } from "@/lib/prayer/archive";
+import { logError } from "@/lib/logError";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -238,11 +240,31 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ── Archive phase: pack prayer_log rows older than the ~200-day hot
+  // window into prayer_log_archive (one packed row per user-month).
+  // Same time budget as the sync — a truncated run self-heals next month
+  // since already-archived users no longer have eligible hot rows.
+  let archivedRows = 0;
+  let archiveTruncated = false;
+  if (!truncated) {
+    const cutoff = archiveCutoffDate();
+    const allUserIds = allSettings.map((s) => s.userId);
+    for (let i = 0; i < allUserIds.length; i += 500) {
+      if (Date.now() > deadline) { archiveTruncated = true; break; }
+      try {
+        archivedRows += await archivePrayerLogsForUsers(allUserIds.slice(i, i + 500), cutoff);
+      } catch (err) {
+        logError(err, { route: "cron/prayer-times-sync", phase: "archive", offset: i });
+      }
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     success: successCount,
     failed: failCount,
-    truncated,
+    truncated: truncated || archiveTruncated,
+    archivedRows,
     totalUsers: allSettings.length,
     staleUsers: staleSettings.length,
     uniqueLocations: uniqueLocations.length,
