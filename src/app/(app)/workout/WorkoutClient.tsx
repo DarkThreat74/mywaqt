@@ -15,6 +15,32 @@ interface WDay { id: string; weekday: number | null; name: string; exercises: Da
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
+// ── Auto-insights helpers (Phase 3) ──────────────────────────────────────
+const PLATE_SIZES = [25, 20, 15, 10, 5, 2.5, 1.25];
+/** Smallest total (kg, incl. 20kg bar) loadable with standard plates >= target. */
+function nextLoadableKg(target: number): number | null {
+  for (let v = Math.ceil(target / 2.5) * 2.5; v <= target + 60; v += 2.5) {
+    const perSide = (v - 20) / 2;
+    if (perSide < 0) continue;
+    let rem = perSide;
+    for (const p of PLATE_SIZES) rem -= Math.floor(rem / p + 1e-9) * p;
+    if (rem <= 0.01) return Math.round(v * 10) / 10;
+  }
+  return null;
+}
+/** Per-side plate text for a total load, e.g. "2×20 + 2×10 + bar". */
+function plateText(totalKg: number): string | null {
+  const perSide = (totalKg - 20) / 2;
+  if (perSide < 0) return null;
+  let rem = perSide;
+  const parts: string[] = [];
+  for (const p of PLATE_SIZES) {
+    const n = Math.floor(rem / p + 1e-9);
+    if (n > 0) { parts.push(`${n}×${p}`); rem -= n * p; }
+  }
+  return rem <= 0.01 ? `${parts.join(" + ")} + bar` : null;
+}
+
 export default function WorkoutClient() {
   const [days, setDays] = useState<WDay[]>([]);
   const [step, setStep] = useState<number | null>(null); // 0=type, 1=name, 2=exercises
@@ -33,6 +59,7 @@ export default function WorkoutClient() {
   const [volumeSpike, setVolumeSpike] = useState(false);
   const [bodyWeight, setBodyWeight] = useState("");
   const [heightCm, setHeightCm] = useState("");
+  const [bodyfat, setBodyfat] = useState<number | null>(null);
   const [units, setUnits] = useState<"kg" | "lb">("kg");
   // Weights are stored in kg — convert for display when the user prefers lb.
   const dispW = (kg: number) => (units === "lb" ? Math.round(kg * 2.205) : Math.round(kg * 10) / 10);
@@ -92,6 +119,7 @@ export default function WorkoutClient() {
         setUnits(uw);
         if (p?.bodyWeightKg) setBodyWeight(String(uw === "lb" ? Math.round(p.bodyWeightKg * 2.205) : p.bodyWeightKg));
         if (p?.heightCm) setHeightCm(String(p.heightCm));
+        if (typeof p?.bodyfatPct === "number") setBodyfat(p.bodyfatPct);
         if (!p?.bodyWeightKg || !p?.heightCm) router.push("/workout/profile");
       }
     }
@@ -162,6 +190,50 @@ export default function WorkoutClient() {
     }
     return [...list].sort((a, b) => (a.tier || "Z").localeCompare(b.tier || "Z"));
   }, [groupFilter, headFilter, search, tierFilter]);
+
+  // ── Auto-insights: everything below is computed from logged data ──────
+  const insights = useMemo(() => {
+    type Row = (typeof progress)[number];
+    const pick = (slugs: string[]) =>
+      slugs.map((s) => progress.find((p) => p.slug === s)).filter((r): r is Row => !!r)
+        .sort((a, b) => (b.recommendedKg ?? b.comparisonE1 ?? b.bestE1 ?? 0) - (a.recommendedKg ?? a.comparisonE1 ?? a.bestE1 ?? 0))[0];
+    const liftE1 = (slugs: string[]) => {
+      const r = pick(slugs);
+      return r ? (r.comparisonE1 ?? r.bestE1 ?? 0) : 0;
+    };
+    const bench = pick(["barbell-bench-press"]);
+    const squat = pick(["barbell-squat", "back-squat"]);
+    const dead = pick(["conventional-deadlift", "deadlift"]);
+    const big3 = liftE1(["barbell-bench-press"]) + liftE1(["barbell-squat", "back-squat"]) + liftE1(["conventional-deadlift", "deadlift"]);
+    // Bench e1RM trend — first vs latest point.
+    let benchTrend: number | null = null;
+    if (bench && bench.points.length >= 2) {
+      const f = bench.points[0]?.e1 ?? 0, l = bench.points[bench.points.length - 1]?.e1 ?? 0;
+      if (f > 0) benchTrend = Math.round(((l - f) / f) * 1000) / 10;
+    }
+    // Next loadable plate weight for the lift with the strongest recommendation.
+    const plateLift = [bench && { name: "Bench", r: bench }, squat && { name: "Squat", r: squat }, dead && { name: "Deadlift", r: dead }]
+      .filter((x): x is { name: string; r: Row } => !!x && (x.r.recommendedKg ?? 0) > 0)
+      .sort((a, b) => (b.r.recommendedKg ?? 0) - (a.r.recommendedKg ?? 0))[0];
+    let plate: { name: string; kg: number; text: string } | null = null;
+    if (plateLift) {
+      const target = plateLift.r.recommendedKg!;
+      const next = nextLoadableKg(target);
+      const text = next ? plateText(next) : null;
+      if (next && text) plate = { name: plateLift.name, kg: next, text };
+    }
+    // Nutrition — Katch-McArdle needs no age: BMR from lean mass, ×1.5 for
+    // a training week. Protein at 1.8 g/kg supports hypertrophy + recovery.
+    const bwRaw = parseFloat(bodyWeight);
+    const bwKg = units === "lb" ? bwRaw / 2.205 : bwRaw;
+    let nutrition: { tdee: number; protein: number } | null = null;
+    if (bwKg > 0 && bodyfat != null && bodyfat > 2 && bodyfat < 60) {
+      const lean = bwKg * (1 - bodyfat / 100);
+      nutrition = { tdee: Math.round((370 + 21.6 * lean) * 1.5), protein: Math.round(bwKg * 1.8) };
+    }
+    const recovering = muscles.filter((m) => m.freshness < 60 && m.effSetsWeek > 0).length;
+    return { big3, benchTrend, plate, nutrition, tonWeek, tonPrevWeek, recovering, hasData: progress.length > 0 || tonnage > 0 };
+  }, [progress, muscles, bodyWeight, units, bodyfat, tonWeek, tonPrevWeek, tonnage]);
 
 
   const deleteSession = async (id: string) => {
@@ -497,6 +569,57 @@ export default function WorkoutClient() {
 
 
 
+
+      {insights.hasData && (
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {insights.big3 > 0 && (
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+              <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Big-3 est. max</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{dispW(insights.big3)}{units}</p>
+              <p className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>bench + squat + deadlift</p>
+            </div>
+          )}
+          {insights.benchTrend != null && (
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+              <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Bench trend</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: insights.benchTrend >= 0 ? "var(--color-success)" : "var(--color-error)" }}>
+                {insights.benchTrend >= 0 ? "+" : ""}{insights.benchTrend}%
+              </p>
+              <p className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>estimated max, all-time</p>
+            </div>
+          )}
+          {insights.plate && (
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+              <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Next {insights.plate.name.toLowerCase()} load</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{dispW(insights.plate.kg)}{units}</p>
+              <p className="truncate text-[9px]" style={{ color: "var(--color-ink-faint)" }} title={insights.plate.text}>{insights.plate.text}</p>
+            </div>
+          )}
+          {insights.nutrition && (
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+              <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Est. TDEE · protein</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{insights.nutrition.tdee.toLocaleString()}<span className="text-[10px] font-normal" style={{ color: "var(--color-ink-muted)" }}> kcal</span></p>
+              <p className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>{insights.nutrition.protein}g protein/day</p>
+            </div>
+          )}
+          {insights.tonWeek > 0 && (
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+              <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>This week</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{dispTon(insights.tonWeek)}</p>
+              <p className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>
+                {insights.tonPrevWeek > 0 ? `${Math.round(((insights.tonWeek - insights.tonPrevWeek) / insights.tonPrevWeek) * 100) > 0 ? "+" : ""}${Math.round(((insights.tonWeek - insights.tonPrevWeek) / insights.tonPrevWeek) * 100)}% vs last wk` : "first tracked week"}
+              </p>
+            </div>
+          )}
+          {insights.recovering > 0 && (
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+              <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Still recovering</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: "var(--color-warmth)" }}>{insights.recovering}</p>
+              <p className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>muscles trained &lt;48h ago</p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-6 space-y-2">
         {days.map((d) => (

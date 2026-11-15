@@ -75,6 +75,12 @@ function ActiveInner() {
   const recordedStartRef = useRef(0); // the day the session belongs to (may be backdated)
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const lastSetAtRef = useRef<Record<string, number>>({});
+  // Declared before the bootstrap effect — the first-open readiness wizard
+  // is triggered from inside it once session + freshness data arrive.
+  const [readinessOpen, setReadinessOpen] = useState(false);
+  const [readiness, setReadiness] = useState({ sleepHours: "", energy: "", soreness: "", stress: "" });
+  const [readinessSaving, setReadinessSaving] = useState(false);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
 
   const markPending = async () => {
     if (!sessionId) return;
@@ -293,6 +299,7 @@ function ActiveInner() {
         }
       }
       // All-time bests — feeds the cross-lift e1RM estimator.
+      let freshMap = new Map<string, number>();
       const p2 = await fetch("/api/workout/progress").catch(() => null);
       if (p2?.ok && !cancelled) {
         const d2 = await p2.json();
@@ -315,6 +322,27 @@ function ActiveInner() {
           }
         }
         setLastAt(at); setStalled(stall);
+        freshMap = new Map((d2.muscles || []).map((m: { muscle: string; freshness: number }) => [m.muscle, m.freshness]));
+      }
+      // First-open readiness wizard — once per day, fresh sessions only.
+      // Soreness defaults from how unrecovered today's muscles actually are.
+      if (!cancelled && !sdata.resumed && (d.exercises || []).length > 0) {
+        const dayKey = new Date(safeStart).toISOString().slice(0, 10);
+        const rkey = `waqt:readiness:${dayKey}`;
+        let seen = false;
+        try { seen = !!localStorage.getItem(rkey); if (!seen) localStorage.setItem(rkey, "1"); } catch { /* noop */ }
+        if (!seen) {
+          const unrec = (d.exercises || [])
+            .map((e: DayExercise) => EXERCISES.find((x) => x.slug === e.slug)?.muscle)
+            .filter((m: string | undefined): m is string => !!m)
+            .map((m: string) => 100 - (freshMap.get(m) ?? 100));
+          const avg = unrec.length ? unrec.reduce((a, b) => a + b, 0) / unrec.length : 0;
+          setReadiness({
+            sleepHours: "7.5", energy: "7", stress: "4",
+            soreness: String(Math.min(10, Math.max(1, Math.round(1 + avg / 12)))),
+          });
+          setReadinessOpen(true);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -326,11 +354,32 @@ function ActiveInner() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [sessionId]);
 
+  const beep = () => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 880; gain.gain.value = 0.08;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.18);
+      setTimeout(() => ctx.close(), 400);
+    } catch { /* audio unavailable */ }
+    try { navigator.vibrate?.([120, 60, 120]); } catch { /* noop */ }
+  };
+
   const rest = (secs = 90) => {
     setRestLeft(secs);
+    beep();
     if (restRef.current) clearInterval(restRef.current);
     restRef.current = setInterval(() => {
-      setRestLeft((r) => (r <= 1 ? (restRef.current && clearInterval(restRef.current), 0) : r - 1));
+      setRestLeft((r) => {
+        if (r <= 1) {
+          if (restRef.current) clearInterval(restRef.current);
+          beep();
+          return 0;
+        }
+        return r - 1;
+      });
     }, 1000);
   };
 
@@ -452,12 +501,9 @@ function ActiveInner() {
   const [view, setView] = useState<Exercise | null>(null);
   const [openRir, setOpenRir] = useState<string | null>(null);
   const [leaveAsk, setLeaveAsk] = useState(false);
-  const [readinessOpen, setReadinessOpen] = useState(false);
-  const [readiness, setReadiness] = useState({ sleepHours: "", energy: "", soreness: "", stress: "" });
-  const [readinessSaving, setReadinessSaving] = useState(false);
-  const [readinessError, setReadinessError] = useState<string | null>(null);
   const [exercisePickerOpen, setExercisePickerOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<"routine" | "library">("routine");
+  const [swapSlug, setSwapSlug] = useState<string | null>(null);
   const [customExerciseOpen, setCustomExerciseOpen] = useState(false);
   const [exerciseQuery, setExerciseQuery] = useState("");
   const [customExerciseName, setCustomExerciseName] = useState("");
@@ -629,6 +675,41 @@ function ActiveInner() {
     setCustomExerciseOpen(false);
   };
 
+  // Remove an exercise added by accident — wipes its set rows everywhere.
+  const removeExercise = async (slug: string) => {
+    const next = exercises.filter((e) => e.slug !== slug);
+    setExercises(next);
+    void persistOrder(next);
+    const rowCount = Math.max((setRows[slug] || []).length, (setCounts[slug] ?? 1) * 2);
+    for (let i = 0; i < rowCount; i++) void removeSetRow(slug, i);
+    setSetCounts((c) => { const n = { ...c }; delete n[slug]; return n; });
+    setSetRows((m) => { const n = { ...m }; delete n[slug]; return n; });
+  };
+
+  // Swap keeps the slot + superset link, wipes the old exercise's rows.
+  const swapExercise = (oldSlug: string, next: DayExercise) => {
+    const idx = exercises.findIndex((e) => e.slug === oldSlug);
+    if (idx < 0) return;
+    const list = [...exercises];
+    list[idx] = { ...next, supersetGroup: list[idx].supersetGroup ?? null };
+    setExercises(list);
+    void persistOrder(list);
+    const rowCount = Math.max((setRows[oldSlug] || []).length, (setCounts[oldSlug] ?? 1) * 2);
+    for (let i = 0; i < rowCount; i++) void removeSetRow(oldSlug, i);
+    setSetCounts((c) => ({ ...c, [next.slug]: 1 }));
+    setSetRows((m) => { const n = { ...m }; delete n[oldSlug]; return n; });
+    setSwapSlug(null);
+    setExercisePickerOpen(false);
+  };
+
+  const pickExercise = (ex: DayExercise) => {
+    if (swapSlug) swapExercise(swapSlug, ex);
+    else addExercise(ex);
+  };
+
+  // Readiness defaults are computed inside the session bootstrap (it has the
+  // day's exercises + muscle freshness locally) — no effect needed here.
+
   if (!dayId && exercises.length === 0 && !dayName) {
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center">
@@ -726,11 +807,11 @@ function ActiveInner() {
             {fmt(elapsed)}
           </span>
           <button type="button" onClick={() => void finish()} disabled={!sessionId}
-            className="hidden rounded-full px-3 py-1.5 text-[10px] font-semibold sm:inline-block"
+            className="rounded-full px-3 py-1.5 text-[10px] font-semibold"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: sessionId ? 1 : 0.45 }}>
             Finish
           </button>
-          <button type="button" onClick={() => { setPickerMode("routine"); setExercisePickerOpen(true); }}
+          <button type="button" onClick={() => { setSwapSlug(null); setPickerMode("routine"); setExercisePickerOpen(true); }}
             className="flex h-8 w-8 items-center justify-center rounded-full border"
             style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
             title="Add exercise" aria-label="Add exercise">
@@ -751,7 +832,7 @@ function ActiveInner() {
             onClick={(e) => e.stopPropagation()}>
             <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Today&apos;s training context</p>
             <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-              These inputs adjust recommendations; they do not judge the session.
+              Pre-filled from your recent training — soreness reflects today&apos;s muscles. Adjust if today feels different, then save.
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {([
@@ -797,11 +878,15 @@ function ActiveInner() {
           Stalled lifts detected — consider a deload week: drop weights ~50%, keep reps, return next week.
         </div>
       )}
-      {restLeft > 0 && (
-        <div className="mt-2 rounded-lg border px-3 py-2 text-center text-sm font-medium tabular-nums"
-          style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>
-          Rest: {fmt(restLeft)}
-        </div>
+      {exercises.length === 0 && (
+        <button type="button" onClick={() => { setSwapSlug(null); setPickerMode("routine"); setExercisePickerOpen(true); }}
+          className="mt-8 flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+          <span className="flex h-11 w-11 items-center justify-center rounded-full text-xl"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>+</span>
+          <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>Add your first exercise</span>
+          <span className="text-[11px]">Start with your split&apos;s list, or browse the full library</span>
+        </button>
       )}
 
       <div className="mt-5 space-y-4">
@@ -827,13 +912,15 @@ function ActiveInner() {
                 <p className="mb-2 text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-accent)" }}>superset</p>
               )}
               <div className="flex items-start gap-3">
-                <div className="flex flex-col items-center" style={{ color: "var(--color-ink-muted)" }}>
+                <div className="flex flex-col items-center gap-0.5" style={{ color: "var(--color-ink-muted)" }}>
                   <button type="button" disabled={xi === 0} aria-label={`Move ${x.name} up`}
                     onClick={() => { const n = [...exercises]; [n[xi - 1], n[xi]] = [n[xi], n[xi - 1]]; setExercises(n); void persistOrder(n); }}
-                    className="text-[10px] leading-none disabled:opacity-25">▲</button>
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border text-xs disabled:opacity-25"
+                    style={{ borderColor: "var(--color-paper-3)" }}>▲</button>
                   <button type="button" disabled={xi === exercises.length - 1} aria-label={`Move ${x.name} down`}
                     onClick={() => { const n = [...exercises]; [n[xi], n[xi + 1]] = [n[xi + 1], n[xi]]; setExercises(n); void persistOrder(n); }}
-                    className="text-[10px] leading-none disabled:opacity-25">▼</button>
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border text-xs disabled:opacity-25"
+                    style={{ borderColor: "var(--color-paper-3)" }}>▼</button>
                 </div>
                 {ex && (
                   <button type="button" onClick={() => setView(ex)} title="How to do it" className="shrink-0">
@@ -855,6 +942,18 @@ function ActiveInner() {
                         {ex.tier}
                       </span>
                     )}
+                    <span className="ml-auto flex items-center gap-1">
+                      <button type="button" aria-label={`Swap ${x.name}`}
+                        onClick={() => { setSwapSlug(x.slug); setPickerMode("library"); setExercisePickerOpen(true); }}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border text-[11px]"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+                        title="Swap exercise">⇄</button>
+                      <button type="button" aria-label={`Remove ${x.name}`}
+                        onClick={() => void removeExercise(x.slug)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border text-[11px]"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-error)" }}
+                        title="Remove exercise">✕</button>
+                    </span>
                   </div>
                   {ex && <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{ex.cue}</p>}
                   {prevSets[x.slug]?.filter(Boolean).length > 0 && (() => {
@@ -1086,7 +1185,7 @@ function ActiveInner() {
         Finish workout
       </button>
 
-      <button type="button" onClick={() => { setPickerMode("routine"); setExercisePickerOpen(true); }}
+      <button type="button" onClick={() => { setSwapSlug(null); setPickerMode("routine"); setExercisePickerOpen(true); }}
         className="mx-auto mt-3 flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold"
         style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
         <Plus className="h-3.5 w-3.5" /> Add another exercise
@@ -1094,17 +1193,17 @@ function ActiveInner() {
 
       {exercisePickerOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setExercisePickerOpen(false)}>
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => { setExercisePickerOpen(false); setSwapSlug(null); }}>
           <div className="max-h-[82vh] w-full max-w-lg overflow-hidden rounded-t-3xl border sm:rounded-3xl"
             style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
             onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between border-b px-4 py-3"
               style={{ borderColor: "var(--color-paper-3)" }}>
               <div>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Add to this session</p>
-                <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Choose a saved movement or create one for this routine.</p>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{swapSlug ? "Swap exercise" : "Add to this session"}</p>
+                <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{swapSlug ? "Pick a replacement — its sets start fresh at one set." : "Choose a saved movement or create one for this routine."}</p>
               </div>
-              <button type="button" onClick={() => setExercisePickerOpen(false)} aria-label="Close exercise picker"
+              <button type="button" onClick={() => { setExercisePickerOpen(false); setSwapSlug(null); }} aria-label="Close exercise picker"
                 className="rounded-full p-2" style={{ color: "var(--color-ink-muted)" }}>
                 <X className="h-4 w-4" />
               </button>
@@ -1138,11 +1237,12 @@ function ActiveInner() {
                     ? availableExercises.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: "", equip: "", sets: exercise.sets, reps: exercise.reps }))
                     : EXERCISES.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: exercise.muscle, equip: exercise.equip, sets: 1, reps: "8-12" }));
                   return items
+                  .filter((exercise) => exercise.slug !== swapSlug)
                   .filter((exercise) => !exerciseQuery.trim() || `${exercise.name} ${exercise.muscle} ${exercise.equip}`.toLowerCase().includes(exerciseQuery.toLowerCase()))
                   .slice(0, 60)
                   .map((exercise) => (
                     <button key={exercise.slug} type="button"
-                      onClick={() => addExercise({ slug: exercise.slug, name: exercise.name, sets: exercise.sets, reps: exercise.reps, supersetGroup: null })}
+                      onClick={() => pickExercise({ slug: exercise.slug, name: exercise.name, sets: exercise.sets, reps: exercise.reps, supersetGroup: null })}
                       className="flex items-center justify-between rounded-xl border px-3 py-2.5 text-left"
                       style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
                       <span className="min-w-0 truncate text-xs">{exercise.name}</span>
@@ -1173,6 +1273,25 @@ function ActiveInner() {
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: customExerciseName.trim() ? 1 : 0.45 }}>
               Add exercise
             </button>
+          </div>
+        </div>
+      )}
+
+      {restLeft > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4"
+          style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
+          <div className="flex items-center gap-1.5 rounded-full border px-3 py-2 shadow-lg"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+            <span className="px-1 text-sm font-semibold tabular-nums">{fmt(restLeft)}</span>
+            <button type="button" onClick={() => setRestLeft((r) => Math.max(0, r - 15))}
+              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+              style={{ backgroundColor: "color-mix(in oklab, var(--color-paper) 15%, transparent)" }}>−15s</button>
+            <button type="button" onClick={() => setRestLeft((r) => r + 15)}
+              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+              style={{ backgroundColor: "color-mix(in oklab, var(--color-paper) 15%, transparent)" }}>+15s</button>
+            <button type="button" onClick={() => { if (restRef.current) clearInterval(restRef.current); setRestLeft(0); }}
+              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+              style={{ color: "var(--color-warmth)" }}>skip</button>
           </div>
         </div>
       )}
