@@ -1578,6 +1578,25 @@ export type WorkoutDayExercise = typeof workoutDayExercises.$inferSelect;
 export type WorkoutSession = typeof workoutSessions.$inferSelect;
 export type WorkoutSet = typeof workoutSets.$inferSelect;
 
+// Guided progress photos — downscaled data-URL images (same pattern as
+// friend_photos) plus the captured pose landmarks so the camera can replay
+// the user's own previous pose as the alignment guide.
+export const workoutPhotos = pgTable('workout_photos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  takenAt: timestamp('taken_at', { withTimezone: true }).defaultNow().notNull(),
+  angle: text('angle').notNull(), // front | side | back | other
+  weightKg: numeric('weight_kg', { precision: 7, scale: 2 }),
+  note: text('note'),
+  photoData: text('photo_data').notNull(),
+  photoMime: text('photo_mime').notNull(),
+  pose: jsonb('pose').$type<number[][] | null>(), // 33 MediaPipe landmarks, normalized
+}, (table) => ({
+  userTakenIdx: index('workout_photos_user_taken_idx').on(table.userId, table.takenAt),
+}));
+
+export type WorkoutPhoto = typeof workoutPhotos.$inferSelect;
+
 export const bodyMetrics = pgTable('body_metrics', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

@@ -195,6 +195,11 @@ export default function WorkoutProfilePage() {
         return (
         <div className="mt-4 space-y-3">
           {loadError && <p className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>{loadError}</p>}
+          <Link href="/workout/photos" className="flex items-center justify-between rounded-xl border px-4 py-3 text-sm"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+            Progress photos
+            <span style={{ color: "var(--color-ink-muted)" }}>Guided check-in →</span>
+          </Link>
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="flex items-center justify-between">
               <div className="flex gap-6">

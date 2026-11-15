@@ -67,6 +67,28 @@ export async function syncPendingWorkouts(): Promise<void> {
         updatedAt: new Date().toISOString(),
       });
     }
+    // Progress photos captured offline — same idempotent upsert-by-id pattern.
+    try {
+      const photos = await db.progressPhotos
+        .filter((p) => p.syncState !== "synced")
+        .toArray();
+      for (const p of photos) {
+        const res = await fetch("/api/workout/photos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: p.id, takenAt: p.takenAt, angle: p.angle,
+            weightKg: p.weightKg ?? undefined, note: p.note ?? undefined,
+            photoData: p.photoData, photoMime: p.photoMime, pose: p.pose ?? undefined,
+          }),
+        }).catch(() => null);
+        await db.progressPhotos.update(p.id, {
+          syncState: res?.ok ? "synced" : "error",
+          syncError: res?.ok ? null : res ? `Server error (${res.status}).` : "No network connection.",
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch { /* progressPhotos table may not exist on older schema */ }
   } catch {
     // IndexedDB unavailable — nothing to sync.
   }

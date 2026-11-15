@@ -209,6 +209,20 @@ export interface LocalWorkoutSet {
   updatedAt: string;
 }
 
+export interface LocalProgressPhoto {
+  id: string;
+  takenAt: string;
+  angle: "front" | "side" | "back" | "other";
+  weightKg?: number | null;
+  note?: string | null;
+  photoData: string; // data URL — downscaled ~1280px webp
+  photoMime: string;
+  pose?: number[][] | null; // 33 MediaPipe landmarks, normalized
+  syncState: "pending" | "synced" | "error";
+  syncError?: string | null;
+  updatedAt: string;
+}
+
 class WaqtOfflineDB extends Dexie {
   events!: Table<CachedEvent, string>;
   prayerLogs!: Table<CachedPrayerLog, string>;
@@ -226,6 +240,7 @@ class WaqtOfflineDB extends Dexie {
   talkDownloads!: Table<CachedTalkDownload, string>;
   workoutSessions!: Table<LocalWorkoutSession, string>;
   workoutSets!: Table<LocalWorkoutSet, string>;
+  progressPhotos!: Table<LocalProgressPhoto, string>;
 
   constructor() {
     super("waqt-offline-data");
@@ -313,6 +328,26 @@ class WaqtOfflineDB extends Dexie {
       talkDownloads: "cacheKey, talkId, cachedAt, lastPlayedAt",
       workoutSessions: "id, dayId, startedAt, syncState, updatedAt",
       workoutSets: "id, sessionId, slug, [sessionId+slug], updatedAt",
+    });
+    // v6: guided progress photos — device-first capture, server is a sync target.
+    this.version(6).stores({
+      events: "id, _dateKey, userId",
+      prayerLogs: "id, date, userId, prayerName",
+      prayerTimes: "date",
+      analytics: "id",
+      friends: "id",
+      qadaa: "id",
+      sunnahLogs: "id, date",
+      goals: "id, parentId, userId",
+      homework: "id, dueDate, status, classId",
+      classes: "id, sortOrder",
+      habits: "id, sortOrder, archived",
+      habitLogs: "id, habitId, date, [habitId+date]",
+      notes: "id, updatedAt, pinned",
+      talkDownloads: "cacheKey, talkId, cachedAt, lastPlayedAt",
+      workoutSessions: "id, dayId, startedAt, syncState, updatedAt",
+      workoutSets: "id, sessionId, slug, [sessionId+slug], updatedAt",
+      progressPhotos: "id, takenAt, angle, syncState, updatedAt",
     });
     // Another tab upgraded the schema — release our connection so its
     // open() doesn't hang in `blocked` forever (which would stall the whole
