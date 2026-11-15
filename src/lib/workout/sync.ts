@@ -70,7 +70,7 @@ export async function syncPendingWorkouts(): Promise<void> {
     // Progress photos captured offline — same idempotent upsert-by-id pattern.
     try {
       const photos = await db.progressPhotos
-        .filter((p) => p.syncState !== "synced")
+        .filter((p) => p.syncState === "pending" || (p.syncState === "error" && !p.syncError?.startsWith("fatal:")))
         .toArray();
       for (const p of photos) {
         const res = await fetch("/api/workout/photos", {
@@ -82,9 +82,12 @@ export async function syncPendingWorkouts(): Promise<void> {
             photoData: p.photoData, photoMime: p.photoMime, pose: p.pose ?? undefined,
           }),
         }).catch(() => null);
+        // Payload rejections (too big / malformed) never succeed on retry —
+        // auth and rate-limit failures still do, so only those are fatal.
+        const fatal = !!res && [400, 413, 422].includes(res.status);
         await db.progressPhotos.update(p.id, {
           syncState: res?.ok ? "synced" : "error",
-          syncError: res?.ok ? null : res ? `Server error (${res.status}).` : "No network connection.",
+          syncError: res?.ok ? null : res ? `${fatal ? "fatal: " : ""}Server error (${res.status}).` : "No network connection.",
           updatedAt: new Date().toISOString(),
         });
       }

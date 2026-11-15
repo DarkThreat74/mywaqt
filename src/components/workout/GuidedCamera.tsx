@@ -46,6 +46,10 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
   // inside the detection loop so it never goes stale.
   const targetRef = useRef(targetPose);
   useEffect(() => { targetRef.current = targetPose; }, [targetPose]);
+  const onCaptureRef = useRef(onCapture);
+  useEffect(() => { onCaptureRef.current = onCapture; }, [onCapture]);
+  const personalRef = useRef(!!personalTarget);
+  useEffect(() => { personalRef.current = !!personalTarget; }, [personalTarget]);
   const ghostRef = useRef<HTMLImageElement | null>(null);
   useEffect(() => {
     if (!ghostImage) { ghostRef.current = null; return; }
@@ -134,7 +138,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
             const tp = targetRef.current;
             const s = scorePose(tp, cur);
             setScore((prev) => (Math.abs(prev - s) > 4 ? s : prev));
-            const thr = personalTarget ? 72 : 62;
+            const thr = personalRef.current ? 72 : 62;
             if (s >= thr) {
               if (!alignSince.current) alignSince.current = performance.now();
               if (performance.now() - alignSince.current > 450) { setAligned(true); alignedRef.current = true; }
@@ -176,7 +180,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
         const res = landmarker?.detectForVideo(video, performance.now());
         pose = (res?.landmarks?.[0] || []).map((l) => [l.x, l.y]);
       } catch { /* pose optional */ }
-      onCapture({ dataUrl, photoMime: mime, pose });
+      onCaptureRef.current({ dataUrl, photoMime: mime, pose });
     };
     (window as unknown as { __guidedCapture?: () => void }).__guidedCapture = capture;
 
@@ -217,8 +221,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
       landmarker?.close();
       delete (window as unknown as { __guidedCapture?: () => void }).__guidedCapture;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [angle, personalTarget]);
+  }, [angle]); // targetPose/onCapture/personalTarget read via refs — no restart
 
   return (
     <div className="relative overflow-hidden rounded-2xl" style={{ backgroundColor: "#111" }}>

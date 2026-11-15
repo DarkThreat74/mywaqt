@@ -14,6 +14,17 @@ const ANGLES = ["front", "side", "back"] as const;
 type Angle = (typeof ANGLES)[number];
 const ANGLE_LABEL: Record<Angle, string> = { front: "Front", side: "Side", back: "Back" };
 
+// Photos deleted while offline leave a tombstone so server hydration can't
+// resurrect them. Capped — ids are uuids, 200 is far beyond real usage.
+const TOMB_KEY = "waqt-photo-tombstones";
+function photoTombstones(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(TOMB_KEY) || "[]") as string[]); }
+  catch { return new Set(); }
+}
+function saveTombstones(s: Set<string>) {
+  try { localStorage.setItem(TOMB_KEY, JSON.stringify([...s].slice(-200))); } catch { /* private mode */ }
+}
+
 interface ServerPhotoMeta {
   id: string; takenAt: string; angle: string; weightKg: string | null;
   note: string | null; photoMime: string; pose: number[][] | null;
@@ -43,8 +54,9 @@ export default function PhotosPage() {
         const { photos: metas } = await res.json() as { photos: ServerPhotoMeta[] };
         const local = await db.progressPhotos.toArray();
         const localIds = new Set(local.map((p) => p.id));
+        const tombs = photoTombstones();
         for (const m of metas) {
-          if (localIds.has(m.id)) continue;
+          if (localIds.has(m.id) || tombs.has(m.id)) continue;
           const full = await fetch(`/api/workout/photos?id=${m.id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
           if (!full?.photo) continue;
           const fp = full.photo as ServerPhotoMeta & { photoData: string };
@@ -57,6 +69,15 @@ export default function PhotosPage() {
         }
       }
       await syncPendingWorkouts();
+      // Retry server deletes for photos removed while offline.
+      const tombs = photoTombstones();
+      if (tombs.size) {
+        for (const id of [...tombs]) {
+          const res = await fetch(`/api/workout/photos?id=${id}`, { method: "DELETE" }).catch(() => null);
+          if (res?.ok) tombs.delete(id);
+        }
+        saveTombstones(tombs);
+      }
       const all = await db.progressPhotos.orderBy("takenAt").reverse().toArray();
       setPhotos(all);
     } catch {
@@ -87,7 +108,12 @@ export default function PhotosPage() {
     if (step === null) return;
     setSaving(true);
     const a = ANGLES[step];
-    const id = crypto.randomUUID();
+    // randomUUID needs a secure context — fall back for LAN/http testing.
+    const id = crypto.randomUUID?.() ??
+      "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+        const n = Math.floor(Math.random() * 16);
+        return (c === "x" ? n : (n & 0x3) | 0x8).toString(16);
+      });
     const row: LocalProgressPhoto = {
       id, takenAt: new Date().toISOString(), angle: a,
       photoData: r.dataUrl, photoMime: r.photoMime, pose: r.pose.length === 33 ? r.pose : null,
@@ -101,9 +127,10 @@ export default function PhotosPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, takenAt: row.takenAt, angle: a, photoData: r.dataUrl, photoMime: r.photoMime, pose: row.pose }),
       }).catch(() => null);
+      const fatal = !!res && [400, 413, 422].includes(res.status);
       await db.progressPhotos.update(id, {
         syncState: res?.ok ? "synced" : "error",
-        syncError: res?.ok ? null : res ? `Server error (${res.status}).` : "No network connection.",
+        syncError: res?.ok ? null : res ? `${fatal ? "fatal: " : ""}Server error (${res.status}).` : "No network connection.",
         updatedAt: new Date().toISOString(),
       });
       const all = await db.progressPhotos.orderBy("takenAt").reverse().toArray();
@@ -114,8 +141,14 @@ export default function PhotosPage() {
   }, [step]);
 
   const remove = async (p: LocalProgressPhoto) => {
+    // Tombstone first: if the server delete fails offline, hydration must not
+    // resurrect the photo on the next load.
+    const tombs = photoTombstones();
+    tombs.add(p.id);
     try {
-      await fetch(`/api/workout/photos?id=${p.id}`, { method: "DELETE" }).catch(() => null);
+      const res = await fetch(`/api/workout/photos?id=${p.id}`, { method: "DELETE" }).catch(() => null);
+      if (res?.ok) tombs.delete(p.id);
+      saveTombstones(tombs);
       await getOfflineDB().progressPhotos.delete(p.id);
       setPhotos((prev) => prev.filter((x) => x.id !== p.id));
       setViewing(null);
@@ -149,8 +182,8 @@ export default function PhotosPage() {
               {ANGLE_LABEL[angle]} <span className="text-[10px] font-normal" style={{ color: "var(--color-ink-muted)" }}>· {step! + 1} of {ANGLES.length}</span>
             </p>
             <div className="flex gap-1.5">
-              <button type="button" onClick={() => setStep(null)} className="rounded-full border px-3 py-1 text-[10px]"
-                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Skip rest</button>
+              <button type="button" onClick={() => setStep((s) => (s !== null && s < ANGLES.length - 1 ? s + 1 : null))} className="rounded-full border px-3 py-1 text-[10px]"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Skip angle</button>
               <button type="button" onClick={() => setStep(null)} className="rounded-full border px-3 py-1 text-[10px]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>Cancel</button>
             </div>
