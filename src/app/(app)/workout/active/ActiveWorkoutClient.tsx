@@ -63,12 +63,10 @@ function ActiveInner() {
     // Do not clear on unmount: navigating to Calendar/workout history must
     // leave the offline resume pill visible. Finish/cancel clear it explicitly.
   }, [sessionId, dayId, dayName]);
-  const [restLeft, setRestLeft] = useState(0);
   const [finished, setFinished] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [finalDuration, setFinalDuration] = useState(0);
-  const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0);
   const timerStartRef = useRef(0);
@@ -354,36 +352,6 @@ function ActiveInner() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [sessionId]);
 
-  const beep = () => {
-    try {
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.frequency.value = 880; gain.gain.value = 0.08;
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(); osc.stop(ctx.currentTime + 0.18);
-      setTimeout(() => ctx.close(), 400);
-    } catch { /* audio unavailable */ }
-    try { navigator.vibrate?.([120, 60, 120]); } catch { /* noop */ }
-  };
-
-  const rest = (secs = 90) => {
-    setRestLeft(secs);
-    beep();
-    if (restRef.current) clearInterval(restRef.current);
-    restRef.current = setInterval(() => {
-      setRestLeft((r) => {
-        if (r <= 1) {
-          if (restRef.current) clearInterval(restRef.current);
-          beep();
-          return 0;
-        }
-        return r - 1;
-      });
-    }, 1000);
-  };
-
-  const finishing = useRef(false);
   const logSet = async (slug: string, idx: number, patch: Partial<SetRow>): Promise<boolean> => {
     const prev = setRows[slug]?.[idx] || { weight: "", reps: null, done: false };
     const mode = handModeOf(slug);
@@ -442,7 +410,6 @@ function ActiveInner() {
       }
       if (!response?.ok) return localSaved;
     }
-    if (patch.done && !finishing.current) rest();
     return true;
   };
 
@@ -532,7 +499,6 @@ function ActiveInner() {
     setFinishError(null);
     const wallSeconds = Math.max(0, Math.floor((nowMs() - timerStartRef.current) / 1000));
     if (sessionId) {
-      finishing.current = true; // don't fire the rest timer per flushed row
       for (const timer of Object.values(saveTimers.current)) clearTimeout(timer);
       saveTimers.current = {};
       // Flush every row that has data but was never marked done — a partial
@@ -864,7 +830,7 @@ function ActiveInner() {
         </div>
       )}
       <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-        {totalDone}/{totalPlanned} sets · {restLeft > 0 ? `rest ${fmt(restLeft)}` : "rest timer starts after a set"}
+        {totalDone}/{totalPlanned} sets logged
       </p>
       <div className="mt-2 flex gap-1" aria-label={`${totalDone} of ${totalPlanned} sets complete`}>
         {Array.from({ length: Math.max(totalPlanned, 1) }, (_, index) => (
@@ -1273,25 +1239,6 @@ function ActiveInner() {
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: customExerciseName.trim() ? 1 : 0.45 }}>
               Add exercise
             </button>
-          </div>
-        </div>
-      )}
-
-      {restLeft > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4"
-          style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
-          <div className="flex items-center gap-1.5 rounded-full border px-3 py-2 shadow-lg"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
-            <span className="px-1 text-sm font-semibold tabular-nums">{fmt(restLeft)}</span>
-            <button type="button" onClick={() => setRestLeft((r) => Math.max(0, r - 15))}
-              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
-              style={{ backgroundColor: "color-mix(in oklab, var(--color-paper) 15%, transparent)" }}>−15s</button>
-            <button type="button" onClick={() => setRestLeft((r) => r + 15)}
-              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
-              style={{ backgroundColor: "color-mix(in oklab, var(--color-paper) 15%, transparent)" }}>+15s</button>
-            <button type="button" onClick={() => { if (restRef.current) clearInterval(restRef.current); setRestLeft(0); }}
-              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
-              style={{ color: "var(--color-warmth)" }}>skip</button>
           </div>
         </div>
       )}
