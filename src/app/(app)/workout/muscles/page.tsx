@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MuscleBody from "@/components/workout/MuscleBody";
+import MuscleBody2D from "@/components/workout/MuscleBody2D";
 import { bucketOf, type BodyBucket } from "@/lib/workout/muscleBodyMap";
 
 interface MuscleStat {
@@ -28,6 +29,7 @@ const STATE_COLOR = ["#7fbf6b", "#d4a843", "#c96b45", "#8e3419"];
 export default function MusclesPage() {
   const [stats, setStats] = useState<MuscleStat[] | null>(null);
   const [sel, setSel] = useState<{ bucket: BodyBucket; label: string } | null>(null);
+  const [use3D, setUse3D] = useState(true);
 
   useEffect(() => {
     fetch("/api/workout/progress")
@@ -62,14 +64,15 @@ export default function MusclesPage() {
         <h1 className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>Muscle recovery</h1>
       </div>
       <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-        Drag to rotate · tap a muscle · redder = less recovered
+        {use3D ? "Drag to rotate · tap a muscle · redder = less recovered" : "Tap a muscle · redder = less recovered"}
       </p>
 
-      <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", height: "min(58vh, 480px)", background: "linear-gradient(180deg,#f6f1e6,#efe7d6)" }}>
-        {stats === null ? (
-          <div className="grid h-full place-items-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</div>
+      <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", height: "min(52dvh, 460px)", background: "linear-gradient(180deg,#f6f1e6,#efe7d6)" }}>
+        {use3D ? (
+          <MuscleBody sex="male" fatigue={fatigue} onFallback={() => setUse3D(false)}
+            onSelect={(bucket, label) => setSel({ bucket, label })} />
         ) : (
-          <MuscleBody sex="male" fatigue={fatigue} onSelect={(bucket, label) => setSel({ bucket, label })} />
+          <MuscleBody2D fatigue={fatigue} onSelect={(bucket, label) => setSel({ bucket, label })} />
         )}
       </div>
 
@@ -104,7 +107,7 @@ export default function MusclesPage() {
 
       {sel && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setSel(null)}>
-          <div className="w-full max-w-md rounded-t-2xl sm:rounded-2xl border p-5"
+          <div className="w-full max-w-md rounded-t-2xl px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:rounded-2xl sm:pb-5"
             style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between">
               <div>

@@ -12,6 +12,8 @@ interface Props {
   /** bucket → unrecovered fraction 0..1 */
   fatigue: Partial<Record<BodyBucket, number>>;
   onSelect?: (bucket: BodyBucket, label: string) => void;
+  /** called when WebGL/model is unavailable — parent should show 2D fallback */
+  onFallback?: () => void;
   className?: string;
 }
 
@@ -20,26 +22,31 @@ interface Props {
  * Vanilla three.js — no R3F. Demand-rendered: only draws on interaction.
  * Drag = rotate, wheel/pinch = zoom, tap = select muscle.
  */
-export default function MuscleBody({ sex = "male", fatigue, onSelect, className }: Props) {
+export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback, className }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const cbRef = useRef({ fatigue, onSelect });
+  const cbRef = useRef({ fatigue, onSelect, onFallback });
   const recolorRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    cbRef.current = { fatigue, onSelect };
+    cbRef.current = { fatigue, onSelect, onFallback };
     recolorRef.current();
-  }, [fatigue, onSelect]);
+  }, [fatigue, onSelect, onFallback]);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
+    // Perf tier: low-end devices (≤4 cores or ≤4GB) get no AA + DPR 1.
+    const nav = navigator as Navigator & { deviceMemory?: number };
+    const lowEnd = (nav.hardwareConcurrency ?? 8) <= 4 || (nav.deviceMemory ?? 8) <= 4;
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer = new THREE.WebGLRenderer({ antialias: !lowEnd, alpha: true, powerPreference: "high-performance" });
     } catch {
-      return; // WebGL unavailable — parent shows fallback
+      mount.dataset.state = "error";
+      cbRef.current.onFallback?.();
+      return;
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowEnd ? 1 : 1.5));
     renderer.domElement.style.width = "100%";
     renderer.domElement.style.height = "100%";
     renderer.domElement.style.display = "block";
@@ -122,20 +129,17 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, className 
     el.addEventListener("wheel", onWheel, { passive: false });
 
     // ---- model ----
-    const meshBucket = new Map<THREE.Object3D, { bucket: BodyBucket; label: string }>();
-    const baseColors = new Map<THREE.Material, THREE.Color>();
+    const meshBucket = new Map<THREE.Object3D, { bucket: BodyBucket; label: string; mats: THREE.MeshStandardMaterial[] }>();
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
 
     const recolor = () => {
       const f = cbRef.current.fatigue;
-      for (const [mesh, info] of meshBucket) {
-        const mat = (mesh as THREE.Mesh).material as THREE.MeshStandardMaterial;
-        if (!mat?.color) continue;
+      for (const [, info] of meshBucket) {
         const v = f[info.bucket];
         if (v == null) continue;
-        mat.color.set(fatigueColor(v));
-        mat.needsUpdate = true;
+        const col = new THREE.Color(fatigueColor(v));
+        for (const mat of info.mats) { mat.color.copy(col); mat.needsUpdate = true; }
       }
       invalidate();
     };
@@ -162,23 +166,30 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, className 
     const ro = new ResizeObserver(resize);
     ro.observe(mount);
 
+    // GLB node names look like "deltoid_anterior_left__mobile.002" —
+    // normalize to the map id "deltoid_anterior_left".
+    const norm = (n: string) => n.replace(/__mobile.*$/, "").replace(/\.\d+$/, "");
     Promise.all([
       new GLTFLoader().loadAsync(`/models/anatomy/full-body-${sex}-mobile.glb`),
       fetch(`/models/anatomy/${sex === "female" ? "female-muscle-map" : "full-body-map"}.json`).then((r) => r.json()).catch(() => null),
     ]).then(([gltf, mapJson]) => {
       if (disposed) return;
       const muscles: AtlasMuscle[] = Array.isArray(mapJson?.muscles) ? mapJson.muscles : [];
-      const byId = new Map(muscles.map((m) => [m.id, m]));
+      const byId = new Map(muscles.flatMap((m) => [[m.id, m], [norm(m.id), m]] as const));
       gltf.scene.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
-        const srcMat = (mesh.material as THREE.MeshStandardMaterial) ?? new THREE.MeshStandardMaterial();
-        const mat = (srcMat as THREE.MeshStandardMaterial).clone();
-        if (!baseColors.has(mat)) baseColors.set(mat, mat.color.clone());
-        mesh.material = mat;
-        const am = byId.get(mesh.name) ?? muscles.find((m) => m.key === mesh.name);
+        const name = norm(mesh.name);
+        const am = byId.get(name) ?? muscles.find((m) => m.key === name.replace(/_(left|right)$/, ""));
+        // Materials may be shared or arrays — clone per mesh so recoloring
+        // one muscle never bleeds into another.
+        const srcMats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        const mats = srcMats.map((m) =>
+          (m as THREE.MeshStandardMaterial).clone() as THREE.MeshStandardMaterial,
+        );
+        mesh.material = Array.isArray(mesh.material) ? mats : mats[0];
         const bucket = am ? atlasBucket(`${am.label} ${am.key}`, am.group || am.region || "") : null;
-        if (bucket) meshBucket.set(mesh, { bucket, label: am!.label });
+        if (bucket) meshBucket.set(mesh, { bucket, label: am!.label, mats });
       });
       scene.add(gltf.scene);
       // Center + scale: atlas is ~1.8m tall in meters; frame it.
@@ -192,7 +203,11 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, className 
       applyCam();
       resize();
       recolor();
-    }).catch(() => { /* model failed — leave blank, parent fallback */ });
+    }).catch((err) => {
+      console.error("[MuscleBody] failed to load anatomy model", err);
+      mount.dataset.state = "error";
+      cbRef.current.onFallback?.();
+    });
 
     recolorRef.current = recolor;
 
