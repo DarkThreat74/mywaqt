@@ -257,6 +257,7 @@ const UNI_SLUGS = new Set([
 ]);
 
 import { EXERCISES_EXTRA } from "./exercises-extra";
+import { EXERCISES_WGER } from "./exercises-wger";
 
 export const EXERCISES: Exercise[] = [
   // ── CHEST ──
@@ -1037,8 +1038,10 @@ export const EXERCISES: Exercise[] = [
     { howto: "Prone, raise the head in a Y pattern.", pros: "Neck extension plus scap Y together.", cons: "Very light.", source: "Cools scap series" }),
   e("wrestlers-bridge", "Wrestler's Bridge", "neck", "neck_isometric", "bodyweight", "C", "Bridge on the head — loaded neck isometric. INJURY CAUTION.",
     { howto: "Bridge on the head and feet — the classic wrestler's neck isometric.", pros: "Heaviest neck isometric you can do without equipment.", cons: "Loaded cervical compression — real injury risk; only for adapted necks, light and brief.", source: "Wrestling tradition; CAUTION — spinal compression risk" }),
-  // Bulk catalog — free-exercise-db (Unlicense); curated entries win clashes.
+  // Bulk catalog — free-exercise-db (Unlicense) + wger (CC metadata);
+  // curated entries win clashes.
   ...EXERCISES_EXTRA,
+  ...EXERCISES_WGER,
 ].map((x) => ({
   ...x,
   head: HEAD_OF[x.slug] ?? ({ upper_chest: "upper", lower_chest: "lower", chest: "mid", abs: "all_abs" } as Record<string, string>)[x.muscle],
