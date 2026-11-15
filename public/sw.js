@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v122";
+const CACHE_VERSION = "waqt-v123";
 
 // Instant cached-page hits younger than this still paint immediately with a
 // background revalidate (the SWR path). Older hits fall into network-first —
@@ -688,8 +688,8 @@ function saverFresh(res) {
 // is server-rendered with user data — serving account A's page to account B
 // (or to a logged-out session) is both a privacy leak and the "frozen zombie
 // app" bug: the page hydrates with one account's data while API calls run
-// under another session. Entries missing the stamp (pre-stamp caches) are
-// treated as mismatched.
+// under another session. Entries missing the stamp are public pages and safe
+// for anyone; stamped entries fail closed.
 async function matchStampedPage(cache, key, uid) {
   // A wedged/failed cache open returns null — without the guard this throws
   // and the whole respondWith falls through to the offline page even though
@@ -698,12 +698,14 @@ async function matchStampedPage(cache, key, uid) {
   const cached = await cache.match(key);
   if (!cached) return null;
   const stamped = cached.headers.get("x-waqt-uid");
-  // When uid is unverifiable (wedged IDB / restarted worker before the client
-  // re-posts SET_SESSION) a stamped page still serves — refusing made every
-  // offline navigation collapse to the "reconnecting" page. The stamp still
-  // filters cross-account data whenever the current uid IS known.
-  if (uid && stamped && stamped !== uid) return null;
-  return cached;
+  if (!stamped) return cached;
+  if (uid) return stamped === uid ? cached : null;
+  // uid unverifiable (wedged meta / SW restart before SET_SESSION re-posts).
+  // Serving a stamped page is only safe when this device has exactly ONE
+  // account ever — with 2+ accounts the stamp could belong to the other one.
+  const hist = await soft(getMeta("uidHistory"), 400, null);
+  if (Array.isArray(hist) && hist.length === 1 && hist[0] === stamped) return cached;
+  return null;
 }
 
 // ─── Adaptive budgets ───
@@ -1396,6 +1398,9 @@ self.addEventListener("fetch", (event) => {
           headers.set("x-waqt-cached-at", String(Date.now()));
           const build = buildFingerprint(response, body);
           if (build) headers.set("x-waqt-build", build);
+          // Same backfill as the warm path — an unstamped page would be
+          // treated as public and served to any account.
+          if (!headers.get("x-waqt-uid") && uid) headers.set("x-waqt-uid", uid);
           await pageCache.put(cacheKey, new Response(body, {
             status: response.status,
             statusText: response.statusText,
@@ -1581,6 +1586,8 @@ self.addEventListener("fetch", (event) => {
           // stale entry can't be served to a page running a different build.
           const build = buildFingerprint(res, body);
           if (build) headers.set("x-waqt-build", build);
+          // Flight payloads carry per-user data — never store unstamped.
+          if (!headers.get("x-waqt-uid") && uid) headers.set("x-waqt-uid", uid);
           await cache.put(key, new Response(body, { status: res.status, headers }));
         };
         const maybeStore = (r) => { if (!isPrefetch) return store(r); };
@@ -1692,7 +1699,9 @@ self.addEventListener("fetch", (event) => {
           // network call — stale-beyond-a-day entries still go online.
           if (url.pathname !== "/api/workout/sessions" && await soft(dataSaver(), 400, false) && cache) {
             const hit = await soft(cache.match(request), 800, null);
-            if (hit && hit.headers.get("x-waqt-uid") === uid && saverFresh(hit)) return hit;
+            // Require a verified uid AND a matching stamp — an unstamped or
+            // unstamped-vs-null comparison must never pass private data.
+            if (hit && uid && hit.headers.get("x-waqt-uid") === uid && saverFresh(hit)) return hit;
           }
           try {
             const response = await timedFetch(request, 8000);
@@ -1714,7 +1723,7 @@ self.addEventListener("fetch", (event) => {
             return response;
           } catch {
             const cached = cache ? await soft(cache.match(request), 800, null) : null;
-            if (cached && cached.headers.get("x-waqt-uid") === uid) return cached;
+            if (cached && uid && cached.headers.get("x-waqt-uid") === uid) return cached;
             return new Response(JSON.stringify({ error: "offline" }), {
               status: 503, headers: { "Content-Type": "application/json" },
             });
@@ -1730,7 +1739,8 @@ self.addEventListener("fetch", (event) => {
         // expired session leaves no CLEAR_USER_CACHE, and without the stamp
         // the next account on this device would inherit private API data.
         let cached = cache ? await soft(cache.match(request), 800, null) : null;
-        if (cached && cached.headers.get("x-waqt-uid") !== uid) cached = null;
+        // Fail closed: no verified uid → no cached API data, stamped or not.
+        if (!uid || cached?.headers.get("x-waqt-uid") !== uid) cached = null;
         if (cached) {
           const cachedAt = Number(cached.headers.get("x-waqt-cached-at") || 0);
           const age = Date.now() - cachedAt;
@@ -2089,9 +2099,23 @@ self.addEventListener("message", (event) => {
         cachedSession = !!uid;
         uidLoaded = true;
         sessionLoaded = true;
+        // Persist unconditionally — a null post means the session is gone
+        // (expired/logout race), and leaving a stale uid in meta would let a
+        // restarted SW stamp-match the departed account's cached pages.
+        await setMeta("uid", uid).catch(() => {});
+        await setMeta("hasSession", !!uid).catch(() => {});
         if (uid) {
-          await setMeta("uid", uid);
-          await setMeta("hasSession", true);
+          // Distinct-account history (capped) — matchStampedPage uses it to
+          // decide whether an unverifiable uid can still safely serve a
+          // stamped page (only when this device has ever seen one account).
+          try {
+            const hist = await getMeta("uidHistory");
+            const list = Array.isArray(hist) ? hist.filter((u) => typeof u === "string") : [];
+            if (!list.includes(uid)) {
+              list.push(uid);
+              await setMeta("uidHistory", list.slice(-5)).catch(() => {});
+            }
+          } catch { /* history is best-effort */ }
         }
       })().catch(() => {})
     );
