@@ -21,7 +21,7 @@
  * - Fallback: replay on 'online' event from client
  */
 
-const CACHE_VERSION = "waqt-v125";
+const CACHE_VERSION = "waqt-v126";
 
 // Instant cached-page hits younger than this still paint immediately with a
 // background revalidate (the SWR path). Older hits fall into network-first —
@@ -1839,7 +1839,7 @@ self.addEventListener("fetch", (event) => {
       // indexes) — offline mushaf loads failed without this branch and
       // left the recite engine unanchored.
       url.pathname.startsWith("/data/") ||
-      url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|webmanifest|woff2?|ttf|otf)$/))
+      url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|webmanifest|woff2?|ttf|otf|txt)$/))
   ) {
     event.respondWith(
       (async () => {

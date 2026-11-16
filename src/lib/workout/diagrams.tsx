@@ -5,6 +5,8 @@
 "use client";
 
 import React, { useState } from "react";
+import { ExerciseArt } from "./exercise-art";
+import { EXERCISE_ART } from "./exercise-art-map";
 
 const S = { fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 
@@ -307,6 +309,8 @@ export function ExerciseMedia({ slug, pattern, className, style, showToggle = tr
           style={{ width: "100%", height: "100%", objectFit: "cover", backgroundColor: "var(--color-paper-2)" }}
           onError={() => setGifFailed(true)}
         />
+      ) : EXERCISE_ART[slug] ? (
+        <ExerciseArt slug={slug} pattern={pattern} style={{ width: "100%", height: "100%" }} />
       ) : (
         <ExerciseDiagram pattern={pattern} style={{ width: "100%", height: "100%" }} />
       )}

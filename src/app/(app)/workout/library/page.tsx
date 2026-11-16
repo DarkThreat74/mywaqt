@@ -138,6 +138,11 @@ export default function LibraryPage() {
           Show all {allGroups.length} exercises
         </button>
       )}
+      <p className="mt-6 text-center text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+        Exercise illustrations by{" "}
+        <a href="https://github.com/bryllim/workout-guide" target="_blank" rel="noreferrer" className="underline">Workout Guide</a>{" "}
+        and Everkinetic, CC BY-SA 4.0.
+      </p>
 
       {view && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setView(null)}>
