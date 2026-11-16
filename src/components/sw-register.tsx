@@ -3,7 +3,9 @@
 import { useEffect } from "react";
 import { isNativeApp } from "@/lib/native-bridge";
 
-const EXPECTED_SW_VERSION = "waqt-v123";
+// Must match CACHE_VERSION in public/sw.js — a mismatch makes the client
+// unregister the worker and reload forever.
+const EXPECTED_SW_VERSION = "waqt-v124";
 
 /**
  * Registers the service worker and handles:
@@ -20,7 +22,7 @@ export default function ServiceWorkerRegister() {
     // Version the registration URL itself. A stale controlled page can keep
     // an old /sw.js registration alive even when its response changed; the
     // query key forces the browser to create/update the new worker script.
-    const SW_BUILD = "123";
+    const SW_BUILD = "124";
     // Skip SW registration inside native app — it caches stale assets in the WebView.
     // Also unregister any worker that ever got registered on this origin in the
     // WebView (earlier build, future WebView gaining SW support) — a lingering
@@ -115,7 +117,12 @@ export default function ServiceWorkerRegister() {
           // A stale active worker can survive ordinary reloads. If it reports
           // an older build, remove that registration and reload into the
           // network page so the versioned registration can claim the origin.
-          if (data.version && data.version !== EXPECTED_SW_VERSION) {
+          // One-shot per session: if the mismatch persists after the reload
+          // (version constants out of sync), keep running rather than
+          // unregister+reload forever.
+          if (data.version && data.version !== EXPECTED_SW_VERSION &&
+              sessionStorage.getItem("waqt:sw-version-reset") !== data.version) {
+            sessionStorage.setItem("waqt:sw-version-reset", data.version);
             void navigator.serviceWorker.getRegistration().then(async (reg) => {
               if (!reg) return;
               await reg.unregister();
