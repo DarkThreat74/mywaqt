@@ -1592,6 +1592,7 @@ export const workoutPhotos = pgTable('workout_photos', {
   photoMime: text('photo_mime').notNull(),
   pose: jsonb('pose').$type<number[][] | null>(), // 33 MediaPipe landmarks, normalized
   worldPose: jsonb('world_pose').$type<number[][] | null>(), // 33 world landmarks [x,y,z] meters — 3D pose matching
+  analysis: jsonb('analysis').$type<{ shirtless?: boolean | null; skinRatio?: number | null; matchScore?: number | null } | null>(), // capture-time photo analysis
 }, (table) => ({
   userTakenIdx: index('workout_photos_user_taken_idx').on(table.userId, table.takenAt),
 }));

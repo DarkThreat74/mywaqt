@@ -80,7 +80,7 @@ export async function syncPendingWorkouts(): Promise<void> {
             id: p.id, takenAt: p.takenAt, angle: p.angle,
             weightKg: p.weightKg ?? undefined, note: p.note ?? undefined,
             photoData: p.photoData, photoMime: p.photoMime, pose: p.pose ?? undefined,
-            worldPose: p.worldPose ?? undefined,
+            worldPose: p.worldPose ?? undefined, analysis: p.analysis ?? undefined,
           }),
         }).catch(() => null);
         // Payload rejections (too big / malformed) never succeed on retry —

@@ -7,7 +7,7 @@ import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
-const MAX_PHOTO_CHARS = 900_000; // ~900KB data URL ≈ 670KB binary — plenty for 1280px webp
+const MAX_PHOTO_CHARS = 1_500_000; // ~1.1MB binary — 1920px webp q0.9 headroom
 const ANGLES = new Set(["front", "side", "back", "other"]);
 
 // GET /api/workout/photos — metadata + pose only; photoData is heavy, so the
@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     photoMime: schema.workoutPhotos.photoMime,
     pose: schema.workoutPhotos.pose,
     worldPose: schema.workoutPhotos.worldPose,
+    analysis: schema.workoutPhotos.analysis,
   }).from(schema.workoutPhotos)
     .where(eq(schema.workoutPhotos.userId, session.userId))
     .orderBy(desc(schema.workoutPhotos.takenAt))
@@ -67,6 +68,13 @@ export async function POST(request: NextRequest) {
   const note = typeof body.note === "string" ? body.note.slice(0, 500) : null;
   const pose = Array.isArray(body.pose) && body.pose.length === 33 ? body.pose : null;
   const worldPose = Array.isArray(body.worldPose) && body.worldPose.length === 33 ? body.worldPose : null;
+  // Capture-time analysis — shallow-validated, stored as jsonb.
+  const rawAnalysis = body.analysis && typeof body.analysis === "object" ? body.analysis as Record<string, unknown> : null;
+  const analysis = rawAnalysis ? {
+    shirtless: typeof rawAnalysis.shirtless === "boolean" ? rawAnalysis.shirtless : null,
+    skinRatio: typeof rawAnalysis.skinRatio === "number" && rawAnalysis.skinRatio >= 0 && rawAnalysis.skinRatio <= 1 ? rawAnalysis.skinRatio : null,
+    matchScore: typeof rawAnalysis.matchScore === "number" && rawAnalysis.matchScore >= 0 && rawAnalysis.matchScore <= 100 ? Math.round(rawAnalysis.matchScore) : null,
+  } : null;
   const takenAt = typeof body.takenAt === "string" && !Number.isNaN(Date.parse(body.takenAt)) ? new Date(body.takenAt) : new Date();
   const id = typeof body.id === "string" && isValidUUID(body.id) ? body.id : undefined;
 
@@ -75,14 +83,14 @@ export async function POST(request: NextRequest) {
       const [existing] = await db.select({ id: schema.workoutPhotos.id }).from(schema.workoutPhotos)
         .where(and(eq(schema.workoutPhotos.id, id), eq(schema.workoutPhotos.userId, session.userId))).limit(1);
       if (existing) {
-        await db.update(schema.workoutPhotos).set({ takenAt, angle, weightKg, note, photoData, photoMime, pose, worldPose })
+        await db.update(schema.workoutPhotos).set({ takenAt, angle, weightKg, note, photoData, photoMime, pose, worldPose, analysis })
           .where(eq(schema.workoutPhotos.id, id));
         return NextResponse.json({ ok: true, id });
       }
     }
     const [row] = await db.insert(schema.workoutPhotos).values({
       ...(id ? { id } : {}),
-      userId: session.userId, takenAt, angle, weightKg, note, photoData, photoMime, pose, worldPose,
+      userId: session.userId, takenAt, angle, weightKg, note, photoData, photoMime, pose, worldPose, analysis,
     }).returning({ id: schema.workoutPhotos.id });
     return NextResponse.json({ ok: true, id: row.id });
   } catch (err) {

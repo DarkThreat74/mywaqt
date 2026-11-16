@@ -30,6 +30,7 @@ interface ServerPhotoMeta {
   id: string; takenAt: string; angle: string; weightKg: string | null;
   note: string | null; photoMime: string; pose: number[][] | null;
   worldPose?: number[][] | null;
+  analysis?: { shirtless?: boolean | null; skinRatio?: number | null; matchScore?: number | null } | null;
 }
 
 function poseToKeyPose(pose: number[][] | null | undefined): KeyPose | null {
@@ -76,7 +77,7 @@ export default function PhotosPage() {
               id: fp.id, takenAt: fp.takenAt, angle: (ANGLES as readonly string[]).includes(fp.angle) ? fp.angle as Angle : "other",
               weightKg: fp.weightKg ? parseFloat(fp.weightKg) : null, note: fp.note,
               photoData: fp.photoData, photoMime: fp.photoMime, pose: fp.pose,
-              worldPose: fp.worldPose ?? null,
+              worldPose: fp.worldPose ?? null, analysis: fp.analysis ?? null,
               syncState: "synced", updatedAt: new Date().toISOString(),
             } satisfies LocalProgressPhoto);
           }
@@ -134,7 +135,7 @@ export default function PhotosPage() {
     const row: LocalProgressPhoto = {
       id, takenAt: new Date().toISOString(), angle: a,
       photoData: r.dataUrl, photoMime: r.photoMime, pose: r.pose.length === 33 ? r.pose : null,
-      worldPose: r.worldPose,
+      worldPose: r.worldPose, analysis: r.analysis,
       syncState: "pending", updatedAt: new Date().toISOString(),
     };
     try {
@@ -143,7 +144,7 @@ export default function PhotosPage() {
       // Try immediate sync; sweeper retries if offline.
       const res = await fetch("/api/workout/photos", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, takenAt: row.takenAt, angle: a, photoData: r.dataUrl, photoMime: r.photoMime, pose: row.pose, worldPose: row.worldPose }),
+        body: JSON.stringify({ id, takenAt: row.takenAt, angle: a, photoData: r.dataUrl, photoMime: r.photoMime, pose: row.pose, worldPose: row.worldPose, analysis: row.analysis }),
       }).catch(() => null);
       const fatal = !!res && [400, 413, 422].includes(res.status);
       await db.progressPhotos.update(id, {
@@ -258,6 +259,9 @@ export default function PhotosPage() {
             <div className="mt-3 flex items-center justify-between">
               <p className="text-xs" style={{ color: "#e8ddc8" }}>
                 {viewing.angle} · {new Date(viewing.takenAt).toLocaleDateString()}
+                {viewing.analysis?.matchScore != null && ` · ${viewing.analysis.matchScore}% pose match`}
+                {viewing.analysis?.shirtless === false && " · shirt on"}
+                {viewing.analysis?.shirtless === true && " · bare skin"}
               </p>
               <button type="button" onClick={() => void remove(viewing)}
                 className="rounded-lg border px-3 py-1.5 text-xs"

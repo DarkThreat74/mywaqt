@@ -3,12 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { keyPose, keyPose3D, scorePose, worstJoint, type AnyPose, type KeyPose, type KeyPose3D, type Pt } from "@/lib/workout/poseGuide";
 import { getPoseLandmarker } from "@/lib/workout/poseModel";
+import { detectShirtless } from "@/lib/workout/shirtDetect";
 
 export interface CaptureResult {
   dataUrl: string;
   photoMime: string;
   pose: number[][]; // 33 image landmarks [x,y]
   worldPose: number[][] | null; // 33 world landmarks [x,y,z] meters — powers 3D pose matching
+  analysis: {
+    shirtless: boolean | null;
+    skinRatio: number | null;
+    matchScore: number | null; // pose-match % at shutter time
+  };
 }
 
 interface Props {
@@ -48,6 +54,7 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
   const [camError, setCamError] = useState("");
   const [score, setScore] = useState(0);
   const [worstHint, setWorstHint] = useState<string | null>(null);
+  const [shirtOn, setShirtOn] = useState<boolean | null>(null); // true = fabric detected
   const [aligned, setAligned] = useState(false);
   const alignSince = useRef(0);
   const capturing = useRef(false);
@@ -159,6 +166,8 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
     // detect hiccups — otherwise the photo loses its pose guide data.
     let lastLm: { x: number; y: number }[] = [];
     let lastWlm: { x: number; y: number; z?: number }[] = [];
+    let lastShirtCheck = 0;
+    let shirtOnLocal: boolean | null = null;
     const JOINT_KEYS = ["nose","shL","shR","elL","elR","wrL","wrR","hipL","hipR","kneeL","kneeR","ankL","ankR"] as const;
     const blend = <T extends KeyPose | KeyPose3D>(prev: T, next: T): T => {
       const out = { ...next } as T;
@@ -188,6 +197,15 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
             const kw = wlm ? keyPose3D(wlm) : null;
             if (lm?.length === 33) lastLm = lm;
             if (wlm?.length === 33) lastWlm = wlm;
+            // Shirt check ~1.4×/sec — pixel sampling is cheap but not free.
+            if (lm?.length === 33 && now - lastShirtCheck > 700) {
+              lastShirtCheck = now;
+              const sh = detectShirtless(video, video.videoWidth || 1, video.videoHeight || 1, lm);
+              if (sh) {
+                shirtOnLocal = !sh.shirtless;
+                setShirtOn((prev) => (prev === shirtOnLocal ? prev : shirtOnLocal));
+              }
+            }
             smooth = k ? (smooth ? blend(smooth, k) : k) : null;
             smoothW = kw ? (smoothW ? blend(smoothW, kw) : kw) : null;
             lastK = smooth; lastKw = smoothW;
@@ -249,29 +267,53 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       if (poseModelOk && !alignedRef.current) return;
       capturing.current = true;
       const vw = video.videoWidth, vh = video.videoHeight;
-      const scale = Math.min(1, 1280 / Math.max(vw, vh));
+      const scale = Math.min(1, 1920 / Math.max(vw, vh));
       const out = document.createElement("canvas");
       out.width = Math.round(vw * scale); out.height = Math.round(vh * scale);
       out.getContext("2d")!.drawImage(video, 0, 0, out.width, out.height);
-      const mime = out.toDataURL("image/webp", 0.82).startsWith("data:image/webp") ? "image/webp" : "image/jpeg";
-      const dataUrl = mime === "image/webp" ? out.toDataURL("image/webp", 0.82) : out.toDataURL("image/jpeg", 0.85);
+      // WebP q0.9 — ~40% smaller than JPEG at this quality; fall back if unsupported.
+      const webp = out.toDataURL("image/webp", 0.9);
+      const mime = webp.startsWith("data:image/webp") ? "image/webp" : "image/jpeg";
+      const dataUrl = mime === "image/webp" ? webp : out.toDataURL("image/jpeg", 0.92);
       // grab the freshest landmarks for next time's guide — image coords for
       // the overlay, world coords (meters) for view-invariant 3D scoring
       let pose: number[][] = [];
       let worldPose: number[][] | null = null;
+      let freshK: KeyPose | null = null, freshKw: KeyPose3D | null = null;
+      let freshLm = lastLm;
       try {
         const res = landmarker?.detectForVideo(video, performance.now());
         const lm = res?.landmarks?.[0];
         const w = res?.worldLandmarks?.[0];
-        if (lm?.length === 33) { lastLm = lm; lastWlm = w?.length === 33 ? w : lastWlm; }
-        pose = (lm?.length === 33 ? lm : lastLm).map((l) => [l.x, l.y]);
-        const wsrc = w?.length === 33 ? w : lastWlm;
-        if (wsrc.length === 33) worldPose = wsrc.map((l) => [l.x, l.y, l.z ?? 0]);
-      } catch { /* fall through to cached landmarks */
-        pose = lastLm.map((l) => [l.x, l.y]);
-        if (lastWlm.length === 33) worldPose = lastWlm.map((l) => [l.x, l.y, l.z ?? 0]);
+        if (lm?.length === 33) {
+          lastLm = lm; freshLm = lm; freshK = keyPose(lm);
+          pose = lm.map((l) => [l.x, l.y]);
+        }
+        if (w?.length === 33) {
+          lastWlm = w; freshKw = keyPose3D(w);
+          worldPose = w.map((l) => [l.x, l.y, l.z ?? 0]);
+        }
+      } catch { /* fall through to cached landmarks */ }
+      if (!pose.length && lastLm.length === 33) pose = lastLm.map((l) => [l.x, l.y]);
+      if (!worldPose && lastWlm.length === 33) worldPose = lastWlm.map((l) => [l.x, l.y, l.z ?? 0]);
+
+      // Picture analysis: clothing state + the live match score at the
+      // shutter moment, stored with the photo for later review.
+      let shirtless: boolean | null = null, skinRatio: number | null = null, matchScore: number | null = null;
+      try {
+        const sh = detectShirtless(out, out.width, out.height, freshLm);
+        if (sh) { shirtless = sh.shirtless; skinRatio = sh.skinRatio; }
+      } catch { /* analysis is best-effort */ }
+      const ck = freshK ?? lastK, cw = freshKw ?? lastKw;
+      if (ck) {
+        const tp = targetRef.current, tp3 = targetWorldRef.current;
+        const use3D = !!(tp3 && cw);
+        matchScore = scorePose(use3D ? tp3! : tp, use3D ? cw! : ck);
       }
-      onCaptureRef.current({ dataUrl, photoMime: mime, pose, worldPose });
+      onCaptureRef.current({
+        dataUrl, photoMime: mime, pose, worldPose,
+        analysis: { shirtless, skinRatio, matchScore },
+      });
       capturing.current = false; // same mount may serve the next angle's retake
     };
     (window as unknown as { __guidedCapture?: () => void }).__guidedCapture = capture;
@@ -285,7 +327,7 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       });
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
           audio: false,
         });
       } catch (err) {
@@ -358,6 +400,11 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
               <p className="mt-1 text-center text-[10px] tabular-nums" style={{ color: "#e8ddc8" }}>
                 {aligned ? "Hold still — capturing…" : worstHint ? `check your ${worstHint}` : `${score}% match`}
               </p>
+              {shirtOn === true && angle !== "front" && (
+                <p className="mt-0.5 text-center text-[9px]" style={{ color: "#e8a04c" }}>
+                  Shirt detected — bare skin gives a cleaner {angle} silhouette
+                </p>
+              )}
             </>
           )}
           <button type="button"

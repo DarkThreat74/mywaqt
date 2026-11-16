@@ -219,6 +219,7 @@ export interface LocalProgressPhoto {
   photoMime: string;
   pose?: number[][] | null; // 33 MediaPipe landmarks, normalized
   worldPose?: number[][] | null; // 33 world landmarks [x,y,z] meters
+  analysis?: { shirtless?: boolean | null; skinRatio?: number | null; matchScore?: number | null } | null;
   syncState: "pending" | "synced" | "error";
   syncError?: string | null;
   updatedAt: string;
