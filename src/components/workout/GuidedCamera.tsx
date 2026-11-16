@@ -43,7 +43,8 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [modelOk, setModelOk] = useState(true);
+  const [modelState, setModelState] = useState<"loading" | "ready" | "failed">("loading");
+  const modelOk = modelState === "ready";
   const [camError, setCamError] = useState("");
   const [score, setScore] = useState(0);
   const [worstHint, setWorstHint] = useState<string | null>(null);
@@ -77,6 +78,7 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
     let landmarker: import("@mediapipe/tasks-vision").PoseLandmarker | null = null;
     let raf = 0;
     let poseModelOk = false;
+    let modelLoading = true; // shutter stays disabled until the model resolves
     let lastPlayTry = 0;
     capturing.current = false; // refs survive angle changes — reset per mount
     const video = videoRef.current!, canvas = canvasRef.current!;
@@ -153,6 +155,10 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
     let smoothW: KeyPose3D | null = null;
     let lastK: KeyPose | null = null;
     let lastKw: KeyPose3D | null = null;
+    // Raw 33-point landmarks, kept for capture() fallback if the shutter-time
+    // detect hiccups — otherwise the photo loses its pose guide data.
+    let lastLm: { x: number; y: number }[] = [];
+    let lastWlm: { x: number; y: number; z?: number }[] = [];
     const JOINT_KEYS = ["nose","shL","shR","elL","elR","wrL","wrR","hipL","hipR","kneeL","kneeR","ankL","ankR"] as const;
     const blend = <T extends KeyPose | KeyPose3D>(prev: T, next: T): T => {
       const out = { ...next } as T;
@@ -180,6 +186,8 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
             const wlm = res.worldLandmarks?.[0];
             const k = lm ? keyPose(lm) : null;
             const kw = wlm ? keyPose3D(wlm) : null;
+            if (lm?.length === 33) lastLm = lm;
+            if (wlm?.length === 33) lastWlm = wlm;
             smooth = k ? (smooth ? blend(smooth, k) : k) : null;
             smoothW = kw ? (smoothW ? blend(smoothW, kw) : kw) : null;
             lastK = smooth; lastKw = smoothW;
@@ -223,10 +231,10 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
             const midShF: Pt = [(k.shL[0] + k.shR[0]) / 2, (k.shL[1] + k.shR[1]) / 2];
             const torsoF = Math.hypot(midShF[0] - midHipF[0], midShF[1] - midHipF[1]) || 1e-4;
             const targetFrame = {} as KeyPose;
-            (Object.keys(tp) as (keyof KeyPose)[]).forEach((key) => {
+            for (const key of JOINT_KEYS) {
               const p = tp[key] as Pt;
               targetFrame[key] = [midHipF[0] + p[0] * torsoF, midHipF[1] + p[1] * torsoF];
-            });
+            }
             drawSkeleton(targetFrame, map, "rgba(255,255,255,0.6)", canvas.width * 0.02, []);
             drawSkeleton(k, map, "rgba(255,180,90,0.95)", canvas.width * 0.018, []);
           }
@@ -237,6 +245,7 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
 
     const capture = () => {
       if (capturing.current || !video.videoWidth) return;
+      if (modelLoading) return; // never allow an unguided shot mid-load
       if (poseModelOk && !alignedRef.current) return;
       capturing.current = true;
       const vw = video.videoWidth, vh = video.videoHeight;
@@ -252,10 +261,16 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       let worldPose: number[][] | null = null;
       try {
         const res = landmarker?.detectForVideo(video, performance.now());
-        pose = (res?.landmarks?.[0] || []).map((l) => [l.x, l.y]);
+        const lm = res?.landmarks?.[0];
         const w = res?.worldLandmarks?.[0];
-        if (w?.length === 33) worldPose = w.map((l) => [l.x, l.y, l.z ?? 0]);
-      } catch { /* pose optional */ }
+        if (lm?.length === 33) { lastLm = lm; lastWlm = w?.length === 33 ? w : lastWlm; }
+        pose = (lm?.length === 33 ? lm : lastLm).map((l) => [l.x, l.y]);
+        const wsrc = w?.length === 33 ? w : lastWlm;
+        if (wsrc.length === 33) worldPose = wsrc.map((l) => [l.x, l.y, l.z ?? 0]);
+      } catch { /* fall through to cached landmarks */
+        pose = lastLm.map((l) => [l.x, l.y]);
+        if (lastWlm.length === 33) worldPose = lastWlm.map((l) => [l.x, l.y, l.z ?? 0]);
+      }
       onCaptureRef.current({ dataUrl, photoMime: mime, pose, worldPose });
       capturing.current = false; // same mount may serve the next angle's retake
     };
@@ -284,12 +299,20 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       try { await video.play(); } catch { /* autoplay policies vary — play() retried below */ }
 
       // Pose model is best-effort — the camera and shutter work either way
-      // so this can never dead-end.
-      landmarker = await modelP;
+      // so this can never dead-end. Shutter stays locked until this resolves
+      // so nobody takes an unguided shot during the load window.
+      // 12s cap — on a dead connection the singleton keeps warming in the
+      // background, but this mount falls back to manual mode instead of
+      // locking the shutter forever.
+      landmarker = await Promise.race([
+        modelP,
+        new Promise<null>((res) => setTimeout(() => res(null), 12000)),
+      ]);
       const modelReady = !!landmarker && !cancelled;
+      modelLoading = false;
       if (cancelled) return;
       poseModelOk = modelReady;
-      setModelOk(modelReady);
+      setModelState(modelReady ? "ready" : "failed");
       setStatus("ready");
       resize();
       loop(); // runs with or without the pose model — ghost + play retry
@@ -323,7 +346,9 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       {status === "ready" && (
         <div className="absolute inset-x-0 bottom-0 p-4" style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.75))" }}>
           <p className="text-center text-[11px]" style={{ color: "#e8ddc8" }}>
-            {modelOk ? HINTS[angle] : "Pose guide unavailable — frame yourself and tap the shutter"}
+            {modelState === "loading" ? "Loading pose guide…"
+              : modelOk ? HINTS[angle]
+              : "Pose guide unavailable — frame yourself and tap the shutter"}
           </p>
           {modelOk && (
             <>
@@ -337,13 +362,13 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
           )}
           <button type="button"
             onClick={() => (window as unknown as { __guidedCapture?: () => void }).__guidedCapture?.()}
-            disabled={modelOk && !aligned}
+            disabled={modelState === "loading" || (modelOk && !aligned)}
             className="mx-auto mt-3 flex h-16 w-16 items-center justify-center rounded-full border-4 text-lg"
             style={{
               borderColor: modelOk && aligned ? "#e8a04c" : "rgba(255,255,255,0.3)",
               backgroundColor: modelOk && aligned ? "#e8a04c" : "rgba(255,255,255,0.15)",
               color: "#111",
-              opacity: modelOk && !aligned ? 0.5 : 1,
+              opacity: modelState === "loading" || (modelOk && !aligned) ? 0.5 : 1,
             }}
             aria-label="Capture photo">
             ●
