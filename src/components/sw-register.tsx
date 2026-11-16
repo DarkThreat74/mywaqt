@@ -229,7 +229,18 @@ export default function ServiceWorkerRegister() {
       const last = Number(sessionStorage.getItem("waqt:chunk-reload") || 0);
       if (Date.now() - last < 60_000) return;
       sessionStorage.setItem("waqt:chunk-reload", String(Date.now()));
-      window.location.reload();
+      // A stale cached page references chunk URLs that no longer exist on
+      // the deploy — reloading into it just re-serves the same dead page and
+      // loops forever. Evict every app route's page+RSC copies (the SW can
+      // also serve a fallback page cached under a different key) so reloads
+      // fetch fresh HTML. Short delay lets the SW finish the deletes.
+      try {
+        navigator.serviceWorker.controller?.postMessage({
+          type: "EVICT_ROUTES",
+          urls: [...new Set([window.location.pathname + window.location.search, ...APP_ROUTES])],
+        });
+      } catch { /* no SW — reload straight through */ }
+      setTimeout(() => window.location.reload(), 400);
     };
     window.addEventListener("error", handleFatal);
     window.addEventListener("unhandledrejection", handleFatal);
