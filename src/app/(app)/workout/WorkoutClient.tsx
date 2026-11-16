@@ -542,7 +542,10 @@ export default function WorkoutClient() {
               </div>
             </div>
           ))}
-          {filtered.length === 0 && (
+          {catalog === null && (
+            <p className="py-6 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading exercise library…</p>
+          )}
+          {catalog !== null && filtered.length === 0 && (
             <p className="py-6 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>No exercises match.</p>
           )}
           {!pickerAll && filtered.length > 120 && (

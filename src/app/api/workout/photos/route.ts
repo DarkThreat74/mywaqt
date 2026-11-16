@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { logError } from "@/lib/logError";
@@ -23,6 +23,15 @@ export async function GET(request: NextRequest) {
       .where(and(eq(schema.workoutPhotos.id, id), eq(schema.workoutPhotos.userId, session.userId))).limit(1);
     if (!row) return NextResponse.json({ error: "Not found." }, { status: 404 });
     return NextResponse.json({ photo: row });
+  }
+  // Batch full-row fetch for offline hydration — one request instead of N.
+  const idsParam = request.nextUrl.searchParams.get("ids");
+  if (idsParam) {
+    const ids = idsParam.split(",").map((s) => s.trim()).filter(isValidUUID).slice(0, 60);
+    if (!ids.length) return NextResponse.json({ photos: [] });
+    const rows = await db.select().from(schema.workoutPhotos)
+      .where(and(eq(schema.workoutPhotos.userId, session.userId), inArray(schema.workoutPhotos.id, ids)));
+    return NextResponse.json({ photos: rows });
   }
   const rows = await db.select({
     id: schema.workoutPhotos.id,

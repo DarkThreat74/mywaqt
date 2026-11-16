@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Search, X } from "lucide-react";
-import { EXERCISES, isUnilateralExercise, type Exercise } from "@/lib/workout/exercises";
+import type { Exercise } from "@/lib/workout/exercises-meta";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 import { estimateE1, EQUIP_NOTES, VARIATIONS, HANDED } from "@/lib/workout/ratios";
@@ -16,11 +16,8 @@ interface SetRow { weight: string; reps: number | null; rir?: number | null; set
 type Unit = "kg" | "lb";
 type HandMode = "both" | "one";
 
-// Exercises that are inherently one-side-at-a-time (Single-Arm X, One-Arm Y)
-// default to paired L/R rows instead of requiring the manual 1-hand toggle.
-const handedCapable = (slug: string) => HANDED.has(slug) || isUnilateralExercise(slug);
-const requiresLoad = (slug: string) => EXERCISES.find((exercise) => exercise.slug === slug)?.equip !== "bodyweight";
-const isDumbbell = (slug: string) => EXERCISES.find((exercise) => exercise.slug === slug)?.equip === "dumbbell";
+// Catalog-dependent helpers live inside ActiveInner — the ~2,000-entry
+// exercise bank is lazy-loaded so this route's initial chunk stays light.
 
 const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
 
@@ -39,7 +36,7 @@ function ActiveInner() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [setRows, setSetRows] = useState<Record<string, SetRow[]>>({});
   const [handModes, setHandModes] = useState<Record<string, HandMode>>({});
-  const handModeOf = (slug: string) => handModes[slug] ?? (isUnilateralExercise(slug) ? "one" : "both");
+  const handModeOf = (slug: string) => handModes[slug] ?? (isUni(slug) ? "one" : "both");
   const [prevSets, setPrevSets] = useState<Record<string, string[]>>({});
   const [bestE1, setBestE1] = useState<Map<string, number>>(new Map());
   const [recommendedKg, setRecommendedKg] = useState<Map<string, number>>(new Map());
@@ -49,6 +46,32 @@ function ActiveInner() {
   const [stalled, setStalled] = useState<Set<string>>(new Set());
   const [setCounts, setSetCounts] = useState<Record<string, number>>({});
   const [elapsed, setElapsed] = useState(0);
+  // Lazy exercise catalog — names/equipment resolve once it lands; slug
+  // fallbacks cover the gap so the session never blocks on the chunk.
+  const [catalog, setCatalog] = useState<Exercise[] | null>(null);
+  useEffect(() => {
+    let on = true;
+    void import("@/lib/workout/exercises")
+      .then((m) => { if (on) setCatalog(m.EXERCISES); })
+      .catch(() => {});
+    return () => { on = false; };
+  }, []);
+  const exBySlug = useMemo(() => new Map((catalog ?? []).map((e) => [e.slug, e])), [catalog]);
+  // Ref mirror so the once-only bootstrap effect reads the latest catalog
+  // without re-running (and without an exhaustive-deps violation).
+  const exBySlugRef = useRef(exBySlug);
+  useEffect(() => { exBySlugRef.current = exBySlug; }, [exBySlug]);
+  // Inherently one-side-at-a-time: catalog `uni` flag wins; slug regex covers
+  // custom exercises and the pre-catalog window.
+  const isUni = (slug: string) => {
+    const ex = exBySlug.get(slug);
+    if (ex) return ex.uni === true;
+    const name = slug.toLowerCase();
+    return /single-arm|one-arm|single-leg|unilateral/.test(name) || /^(single-arm|one-arm|single-leg)/.test(slug);
+  };
+  const handedCapable = (slug: string) => HANDED.has(slug) || isUni(slug);
+  const requiresLoad = (slug: string) => (catalog ? exBySlug.get(slug)?.equip !== "bodyweight" : true);
+  const isDumbbell = (slug: string) => exBySlug.get(slug)?.equip === "dumbbell";
   const [sessionDate, setSessionDate] = useState(""); // yyyy-mm-dd the workout belongs to
   // Live-pill flag — keyed on the session existing, not mount ordering, so it
   // always fires for both fresh and resumed sessions.
@@ -269,7 +292,7 @@ function ActiveInner() {
       const resumedExercises: DayExercise[] = sdata.resumed
         ? Object.keys(rows).map((slug) => {
             const fromDay = (d.exercises || []).find((e: DayExercise) => e.slug === slug);
-            const lib = EXERCISES.find((e) => e.slug === slug);
+            const lib = exBySlugRef.current.get(slug);
             const rowCount = rows[slug].length;
             const logicalSets = Math.max(modes[slug] === "one" ? Math.ceil(rowCount / 2) : rowCount, 1);
             return {
@@ -331,7 +354,7 @@ function ActiveInner() {
         try { seen = !!localStorage.getItem(rkey); if (!seen) localStorage.setItem(rkey, "1"); } catch { /* noop */ }
         if (!seen) {
           const unrec = (d.exercises || [])
-            .map((e: DayExercise) => EXERCISES.find((x) => x.slug === e.slug)?.muscle)
+            .map((e: DayExercise) => exBySlugRef.current.get(e.slug)?.muscle)
             .filter((m: string | undefined): m is string => !!m)
             .map((m: string) => 100 - (freshMap.get(m) ?? 100));
           const avg = unrec.length ? unrec.reduce((a, b) => a + b, 0) / unrec.length : 0;
@@ -857,7 +880,7 @@ function ActiveInner() {
 
       <div className="mt-5 space-y-4">
         {exercises.map((x, xi) => {
-          const ex: Exercise | undefined = EXERCISES.find((e) => e.slug === x.slug);
+          const ex: Exercise | undefined = exBySlug.get(x.slug);
           const displayName = ex?.name || x.name;
           const rows = setRows[x.slug] || [];
           return (
@@ -974,7 +997,7 @@ function ActiveInner() {
                   {!prevSets[x.slug]?.filter(Boolean).length && (() => {
                     const est = estimateE1(x.slug, bestE1, lastAt);
                     if (!est) return null;
-                    const from = EXERCISES.find((e) => e.slug === est.from)?.name || est.from;
+                    const from = exBySlug.get(est.from)?.name || est.from;
                     return (
                       <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }} title={`${est.why} — ~75% of estimated 1RM as a working weight`}>
                         est. {dispW(est.e1 * 0.75)}{units}×8-10 <span style={{ opacity: 0.7 }}>(from {from}{est.personal ? ", calibrated" : ""})</span>
@@ -1198,10 +1221,13 @@ function ActiveInner() {
             </div>
             <div className="max-h-[52vh] overflow-y-auto p-3">
               <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {pickerMode !== "routine" && catalog === null && (
+                  <p className="col-span-full p-3 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading exercise library…</p>
+                )}
                 {(() => {
                   const items = pickerMode === "routine"
                     ? availableExercises.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: "", equip: "", sets: exercise.sets, reps: exercise.reps }))
-                    : EXERCISES.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: exercise.muscle, equip: exercise.equip, sets: 1, reps: "8-12" }));
+                    : (catalog ?? []).map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: exercise.muscle, equip: exercise.equip, sets: 1, reps: "8-12" }));
                   return items
                   .filter((exercise) => exercise.slug !== swapSlug)
                   .filter((exercise) => !exerciseQuery.trim() || `${exercise.name} ${exercise.muscle} ${exercise.equip}`.toLowerCase().includes(exerciseQuery.toLowerCase()))

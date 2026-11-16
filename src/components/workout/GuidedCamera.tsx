@@ -55,9 +55,11 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
   const ghostRef = useRef<HTMLImageElement | null>(null);
   useEffect(() => {
     if (!ghostImage) { ghostRef.current = null; return; }
+    let dead = false;
     const img = new Image();
     img.src = ghostImage;
-    img.onload = () => { ghostRef.current = img; };
+    img.onload = () => { if (!dead) ghostRef.current = img; };
+    return () => { dead = true; };
   }, [ghostImage]);
 
   useEffect(() => {
@@ -66,6 +68,8 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
     let landmarker: import("@mediapipe/tasks-vision").PoseLandmarker | null = null;
     let raf = 0;
     let poseModelOk = false;
+    let lastPlayTry = 0;
+    capturing.current = false; // refs survive angle changes — reset per mount
     const video = videoRef.current!, canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
 
@@ -123,12 +127,19 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
 
     const loop = () => {
       if (cancelled) return;
-      if (video.readyState >= 2 && landmarker) {
+      if (video.readyState >= 2) {
+        // Autoplay can be blocked until a user gesture — keep retrying.
+        if (video.paused && performance.now() - lastPlayTry > 1000) {
+          lastPlayTry = performance.now();
+          video.play().catch(() => {});
+        }
+        // Ghost + clear run every frame, pose model or not — manual mode
+        // still gets the prior-photo overlay.
+        const { map, rect } = view();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGhost(rect);
+        if (landmarker) {
         try {
-          // Ghost stays up even when no pose is detected.
-          const { map, rect } = view();
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          drawGhost(rect);
           const res = landmarker.detectForVideo(video, performance.now());
           const lm = res.landmarks?.[0];
           const k = lm ? keyPose(lm) : null;
@@ -162,7 +173,8 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
             drawSkeleton(targetFrame, map, "rgba(255,255,255,0.6)", canvas.width * 0.006, [6, 5]);
             drawSkeleton(k, map, "rgba(255,180,90,0.95)", canvas.width * 0.007, []);
           }
-        } catch { /* detection hiccup — keep last frame */ }
+          } catch { /* detection hiccup — keep last frame */ }
+        }
       }
       raf = requestAnimationFrame(loop);
     };
@@ -185,6 +197,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
         pose = (res?.landmarks?.[0] || []).map((l) => [l.x, l.y]);
       } catch { /* pose optional */ }
       onCaptureRef.current({ dataUrl, photoMime: mime, pose });
+      capturing.current = false; // same mount may serve the next angle's retake
     };
     (window as unknown as { __guidedCapture?: () => void }).__guidedCapture = capture;
 
@@ -236,7 +249,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
       setModelOk(modelReady);
       setStatus("ready");
       resize();
-      if (modelReady) loop();
+      loop(); // runs with or without the pose model — ghost + play retry
     })();
 
     return () => {

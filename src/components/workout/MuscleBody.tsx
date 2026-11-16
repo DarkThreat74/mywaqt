@@ -29,10 +29,15 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
   const cbRef = useRef({ fatigue, selectedBucket, onSelect, onFallback });
   const recolorRef = useRef<() => void>(() => {});
 
+  // cbRef tracks latest props every render (cheap). recolor is expensive —
+  // ~200 material needsUpdate shader rebuilds — so it only runs when the
+  // inputs it actually reads change, not on every parent render.
   useEffect(() => {
     cbRef.current = { fatigue, selectedBucket, onSelect, onFallback };
-    recolorRef.current();
   }, [fatigue, selectedBucket, onSelect, onFallback]);
+  useEffect(() => {
+    recolorRef.current();
+  }, [fatigue, selectedBucket]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -78,6 +83,11 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
     // click event can't double-fire — replaces the old 250ms lastPick window
     // that swallowed legitimate fast successive taps.
     let tapFired = false;
+    // Single-tap select is delayed ~300ms so a fast second tap can cancel it
+    // and trigger the double-tap camera reset — the detail sheet covers the
+    // canvas, so without the delay the reset could never be reached.
+    let pendingPickTimer = 0;
+    const TAP_DELAY = 300;
     const pointers = new Map<number, { x: number; y: number }>();
     let pinchD = 0;
 
@@ -217,13 +227,14 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
 
     const handleTap = (cx: number, cy: number) => {
       const now = performance.now();
-      const isDouble = now - lastTap < 300 && Math.hypot(cx - lastTapX, cy - lastTapY) < 40;
+      const isDouble = now - lastTap < TAP_DELAY && Math.hypot(cx - lastTapX, cy - lastTapY) < 40;
       lastTap = now; lastTapX = cx; lastTapY = cy;
+      if (pendingPickTimer) { clearTimeout(pendingPickTimer); pendingPickTimer = 0; }
       if (isDouble) { // double-tap resets the camera
         orbit.yaw = 0; orbit.pitch = 0.08; orbit.dist = 3.4; applyCam();
         return;
       }
-      pick(cx, cy);
+      pendingPickTimer = window.setTimeout(() => { pendingPickTimer = 0; pick(cx, cy); }, TAP_DELAY);
     };
 
     const resize = () => {
@@ -240,11 +251,13 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
     // GLB node names look like "deltoid_anterior_left__mobile.002" —
     // normalize to the map id "deltoid_anterior_left".
     const norm = (n: string) => n.replace(/__mobile.*$/, "").replace(/\.\d+$/, "");
+    let modelRoot: THREE.Object3D | null = null;
     Promise.all([
       new GLTFLoader().loadAsync(`/models/anatomy/full-body-${sex}-mobile.glb`),
       fetch(`/models/anatomy/${sex === "female" ? "female-muscle-map" : "full-body-map"}.json`).then((r) => r.json()).catch(() => null),
     ]).then(([gltf, mapJson]) => {
       if (disposed) return;
+      modelRoot = gltf.scene;
       const muscles: AtlasMuscle[] = Array.isArray(mapJson?.muscles) ? mapJson.muscles : [];
       const byId = new Map(muscles.flatMap((m) => [[m.id, m], [norm(m.id), m]] as const));
       gltf.scene.traverse((o) => {
@@ -298,8 +311,21 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
 
     return () => {
       disposed = true;
+      if (pendingPickTimer) clearTimeout(pendingPickTimer);
       cancelAnimationFrame(raf);
       ro.disconnect();
+      // Free GPU resources — geometries, cloned materials, and textures would
+      // otherwise leak on every visit to the muscles page.
+      modelRoot?.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        m.geometry?.dispose();
+        for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+          const sm = mat as THREE.MeshStandardMaterial;
+          sm.map?.dispose(); sm.normalMap?.dispose(); sm.roughnessMap?.dispose(); sm.metalnessMap?.dispose();
+          sm.dispose();
+        }
+      });
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);

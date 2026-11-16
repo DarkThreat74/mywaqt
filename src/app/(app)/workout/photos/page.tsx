@@ -55,17 +55,20 @@ export default function PhotosPage() {
         const local = await db.progressPhotos.toArray();
         const localIds = new Set(local.map((p) => p.id));
         const tombs = photoTombstones();
-        for (const m of metas) {
-          if (localIds.has(m.id) || tombs.has(m.id)) continue;
-          const full = await fetch(`/api/workout/photos?id=${m.id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-          if (!full?.photo) continue;
-          const fp = full.photo as ServerPhotoMeta & { photoData: string };
-          await db.progressPhotos.put({
-            id: fp.id, takenAt: fp.takenAt, angle: (ANGLES as readonly string[]).includes(fp.angle) ? fp.angle as Angle : "other",
-            weightKg: fp.weightKg ? parseFloat(fp.weightKg) : null, note: fp.note,
-            photoData: fp.photoData, photoMime: fp.photoMime, pose: fp.pose,
-            syncState: "synced", updatedAt: new Date().toISOString(),
-          } satisfies LocalProgressPhoto);
+        const missing = metas.filter((m) => !localIds.has(m.id) && !tombs.has(m.id));
+        // Batch fetch in chunks of 60 — one request per chunk, not per photo.
+        for (let i = 0; i < missing.length; i += 60) {
+          const chunk = missing.slice(i, i + 60);
+          const full = await fetch(`/api/workout/photos?ids=${chunk.map((m) => m.id).join(",")}`)
+            .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+          for (const fp of (full?.photos ?? []) as (ServerPhotoMeta & { photoData: string })[]) {
+            await db.progressPhotos.put({
+              id: fp.id, takenAt: fp.takenAt, angle: (ANGLES as readonly string[]).includes(fp.angle) ? fp.angle as Angle : "other",
+              weightKg: fp.weightKg ? parseFloat(fp.weightKg) : null, note: fp.note,
+              photoData: fp.photoData, photoMime: fp.photoMime, pose: fp.pose,
+              syncState: "synced", updatedAt: new Date().toISOString(),
+            } satisfies LocalProgressPhoto);
+          }
         }
       }
       await syncPendingWorkouts();

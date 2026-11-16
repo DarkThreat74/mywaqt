@@ -5,6 +5,7 @@ import { fatigueColor, type BodyBucket } from "@/lib/workout/muscleBodyMap";
 
 interface Props {
   fatigue: Partial<Record<BodyBucket, number>>;
+  selectedBucket?: BodyBucket | null;
   onSelect?: (bucket: BodyBucket, label: string) => void;
 }
 
@@ -21,13 +22,15 @@ const PAPER = "#EDE5D3";
 
 // Stylized flat figure — capsule/ellipse regions per view. Not anatomical;
 // a readable recovery map, used when WebGL is unavailable or fails.
-function FrontFigure({ fatigue, onPick }: { fatigue: Props["fatigue"]; onPick: Props["onSelect"] }) {
+const SELECT = "#d9a441";
+
+function FrontFigure({ fatigue, selected, onPick }: { fatigue: Props["fatigue"]; selected: BodyBucket | null; onPick: Props["onSelect"] }) {
   const R = (bucket: BodyBucket, el: React.ReactNode) => (
     <g key={bucket} onClick={() => onPick?.(bucket, LABEL[bucket])} style={{ cursor: "pointer" }}>
       {el}
     </g>
   );
-  const fill = (b: BodyBucket) => fatigueColor(fatigue[b] ?? 0);
+  const fill = (b: BodyBucket) => (b === selected ? SELECT : fatigueColor(fatigue[b] ?? 0));
   const sw = 1.5;
   const stroke = { stroke: INK, strokeWidth: sw } as const;
   return (
@@ -71,13 +74,13 @@ function FrontFigure({ fatigue, onPick }: { fatigue: Props["fatigue"]; onPick: P
   );
 }
 
-function BackFigure({ fatigue, onPick }: { fatigue: Props["fatigue"]; onPick: Props["onSelect"] }) {
+function BackFigure({ fatigue, selected, onPick }: { fatigue: Props["fatigue"]; selected: BodyBucket | null; onPick: Props["onSelect"] }) {
   const R = (bucket: BodyBucket, el: React.ReactNode) => (
     <g key={bucket} onClick={() => onPick?.(bucket, LABEL[bucket])} style={{ cursor: "pointer" }}>
       {el}
     </g>
   );
-  const fill = (b: BodyBucket) => fatigueColor(fatigue[b] ?? 0);
+  const fill = (b: BodyBucket) => (b === selected ? SELECT : fatigueColor(fatigue[b] ?? 0));
   const stroke = { stroke: INK, strokeWidth: 1.5 } as const;
   return (
     <g>
@@ -120,7 +123,7 @@ function BackFigure({ fatigue, onPick }: { fatigue: Props["fatigue"]; onPick: Pr
   );
 }
 
-export default function MuscleBody2D({ fatigue, onSelect }: Props) {
+export default function MuscleBody2D({ fatigue, selectedBucket, onSelect }: Props) {
   const [view, setView] = useState<"front" | "back">("front");
   return (
     <div className="flex h-full flex-col">
@@ -137,7 +140,9 @@ export default function MuscleBody2D({ fatigue, onSelect }: Props) {
         ))}
       </div>
       <svg viewBox="0 0 200 380" className="min-h-0 w-full flex-1" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Muscle recovery map">
-        {view === "front" ? <FrontFigure fatigue={fatigue} onPick={onSelect} /> : <BackFigure fatigue={fatigue} onPick={onSelect} />}
+        {view === "front"
+          ? <FrontFigure fatigue={fatigue} selected={selectedBucket ?? null} onPick={onSelect} />
+          : <BackFigure fatigue={fatigue} selected={selectedBucket ?? null} onPick={onSelect} />}
       </svg>
     </div>
   );

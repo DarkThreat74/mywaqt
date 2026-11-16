@@ -43,6 +43,7 @@ export default function MusclesPage() {
     const f: Partial<Record<BodyBucket, number>> = {};
     for (const m of stats ?? []) {
       const b = bucketOf(m.muscle);
+      if (!b) continue; // unmapped muscle keys don't pollute a bucket
       const v = Math.max(0, 1 - m.freshness / 100);
       f[b] = Math.max(f[b] ?? 0, v);
     }
@@ -73,7 +74,7 @@ export default function MusclesPage() {
             onFallback={() => setUse3D(false)}
             onSelect={(bucket, label) => setSel({ bucket, label })} />
         ) : (
-          <MuscleBody2D fatigue={fatigue} onSelect={(bucket, label) => setSel({ bucket, label })} />
+          <MuscleBody2D fatigue={fatigue} selectedBucket={sel?.bucket ?? null} onSelect={(bucket, label) => setSel({ bucket, label })} />
         )}
       </div>
 

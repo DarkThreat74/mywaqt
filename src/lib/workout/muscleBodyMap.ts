@@ -19,7 +19,8 @@ const KEY_TO_BUCKET: Record<string, BodyBucket> = {
   neck: "neck",
 };
 
-export const bucketOf = (muscle: string): BodyBucket => KEY_TO_BUCKET[muscle] ?? "abs";
+// Unknown muscle keys return null — never guess a bucket (unknown ≠ abs).
+export const bucketOf = (muscle: string): BodyBucket | null => KEY_TO_BUCKET[muscle] ?? null;
 
 // Atlas muscle label/group → bucket. Order matters — first match wins.
 const ATLAS_RULES: [RegExp, BodyBucket][] = [
@@ -45,8 +46,10 @@ const ATLAS_RULES: [RegExp, BodyBucket][] = [
   [/adductor/i, "adductors"],
   [/gastrocnemius|soleus|calf/i, "calves"],
   [/tibialis|peroneus|fibularis/i, "calves"],
-  [/rectus abdominis|transversus|abs|abdominal/i, "abs"],
+  // Obliques BEFORE abs — an oblique muscle inside an "abdominal" group must
+  // not be swallowed by the abs rule.
   [/obliqu|external oblique|internal oblique/i, "obliques"],
+  [/rectus abdominis|transversus|abdominal|\babs\b/i, "abs"],
   [/sternocleidomastoid|neck/i, "neck"],
   [/pectoral/i, "chest"],
 ];
