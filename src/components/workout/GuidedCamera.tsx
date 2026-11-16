@@ -38,6 +38,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [modelOk, setModelOk] = useState(true);
+  const [camError, setCamError] = useState("");
   const [score, setScore] = useState(0);
   const [aligned, setAligned] = useState(false);
   const alignSince = useRef(0);
@@ -208,6 +209,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
         });
       } catch (err) {
         console.error("[GuidedCamera] camera", err);
+        setCamError(err instanceof DOMException ? err.name : "unknown");
         if (!cancelled) setStatus("error");
         return;
       }
@@ -258,7 +260,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
       )}
       {status === "error" && (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-xs" style={{ color: "#e8ddc8" }}>
-          Camera or pose model failed to start.{" "}
+          Camera failed to start{camError ? ` (${camError})` : ""}.{" "}
           {onCancel && <button type="button" onClick={onCancel} className="underline">Go back</button>}
         </div>
       )}
