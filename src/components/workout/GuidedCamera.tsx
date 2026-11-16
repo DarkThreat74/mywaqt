@@ -37,6 +37,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [modelOk, setModelOk] = useState(true);
   const [score, setScore] = useState(0);
   const [aligned, setAligned] = useState(false);
   const alignSince = useRef(0);
@@ -63,6 +64,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
     let stream: MediaStream | null = null;
     let landmarker: import("@mediapipe/tasks-vision").PoseLandmarker | null = null;
     let raf = 0;
+    let poseModelOk = false;
     const video = videoRef.current!, canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
 
@@ -165,7 +167,8 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
     };
 
     const capture = () => {
-      if (capturing.current || !alignedRef.current || !video.videoWidth) return;
+      if (capturing.current || !video.videoWidth) return;
+      if (poseModelOk && !alignedRef.current) return;
       capturing.current = true;
       const vw = video.videoWidth, vh = video.videoHeight;
       const scale = Math.min(1, 1280 / Math.max(vw, vh));
@@ -184,33 +187,54 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
     };
     (window as unknown as { __guidedCapture?: () => void }).__guidedCapture = capture;
 
+    const makeLandmarker = async (delegate: "GPU" | "CPU") => {
+      const vision = await import("@mediapipe/tasks-vision");
+      const fileset = await vision.FilesetResolver.forVisionTasks("/mediapipe/wasm");
+      return vision.PoseLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: "/models/pose/pose_landmarker_lite.task", delegate },
+        runningMode: "VIDEO",
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.4,
+        minPosePresenceConfidence: 0.4,
+        minTrackingConfidence: 0.4,
+      });
+    };
+
     (async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false,
         });
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        video.srcObject = stream;
-        await video.play();
-        const vision = await import("@mediapipe/tasks-vision");
-        const fileset = await vision.FilesetResolver.forVisionTasks("/mediapipe/wasm");
-        landmarker = await vision.PoseLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: "/models/pose/pose_landmarker_lite.task", delegate: "GPU" },
-          runningMode: "VIDEO",
-          numPoses: 1,
-          minPoseDetectionConfidence: 0.4,
-          minPosePresenceConfidence: 0.4,
-          minTrackingConfidence: 0.4,
-        });
-        if (cancelled) return;
-        setStatus("ready");
-        resize();
-        loop();
       } catch (err) {
-        console.error("[GuidedCamera]", err);
+        console.error("[GuidedCamera] camera", err);
         if (!cancelled) setStatus("error");
+        return;
       }
+      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+      video.srcObject = stream;
+      try { await video.play(); } catch { /* autoplay policies vary — play() retried below */ }
+
+      // Pose model is best-effort: GPU → CPU → manual mode. The camera and
+      // shutter work either way so this can never dead-end.
+      let modelReady = false;
+      for (const delegate of ["GPU", "CPU"] as const) {
+        try {
+          landmarker = await makeLandmarker(delegate);
+          modelReady = true;
+          break;
+        } catch (err) {
+          console.error(`[GuidedCamera] pose model (${delegate})`, err);
+          landmarker?.close();
+          landmarker = null;
+        }
+      }
+      if (cancelled) return;
+      poseModelOk = modelReady;
+      setModelOk(modelReady);
+      setStatus("ready");
+      resize();
+      if (modelReady) loop();
     })();
 
     return () => {
@@ -240,22 +264,28 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
       )}
       {status === "ready" && (
         <div className="absolute inset-x-0 bottom-0 p-4" style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.75))" }}>
-          <p className="text-center text-[11px]" style={{ color: "#e8ddc8" }}>{HINTS[angle]}</p>
-          <div className="mx-auto mt-2 h-1.5 w-40 overflow-hidden rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.2)" }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${score}%`, backgroundColor: score >= (personalTarget ? 72 : 62) ? "#8fce6e" : "#e8a04c" }} />
-          </div>
-          <p className="mt-1 text-center text-[10px] tabular-nums" style={{ color: "#e8ddc8" }}>
-            {aligned ? "Hold still — capturing…" : `${score}% match`}
+          <p className="text-center text-[11px]" style={{ color: "#e8ddc8" }}>
+            {modelOk ? HINTS[angle] : "Pose guide unavailable — frame yourself and tap the shutter"}
           </p>
+          {modelOk && (
+            <>
+              <div className="mx-auto mt-2 h-1.5 w-40 overflow-hidden rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.2)" }}>
+                <div className="h-full rounded-full transition-all" style={{ width: `${score}%`, backgroundColor: score >= (personalTarget ? 72 : 62) ? "#8fce6e" : "#e8a04c" }} />
+              </div>
+              <p className="mt-1 text-center text-[10px] tabular-nums" style={{ color: "#e8ddc8" }}>
+                {aligned ? "Hold still — capturing…" : `${score}% match`}
+              </p>
+            </>
+          )}
           <button type="button"
             onClick={() => (window as unknown as { __guidedCapture?: () => void }).__guidedCapture?.()}
-            disabled={!aligned}
+            disabled={modelOk && !aligned}
             className="mx-auto mt-3 flex h-16 w-16 items-center justify-center rounded-full border-4 text-lg"
             style={{
-              borderColor: aligned ? "#e8a04c" : "rgba(255,255,255,0.3)",
-              backgroundColor: aligned ? "#e8a04c" : "rgba(255,255,255,0.15)",
+              borderColor: modelOk && aligned ? "#e8a04c" : "rgba(255,255,255,0.3)",
+              backgroundColor: modelOk && aligned ? "#e8a04c" : "rgba(255,255,255,0.15)",
               color: "#111",
-              opacity: aligned ? 1 : 0.5,
+              opacity: modelOk && !aligned ? 0.5 : 1,
             }}
             aria-label="Capture photo">
             ●
