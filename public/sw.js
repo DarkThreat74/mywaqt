@@ -512,7 +512,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   // quran-tester-engine-v1: on-demand model/mushaf assets, owned by the
   // feature — versioned independently, never wiped on SW updates.
-  const validCaches = [STATIC_CACHE, RUNTIME_CACHE, API_CACHE, PAGE_CACHE, RSC_CACHE, AUDIO_CACHE, "quran-tester-engine-v1"];
+  const validCaches = [STATIC_CACHE, RUNTIME_CACHE, API_CACHE, PAGE_CACHE, RSC_CACHE, AUDIO_CACHE, "quran-tester-engine-v1", "waqt-pose-assets-v1"];
 
   event.waitUntil(
     caches
@@ -1824,6 +1824,44 @@ self.addEventListener("fetch", (event) => {
   // into the runtime cache during the background warm.
   if (url.pathname.startsWith("/data/mushaf/") || url.pathname.startsWith("/fonts/qpc2/")) return;
 
+  // ── Pose-guide + exercise-art assets: dedicated content-stable bucket.
+  // Version-independent like quran-tester-engine-v1 — survives SW version
+  // bumps and CLEAR_USER_CACHE (shared assets, not user data). ~60MB total,
+  // so it gets the long fetch budget + one retry like the /qt/ engine.
+  if (
+    url.origin === self.location.origin &&
+    (url.pathname.startsWith("/models/") ||
+      url.pathname.startsWith("/mediapipe/") ||
+      url.pathname.startsWith("/exercise-art/"))
+  ) {
+    event.respondWith(
+      (async () => {
+        const cache = await soft(cacheFor("waqt-pose-assets-v1"), 1200, null);
+        const hit = cache
+          ? await soft(cache.match(url.pathname), 1200, null)
+            ?? await soft(cache.match(url.href), 1200, null)
+          : null;
+        if (hit) return hit;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            if (attempt) await new Promise((r) => setTimeout(r, 400));
+            const res = await timedFetch(request, 15000);
+            if (res.ok) {
+              try {
+                if (request.method === "GET" && res.body && cache) {
+                  await cache.put(url.pathname, res.clone());
+                }
+              } catch { /* put failure shouldn't fail the fetch */ }
+              return res;
+            }
+          } catch { /* retry once, then fail honestly below */ }
+        }
+        return new Response("", { status: 503 });
+      })()
+    );
+    return;
+  }
+
   // ── Static assets: cache-first — same-origin only. Matching by extension
   // on any origin would stash third-party tiles/images/fonts (map tiles,
   // CDN assets) unboundedly and serve them stale forever. /worklets/ is here
@@ -1839,11 +1877,6 @@ self.addEventListener("fetch", (event) => {
       // indexes) — offline mushaf loads failed without this branch and
       // left the recite engine unanchored.
       url.pathname.startsWith("/data/") ||
-      // Pose-guide stack: ONNX-style .task model + wasm runtime + glue js.
-      // Without this the camera guide dies offline — the whole point of
-      // the offline-first build.
-      url.pathname.startsWith("/models/") ||
-      url.pathname.startsWith("/mediapipe/") ||
       url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|webmanifest|woff2?|ttf|otf|txt)$/))
   ) {
     event.respondWith(

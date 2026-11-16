@@ -7,7 +7,7 @@ import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
-const MAX_PHOTO_CHARS = 1_500_000; // ~1.1MB binary — 1920px webp q0.9 headroom
+const MAX_PHOTO_CHARS = 2_000_000; // ~1.5MB binary — 1920px webp q0.9 headroom
 const ANGLES = new Set(["front", "side", "back", "other"]);
 
 // GET /api/workout/photos — metadata + pose only; photoData is heavy, so the
@@ -61,13 +61,19 @@ export async function POST(request: NextRequest) {
   const angle = typeof body.angle === "string" && ANGLES.has(body.angle) ? body.angle : "other";
   const photoData = typeof body.photoData === "string" ? body.photoData : "";
   const photoMime = typeof body.photoMime === "string" && body.photoMime.startsWith("image/") ? body.photoMime : "image/webp";
-  if (!photoData.startsWith("data:image/") || photoData.length > MAX_PHOTO_CHARS) {
+  if (!/^data:image\/(webp|jpeg|png)/.test(photoData) || photoData.length > MAX_PHOTO_CHARS) {
     return NextResponse.json({ error: "Invalid photo payload." }, { status: 400 });
   }
   const weightKg = typeof body.weightKg === "number" && body.weightKg > 20 && body.weightKg < 500 ? String(body.weightKg) : null;
   const note = typeof body.note === "string" ? body.note.slice(0, 500) : null;
-  const pose = Array.isArray(body.pose) && body.pose.length === 33 ? body.pose : null;
-  const worldPose = Array.isArray(body.worldPose) && body.worldPose.length === 33 ? body.worldPose : null;
+  // Landmarks must be 33 finite-number pairs — anything else would draw NaN
+  // skeletons on the next guided capture.
+  const validPose = (p: unknown, dims: number) =>
+    Array.isArray(p) && p.length === 33 &&
+    p.every((l) => Array.isArray(l) && l.length >= dims &&
+      l.slice(0, dims).every((n) => typeof n === "number" && Number.isFinite(n)));
+  const pose = validPose(body.pose, 2) ? body.pose as number[][] : null;
+  const worldPose = validPose(body.worldPose, 3) ? body.worldPose as number[][] : null;
   // Capture-time analysis — shallow-validated, stored as jsonb.
   const rawAnalysis = body.analysis && typeof body.analysis === "object" ? body.analysis as Record<string, unknown> : null;
   const analysis = rawAnalysis ? {
@@ -75,7 +81,10 @@ export async function POST(request: NextRequest) {
     skinRatio: typeof rawAnalysis.skinRatio === "number" && rawAnalysis.skinRatio >= 0 && rawAnalysis.skinRatio <= 1 ? rawAnalysis.skinRatio : null,
     matchScore: typeof rawAnalysis.matchScore === "number" && rawAnalysis.matchScore >= 0 && rawAnalysis.matchScore <= 100 ? Math.round(rawAnalysis.matchScore) : null,
   } : null;
-  const takenAt = typeof body.takenAt === "string" && !Number.isNaN(Date.parse(body.takenAt)) ? new Date(body.takenAt) : new Date();
+  // Clamp takenAt — a wrong device clock must not future-date a photo and
+  // hijack the pose guide (priorFor picks the most recent per angle).
+  const parsedAt = typeof body.takenAt === "string" ? new Date(body.takenAt) : null;
+  const takenAt = parsedAt && !Number.isNaN(+parsedAt) && +parsedAt <= Date.now() + 5 * 60_000 ? parsedAt : new Date();
   const id = typeof body.id === "string" && isValidUUID(body.id) ? body.id : undefined;
 
   try {
@@ -88,11 +97,25 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, id });
       }
     }
-    const [row] = await db.insert(schema.workoutPhotos).values({
-      ...(id ? { id } : {}),
-      userId: session.userId, takenAt, angle, weightKg, note, photoData, photoMime, pose, worldPose, analysis,
-    }).returning({ id: schema.workoutPhotos.id });
-    return NextResponse.json({ ok: true, id: row.id });
+    try {
+      const [row] = await db.insert(schema.workoutPhotos).values({
+        ...(id ? { id } : {}),
+        userId: session.userId, takenAt, angle, weightKg, note, photoData, photoMime, pose, worldPose, analysis,
+      }).returning({ id: schema.workoutPhotos.id });
+      return NextResponse.json({ ok: true, id: row.id });
+    } catch (err) {
+      // Concurrent upsert of the same client id (immediate POST racing the
+      // sync sweeper) → PK violation. Fall back to update, still user-scoped
+      // so a foreign id can never overwrite someone else's photo.
+      if (id && (err as { code?: string }).code === "23505") {
+        const updated = await db.update(schema.workoutPhotos)
+          .set({ takenAt, angle, weightKg, note, photoData, photoMime, pose, worldPose, analysis })
+          .where(and(eq(schema.workoutPhotos.id, id), eq(schema.workoutPhotos.userId, session.userId)))
+          .returning({ id: schema.workoutPhotos.id });
+        if (updated.length) return NextResponse.json({ ok: true, id });
+      }
+      throw err;
+    }
   } catch (err) {
     logError(err, { route: "workout/photos POST" });
     return NextResponse.json({ error: "Could not save photo." }, { status: 500 });

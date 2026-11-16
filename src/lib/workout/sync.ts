@@ -69,8 +69,10 @@ export async function syncPendingWorkouts(): Promise<void> {
     }
     // Progress photos captured offline — same idempotent upsert-by-id pattern.
     try {
+      // Indexed query — don't materialize every photoData blob just to sync.
       const photos = await db.progressPhotos
-        .filter((p) => p.syncState === "pending" || (p.syncState === "error" && !p.syncError?.startsWith("fatal:")))
+        .where("syncState").anyOf("pending", "error")
+        .filter((p) => !p.syncError?.startsWith("fatal:"))
         .toArray();
       for (const p of photos) {
         const res = await fetch("/api/workout/photos", {

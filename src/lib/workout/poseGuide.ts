@@ -163,7 +163,10 @@ export function worstJoint(target: AnyPose, current: AnyPose): { name: string; d
   const ta = jointAngles(target), ca = jointAngles(current);
   let worst: { name: string; diff: number } | null = null;
   for (const a of ANGLES) {
-    if (angleVis(current, a.joints) < MIN_VIS) continue;
+    // Gate on the WORSE of current/target visibility — an unreliable joint
+    // on either side makes the angle comparison meaningless.
+    const v = Math.min(angleVis(current, a.joints), angleVis(target, a.joints));
+    if (v < MIN_VIS) continue;
     const d = Math.abs(ta[a.name] - ca[a.name]);
     if (d > ANGLE_TOLERANCE && (!worst || d > worst.diff)) worst = { name: a.name, diff: d };
   }
@@ -180,8 +183,8 @@ export function scorePose(target: AnyPose, current: AnyPose): number {
   const ta = jointAngles(target), ca = jointAngles(current);
   let sum = 0, wsum = 0;
   for (const a of ANGLES) {
-    // Weight by landmark visibility and skip mostly-occluded angles.
-    const v = angleVis(current, a.joints);
+    // Weight by the worse of current/target visibility; skip occluded angles.
+    const v = Math.min(angleVis(current, a.joints), angleVis(target, a.joints));
     if (v < MIN_VIS) continue;
     const d = Math.abs(ta[a.name] - ca[a.name]);
     sum += a.w * v * Math.max(0, 100 * (1 - d / ANGLE_TOLERANCE));
@@ -198,11 +201,14 @@ export function scorePose(target: AnyPose, current: AnyPose): number {
 // y grows downward so shoulders are negative). Approximate relaxed stances —
 // a prior photo of the user's own pose always beats these.
 export const DEFAULT_POSES: Record<"front" | "side" | "back", KeyPose> = {
+  // NOTE: x is mirrored vs a viewer's perspective — landmark "L" joints sit
+  // on image-right for a front-facing person, which is what facingness()
+  // checks. Getting this wrong caps first-time users below the threshold.
   front: {
-    nose: [0, -1.62], shL: [-0.45, -1.02], shR: [0.45, -1.02],
-    elL: [-0.66, -0.5], elR: [0.66, -0.5], wrL: [-0.72, 0.02], wrR: [0.72, 0.02],
-    hipL: [-0.16, -0.02], hipR: [0.16, -0.02],
-    kneeL: [-0.2, 0.95], kneeR: [0.2, 0.95], ankL: [-0.24, 1.95], ankR: [0.24, 1.95],
+    nose: [0, -1.62], shL: [0.45, -1.02], shR: [-0.45, -1.02],
+    elL: [0.66, -0.5], elR: [-0.66, -0.5], wrL: [0.72, 0.02], wrR: [-0.72, 0.02],
+    hipL: [0.16, -0.02], hipR: [-0.16, -0.02],
+    kneeL: [0.2, 0.95], kneeR: [-0.2, 0.95], ankL: [0.24, 1.95], ankR: [-0.24, 1.95],
   },
   // Side-on: body profile, arms relaxed. Approximate — prior photos refine it.
   side: {

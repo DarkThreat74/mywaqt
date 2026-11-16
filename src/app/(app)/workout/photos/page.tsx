@@ -63,8 +63,8 @@ export default function PhotosPage() {
       const res = await fetch("/api/workout/photos").catch(() => null);
       if (res?.ok) {
         const { photos: metas } = await res.json() as { photos: ServerPhotoMeta[] };
-        const local = await db.progressPhotos.toArray();
-        const localIds = new Set(local.map((p) => p.id));
+        // Keys only — toArray() would pull every photoData blob into memory.
+        const localIds = new Set(await db.progressPhotos.toCollection().primaryKeys() as string[]);
         const tombs = photoTombstones();
         const missing = metas.filter((m) => !localIds.has(m.id) && !tombs.has(m.id));
         // Batch fetch in chunks of 60 — one request per chunk, not per photo.
@@ -80,6 +80,17 @@ export default function PhotosPage() {
               worldPose: fp.worldPose ?? null, analysis: fp.analysis ?? null,
               syncState: "synced", updatedAt: new Date().toISOString(),
             } satisfies LocalProgressPhoto);
+          }
+        }
+        // Multi-device deletes: a synced local row missing from the server
+        // list was deleted on another device — drop the ghost. Skipped when
+        // the list is truncated (server caps at 200) and never touches
+        // pending/error rows (this device's unsent work).
+        if (metas.length < 200) {
+          const serverIds = new Set(metas.map((m) => m.id));
+          const syncedIds = await db.progressPhotos.where("syncState").equals("synced").primaryKeys();
+          for (const id of syncedIds as string[]) {
+            if (!serverIds.has(id)) await db.progressPhotos.delete(id);
           }
         }
       }
@@ -166,9 +177,15 @@ export default function PhotosPage() {
     tombs.add(p.id);
     try {
       const res = await fetch(`/api/workout/photos?id=${p.id}`, { method: "DELETE" }).catch(() => null);
-      if (res?.ok) tombs.delete(p.id);
-      saveTombstones(tombs);
-      await getOfflineDB().progressPhotos.delete(p.id);
+      if (res?.ok) {
+        // Local delete BEFORE clearing the tombstone — if IDB throws, the
+        // tombstone stays and hydration can't resurrect the photo.
+        await getOfflineDB().progressPhotos.delete(p.id);
+        tombs.delete(p.id);
+        saveTombstones(tombs);
+      } else {
+        saveTombstones(tombs);
+      }
       setPhotos((prev) => prev.filter((x) => x.id !== p.id));
       setViewing(null);
     } catch { /* noop */ }

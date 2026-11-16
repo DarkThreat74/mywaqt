@@ -281,12 +281,13 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       let worldPose: number[][] | null = null;
       let freshK: KeyPose | null = null, freshKw: KeyPose3D | null = null;
       let freshLm = lastLm;
+      let freshDetect = false;
       try {
         const res = landmarker?.detectForVideo(video, performance.now());
         const lm = res?.landmarks?.[0];
         const w = res?.worldLandmarks?.[0];
         if (lm?.length === 33) {
-          lastLm = lm; freshLm = lm; freshK = keyPose(lm);
+          lastLm = lm; freshLm = lm; freshK = keyPose(lm); freshDetect = true;
           pose = lm.map((l) => [l.x, l.y]);
         }
         if (w?.length === 33) {
@@ -298,23 +299,28 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       if (!worldPose && lastWlm.length === 33) worldPose = lastWlm.map((l) => [l.x, l.y, l.z ?? 0]);
 
       // Picture analysis: clothing state + the live match score at the
-      // shutter moment, stored with the photo for later review.
+      // shutter moment. Only computed on a FRESH detection — cached
+      // landmarks describe a different moment and would mislabel the photo.
       let shirtless: boolean | null = null, skinRatio: number | null = null, matchScore: number | null = null;
-      try {
-        const sh = detectShirtless(out, out.width, out.height, freshLm);
-        if (sh) { shirtless = sh.shirtless; skinRatio = sh.skinRatio; }
-      } catch { /* analysis is best-effort */ }
-      const ck = freshK ?? lastK, cw = freshKw ?? lastKw;
-      if (ck) {
-        const tp = targetRef.current, tp3 = targetWorldRef.current;
-        const use3D = !!(tp3 && cw);
-        matchScore = scorePose(use3D ? tp3! : tp, use3D ? cw! : ck);
+      if (freshDetect) {
+        try {
+          const sh = detectShirtless(out, out.width, out.height, freshLm);
+          if (sh) { shirtless = sh.shirtless; skinRatio = sh.skinRatio; }
+        } catch { /* analysis is best-effort */ }
+        const ck = freshK ?? lastK, cw = freshKw ?? lastKw;
+        if (ck) {
+          const tp = targetRef.current, tp3 = targetWorldRef.current;
+          const use3D = !!(tp3 && cw);
+          matchScore = scorePose(use3D ? tp3! : tp, use3D ? cw! : ck);
+        }
       }
       onCaptureRef.current({
         dataUrl, photoMime: mime, pose, worldPose,
         analysis: { shirtless, skinRatio, matchScore },
       });
-      capturing.current = false; // same mount may serve the next angle's retake
+      // Keep capturing latched — the parent unmounts us on save; a second
+      // tap before that render must not mint a duplicate photo.
+      // (Reset happens at effect start on the next mount.)
     };
     (window as unknown as { __guidedCapture?: () => void }).__guidedCapture = capture;
 
