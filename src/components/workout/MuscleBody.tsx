@@ -72,8 +72,12 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
     // ---- orbit state ----
     const orbit = { yaw: 0, pitch: 0.08, dist: 3.4, tx: 0, ty: 0 };
     let dragging = false, downX = 0, downY = 0;
-    let originX = 0, originY = 0, movedTotal = 0, lastPick = 0;
+    let originX = 0, originY = 0, movedTotal = 0;
     let lastTap = 0, lastTapX = 0, lastTapY = 0;
+    // tapFired marks "this gesture already produced a tap" so the trailing
+    // click event can't double-fire — replaces the old 250ms lastPick window
+    // that swallowed legitimate fast successive taps.
+    let tapFired = false;
     const pointers = new Map<number, { x: number; y: number }>();
     let pinchD = 0;
 
@@ -88,7 +92,7 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
     };
 
     const onDown = (e: PointerEvent) => {
-      if (pointers.size === 0) { originX = e.clientX; originY = e.clientY; movedTotal = 0; }
+      if (pointers.size === 0) { originX = e.clientX; originY = e.clientY; movedTotal = 0; tapFired = false; }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];
@@ -109,6 +113,9 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
       }
       if (!dragging) return;
       movedTotal = Math.max(movedTotal, Math.hypot(e.clientX - originX, e.clientY - originY));
+      // Deadzone: sub-10px jitter shouldn't rotate the model — it's almost
+      // always a tap whose finger rolled slightly.
+      if (movedTotal < 10) return;
       const dx = e.clientX - downX, dy = e.clientY - downY;
       downX = e.clientX; downY = e.clientY;
       orbit.yaw -= dx * 0.008;
@@ -119,13 +126,15 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
       pointers.delete(e.pointerId); pinchD = 0;
       if (pointers.size === 0) {
         dragging = false;
-        if (e.type === "pointerup" && movedTotal < 14) handleTap(e.clientX, e.clientY);
+        // pointercancel counts too — the browser pre-empting the gesture
+        // used to kill taps silently.
+        if (movedTotal < 26) { handleTap(e.clientX, e.clientY); tapFired = true; }
       }
     };
     // Fallback for browsers/devices where pointerup is pre-empted — a real
     // click only fires when the gesture didn't turn into a drag anyway.
     const onClick = (e: MouseEvent) => {
-      if (movedTotal < 14) handleTap(e.clientX, e.clientY);
+      if (!tapFired && movedTotal < 26) handleTap(e.clientX, e.clientY);
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -187,7 +196,7 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
         let o: THREE.Object3D | null = h.object;
         while (o) {
           const info = meshBucket.get(o);
-          if (info?.bucket) { lastPick = performance.now(); cbRef.current.onSelect?.(info.bucket, info.label); return; }
+          if (info?.bucket) { cbRef.current.onSelect?.(info.bucket, info.label); return; }
           o = o.parent;
         }
       }
@@ -202,13 +211,12 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
         const d = Math.hypot(v.x - ndc.x, v.y - ndc.y);
         if (d < 0.18 && (!best || d < best.d)) best = { d, bucket: info.bucket, label: info.label };
       }
-      if (best) { lastPick = performance.now(); cbRef.current.onSelect?.(best.bucket, best.label); }
+      if (best) cbRef.current.onSelect?.(best.bucket, best.label);
       else console.debug("[MuscleBody] tap hit nothing", hits.length, "raycast hits");
     };
 
     const handleTap = (cx: number, cy: number) => {
       const now = performance.now();
-      if (now - lastPick < 250) return;
       const isDouble = now - lastTap < 300 && Math.hypot(cx - lastTapX, cy - lastTapY) < 40;
       lastTap = now; lastTapX = cx; lastTapY = cy;
       if (isDouble) { // double-tap resets the camera
