@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { exerciseName } from "@/lib/workout/exercises";
 import { levelFor, thresholdsFor, LIFT_SLUGS } from "@/lib/workout/standards";
 
 type WUnit = "kg" | "lb";
@@ -73,6 +72,7 @@ export default function WorkoutProfilePage() {
       const pr = await fetch("/api/workout/progress").catch(() => null);
       if (pr?.ok) {
         const d = await pr.json();
+        const { exerciseName } = await import("@/lib/workout/exercises");
         // Strength-Level (48M+ lifts) standards, interpolated to the user's
         // bodyweight/sex — a 65kg lifter and a 110kg lifter are graded on
         // different curves, not one bodyweight ratio.

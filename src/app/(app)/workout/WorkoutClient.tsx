@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EXERCISES, MUSCLE_GROUP, GROUPS, DAY_TEMPLATES, exerciseName, type Exercise } from "@/lib/workout/exercises";
+import { MUSCLE_GROUP, GROUPS, DAY_TEMPLATES, type Exercise } from "@/lib/workout/exercises-meta";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 import { getOfflineDB } from "@/lib/offline/db";
@@ -96,6 +96,10 @@ export default function WorkoutClient() {
   const [msg, setMsg] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [syncingNow, setSyncingNow] = useState(false);
+  // The ~2k-entry catalog is a separate async chunk — the hub renders and
+  // navigates instantly; exercise names/details fill in when it lands.
+  const [catalog, setCatalog] = useState<Exercise[] | null>(null);
+  const exName = (slug: string) => catalog?.find((e) => e.slug === slug)?.name || slug.replace(/-/g, " ");
 
   async function load() {
     const res = await fetch("/api/workout/days").catch(() => null);
@@ -174,9 +178,14 @@ export default function WorkoutClient() {
     }
   }
   useEffect(() => { Promise.resolve().then(() => { void load(); setNow(Date.now()); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only
+  useEffect(() => {
+    let on = true;
+    void import("@/lib/workout/exercises").then((m) => { if (on) setCatalog(m.EXERCISES); });
+    return () => { on = false; };
+  }, []);
 
   const filtered = useMemo(() => {
-    let list = EXERCISES;
+    let list = catalog ?? [];
     if (groupFilter !== "all") {
       list = list.filter((x) => MUSCLE_GROUP[x.muscle] === groupFilter);
       // heads that equal a muscle key (lats, erectors…) match via muscle;
@@ -189,7 +198,7 @@ export default function WorkoutClient() {
       list = list.filter((x) => x.name.toLowerCase().includes(q) || x.cue.toLowerCase().includes(q));
     }
     return [...list].sort((a, b) => (a.tier || "Z").localeCompare(b.tier || "Z"));
-  }, [groupFilter, headFilter, search, tierFilter]);
+  }, [catalog, groupFilter, headFilter, search, tierFilter]);
 
   // ── Auto-insights: everything below is computed from logged data ──────
   const insights = useMemo(() => {
@@ -634,7 +643,7 @@ export default function WorkoutClient() {
                 {(() => {
                   const counts = new Map<string, number>();
                   for (const x of d.exercises || []) {
-                    const m = EXERCISES.find((e) => e.slug === x.slug)?.muscle;
+                    const m = catalog?.find((e) => e.slug === x.slug)?.muscle;
                     if (m) counts.set(m, (counts.get(m) || 0) + (x.sets || 3));
                   }
                   const max = Math.max(...counts.values(), 1);
@@ -789,7 +798,7 @@ export default function WorkoutClient() {
                 )}
                 {gains.length > 0 && (
                   <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                    biggest gains: {gains.map((g) => `${EXERCISES.find((e) => e.slug === g.slug)?.name || g.slug} ${g.gainPct! > 0 ? "+" : ""}${g.gainPct}%`).join(" · ")}
+                    biggest gains: {gains.map((g) => `${catalog?.find((e) => e.slug === g.slug)?.name || g.slug} ${g.gainPct! > 0 ? "+" : ""}${g.gainPct}%`).join(" · ")}
                   </p>
                 )}
               </>
@@ -837,7 +846,7 @@ export default function WorkoutClient() {
       {showProgress && (
         <div className="mt-3 space-y-2">
           {progress.map((p) => {
-            const ex = EXERCISES.find((e) => e.slug === p.slug);
+            const ex = catalog?.find((e) => e.slug === p.slug);
             if (!ex || !p.last) return null;
             // The server's recommendation already accounts for RIR, exercise
             // position/fatigue, and recency — don't re-derive it here.
@@ -867,7 +876,7 @@ export default function WorkoutClient() {
                 </div>
                 {p.carryoverKg != null && p.carryoverFrom && (
                   <p className="mt-0.5 text-[9px]" style={{ color: "var(--color-accent)" }}>
-                    New variation — family history suggests ~{dispW(p.carryoverKg)}{units} from {exerciseName(p.carryoverFrom)}
+                    New variation — family history suggests ~{dispW(p.carryoverKg)}{units} from {exName(p.carryoverFrom)}
                   </p>
                 )}
                 {(p.predictionConfidence != null || p.plateau) && (
@@ -961,7 +970,7 @@ export default function WorkoutClient() {
                 <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
                   {s.completedExercises?.length
                     ? s.completedExercises.map((x) => {
-                      const name = EXERCISES.find((e) => e.slug === x.slug)?.name || x.slug.replace(/-/g, " ");
+                      const name = catalog?.find((e) => e.slug === x.slug)?.name || x.slug.replace(/-/g, " ");
                       return `${name} · ${x.setCount} ${x.setCount === 1 ? "set" : "sets"} · next ${dispW(x.recommendedWeightKg)}${units}${x.pr ? " ★PR" : ""}`;
                     }).join("  •  ")
                     : s.endedAt ? "No completed sets" : "No sets logged yet"}
