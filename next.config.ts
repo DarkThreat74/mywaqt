@@ -86,7 +86,7 @@ const nextConfig: NextConfig = {
           { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(self)" },
+          { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=(self)" },
           // CSP: script-src keeps 'unsafe-inline' for the theme boot script +
           // RSC inline payloads, but locks every other vector — no foreign
           // script hosts, no iframes except Turnstile, no objects, no
