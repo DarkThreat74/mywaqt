@@ -180,7 +180,12 @@ export default function WorkoutClient() {
   useEffect(() => { Promise.resolve().then(() => { void load(); setNow(Date.now()); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only
   useEffect(() => {
     let on = true;
-    void import("@/lib/workout/exercises").then((m) => { if (on) setCatalog(m.EXERCISES); });
+    // .catch is load-bearing: an unhandled chunk-load rejection trips the
+    // global ChunkLoadError auto-reload and loops the page forever. Catalog
+    // failure just means slug-text names until next load.
+    void import("@/lib/workout/exercises")
+      .then((m) => { if (on) setCatalog(m.EXERCISES); })
+      .catch(() => {});
     return () => { on = false; };
   }, []);
 

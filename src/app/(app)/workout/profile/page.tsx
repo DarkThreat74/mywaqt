@@ -72,7 +72,8 @@ export default function WorkoutProfilePage() {
       const pr = await fetch("/api/workout/progress").catch(() => null);
       if (pr?.ok) {
         const d = await pr.json();
-        const { exerciseName } = await import("@/lib/workout/exercises");
+        const { exerciseName } = await import("@/lib/workout/exercises")
+          .catch(() => ({ exerciseName: (s: string) => s.replace(/-/g, " ") }));
         // Strength-Level (48M+ lifts) standards, interpolated to the user's
         // bodyweight/sex — a 65kg lifter and a 110kg lifter are graded on
         // different curves, not one bodyweight ratio.
