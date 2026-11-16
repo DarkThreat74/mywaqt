@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
   }
   const angle = typeof body.angle === "string" && ANGLES.has(body.angle) ? body.angle : "other";
   const photoData = typeof body.photoData === "string" ? body.photoData : "";
-  const photoMime = typeof body.photoMime === "string" && body.photoMime.startsWith("image/") ? body.photoMime : "image/webp";
+  const photoMime = typeof body.photoMime === "string" && /^image\/(webp|jpeg|png)/.test(body.photoMime) ? body.photoMime : "image/webp";
   if (!/^data:image\/(webp|jpeg|png)/.test(photoData) || photoData.length > MAX_PHOTO_CHARS) {
     return NextResponse.json({ error: "Invalid photo payload." }, { status: 400 });
   }
@@ -113,6 +113,8 @@ export async function POST(request: NextRequest) {
           .where(and(eq(schema.workoutPhotos.id, id), eq(schema.workoutPhotos.userId, session.userId)))
           .returning({ id: schema.workoutPhotos.id });
         if (updated.length) return NextResponse.json({ ok: true, id });
+        // PK exists but belongs to another user — refuse, don't retry forever.
+        return NextResponse.json({ error: "Conflict." }, { status: 409 });
       }
       throw err;
     }

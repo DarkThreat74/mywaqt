@@ -1841,18 +1841,21 @@ self.addEventListener("fetch", (event) => {
           ? await soft(cache.match(url.pathname), 1200, null)
             ?? await soft(cache.match(url.href), 1200, null)
           : null;
-        if (hit) return hit;
+        // /mediapipe/wasm/*.js glue can run in worker context — re-stamp CSP
+        // like the /qt/ engine branch so a birth-policy can't break wasm.
+        if (hit) return withFixedCSP(hit);
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             if (attempt) await new Promise((r) => setTimeout(r, 400));
             const res = await timedFetch(request, 15000);
             if (res.ok) {
+              const stamped = withFixedCSP(res);
               try {
-                if (request.method === "GET" && res.body && cache) {
-                  await cache.put(url.pathname, res.clone());
+                if (request.method === "GET" && stamped.body && cache) {
+                  await cache.put(url.pathname, stamped.clone());
                 }
               } catch { /* put failure shouldn't fail the fetch */ }
-              return res;
+              return stamped;
             }
           } catch { /* retry once, then fail honestly below */ }
         }

@@ -8,23 +8,13 @@ import { syncPendingWorkouts } from "@/lib/workout/sync";
 import { DEFAULT_POSES, keyPose, keyPose3D, normalizePose, type KeyPose, type KeyPose3D } from "@/lib/workout/poseGuide";
 import { preloadPoseModel } from "@/lib/workout/poseModel";
 import type { CaptureResult } from "@/components/workout/GuidedCamera";
+import { photoTombstones, saveTombstones } from "@/lib/workout/photoTombstones";
 
 const GuidedCamera = dynamic(() => import("@/components/workout/GuidedCamera"), { ssr: false });
 
 const ANGLES = ["front", "side", "back"] as const;
 type Angle = (typeof ANGLES)[number];
 const ANGLE_LABEL: Record<Angle, string> = { front: "Front", side: "Side", back: "Back" };
-
-// Photos deleted while offline leave a tombstone so server hydration can't
-// resurrect them. Capped — ids are uuids, 200 is far beyond real usage.
-const TOMB_KEY = "waqt-photo-tombstones";
-function photoTombstones(): Set<string> {
-  try { return new Set(JSON.parse(localStorage.getItem(TOMB_KEY) || "[]") as string[]); }
-  catch { return new Set(); }
-}
-function saveTombstones(s: Set<string>) {
-  try { localStorage.setItem(TOMB_KEY, JSON.stringify([...s].slice(-200))); } catch { /* private mode */ }
-}
 
 interface ServerPhotoMeta {
   id: string; takenAt: string; angle: string; weightKg: string | null;
@@ -157,7 +147,7 @@ export default function PhotosPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, takenAt: row.takenAt, angle: a, photoData: r.dataUrl, photoMime: r.photoMime, pose: row.pose, worldPose: row.worldPose, analysis: row.analysis }),
       }).catch(() => null);
-      const fatal = !!res && [400, 413, 422].includes(res.status);
+      const fatal = !!res && [400, 409, 413, 422].includes(res.status);
       await db.progressPhotos.update(id, {
         syncState: res?.ok ? "synced" : "error",
         syncError: res?.ok ? null : res ? `${fatal ? "fatal: " : ""}Server error (${res.status}).` : "No network connection.",
@@ -176,16 +166,13 @@ export default function PhotosPage() {
     const tombs = photoTombstones();
     tombs.add(p.id);
     try {
-      const res = await fetch(`/api/workout/photos?id=${p.id}`, { method: "DELETE" }).catch(() => null);
-      if (res?.ok) {
-        // Local delete BEFORE clearing the tombstone — if IDB throws, the
-        // tombstone stays and hydration can't resurrect the photo.
-        await getOfflineDB().progressPhotos.delete(p.id);
-        tombs.delete(p.id);
-        saveTombstones(tombs);
-      } else {
-        saveTombstones(tombs);
-      }
+      // Fire the server delete but don't block local removal on it — the
+      // tombstone + next load()'s retry loop guarantee the server row goes
+      // away, and keeping the local row would let the sync sweeper
+      // re-upload a photo the user just deleted.
+      void fetch(`/api/workout/photos?id=${p.id}`, { method: "DELETE" }).catch(() => null);
+      await getOfflineDB().progressPhotos.delete(p.id);
+      saveTombstones(tombs);
       setPhotos((prev) => prev.filter((x) => x.id !== p.id));
       setViewing(null);
     } catch { /* noop */ }

@@ -1,6 +1,7 @@
 "use client";
 
 import { getOfflineDB } from "@/lib/offline/db";
+import { photoTombstones } from "@/lib/workout/photoTombstones";
 
 // Push every locally-held workout draft to the server. Idempotent: the sync
 // endpoint upserts by session/set IDs, so retries and concurrent pushes are
@@ -74,7 +75,11 @@ export async function syncPendingWorkouts(): Promise<void> {
         .where("syncState").anyOf("pending", "error")
         .filter((p) => !p.syncError?.startsWith("fatal:"))
         .toArray();
+      // User-deleted photos must never upload — the tombstone outlives the
+      // local row on purpose so hydration can't resurrect it either.
+      const tombs = photoTombstones();
       for (const p of photos) {
+        if (tombs.has(p.id)) continue;
         const res = await fetch("/api/workout/photos", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -87,7 +92,7 @@ export async function syncPendingWorkouts(): Promise<void> {
         }).catch(() => null);
         // Payload rejections (too big / malformed) never succeed on retry —
         // auth and rate-limit failures still do, so only those are fatal.
-        const fatal = !!res && [400, 413, 422].includes(res.status);
+        const fatal = !!res && [400, 409, 413, 422].includes(res.status);
         await db.progressPhotos.update(p.id, {
           syncState: res?.ok ? "synced" : "error",
           syncError: res?.ok ? null : res ? `${fatal ? "fatal: " : ""}Server error (${res.status}).` : "No network connection.",

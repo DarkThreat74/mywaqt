@@ -399,6 +399,10 @@ export async function clearOfflineCache(): Promise<void> {
       db.talkDownloads.clear(),
       db.workoutSessions.clear(),
       db.workoutSets.clear(),
+      // Body photos are the most sensitive rows here — a pending/error row
+      // surviving logout would be uploaded under the NEXT account by
+      // syncPendingWorkouts (which has no userId check).
+      db.progressPhotos.clear(),
     ]);
   } catch {
     // non-critical
