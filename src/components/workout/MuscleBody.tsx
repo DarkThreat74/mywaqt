@@ -11,6 +11,8 @@ interface Props {
   sex?: "male" | "female";
   /** bucket → unrecovered fraction 0..1 */
   fatigue: Partial<Record<BodyBucket, number>>;
+  /** bucket currently selected — rendered in highlight color */
+  selectedBucket?: BodyBucket | null;
   onSelect?: (bucket: BodyBucket, label: string) => void;
   /** called when WebGL/model is unavailable — parent should show 2D fallback */
   onFallback?: () => void;
@@ -22,15 +24,15 @@ interface Props {
  * Vanilla three.js — no R3F. Demand-rendered: only draws on interaction.
  * Drag = rotate, wheel/pinch = zoom, tap = select muscle.
  */
-export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback, className }: Props) {
+export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSelect, onFallback, className }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const cbRef = useRef({ fatigue, onSelect, onFallback });
+  const cbRef = useRef({ fatigue, selectedBucket, onSelect, onFallback });
   const recolorRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    cbRef.current = { fatigue, onSelect, onFallback };
+    cbRef.current = { fatigue, selectedBucket, onSelect, onFallback };
     recolorRef.current();
-  }, [fatigue, onSelect, onFallback]);
+  }, [fatigue, selectedBucket, onSelect, onFallback]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -69,7 +71,8 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
 
     // ---- orbit state ----
     const orbit = { yaw: 0, pitch: 0.08, dist: 3.4, tx: 0, ty: 0 };
-    let dragging = false, downX = 0, downY = 0, moved = 0;
+    let dragging = false, downX = 0, downY = 0;
+    let originX = 0, originY = 0, movedTotal = 0, lastPick = 0;
     const pointers = new Map<number, { x: number; y: number }>();
     let pinchD = 0;
 
@@ -84,12 +87,13 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
     };
 
     const onDown = (e: PointerEvent) => {
+      if (pointers.size === 0) { originX = e.clientX; originY = e.clientY; movedTotal = 0; }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];
         pinchD = Math.hypot(a.x - b.x, a.y - b.y);
       }
-      dragging = true; moved = 0; downX = e.clientX; downY = e.clientY;
+      dragging = true; downX = e.clientX; downY = e.clientY;
       renderer.domElement.setPointerCapture(e.pointerId);
     };
     const onMove = (e: PointerEvent) => {
@@ -103,8 +107,8 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
         pinchD = d; return;
       }
       if (!dragging) return;
+      movedTotal = Math.max(movedTotal, Math.hypot(e.clientX - originX, e.clientY - originY));
       const dx = e.clientX - downX, dy = e.clientY - downY;
-      moved = Math.max(moved, Math.hypot(dx, dy));
       downX = e.clientX; downY = e.clientY;
       orbit.yaw -= dx * 0.008;
       orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + dy * 0.006, -0.5, 1.1);
@@ -112,8 +116,15 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
     };
     const onUp = (e: PointerEvent) => {
       pointers.delete(e.pointerId); pinchD = 0;
-      if (pointers.size === 0) dragging = false;
-      if (moved < 6 && e.type === "pointerup") pick(e.clientX, e.clientY);
+      if (pointers.size === 0) {
+        dragging = false;
+        if (e.type === "pointerup" && movedTotal < 8) pick(e.clientX, e.clientY);
+      }
+    };
+    // Fallback for browsers/devices where pointerup is pre-empted — a real
+    // click only fires when the gesture didn't turn into a drag anyway.
+    const onClick = (e: MouseEvent) => {
+      if (movedTotal < 8) pick(e.clientX, e.clientY);
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -126,6 +137,7 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
     el.addEventListener("pointercancel", onUp);
+    el.addEventListener("click", onClick);
     el.addEventListener("wheel", onWheel, { passive: false });
 
     // ---- model ----
@@ -137,9 +149,14 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
 
     const recolor = () => {
       const f = cbRef.current.fatigue;
+      const sel = cbRef.current.selectedBucket;
       for (const [, info] of meshBucket) {
         const v = info.bucket ? (f[info.bucket] ?? 0) : -1;
-        const col = new THREE.Color(v < 0 ? "#d8cdb8" : fatigueColor(v));
+        const col = new THREE.Color(
+          info.bucket && info.bucket === sel ? "#d9a441" // selection highlight — warm gold
+          : v < 0 ? "#d8cdb8"
+          : fatigueColor(v),
+        );
         for (const mat of info.mats) {
           mat.color.copy(col);
           mat.map = null;
@@ -155,12 +172,14 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
       ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, cam);
       const hits = ray.intersectObjects(scene.children, true);
+      const now = performance.now();
+      if (now - lastPick < 250) return; // pointerup + click both fire — dedupe
       for (const h of hits) {
         // Hit may be a child of the named node — walk ancestors.
         let o: THREE.Object3D | null = h.object;
         while (o) {
           const info = meshBucket.get(o);
-          if (info?.bucket) { cbRef.current.onSelect?.(info.bucket, info.label); return; }
+          if (info?.bucket) { lastPick = now; cbRef.current.onSelect?.(info.bucket, info.label); return; }
           o = o.parent;
         }
       }
@@ -241,6 +260,7 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
+      el.removeEventListener("click", onClick);
       el.removeEventListener("wheel", onWheel);
       renderer.dispose();
       mount.removeChild(el);

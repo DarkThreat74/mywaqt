@@ -69,7 +69,8 @@ export default function MusclesPage() {
 
       <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", height: "min(52dvh, 460px)", background: "linear-gradient(180deg,#f6f1e6,#efe7d6)" }}>
         {use3D ? (
-          <MuscleBody sex="male" fatigue={fatigue} onFallback={() => setUse3D(false)}
+          <MuscleBody sex="male" fatigue={fatigue} selectedBucket={sel?.bucket ?? null}
+            onFallback={() => setUse3D(false)}
             onSelect={(bucket, label) => setSel({ bucket, label })} />
         ) : (
           <MuscleBody2D fatigue={fatigue} onSelect={(bucket, label) => setSel({ bucket, label })} />
