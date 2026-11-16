@@ -129,17 +129,23 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
     el.addEventListener("wheel", onWheel, { passive: false });
 
     // ---- model ----
-    const meshBucket = new Map<THREE.Object3D, { bucket: BodyBucket; label: string; mats: THREE.MeshStandardMaterial[] }>();
+    // Every mesh gets tracked — bucket may be null (bones/organs/support).
+    // Unmapped meshes get a neutral tone so atlas palette never shows through.
+    const meshBucket = new Map<THREE.Object3D, { bucket: BodyBucket | null; label: string; mats: THREE.MeshStandardMaterial[] }>();
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
 
     const recolor = () => {
       const f = cbRef.current.fatigue;
       for (const [, info] of meshBucket) {
-        const v = f[info.bucket];
-        if (v == null) continue;
-        const col = new THREE.Color(fatigueColor(v));
-        for (const mat of info.mats) { mat.color.copy(col); mat.needsUpdate = true; }
+        const v = info.bucket ? (f[info.bucket] ?? 0) : -1;
+        const col = new THREE.Color(v < 0 ? "#d8cdb8" : fatigueColor(v));
+        for (const mat of info.mats) {
+          mat.color.copy(col);
+          mat.map = null;
+          mat.vertexColors = false;
+          mat.needsUpdate = true;
+        }
       }
       invalidate();
     };
@@ -150,8 +156,13 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
       ray.setFromCamera(ndc, cam);
       const hits = ray.intersectObjects(scene.children, true);
       for (const h of hits) {
-        const info = meshBucket.get(h.object);
-        if (info) { cbRef.current.onSelect?.(info.bucket, info.label); return; }
+        // Hit may be a child of the named node — walk ancestors.
+        let o: THREE.Object3D | null = h.object;
+        while (o) {
+          const info = meshBucket.get(o);
+          if (info?.bucket) { cbRef.current.onSelect?.(info.bucket, info.label); return; }
+          o = o.parent;
+        }
       }
     };
 
@@ -179,8 +190,19 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
       gltf.scene.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
-        const name = norm(mesh.name);
-        const am = byId.get(name) ?? muscles.find((m) => m.key === name.replace(/_(left|right)$/, ""));
+        // GLB exporters often leave mesh nodes unnamed and put the muscle
+        // name on a parent group — collect candidate names up the chain.
+        const candidates: string[] = [];
+        let n: THREE.Object3D | null = mesh;
+        while (n && candidates.length < 4) {
+          if (n.name) candidates.push(norm(n.name));
+          n = n.parent;
+        }
+        let am: AtlasMuscle | undefined;
+        for (const name of candidates) {
+          am = byId.get(name) ?? muscles.find((m) => m.key === name.replace(/_(left|right)$/, ""));
+          if (am) break;
+        }
         // Materials may be shared or arrays — clone per mesh so recoloring
         // one muscle never bleeds into another.
         const srcMats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -189,7 +211,7 @@ export default function MuscleBody({ sex = "male", fatigue, onSelect, onFallback
         );
         mesh.material = Array.isArray(mesh.material) ? mats : mats[0];
         const bucket = am ? atlasBucket(`${am.label} ${am.key}`, am.group || am.region || "") : null;
-        if (bucket) meshBucket.set(mesh, { bucket, label: am!.label, mats });
+        meshBucket.set(mesh, { bucket, label: am?.label ?? "", mats });
       });
       scene.add(gltf.scene);
       // Center + scale: atlas is ~1.8m tall in meters; frame it.
