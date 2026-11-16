@@ -218,6 +218,7 @@ export interface LocalProgressPhoto {
   photoData: string; // data URL — downscaled ~1280px webp
   photoMime: string;
   pose?: number[][] | null; // 33 MediaPipe landmarks, normalized
+  worldPose?: number[][] | null; // 33 world landmarks [x,y,z] meters
   syncState: "pending" | "synced" | "error";
   syncError?: string | null;
   updatedAt: string;

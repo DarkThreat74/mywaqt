@@ -5,7 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { getOfflineDB, type LocalProgressPhoto } from "@/lib/offline/db";
 import { syncPendingWorkouts } from "@/lib/workout/sync";
-import { DEFAULT_POSES, keyPose, normalizePose, type KeyPose } from "@/lib/workout/poseGuide";
+import { DEFAULT_POSES, keyPose, keyPose3D, normalizePose, type KeyPose, type KeyPose3D } from "@/lib/workout/poseGuide";
 import type { CaptureResult } from "@/components/workout/GuidedCamera";
 
 const GuidedCamera = dynamic(() => import("@/components/workout/GuidedCamera"), { ssr: false });
@@ -28,6 +28,7 @@ function saveTombstones(s: Set<string>) {
 interface ServerPhotoMeta {
   id: string; takenAt: string; angle: string; weightKg: string | null;
   note: string | null; photoMime: string; pose: number[][] | null;
+  worldPose?: number[][] | null;
 }
 
 function poseToKeyPose(pose: number[][] | null | undefined): KeyPose | null {
@@ -35,6 +36,14 @@ function poseToKeyPose(pose: number[][] | null | undefined): KeyPose | null {
   const lm = pose.map(([x, y]) => ({ x, y }));
   const k = keyPose(lm);
   return k ? normalizePose(k) : null;
+}
+
+// World landmarks are [x,y,z] meters — 3D keypoints need no normalization
+// (joint angles are scale/position invariant).
+function poseToKeyPose3D(pose: number[][] | null | undefined): KeyPose3D | null {
+  if (!pose || pose.length < 33) return null;
+  const lm = pose.map(([x, y, z]) => ({ x, y, z: z ?? 0 }));
+  return keyPose3D(lm);
 }
 
 export default function PhotosPage() {
@@ -66,6 +75,7 @@ export default function PhotosPage() {
               id: fp.id, takenAt: fp.takenAt, angle: (ANGLES as readonly string[]).includes(fp.angle) ? fp.angle as Angle : "other",
               weightKg: fp.weightKg ? parseFloat(fp.weightKg) : null, note: fp.note,
               photoData: fp.photoData, photoMime: fp.photoMime, pose: fp.pose,
+              worldPose: fp.worldPose ?? null,
               syncState: "synced", updatedAt: new Date().toISOString(),
             } satisfies LocalProgressPhoto);
           }
@@ -104,6 +114,7 @@ export default function PhotosPage() {
   const angle = step !== null ? ANGLES[step] : null;
   const prior = angle ? priorFor.get(angle) : null;
   const priorPose = prior ? poseToKeyPose(prior.pose) : null;
+  const priorWorldPose = prior ? poseToKeyPose3D(prior.worldPose) : null;
   const targetPose: KeyPose = priorPose ?? DEFAULT_POSES[angle ?? "front"];
   const ghost = prior?.photoData ?? null;
 
@@ -120,6 +131,7 @@ export default function PhotosPage() {
     const row: LocalProgressPhoto = {
       id, takenAt: new Date().toISOString(), angle: a,
       photoData: r.dataUrl, photoMime: r.photoMime, pose: r.pose.length === 33 ? r.pose : null,
+      worldPose: r.worldPose,
       syncState: "pending", updatedAt: new Date().toISOString(),
     };
     try {
@@ -128,7 +140,7 @@ export default function PhotosPage() {
       // Try immediate sync; sweeper retries if offline.
       const res = await fetch("/api/workout/photos", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, takenAt: row.takenAt, angle: a, photoData: r.dataUrl, photoMime: r.photoMime, pose: row.pose }),
+        body: JSON.stringify({ id, takenAt: row.takenAt, angle: a, photoData: r.dataUrl, photoMime: r.photoMime, pose: row.pose, worldPose: row.worldPose }),
       }).catch(() => null);
       const fatal = !!res && [400, 413, 422].includes(res.status);
       await db.progressPhotos.update(id, {
@@ -200,7 +212,7 @@ export default function PhotosPage() {
             {saving ? (
               <div className="grid aspect-[3/4] place-items-center rounded-2xl text-xs" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}>Saving…</div>
             ) : (
-              <GuidedCamera angle={angle} targetPose={targetPose} personalTarget={!!priorPose} ghostImage={ghost} onCapture={(r) => void onCapture(r)} />
+              <GuidedCamera angle={angle} targetPose={targetPose} targetWorldPose={priorWorldPose} personalTarget={!!(priorPose || priorWorldPose)} ghostImage={ghost} onCapture={(r) => void onCapture(r)} />
             )}
           </div>
         </div>

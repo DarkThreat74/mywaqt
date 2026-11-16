@@ -231,7 +231,12 @@ export default function GoalsPageClient({
         } as unknown as Goal)));
         if (hw.length > 0) setHomework(hw.map((r) => ({
           ...r,
+          // Dexie stores notified* as ISO strings — HomeworkTab calls
+          // .toISOString() on them, so they must be real Dates here.
           completedAt: r.completedAt ? new Date(r.completedAt) : null,
+          notified3dAt: r.notified3dAt ? new Date(r.notified3dAt) : null,
+          notified1dAt: r.notified1dAt ? new Date(r.notified1dAt) : null,
+          notifiedMorningAt: r.notifiedMorningAt ? new Date(r.notifiedMorningAt) : null,
         } as unknown as Homework)));
         if (cls.length > 0) setClasses(cls.map((r) => ({
           id: r.id, name: r.name, color: r.color, archived: r.archived,

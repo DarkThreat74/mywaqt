@@ -1591,6 +1591,7 @@ export const workoutPhotos = pgTable('workout_photos', {
   photoData: text('photo_data').notNull(),
   photoMime: text('photo_mime').notNull(),
   pose: jsonb('pose').$type<number[][] | null>(), // 33 MediaPipe landmarks, normalized
+  worldPose: jsonb('world_pose').$type<number[][] | null>(), // 33 world landmarks [x,y,z] meters — 3D pose matching
 }, (table) => ({
   userTakenIdx: index('workout_photos_user_taken_idx').on(table.userId, table.takenAt),
 }));

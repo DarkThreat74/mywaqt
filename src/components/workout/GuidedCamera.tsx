@@ -1,18 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { keyPose, normalizePose, scorePose, type KeyPose, type Pt } from "@/lib/workout/poseGuide";
+import { keyPose, keyPose3D, scorePose, worstJoint, type AnyPose, type KeyPose, type KeyPose3D, type Pt } from "@/lib/workout/poseGuide";
 
 export interface CaptureResult {
   dataUrl: string;
   photoMime: string;
-  pose: number[][]; // 33 landmarks [x,y]
+  pose: number[][]; // 33 image landmarks [x,y]
+  worldPose: number[][] | null; // 33 world landmarks [x,y,z] meters — powers 3D pose matching
 }
 
 interface Props {
   angle: "front" | "side" | "back";
   /** normalized target pose (user's prior photo or built-in stance) */
   targetPose: KeyPose;
+  /** 3D world-space target from the prior photo — enables view-invariant scoring */
+  targetWorldPose?: KeyPose3D | null;
   /** true when targetPose came from the user's own photo — stricter match */
   personalTarget?: boolean;
   /** prior photo dataURL drawn faintly under the guide */
@@ -25,21 +28,24 @@ const BONES: [keyof KeyPose, keyof KeyPose][] = [
   ["shL", "shR"], ["shL", "elL"], ["elL", "wrL"], ["shR", "elR"], ["elR", "wrR"],
   ["shL", "hipL"], ["shR", "hipR"], ["hipL", "hipR"],
   ["hipL", "kneeL"], ["kneeL", "ankL"], ["hipR", "kneeR"], ["kneeR", "ankR"],
-  ["shL", "nose"], ["shR", "nose"],
+  ["shL", "nose"], ["shR", "nose"], ["nose", "hipL"], ["nose", "hipR"], // neck + spine hints
 ];
+// Joints drawn as dots so the guide reads as a body, not a stick figure.
+const JOINTS: (keyof KeyPose)[] = ["nose", "shL", "shR", "elL", "elR", "wrL", "wrR", "hipL", "hipR", "kneeL", "kneeR", "ankL", "ankR"];
 const HINTS: Record<Props["angle"], string> = {
   front: "Face the camera · arms relaxed at your sides · feet shoulder-width",
   side: "Turn sideways · whole body in frame · arms relaxed",
   back: "Back to the camera · same stance as the front shot",
 };
 
-export default function GuidedCamera({ angle, targetPose, personalTarget, ghostImage, onCapture, onCancel }: Props) {
+export default function GuidedCamera({ angle, targetPose, targetWorldPose, personalTarget, ghostImage, onCapture, onCancel }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [modelOk, setModelOk] = useState(true);
   const [camError, setCamError] = useState("");
   const [score, setScore] = useState(0);
+  const [worstHint, setWorstHint] = useState<string | null>(null);
   const [aligned, setAligned] = useState(false);
   const alignSince = useRef(0);
   const capturing = useRef(false);
@@ -48,6 +54,8 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
   // inside the detection loop so it never goes stale.
   const targetRef = useRef(targetPose);
   useEffect(() => { targetRef.current = targetPose; }, [targetPose]);
+  const targetWorldRef = useRef<KeyPose3D | null>(targetWorldPose ?? null);
+  useEffect(() => { targetWorldRef.current = targetWorldPose ?? null; }, [targetWorldPose]);
   const onCaptureRef = useRef(onCapture);
   useEffect(() => { onCaptureRef.current = onCapture; }, [onCapture]);
   const personalRef = useRef(!!personalTarget);
@@ -101,14 +109,23 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
 
     const drawSkeleton = (pose: KeyPose, map: MapFn, color: string, width: number, dash: number[]) => {
       ctx.save();
+      // Thick round-capped strokes read as a body silhouette, not a stick man.
       ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
-      ctx.lineCap = "round";
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
       for (const [a, b] of BONES) {
         const pa = map(pose[a] as Pt), pb = map(pose[b] as Pt);
         ctx.beginPath();
         ctx.moveTo(pa[0], pa[1]);
         ctx.lineTo(pb[0], pb[1]);
         ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      for (const j of JOINTS) {
+        const p = map(pose[j] as Pt);
+        ctx.beginPath();
+        ctx.arc(p[0], p[1], width * 0.75, 0, Math.PI * 2);
+        ctx.fill();
       }
       ctx.restore();
     };
@@ -120,7 +137,7 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
       const s = Math.max(rect.w / img.width, rect.h / img.height);
       const w = img.width * s, h = img.height * s;
       ctx.save();
-      ctx.globalAlpha = 0.32;
+      ctx.globalAlpha = 0.4;
       ctx.drawImage(img, rect.x + (rect.w - w) / 2, rect.y + (rect.h - h) / 2, w, h);
       ctx.restore();
     };
@@ -142,17 +159,27 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
         try {
           const res = landmarker.detectForVideo(video, performance.now());
           const lm = res.landmarks?.[0];
+          const wlm = res.worldLandmarks?.[0];
           const k = lm ? keyPose(lm) : null;
+          const kw = wlm ? keyPose3D(wlm) : null;
           if (!k) {
             alignSince.current = 0;
+            setWorstHint(null);
             if (alignedRef.current) { setAligned(false); alignedRef.current = false; }
           }
           if (k) {
-            const cur = normalizePose(k);
+            // 3D world-landmark scoring when the target has one — joint angles
+            // in real meters are view-invariant. Falls back to 2D image angles.
             const tp = targetRef.current;
-            const s = scorePose(tp, cur);
+            const tp3 = targetWorldRef.current;
+            const use3D = !!(tp3 && kw);
+            const scoreTarget: AnyPose = use3D ? tp3! : tp;
+            const scoreCurrent: AnyPose = use3D ? kw! : k;
+            const s = scorePose(scoreTarget, scoreCurrent);
             setScore((prev) => (Math.abs(prev - s) > 4 ? s : prev));
-            const thr = personalRef.current ? 72 : 62;
+            const thr = personalRef.current ? 68 : 58;
+            const w = s < thr ? worstJoint(scoreTarget, scoreCurrent) : null;
+            setWorstHint((prev) => (prev === (w?.name ?? null) ? prev : w?.name ?? null));
             if (s >= thr) {
               if (!alignSince.current) alignSince.current = performance.now();
               if (performance.now() - alignSince.current > 450) { setAligned(true); alignedRef.current = true; }
@@ -170,8 +197,8 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
               const p = tp[key] as Pt;
               targetFrame[key] = [midHipF[0] + p[0] * torsoF, midHipF[1] + p[1] * torsoF];
             });
-            drawSkeleton(targetFrame, map, "rgba(255,255,255,0.6)", canvas.width * 0.006, [6, 5]);
-            drawSkeleton(k, map, "rgba(255,180,90,0.95)", canvas.width * 0.007, []);
+            drawSkeleton(targetFrame, map, "rgba(255,255,255,0.6)", canvas.width * 0.02, []);
+            drawSkeleton(k, map, "rgba(255,180,90,0.95)", canvas.width * 0.018, []);
           }
           } catch { /* detection hiccup — keep last frame */ }
         }
@@ -190,13 +217,17 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
       out.getContext("2d")!.drawImage(video, 0, 0, out.width, out.height);
       const mime = out.toDataURL("image/webp", 0.82).startsWith("data:image/webp") ? "image/webp" : "image/jpeg";
       const dataUrl = mime === "image/webp" ? out.toDataURL("image/webp", 0.82) : out.toDataURL("image/jpeg", 0.85);
-      // grab the freshest landmarks for next time's guide
+      // grab the freshest landmarks for next time's guide — image coords for
+      // the overlay, world coords (meters) for view-invariant 3D scoring
       let pose: number[][] = [];
+      let worldPose: number[][] | null = null;
       try {
         const res = landmarker?.detectForVideo(video, performance.now());
         pose = (res?.landmarks?.[0] || []).map((l) => [l.x, l.y]);
+        const w = res?.worldLandmarks?.[0];
+        if (w?.length === 33) worldPose = w.map((l) => [l.x, l.y, l.z ?? 0]);
       } catch { /* pose optional */ }
-      onCaptureRef.current({ dataUrl, photoMime: mime, pose });
+      onCaptureRef.current({ dataUrl, photoMime: mime, pose, worldPose });
       capturing.current = false; // same mount may serve the next angle's retake
     };
     (window as unknown as { __guidedCapture?: () => void }).__guidedCapture = capture;
@@ -285,10 +316,10 @@ export default function GuidedCamera({ angle, targetPose, personalTarget, ghostI
           {modelOk && (
             <>
               <div className="mx-auto mt-2 h-1.5 w-40 overflow-hidden rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.2)" }}>
-                <div className="h-full rounded-full transition-all" style={{ width: `${score}%`, backgroundColor: score >= (personalTarget ? 72 : 62) ? "#8fce6e" : "#e8a04c" }} />
+                <div className="h-full rounded-full transition-all" style={{ width: `${score}%`, backgroundColor: score >= (personalTarget ? 68 : 58) ? "#8fce6e" : "#e8a04c" }} />
               </div>
               <p className="mt-1 text-center text-[10px] tabular-nums" style={{ color: "#e8ddc8" }}>
-                {aligned ? "Hold still — capturing…" : `${score}% match`}
+                {aligned ? "Hold still — capturing…" : worstHint ? `check your ${worstHint}` : `${score}% match`}
               </p>
             </>
           )}

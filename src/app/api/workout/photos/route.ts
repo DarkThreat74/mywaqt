@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
     note: schema.workoutPhotos.note,
     photoMime: schema.workoutPhotos.photoMime,
     pose: schema.workoutPhotos.pose,
+    worldPose: schema.workoutPhotos.worldPose,
   }).from(schema.workoutPhotos)
     .where(eq(schema.workoutPhotos.userId, session.userId))
     .orderBy(desc(schema.workoutPhotos.takenAt))
@@ -65,6 +66,7 @@ export async function POST(request: NextRequest) {
   const weightKg = typeof body.weightKg === "number" && body.weightKg > 20 && body.weightKg < 500 ? String(body.weightKg) : null;
   const note = typeof body.note === "string" ? body.note.slice(0, 500) : null;
   const pose = Array.isArray(body.pose) && body.pose.length === 33 ? body.pose : null;
+  const worldPose = Array.isArray(body.worldPose) && body.worldPose.length === 33 ? body.worldPose : null;
   const takenAt = typeof body.takenAt === "string" && !Number.isNaN(Date.parse(body.takenAt)) ? new Date(body.takenAt) : new Date();
   const id = typeof body.id === "string" && isValidUUID(body.id) ? body.id : undefined;
 
@@ -73,14 +75,14 @@ export async function POST(request: NextRequest) {
       const [existing] = await db.select({ id: schema.workoutPhotos.id }).from(schema.workoutPhotos)
         .where(and(eq(schema.workoutPhotos.id, id), eq(schema.workoutPhotos.userId, session.userId))).limit(1);
       if (existing) {
-        await db.update(schema.workoutPhotos).set({ takenAt, angle, weightKg, note, photoData, photoMime, pose })
+        await db.update(schema.workoutPhotos).set({ takenAt, angle, weightKg, note, photoData, photoMime, pose, worldPose })
           .where(eq(schema.workoutPhotos.id, id));
         return NextResponse.json({ ok: true, id });
       }
     }
     const [row] = await db.insert(schema.workoutPhotos).values({
       ...(id ? { id } : {}),
-      userId: session.userId, takenAt, angle, weightKg, note, photoData, photoMime, pose,
+      userId: session.userId, takenAt, angle, weightKg, note, photoData, photoMime, pose, worldPose,
     }).returning({ id: schema.workoutPhotos.id });
     return NextResponse.json({ ok: true, id: row.id });
   } catch (err) {

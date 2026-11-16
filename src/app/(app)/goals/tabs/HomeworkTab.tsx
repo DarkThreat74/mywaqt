@@ -68,10 +68,12 @@ export default function HomeworkTab({
         estimatedMinutes: h.estimatedMinutes,
         plannedEventId: h.plannedEventId,
         subtasks: (h as { subtasks?: HomeworkItem["subtasks"] }).subtasks ?? [],
-        notified3dAt: h.notified3dAt ? h.notified3dAt.toISOString() : null,
-        notified1dAt: h.notified1dAt ? h.notified1dAt.toISOString() : null,
-        notifiedMorningAt: h.notifiedMorningAt ? h.notifiedMorningAt.toISOString() : null,
-        completedAt: h.completedAt,
+        // Dexie-rehydrated rows carry ISO strings, server rows carry Dates —
+        // new Date() handles both (a Date arg just copies).
+        notified3dAt: h.notified3dAt ? new Date(h.notified3dAt).toISOString() : null,
+        notified1dAt: h.notified1dAt ? new Date(h.notified1dAt).toISOString() : null,
+        notifiedMorningAt: h.notifiedMorningAt ? new Date(h.notifiedMorningAt).toISOString() : null,
+        completedAt: h.completedAt ? new Date(h.completedAt) : null,
         grade: h.grade,
       }))}
       initialClasses={classes.map((c) => ({
