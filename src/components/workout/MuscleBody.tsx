@@ -119,13 +119,13 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
       pointers.delete(e.pointerId); pinchD = 0;
       if (pointers.size === 0) {
         dragging = false;
-        if (e.type === "pointerup" && movedTotal < 8) handleTap(e.clientX, e.clientY);
+        if (e.type === "pointerup" && movedTotal < 14) handleTap(e.clientX, e.clientY);
       }
     };
     // Fallback for browsers/devices where pointerup is pre-empted — a real
     // click only fires when the gesture didn't turn into a drag anyway.
     const onClick = (e: MouseEvent) => {
-      if (movedTotal < 8) handleTap(e.clientX, e.clientY);
+      if (movedTotal < 14) handleTap(e.clientX, e.clientY);
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -203,6 +203,7 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
         if (d < 0.18 && (!best || d < best.d)) best = { d, bucket: info.bucket, label: info.label };
       }
       if (best) { lastPick = performance.now(); cbRef.current.onSelect?.(best.bucket, best.label); }
+      else console.debug("[MuscleBody] tap hit nothing", hits.length, "raycast hits");
     };
 
     const handleTap = (cx: number, cy: number) => {
