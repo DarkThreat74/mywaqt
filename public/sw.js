@@ -1839,6 +1839,11 @@ self.addEventListener("fetch", (event) => {
       // indexes) — offline mushaf loads failed without this branch and
       // left the recite engine unanchored.
       url.pathname.startsWith("/data/") ||
+      // Pose-guide stack: ONNX-style .task model + wasm runtime + glue js.
+      // Without this the camera guide dies offline — the whole point of
+      // the offline-first build.
+      url.pathname.startsWith("/models/") ||
+      url.pathname.startsWith("/mediapipe/") ||
       url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|ico|webmanifest|woff2?|ttf|otf|txt)$/))
   ) {
     event.respondWith(

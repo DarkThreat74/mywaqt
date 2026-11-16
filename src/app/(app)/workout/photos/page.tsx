@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { getOfflineDB, type LocalProgressPhoto } from "@/lib/offline/db";
 import { syncPendingWorkouts } from "@/lib/workout/sync";
 import { DEFAULT_POSES, keyPose, keyPose3D, normalizePose, type KeyPose, type KeyPose3D } from "@/lib/workout/poseGuide";
+import { preloadPoseModel } from "@/lib/workout/poseModel";
 import type { CaptureResult } from "@/components/workout/GuidedCamera";
 
 const GuidedCamera = dynamic(() => import("@/components/workout/GuidedCamera"), { ssr: false });
@@ -99,6 +100,8 @@ export default function PhotosPage() {
   }, []);
 
   useEffect(() => { Promise.resolve().then(() => void load()); }, [load]);
+  // Warm the pose model on idle so the camera opens with detection ready.
+  useEffect(() => { preloadPoseModel(); }, []);
 
   // Latest prior photo per angle — becomes the pose target + ghost.
   const priorFor = useMemo(() => {

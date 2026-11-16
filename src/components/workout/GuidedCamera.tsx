@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { keyPose, keyPose3D, scorePose, worstJoint, type AnyPose, type KeyPose, type KeyPose3D, type Pt } from "@/lib/workout/poseGuide";
+import { getPoseLandmarker } from "@/lib/workout/poseModel";
 
 export interface CaptureResult {
   dataUrl: string;
@@ -142,6 +143,26 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       ctx.restore();
     };
 
+    // EMA smoothing kills landmark jitter — without it the score flickers
+    // and can never settle at ~100%. ~11fps inference is plenty for a
+    // hold-still check; the canvas still redraws every RAF.
+    const DETECT_MS = 90;
+    const SMOOTH = 0.5; // weight of the newest frame
+    let lastDetect = 0;
+    let smooth: KeyPose | null = null;
+    let smoothW: KeyPose3D | null = null;
+    let lastK: KeyPose | null = null;
+    let lastKw: KeyPose3D | null = null;
+    const JOINT_KEYS = ["nose","shL","shR","elL","elR","wrL","wrR","hipL","hipR","kneeL","kneeR","ankL","ankR"] as const;
+    const blend = <T extends KeyPose | KeyPose3D>(prev: T, next: T): T => {
+      const out = { ...next } as T;
+      for (const k of JOINT_KEYS) {
+        const a = prev[k] as number[], b = next[k] as number[];
+        ((out as unknown) as Record<string, number[]>)[k] = a.map((v, i) => v + ((b[i] ?? 0) - v) * SMOOTH);
+      }
+      return out;
+    };
+
     const loop = () => {
       if (cancelled) return;
       if (video.readyState >= 2) {
@@ -150,19 +171,28 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
           lastPlayTry = performance.now();
           video.play().catch(() => {});
         }
-        // Ghost + clear run every frame, pose model or not — manual mode
-        // still gets the prior-photo overlay.
+        const now = performance.now();
+        if (landmarker && now - lastDetect >= DETECT_MS) {
+          lastDetect = now;
+          try {
+            const res = landmarker.detectForVideo(video, now);
+            const lm = res.landmarks?.[0];
+            const wlm = res.worldLandmarks?.[0];
+            const k = lm ? keyPose(lm) : null;
+            const kw = wlm ? keyPose3D(wlm) : null;
+            smooth = k ? (smooth ? blend(smooth, k) : k) : null;
+            smoothW = kw ? (smoothW ? blend(smoothW, kw) : kw) : null;
+            lastK = smooth; lastKw = smoothW;
+          } catch { /* detection hiccup — keep last frame */ }
+        }
+        // Ghost + skeleton redraw every frame from the latest pose.
         const { map, rect } = view();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawGhost(rect);
-        if (landmarker) {
-        try {
-          const res = landmarker.detectForVideo(video, performance.now());
-          const lm = res.landmarks?.[0];
-          const wlm = res.worldLandmarks?.[0];
-          const k = lm ? keyPose(lm) : null;
-          const kw = wlm ? keyPose3D(wlm) : null;
-          if (!k) {
+        {
+        const k = lastK;
+        const kw = lastKw;
+        if (!k) {
             alignSince.current = 0;
             setWorstHint(null);
             if (alignedRef.current) { setAligned(false); alignedRef.current = false; }
@@ -200,7 +230,6 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
             drawSkeleton(targetFrame, map, "rgba(255,255,255,0.6)", canvas.width * 0.02, []);
             drawSkeleton(k, map, "rgba(255,180,90,0.95)", canvas.width * 0.018, []);
           }
-          } catch { /* detection hiccup — keep last frame */ }
         }
       }
       raf = requestAnimationFrame(loop);
@@ -232,20 +261,13 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
     };
     (window as unknown as { __guidedCapture?: () => void }).__guidedCapture = capture;
 
-    const makeLandmarker = async (delegate: "GPU" | "CPU") => {
-      const vision = await import("@mediapipe/tasks-vision");
-      const fileset = await vision.FilesetResolver.forVisionTasks("/mediapipe/wasm");
-      return vision.PoseLandmarker.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: "/models/pose/pose_landmarker_lite.task", delegate },
-        runningMode: "VIDEO",
-        numPoses: 1,
-        minPoseDetectionConfidence: 0.4,
-        minPosePresenceConfidence: 0.4,
-        minTrackingConfidence: 0.4,
-      });
-    };
-
     (async () => {
+      // Shared singleton — parsed once per session, reused across angles.
+      // Kicked off in parallel with the camera permission prompt.
+      const modelP = getPoseLandmarker().catch((err) => {
+        console.error("[GuidedCamera] pose model", err);
+        return null;
+      });
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -261,20 +283,10 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       video.srcObject = stream;
       try { await video.play(); } catch { /* autoplay policies vary — play() retried below */ }
 
-      // Pose model is best-effort: GPU → CPU → manual mode. The camera and
-      // shutter work either way so this can never dead-end.
-      let modelReady = false;
-      for (const delegate of ["GPU", "CPU"] as const) {
-        try {
-          landmarker = await makeLandmarker(delegate);
-          modelReady = true;
-          break;
-        } catch (err) {
-          console.error(`[GuidedCamera] pose model (${delegate})`, err);
-          landmarker?.close();
-          landmarker = null;
-        }
-      }
+      // Pose model is best-effort — the camera and shutter work either way
+      // so this can never dead-end.
+      landmarker = await modelP;
+      const modelReady = !!landmarker && !cancelled;
       if (cancelled) return;
       poseModelOk = modelReady;
       setModelOk(modelReady);
@@ -288,7 +300,7 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       cancelAnimationFrame(raf);
       ro.disconnect();
       stream?.getTracks().forEach((t) => t.stop());
-      landmarker?.close();
+      // landmarker is a session-wide singleton — never close it here.
       delete (window as unknown as { __guidedCapture?: () => void }).__guidedCapture;
     };
   }, [angle]); // targetPose/onCapture/personalTarget read via refs — no restart
@@ -299,7 +311,7 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
       {status === "loading" && (
         <div className="absolute inset-0 grid place-items-center text-xs" style={{ color: "#e8ddc8" }}>
-          Loading camera & pose model (~20MB, first time only)…
+          Loading camera & pose model (first time only)…
         </div>
       )}
       {status === "error" && (

@@ -26,23 +26,34 @@ const I = {
 export interface KeyPose {
   nose: Pt; shL: Pt; shR: Pt; elL: Pt; elR: Pt; wrL: Pt; wrR: Pt;
   hipL: Pt; hipR: Pt; kneeL: Pt; kneeR: Pt; ankL: Pt; ankR: Pt;
+  /** MediaPipe landmark visibility 0..1 per joint — absent on synthetic poses. */
+  vis?: Partial<Record<keyof Omit<KeyPose, "vis">, number>>;
 }
 export interface KeyPose3D {
   nose: Pt3; shL: Pt3; shR: Pt3; elL: Pt3; elR: Pt3; wrL: Pt3; wrR: Pt3;
   hipL: Pt3; hipR: Pt3; kneeL: Pt3; kneeR: Pt3; ankL: Pt3; ankR: Pt3;
+  vis?: Partial<Record<keyof Omit<KeyPose3D, "vis">, number>>;
 }
 export type AnyPose = KeyPose | KeyPose3D;
 
-interface LM { x: number; y: number; z?: number }
+interface LM { x: number; y: number; z?: number; visibility?: number }
+
+const visOf = (lm: LM[], i: number) => lm[i]?.visibility ?? 1;
 
 /** Reduce 33 image landmarks → 13 keypoints. Returns null if pose isn't detected. */
 export function keyPose(lm: LM[]): KeyPose | null {
   if (!lm || lm.length < 33) return null;
   const p = (i: number): Pt => [lm[i].x, lm[i].y];
+  const v = (i: number) => visOf(lm, i);
   return {
     nose: p(I.nose), shL: p(I.shL), shR: p(I.shR), elL: p(I.elL), elR: p(I.elR),
     wrL: p(I.wrL), wrR: p(I.wrR), hipL: p(I.hipL), hipR: p(I.hipR),
     kneeL: p(I.kneeL), kneeR: p(I.kneeR), ankL: p(I.ankL), ankR: p(I.ankR),
+    vis: {
+      nose: v(I.nose), shL: v(I.shL), shR: v(I.shR), elL: v(I.elL), elR: v(I.elR),
+      wrL: v(I.wrL), wrR: v(I.wrR), hipL: v(I.hipL), hipR: v(I.hipR),
+      kneeL: v(I.kneeL), kneeR: v(I.kneeR), ankL: v(I.ankL), ankR: v(I.ankR),
+    },
   };
 }
 
@@ -50,10 +61,16 @@ export function keyPose(lm: LM[]): KeyPose | null {
 export function keyPose3D(lm: LM[]): KeyPose3D | null {
   if (!lm || lm.length < 33) return null;
   const p = (i: number): Pt3 => [lm[i].x, lm[i].y, lm[i].z ?? 0];
+  const v = (i: number) => visOf(lm, i);
   return {
     nose: p(I.nose), shL: p(I.shL), shR: p(I.shR), elL: p(I.elL), elR: p(I.elR),
     wrL: p(I.wrL), wrR: p(I.wrR), hipL: p(I.hipL), hipR: p(I.hipR),
     kneeL: p(I.kneeL), kneeR: p(I.kneeR), ankL: p(I.ankL), ankR: p(I.ankR),
+    vis: {
+      nose: v(I.nose), shL: v(I.shL), shR: v(I.shR), elL: v(I.elL), elR: v(I.elR),
+      wrL: v(I.wrL), wrR: v(I.wrR), hipL: v(I.hipL), hipR: v(I.hipR),
+      kneeL: v(I.kneeL), kneeR: v(I.kneeR), ankL: v(I.ankL), ankR: v(I.ankR),
+    },
   };
 }
 
@@ -93,20 +110,32 @@ const midSh = (k: AnyPose) => mid(k.shL as NPt, k.shR as NPt);
 const midHip = (k: AnyPose) => mid(k.hipL as NPt, k.hipR as NPt);
 const midKnee = (k: AnyPose) => mid(k.kneeL as NPt, k.kneeR as NPt);
 
-// Each entry: joint name (for UI hints), weight, angle definition.
-// Angles measured at the middle letter of each triple.
-const ANGLES: { name: string; w: number; get: (k: AnyPose) => number }[] = [
-  { name: "left elbow", w: 1.0, get: (k) => angleAt(k.shL as NPt, k.elL as NPt, k.wrL as NPt) },
-  { name: "right elbow", w: 1.0, get: (k) => angleAt(k.shR as NPt, k.elR as NPt, k.wrR as NPt) },
-  { name: "left shoulder", w: 1.0, get: (k) => angleAt(k.elL as NPt, k.shL as NPt, k.hipL as NPt) },
-  { name: "right shoulder", w: 1.0, get: (k) => angleAt(k.elR as NPt, k.shR as NPt, k.hipR as NPt) },
-  { name: "left hip", w: 1.2, get: (k) => angleAt(k.shL as NPt, k.hipL as NPt, k.kneeL as NPt) },
-  { name: "right hip", w: 1.2, get: (k) => angleAt(k.shR as NPt, k.hipR as NPt, k.kneeR as NPt) },
-  { name: "left knee", w: 1.2, get: (k) => angleAt(k.hipL as NPt, k.kneeL as NPt, k.ankL as NPt) },
-  { name: "right knee", w: 1.2, get: (k) => angleAt(k.hipR as NPt, k.kneeR as NPt, k.ankR as NPt) },
-  { name: "torso", w: 1.0, get: (k) => angleAt(midSh(k), midHip(k), midKnee(k)) },
-  { name: "neck", w: 0.6, get: (k) => angleAt(midHip(k), midSh(k), k.nose as NPt) },
+type Joint = keyof Omit<KeyPose, "vis">;
+// Each entry: joint name (for UI hints), weight, angle definition, and the
+// body joints it depends on (for visibility gating).
+const ANGLES: { name: string; w: number; joints: Joint[]; get: (k: AnyPose) => number }[] = [
+  { name: "left elbow", w: 1.0, joints: ["shL", "elL", "wrL"], get: (k) => angleAt(k.shL as NPt, k.elL as NPt, k.wrL as NPt) },
+  { name: "right elbow", w: 1.0, joints: ["shR", "elR", "wrR"], get: (k) => angleAt(k.shR as NPt, k.elR as NPt, k.wrR as NPt) },
+  { name: "left shoulder", w: 1.0, joints: ["elL", "shL", "hipL"], get: (k) => angleAt(k.elL as NPt, k.shL as NPt, k.hipL as NPt) },
+  { name: "right shoulder", w: 1.0, joints: ["elR", "shR", "hipR"], get: (k) => angleAt(k.elR as NPt, k.shR as NPt, k.hipR as NPt) },
+  { name: "left hip", w: 1.2, joints: ["shL", "hipL", "kneeL"], get: (k) => angleAt(k.shL as NPt, k.hipL as NPt, k.kneeL as NPt) },
+  { name: "right hip", w: 1.2, joints: ["shR", "hipR", "kneeR"], get: (k) => angleAt(k.shR as NPt, k.hipR as NPt, k.kneeR as NPt) },
+  { name: "left knee", w: 1.2, joints: ["hipL", "kneeL", "ankL"], get: (k) => angleAt(k.hipL as NPt, k.kneeL as NPt, k.ankL as NPt) },
+  { name: "right knee", w: 1.2, joints: ["hipR", "kneeR", "ankR"], get: (k) => angleAt(k.hipR as NPt, k.kneeR as NPt, k.ankR as NPt) },
+  { name: "torso", w: 1.0, joints: ["shL", "shR", "hipL", "hipR", "kneeL", "kneeR"], get: (k) => angleAt(midSh(k), midHip(k), midKnee(k)) },
+  { name: "neck", w: 0.6, joints: ["nose", "shL", "shR"], get: (k) => angleAt(midHip(k), midSh(k), k.nose as NPt) },
 ];
+
+// Angles built mostly from low-visibility landmarks are excluded — an
+// occluded wrist shouldn't drag the score down.
+const MIN_VIS = 0.35;
+
+function angleVis(k: AnyPose, joints: Joint[]): number {
+  if (!k.vis) return 1;
+  let sum = 0;
+  for (const j of joints) sum += k.vis[j] ?? 1;
+  return sum / joints.length;
+}
 
 // Degrees of joint-angle difference that still earns partial credit.
 // ~30° is forgiving enough for natural stance variation, strict enough that
@@ -134,6 +163,7 @@ export function worstJoint(target: AnyPose, current: AnyPose): { name: string; d
   const ta = jointAngles(target), ca = jointAngles(current);
   let worst: { name: string; diff: number } | null = null;
   for (const a of ANGLES) {
+    if (angleVis(current, a.joints) < MIN_VIS) continue;
     const d = Math.abs(ta[a.name] - ca[a.name]);
     if (d > ANGLE_TOLERANCE && (!worst || d > worst.diff)) worst = { name: a.name, diff: d };
   }
@@ -150,11 +180,14 @@ export function scorePose(target: AnyPose, current: AnyPose): number {
   const ta = jointAngles(target), ca = jointAngles(current);
   let sum = 0, wsum = 0;
   for (const a of ANGLES) {
+    // Weight by landmark visibility and skip mostly-occluded angles.
+    const v = angleVis(current, a.joints);
+    if (v < MIN_VIS) continue;
     const d = Math.abs(ta[a.name] - ca[a.name]);
-    sum += a.w * Math.max(0, 100 * (1 - d / ANGLE_TOLERANCE));
-    wsum += a.w;
+    sum += a.w * v * Math.max(0, 100 * (1 - d / ANGLE_TOLERANCE));
+    wsum += a.w * v;
   }
-  let score = sum / wsum;
+  let score = wsum > 0 ? sum / wsum : 0;
   const tf = facingness(target), cf = facingness(current);
   // Both clearly square-on but opposite facings → wrong side of the body.
   if (Math.abs(tf) > 0.5 && Math.abs(cf) > 0.5 && Math.sign(tf) !== Math.sign(cf)) score *= 0.45;
