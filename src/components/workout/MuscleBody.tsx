@@ -73,6 +73,7 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
     const orbit = { yaw: 0, pitch: 0.08, dist: 3.4, tx: 0, ty: 0 };
     let dragging = false, downX = 0, downY = 0;
     let originX = 0, originY = 0, movedTotal = 0, lastPick = 0;
+    let lastTap = 0, lastTapX = 0, lastTapY = 0;
     const pointers = new Map<number, { x: number; y: number }>();
     let pinchD = 0;
 
@@ -118,13 +119,13 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
       pointers.delete(e.pointerId); pinchD = 0;
       if (pointers.size === 0) {
         dragging = false;
-        if (e.type === "pointerup" && movedTotal < 8) pick(e.clientX, e.clientY);
+        if (e.type === "pointerup" && movedTotal < 8) handleTap(e.clientX, e.clientY);
       }
     };
     // Fallback for browsers/devices where pointerup is pre-empted — a real
     // click only fires when the gesture didn't turn into a drag anyway.
     const onClick = (e: MouseEvent) => {
-      if (movedTotal < 8) pick(e.clientX, e.clientY);
+      if (movedTotal < 8) handleTap(e.clientX, e.clientY);
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -143,7 +144,11 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
     // ---- model ----
     // Every mesh gets tracked — bucket may be null (bones/organs/support).
     // Unmapped meshes get a neutral tone so atlas palette never shows through.
-    const meshBucket = new Map<THREE.Object3D, { bucket: BodyBucket | null; label: string; mats: THREE.MeshStandardMaterial[] }>();
+    // localCenter feeds the nearest-muscle tap fallback.
+    const meshBucket = new Map<THREE.Object3D, {
+      bucket: BodyBucket | null; label: string;
+      mats: THREE.MeshStandardMaterial[]; localCenter: THREE.Vector3;
+    }>();
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
 
@@ -161,6 +166,11 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
           mat.color.copy(col);
           mat.map = null;
           mat.vertexColors = false;
+          const isSel = info.bucket != null && info.bucket === sel;
+          if ("emissive" in mat) {
+            (mat as THREE.MeshStandardMaterial).emissive.set(isSel ? "#d9a441" : "#000000");
+            (mat as THREE.MeshStandardMaterial).emissiveIntensity = isSel ? 0.5 : 0;
+          }
           mat.needsUpdate = true;
         }
       }
@@ -172,17 +182,39 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
       ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, cam);
       const hits = ray.intersectObjects(scene.children, true);
-      const now = performance.now();
-      if (now - lastPick < 250) return; // pointerup + click both fire — dedupe
       for (const h of hits) {
         // Hit may be a child of the named node — walk ancestors.
         let o: THREE.Object3D | null = h.object;
         while (o) {
           const info = meshBucket.get(o);
-          if (info?.bucket) { lastPick = now; cbRef.current.onSelect?.(info.bucket, info.label); return; }
+          if (info?.bucket) { lastPick = performance.now(); cbRef.current.onSelect?.(info.bucket, info.label); return; }
           o = o.parent;
         }
       }
+      // Raycast missed (small muscle, edge-on view) — fall back to the mapped
+      // muscle whose center projects closest to the tap on screen.
+      const v = new THREE.Vector3();
+      let best: { d: number; bucket: BodyBucket; label: string } | null = null;
+      for (const [obj, info] of meshBucket) {
+        if (!info.bucket) continue;
+        v.copy(info.localCenter).applyMatrix4(obj.matrixWorld).project(cam);
+        if (v.z > 1) continue; // behind camera
+        const d = Math.hypot(v.x - ndc.x, v.y - ndc.y);
+        if (d < 0.18 && (!best || d < best.d)) best = { d, bucket: info.bucket, label: info.label };
+      }
+      if (best) { lastPick = performance.now(); cbRef.current.onSelect?.(best.bucket, best.label); }
+    };
+
+    const handleTap = (cx: number, cy: number) => {
+      const now = performance.now();
+      if (now - lastPick < 250) return;
+      const isDouble = now - lastTap < 300 && Math.hypot(cx - lastTapX, cy - lastTapY) < 40;
+      lastTap = now; lastTapX = cx; lastTapY = cy;
+      if (isDouble) { // double-tap resets the camera
+        orbit.yaw = 0; orbit.pitch = 0.08; orbit.dist = 3.4; applyCam();
+        return;
+      }
+      pick(cx, cy);
     };
 
     const resize = () => {
@@ -230,7 +262,10 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
         );
         mesh.material = Array.isArray(mesh.material) ? mats : mats[0];
         const bucket = am ? atlasBucket(`${am.label} ${am.key}`, am.group || am.region || "") : null;
-        meshBucket.set(mesh, { bucket, label: am?.label ?? "", mats });
+        const geo = mesh.geometry as THREE.BufferGeometry | undefined;
+        geo?.computeBoundingSphere?.();
+        const localCenter = geo?.boundingSphere ? geo.boundingSphere.center.clone() : new THREE.Vector3();
+        meshBucket.set(mesh, { bucket, label: am?.label ?? "", mats, localCenter });
       });
       scene.add(gltf.scene);
       // Center + scale: atlas is ~1.8m tall in meters; frame it.

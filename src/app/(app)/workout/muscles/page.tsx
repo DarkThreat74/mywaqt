@@ -64,7 +64,7 @@ export default function MusclesPage() {
         <h1 className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>Muscle recovery</h1>
       </div>
       <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-        {use3D ? "Drag to rotate · tap a muscle · redder = less recovered" : "Tap a muscle · redder = less recovered"}
+        {use3D ? "Drag to rotate · tap a muscle · double-tap to reset · redder = less recovered" : "Tap a muscle · redder = less recovered"}
       </p>
 
       <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", height: "min(52dvh, 460px)", background: "linear-gradient(180deg,#f6f1e6,#efe7d6)" }}>
