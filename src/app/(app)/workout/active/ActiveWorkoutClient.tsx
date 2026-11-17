@@ -354,25 +354,19 @@ function ActiveInner() {
         setLastAt(at); setStalled(stall);
         freshMap = new Map((d2.muscles || []).map((m: { muscle: string; freshness: number }) => [m.muscle, m.freshness]));
       }
-      // First-open readiness wizard — once per day, fresh sessions only.
+      // Readiness wizard — every fresh session start (skipped on resume).
       // Soreness defaults from how unrecovered today's muscles actually are.
-      if (!cancelled && !sdata.resumed && (d.exercises || []).length > 0) {
-        const dayKey = new Date(safeStart).toISOString().slice(0, 10);
-        const rkey = `waqt:readiness:${dayKey}`;
-        let seen = false;
-        try { seen = !!localStorage.getItem(rkey); if (!seen) localStorage.setItem(rkey, "1"); } catch { /* noop */ }
-        if (!seen) {
-          const unrec = (d.exercises || [])
-            .map((e: DayExercise) => exBySlugRef.current.get(e.slug)?.muscle)
-            .filter((m: string | undefined): m is string => !!m)
-            .map((m: string) => 100 - (freshMap.get(m) ?? 100));
-          const avg = unrec.length ? unrec.reduce((a, b) => a + b, 0) / unrec.length : 0;
-          setReadiness({
-            sleepHours: "7.5", energy: "7", stress: "4",
-            soreness: String(Math.min(10, Math.max(1, Math.round(1 + avg / 12)))),
-          });
-          setReadinessOpen(true);
-        }
+      if (!cancelled && !sdata.resumed) {
+        const unrec = (d.exercises || [])
+          .map((e: DayExercise) => exBySlugRef.current.get(e.slug)?.muscle)
+          .filter((m: string | undefined): m is string => !!m)
+          .map((m: string) => 100 - (freshMap.get(m) ?? 100));
+        const avg = unrec.length ? unrec.reduce((a, b) => a + b, 0) / unrec.length : 0;
+        setReadiness({
+          sleepHours: "7.5", energy: "7", stress: "4",
+          soreness: String(Math.min(10, Math.max(1, Math.round(1 + avg / 12)))),
+        });
+        setReadinessOpen(true);
       }
     })();
     return () => { cancelled = true; };
@@ -526,11 +520,16 @@ function ActiveInner() {
   const [view, setView] = useState<Exercise | null>(null);
   const [openRir, setOpenRir] = useState<string | null>(null);
   const [leaveAsk, setLeaveAsk] = useState(false);
+  const [finishAsk, setFinishAsk] = useState(false);
+  const [recMult, setRecMult] = useState(1); // readiness-tuned suggestion multiplier
   const [exercisePickerOpen, setExercisePickerOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<"routine" | "library">("routine");
   const [swapSlug, setSwapSlug] = useState<string | null>(null);
   const [customExerciseOpen, setCustomExerciseOpen] = useState(false);
   const [exerciseQuery, setExerciseQuery] = useState("");
+  const [muscleFilter, setMuscleFilter] = useState("");
+  const [equipFilter, setEquipFilter] = useState("");
+  const [shownLimit, setShownLimit] = useState(80);
   const [customExerciseName, setCustomExerciseName] = useState("");
   const router = useRouter();
 
@@ -651,6 +650,13 @@ function ActiveInner() {
 
   const cancel = async () => {
     if (sessionId) {
+      // Wipe local rows FIRST — a pending local session/set would be pushed
+      // back up by the sync sweeper and resurrect the cancelled workout.
+      try {
+        const db = getOfflineDB();
+        await db.workoutSets.where("sessionId").equals(sessionId).delete();
+        await db.workoutSessions.delete(sessionId);
+      } catch { /* storage best-effort */ }
       let deleted = await fetch(`/workout-session?id=${encodeURIComponent(sessionId)}`, { method: "DELETE" }).catch(() => null);
       if (!deleted?.ok) deleted = await fetch(`/api/workout/sessions?id=${encodeURIComponent(sessionId)}`, { method: "DELETE" }).catch(() => null);
     }
@@ -681,6 +687,13 @@ function ActiveInner() {
       setReadinessSaving(false);
       return;
     }
+    // Feed the answers into the weight suggestions: fresh + rested → nudge
+    // up, sore + drained → pull back. Bounded so it only tunes, never picks.
+    const e = Number(readiness.energy) || 5;
+    const so = Number(readiness.soreness) || 5;
+    const st = Number(readiness.stress) || 5;
+    const sl = Number(readiness.sleepHours) || 7;
+    setRecMult(Math.min(1.05, Math.max(0.8, 1 + (e - 5) * 0.015 + (5 - so) * 0.02 + (sl - 7) * 0.01 - (st - 5) * 0.01)));
     setReadinessSaving(false);
     setReadinessOpen(false);
   };
@@ -742,6 +755,18 @@ function ActiveInner() {
     else addExercise(ex);
   };
 
+  const muscleOptions = useMemo(() => [...new Set((catalog ?? []).map((e) => e.muscle).filter(Boolean))].sort(), [catalog]);
+  const equipOptions = useMemo(() => [...new Set((catalog ?? []).map((e) => e.equip).filter(Boolean))].sort(), [catalog]);
+  const openPicker = (mode: "routine" | "library") => {
+    setSwapSlug(null);
+    setPickerMode(mode);
+    setExerciseQuery("");
+    setMuscleFilter("");
+    setEquipFilter("");
+    setShownLimit(80);
+    setExercisePickerOpen(true);
+  };
+
   // Readiness defaults are computed inside the session bootstrap (it has the
   // day's exercises + muscle freshness locally) — no effect needed here.
 
@@ -800,22 +825,22 @@ function ActiveInner() {
       )}
       <div className="sticky top-2 z-30 rounded-2xl border p-3 shadow-sm backdrop-blur"
         style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)" }}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{dayName || "Workout"}</h1>
-            <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+          <div className="min-w-0 w-full sm:w-auto sm:flex-1">
+            <h1 className="text-lg font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>{dayName || "Workout"}</h1>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               {sessionId ? `${totalDone}/${totalPlanned} sets logged` : "Starting your session…"}
-              {" · "}
+              <span>·</span>
               <label className="inline-flex items-center gap-1">
                 for
                 <input type="date" value={sessionDate}
                   onChange={(e) => changeSessionDate(e.target.value)}
-                  className="w-[7.5rem] rounded border px-1 py-0.5 text-[10px]"
-                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }} />
+                  className="rounded-md border px-1.5 py-1 text-[11px]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper)" }} />
               </label>
             </p>
           </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => setReadinessOpen(true)}
             className="rounded-full border px-2.5 py-1 text-[10px] font-medium"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
@@ -841,16 +866,10 @@ function ActiveInner() {
           <span className="rounded-full border px-3 py-1 text-xs font-semibold tabular-nums" style={{ borderColor: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 10%, transparent)", color: "var(--color-ink)" }}>
             {fmt(elapsed)}
           </span>
-          <button type="button" onClick={() => void finish()} disabled={!sessionId}
+          <button type="button" onClick={() => setFinishAsk(true)} disabled={!sessionId}
             className="rounded-full px-3 py-1.5 text-[10px] font-semibold"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: sessionId ? 1 : 0.45 }}>
             Finish
-          </button>
-          <button type="button" onClick={() => { setSwapSlug(null); setPickerMode("routine"); setExercisePickerOpen(true); }}
-            className="flex h-8 w-8 items-center justify-center rounded-full border"
-            style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
-            title="Add exercise" aria-label="Add exercise">
-            <Plus className="h-4 w-4" />
           </button>
           <button type="button" onClick={() => setLeaveAsk(true)} className="rounded-full border px-2 py-1 text-[10px]"
             style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }} title="Leave — deletes this session">
@@ -914,7 +933,7 @@ function ActiveInner() {
         </div>
       )}
       {exercises.length === 0 && (
-        <button type="button" onClick={() => { setSwapSlug(null); setPickerMode("routine"); setExercisePickerOpen(true); }}
+        <button type="button" onClick={() => openPicker("routine")}
           className="mt-8 flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10"
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
           <span className="flex h-11 w-11 items-center justify-center rounded-full text-xl"
@@ -1012,8 +1031,8 @@ function ActiveInner() {
                           <span style={{ color: "var(--color-warmth)" }}>
                             {" · try "}
                             {recommendedKg.get(x.slug)
-                              ? dispW(recommendedKg.get(x.slug)! * (retained.get(x.slug)?.r ?? 1))
-                              : dispW((lastW + (isLower ? 5 : 2.5)) * (retained.get(x.slug)?.r ?? 1))}
+                              ? dispW(recommendedKg.get(x.slug)! * (retained.get(x.slug)?.r ?? 1) * recMult)
+                              : dispW((lastW + (isLower ? 5 : 2.5)) * (retained.get(x.slug)?.r ?? 1) * recMult)}
                             {units}
                           </span>
                         )}
@@ -1046,7 +1065,7 @@ function ActiveInner() {
                     const from = exBySlug.get(est.from)?.name || est.from;
                     return (
                       <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }} title={`${est.why} — ~75% of estimated 1RM as a working weight`}>
-                        est. {dispW(est.e1 * 0.75)}{units}×8-10 <span style={{ opacity: 0.7 }}>(from {from}{est.personal ? ", calibrated" : ""})</span>
+                        est. {dispW(est.e1 * 0.75 * recMult)}{units}×8-10 <span style={{ opacity: 0.7 }}>(from {from}{est.personal ? ", calibrated" : ""})</span>
                       </p>
                     );
                   })()}
@@ -1214,17 +1233,19 @@ function ActiveInner() {
         })}
       </div>
 
-      <button type="button" onClick={finish}
+      <button type="button" onClick={() => setFinishAsk(true)}
         className="mt-6 w-full rounded-xl px-4 py-3.5 text-sm font-semibold"
         style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
         Finish workout
       </button>
 
-      <button type="button" onClick={() => { setSwapSlug(null); setPickerMode("routine"); setExercisePickerOpen(true); }}
-        className="mx-auto mt-3 flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold"
-        style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
-        <Plus className="h-3.5 w-3.5" /> Add another exercise
-      </button>
+      {exercises.length > 0 && (
+        <button type="button" onClick={() => openPicker("routine")}
+          className="mx-auto mt-3 flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold"
+          style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+          <Plus className="h-3.5 w-3.5" /> Add exercise
+        </button>
+      )}
 
       {exercisePickerOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
@@ -1244,51 +1265,108 @@ function ActiveInner() {
               </button>
             </div>
             <div className="border-b p-3" style={{ borderColor: "var(--color-paper-3)" }}>
-              <label className="flex items-center gap-2 rounded-xl border px-3 py-2.5"
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" onClick={() => { setPickerMode("routine"); setShownLimit(80); }}
+                  className="rounded-xl border px-2 py-2 text-xs font-semibold"
+                  style={{ borderColor: pickerMode === "routine" ? "var(--color-accent)" : "var(--color-paper-3)", color: pickerMode === "routine" ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+                  This routine
+                </button>
+                <button type="button" onClick={() => { setPickerMode("library"); setShownLimit(80); }}
+                  className="rounded-xl border px-2 py-2 text-xs font-semibold"
+                  style={{ borderColor: pickerMode === "library" ? "var(--color-accent)" : "var(--color-paper-3)", color: pickerMode === "library" ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+                  All exercises{catalog ? ` (${catalog.length.toLocaleString()})` : ""}
+                </button>
+                <button type="button" onClick={() => { setExercisePickerOpen(false); setCustomExerciseOpen(true); }}
+                  className="rounded-xl border border-dashed px-2 py-2 text-xs font-semibold"
+                  style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+                  <Plus className="mr-0.5 inline h-3.5 w-3.5" /> Custom
+                </button>
+              </div>
+              <label className="mt-2 flex items-center gap-2 rounded-xl border px-3 py-2.5"
                 style={{ borderColor: "var(--color-paper-3)" }}>
                 <Search className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
-                <input value={exerciseQuery} onChange={(event) => setExerciseQuery(event.target.value)}
-                  autoFocus placeholder="Search the exercise library…"
+                <input value={exerciseQuery} onChange={(event) => { setExerciseQuery(event.target.value); setShownLimit(80); }}
+                  placeholder="Search…"
                   className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                   style={{ color: "var(--color-ink)" }} />
               </label>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setPickerMode("library")}
-                  className="rounded-xl border px-3 py-2.5 text-xs font-semibold"
-                  style={{ borderColor: pickerMode === "library" ? "var(--color-accent)" : "var(--color-paper-3)", color: pickerMode === "library" ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
-                  Other movements
-                </button>
-                <button type="button" onClick={() => { setExercisePickerOpen(false); setCustomExerciseOpen(true); }}
-                  className="rounded-xl border border-dashed px-3 py-2.5 text-xs font-semibold"
-                  style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
-                  <Plus className="mr-1 inline h-3.5 w-3.5" /> Other custom
-                </button>
-              </div>
+              {pickerMode === "library" && catalog && (
+                <div className="mt-2 flex gap-2">
+                  <select value={muscleFilter} onChange={(e) => { setMuscleFilter(e.target.value); setShownLimit(80); }}
+                    className="min-w-0 flex-1 rounded-xl border px-2 py-2 text-xs"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper)" }}>
+                    <option value="">All muscles</option>
+                    {muscleOptions.map((m) => <option key={m} value={m}>{m.replace(/_/g, " ")}</option>)}
+                  </select>
+                  <select value={equipFilter} onChange={(e) => { setEquipFilter(e.target.value); setShownLimit(80); }}
+                    className="min-w-0 flex-1 rounded-xl border px-2 py-2 text-xs"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", backgroundColor: "var(--color-paper)" }}>
+                    <option value="">All equipment</option>
+                    {equipOptions.map((m) => <option key={m} value={m}>{m.replace(/_/g, " ")}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
             <div className="max-h-[52vh] overflow-y-auto p-3">
-              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                {pickerMode !== "routine" && catalog === null && (
-                  <p className="col-span-full p-3 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading exercise library…</p>
-                )}
-                {(() => {
-                  const items = pickerMode === "routine"
-                    ? availableExercises.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: "", equip: "", sets: exercise.sets, reps: exercise.reps }))
-                    : (catalog ?? []).map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: exercise.muscle, equip: exercise.equip, sets: 1, reps: "8-12" }));
-                  return items
+              {(() => {
+                const items = (pickerMode === "routine"
+                  ? availableExercises.map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: "", equip: "", sets: exercise.sets, reps: exercise.reps }))
+                  : (catalog ?? []).map((exercise) => ({ slug: exercise.slug, name: exercise.name, muscle: exercise.muscle, equip: exercise.equip, sets: 1, reps: "8-12" })))
                   .filter((exercise) => exercise.slug !== swapSlug)
-                  .filter((exercise) => !exerciseQuery.trim() || `${exercise.name} ${exercise.muscle} ${exercise.equip}`.toLowerCase().includes(exerciseQuery.toLowerCase()))
-                  .slice(0, 60)
-                  .map((exercise) => (
-                    <button key={exercise.slug} type="button"
-                      onClick={() => pickExercise({ slug: exercise.slug, name: exercise.name, sets: exercise.sets, reps: exercise.reps, supersetGroup: null })}
-                      className="flex items-center justify-between rounded-xl border px-3 py-2.5 text-left"
-                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
-                      <span className="min-w-0 truncate text-xs">{exercise.name}</span>
-                      <Plus className="ml-2 h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />
-                    </button>
-                  ));
-                })()}
-              </div>
+                  .filter((exercise) => !muscleFilter || exercise.muscle === muscleFilter)
+                  .filter((exercise) => !equipFilter || exercise.equip === equipFilter)
+                  .filter((exercise) => !exerciseQuery.trim() || `${exercise.name} ${exercise.muscle} ${exercise.equip}`.toLowerCase().includes(exerciseQuery.toLowerCase()));
+                const visible = items.slice(0, shownLimit);
+                return (
+                  <>
+                    {pickerMode === "library" && (
+                      <p className="mb-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                        Showing {visible.length.toLocaleString()} of {items.length.toLocaleString()} exercises — tap a row for details, + to add
+                      </p>
+                    )}
+                    {pickerMode === "library" && catalog === null && (
+                      <p className="p-3 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading exercise library…</p>
+                    )}
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {visible.map((exercise) => {
+                        const full = exBySlug.get(exercise.slug);
+                        return (
+                          <div key={exercise.slug} role="button" tabIndex={0}
+                            onClick={() => { if (full) setView(full); }}
+                            onKeyDown={(e) => { if (e.key === "Enter" && full) setView(full); }}
+                            className="flex items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left"
+                            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", cursor: full ? "pointer" : "default" }}>
+                            <ExerciseMedia slug={exercise.slug} pattern={full?.pattern ?? ""} showToggle={false}
+                              className="h-11 w-11 shrink-0 items-center justify-center rounded-lg"
+                              style={{ backgroundColor: "var(--color-paper-2)" }} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-medium">{exercise.name}</span>
+                              {(exercise.muscle || exercise.equip) && (
+                                <span className="block truncate text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
+                                  {[exercise.muscle, exercise.equip].filter(Boolean).join(" · ").replace(/_/g, " ")}
+                                </span>
+                              )}
+                            </span>
+                            <button type="button" aria-label={`Add ${exercise.name}`}
+                              onClick={(e) => { e.stopPropagation(); pickExercise({ slug: exercise.slug, name: exercise.name, sets: exercise.sets, reps: exercise.reps, supersetGroup: null }); }}
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border"
+                              style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
+                              <Plus className="h-4 w-4" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {items.length > shownLimit && (
+                      <button type="button" onClick={() => setShownLimit((n) => n + 160)}
+                        className="mt-2 w-full rounded-xl border border-dashed px-3 py-2 text-xs"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                        Show more — {(items.length - shownLimit).toLocaleString()} left
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1315,6 +1393,27 @@ function ActiveInner() {
         </div>
       )}
 
+      {finishAsk && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setFinishAsk(false)}>
+          <div className="w-full max-w-xs rounded-t-2xl sm:rounded-2xl border p-4"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+            onClick={(e) => e.stopPropagation()}>
+            <p className="text-center text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Finish workout?</p>
+            <p className="mt-1 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              {totalDone} sets · {fmt(elapsed)} — saves to your history and feeds the algorithm.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button type="button" onClick={() => setFinishAsk(false)}
+                className="flex-1 rounded-xl border px-3 py-2.5 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Keep going</button>
+              <button type="button" onClick={() => { setFinishAsk(false); void finish(); }}
+                className="flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Finish</button>
+            </div>
+          </div>
+        </div>
+      )}
       {leaveAsk && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setLeaveAsk(false)}>
@@ -1339,7 +1438,7 @@ function ActiveInner() {
       {view && (() => {
         const sci = SCIENCE[view.slug];
         return (
-          <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+          <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
             style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setView(null)}>
             <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-2xl sm:rounded-2xl border p-5"
               style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
