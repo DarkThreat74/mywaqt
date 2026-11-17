@@ -49,10 +49,11 @@ function ActiveInner() {
   // Lazy exercise catalog — names/equipment resolve once it lands; slug
   // fallbacks cover the gap so the session never blocks on the chunk.
   const [catalog, setCatalog] = useState<Exercise[] | null>(null);
+  const [familyKeyFn, setFamilyKeyFn] = useState<((slug: string) => string) | null>(null);
   useEffect(() => {
     let on = true;
     void import("@/lib/workout/exercises")
-      .then((m) => { if (on) setCatalog(m.EXERCISES); })
+      .then((m) => { if (on) { setCatalog(m.EXERCISES); setFamilyKeyFn(() => m.exerciseFamilyKey); } })
       .catch(() => {});
     return () => { on = false; };
   }, []);
@@ -1060,7 +1061,7 @@ function ActiveInner() {
                     </p>
                   )}
                   {!prevSets[x.slug]?.filter(Boolean).length && (() => {
-                    const est = estimateE1(x.slug, bestE1, lastAt);
+                    const est = estimateE1(x.slug, bestE1, lastAt, familyKeyFn ?? undefined);
                     if (!est) return null;
                     const from = exBySlug.get(est.from)?.name || est.from;
                     return (

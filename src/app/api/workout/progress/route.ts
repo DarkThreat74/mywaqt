@@ -111,12 +111,16 @@ export async function GET(request: NextRequest) {
         }
         limbBySlug.set(row.slug, limbs);
       }
-      if (validE1) {
-        const varKey = row.variation || "standard";
+      // hand:left/right/both is limb tracking, not a grip/stance variation —
+      // it must not appear as a variation in the rollup.
+      const varKey = row.variation && !row.variation.startsWith("hand:") ? row.variation : "standard";
+      {
         const vm = varBySlug.get(row.slug) || new Map();
         const vv = vm.get(varKey) || { best: 0, last: val, sets: 0, first: val };
-        vv.best = Math.max(vv.best, val);
-        vv.last = val;
+        if (validE1) {
+          vv.best = Math.max(vv.best, val);
+          vv.last = val;
+        }
         vv.sets += 1;
         vm.set(varKey, vv);
         varBySlug.set(row.slug, vm);
