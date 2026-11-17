@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 const MuscleBody = dynamic(() => import("@/components/workout/MuscleBody"), { ssr: false });
 import MuscleBody2D from "@/components/workout/MuscleBody2D";
 import { bucketOf, type BodyBucket } from "@/lib/workout/muscleBodyMap";
+import { muscleInfo } from "@/lib/workout/muscleAnatomy";
 
 interface MuscleStat {
   muscle: string;
@@ -22,6 +23,15 @@ const BUCKET_LABEL: Record<BodyBucket, string> = {
   biceps: "Biceps", triceps: "Triceps", forearms: "Forearms", grip: "Grip",
   quads: "Quads", hamstrings: "Hamstrings", glutes: "Glutes", adductors: "Adductors",
   calves: "Calves", abs: "Abs", obliques: "Obliques", neck: "Neck",
+};
+
+// Buckets with no single muscle key get a representative key for atlas info.
+const BUCKET_INFO_KEY: Record<BodyBucket, string> = {
+  chest: "chest", front_delts: "front_delts", side_delts: "side_delts", rear_delts: "rear_delts",
+  lats: "lats", mid_back: "mid_back", traps: "upper_traps", lower_back: "erectors",
+  biceps: "biceps", triceps: "triceps", forearms: "forearms", grip: "grip",
+  quads: "quads", hamstrings: "hamstrings", glutes: "glutes", adductors: "adductors",
+  calves: "gastroc", abs: "abs", obliques: "obliques", neck: "neck",
 };
 
 const STATE_LABEL = ["fresh", "recovering", "tired", "overdue"] as const;
@@ -122,20 +132,48 @@ export default function MusclesPage() {
               </div>
               <button type="button" onClick={() => setSel(null)} className="text-lg" style={{ color: "var(--color-ink-muted)" }}>✕</button>
             </div>
-            <div className="mt-4 space-y-1">
-              {(stats ?? []).filter((m) => bucketOf(m.muscle) === sel.bucket).map((m) => (
-                <div key={m.muscle} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs"
-                  style={{ background: "var(--color-paper-2)" }}>
-                  <span style={{ color: "var(--color-ink)" }}>{m.muscle.replace(/_/g, " ")}</span>
-                  <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                    {m.effSetsWeek} sets · {m.freshness}% recovered
-                  </span>
-                </div>
-              ))}
+            <div className="mt-4 space-y-2">
+              {(stats ?? []).filter((m) => bucketOf(m.muscle) === sel.bucket).length === 0 && (() => {
+                const info = muscleInfo(BUCKET_INFO_KEY[sel.bucket]);
+                return info ? (
+                  <div className="rounded-lg px-3 py-2.5 text-xs" style={{ background: "var(--color-paper-2)" }}>
+                    <p className="italic" style={{ color: "var(--color-ink-muted)" }}>{info.latin}</p>
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5" style={{ color: "var(--color-ink-muted)" }}>
+                      <span><b style={{ color: "var(--color-ink)" }}>Family:</b> {info.family}</span>
+                      <span><b style={{ color: "var(--color-ink)" }}>Fibers:</b> {info.fibers}</span>
+                    </div>
+                    <p className="mt-1" style={{ color: "var(--color-ink-muted)" }}><b style={{ color: "var(--color-ink)" }}>Does:</b> {info.action}</p>
+                    {info.note && <p className="mt-1" style={{ color: "var(--color-ink-muted)" }}><b style={{ color: "var(--color-ink)" }}>Tip:</b> {info.note}</p>}
+                    <p className="mt-1.5" style={{ color: "var(--color-ink-muted)" }}>No sets logged yet — train it to start tracking recovery.</p>
+                  </div>
+                ) : null;
+              })()}
+              {(stats ?? []).filter((m) => bucketOf(m.muscle) === sel.bucket).map((m) => {
+                const info = muscleInfo(m.muscle) ?? muscleInfo(BUCKET_INFO_KEY[sel.bucket]);
+                return (
+                  <div key={m.muscle} className="rounded-lg px-3 py-2.5 text-xs"
+                    style={{ background: "var(--color-paper-2)" }}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-medium" style={{ color: "var(--color-ink)" }}>{m.muscle.replace(/_/g, " ")}</span>
+                      <span className="shrink-0 tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                        {m.effSetsWeek} sets · {m.freshness}% recovered
+                      </span>
+                    </div>
+                    {info && (
+                      <div className="mt-1.5 space-y-1">
+                        <p className="italic" style={{ color: "var(--color-ink-muted)" }}>{info.latin}</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5" style={{ color: "var(--color-ink-muted)" }}>
+                          <span><b style={{ color: "var(--color-ink)" }}>Family:</b> {info.family}</span>
+                          <span><b style={{ color: "var(--color-ink)" }}>Fibers:</b> {info.fibers}</span>
+                        </div>
+                        <p style={{ color: "var(--color-ink-muted)" }}><b style={{ color: "var(--color-ink)" }}>Does:</b> {info.action}</p>
+                        {info.note && <p style={{ color: "var(--color-ink-muted)" }}><b style={{ color: "var(--color-ink)" }}>Tip:</b> {info.note}</p>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <p className="mt-3 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-              Anatomy atlas: Z-Anatomy / BodyParts3D via fitmitwith-anatomy-atlas (CC BY-SA 4.0)
-            </p>
           </div>
         </div>
       )}
