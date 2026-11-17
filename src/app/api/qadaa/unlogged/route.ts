@@ -127,6 +127,9 @@ export async function POST(request: NextRequest) {
       maghribOwed: updated.maghribOwed,
       ishaOwed: updated.ishaOwed,
       setupCompleted: updated.setupCompleted,
+      balighDate: updated.balighDate ?? null,
+      balighAge: updated.balighAge ?? null,
+      initialOwed: updated.initialOwed ?? null,
       unloggedMissed: 0,
     });
   } catch (err) {

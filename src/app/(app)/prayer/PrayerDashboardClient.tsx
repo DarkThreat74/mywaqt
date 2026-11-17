@@ -1038,6 +1038,7 @@ export default function PrayerDashboard() {
         invalidateApiCache("/api/prayer-log");
         setQadaa(data);
         cacheBlob("qadaa", data);
+        void refreshQadaaAndAnalytics();
         setQadaaMsg("Qadaa set up successfully.");
         setTimeout(() => setQadaaMsg(null), 3000);
       } else if (data.offline) {
@@ -1074,6 +1075,7 @@ export default function PrayerDashboard() {
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         invalidateApiCache("/api/qadaa");
+        if (!data.offline) void refreshQadaaAndAnalytics();
         void hapticNotification("success");
         if (data.offline) {
           if (qadaa) {
@@ -1134,6 +1136,7 @@ export default function PrayerDashboard() {
         setQadaa(data);
         cacheBlob("qadaa", data);
         invalidateApiCache("/api/qadaa");
+        void refreshQadaaAndAnalytics();
         setQadaaMsg(action === "absorb" ? "Missed prayers added to qadaa." : "Dismissed.");
         setTimeout(() => setQadaaMsg(null), 3000);
       } else {
