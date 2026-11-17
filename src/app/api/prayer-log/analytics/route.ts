@@ -94,14 +94,23 @@ export async function GET(request: NextRequest) {
     // past the ~200-day hot window (heatmap = 365d, all-time = everything).
     const allLogs = await fetchPrayerLogsRange(session.userId, dbFromDate, todayStr);
 
-    // Fetch cached prayer times covering the full DB range
+    // Fetch cached prayer times — only consumed by rangeLogs/todayTimes, so
+    // rangeStart (not the 365d dbFromDate) and only the columns we parse.
     const prayerTimesRows = await db
-      .select()
+      .select({
+        date: schema.prayerTimesCache.date,
+        fajr: schema.prayerTimesCache.fajr,
+        sunrise: schema.prayerTimesCache.sunrise,
+        dhuhr: schema.prayerTimesCache.dhuhr,
+        asr: schema.prayerTimesCache.asr,
+        maghrib: schema.prayerTimesCache.maghrib,
+        isha: schema.prayerTimesCache.isha,
+      })
       .from(schema.prayerTimesCache)
       .where(
         and(
           eq(schema.prayerTimesCache.userId, session.userId),
-          gte(schema.prayerTimesCache.date, dbFromDate),
+          gte(schema.prayerTimesCache.date, rangeStart),
         ),
       );
 

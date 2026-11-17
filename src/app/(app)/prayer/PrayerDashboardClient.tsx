@@ -455,9 +455,16 @@ export default function PrayerDashboard() {
   // popup app-wide). Remote friends' updates arrive via a 15s poll while a
   // status-bearing tab is open, plus an immediate refresh on tab return.
   useEffect(() => {
+    // Coalesce bursts: check-in events + visibility flips can fire several
+    // times a second — one trailing fetch covers them all.
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const onUpdated = () => {
       if (!navigator.onLine) return;
-      void fetchTodayData(); void refreshFriends();
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void fetchTodayData(); void refreshFriends();
+      }, 1500);
     };
     const onVisible = () => {
       if (document.visibilityState === "visible") onUpdated();
@@ -466,6 +473,7 @@ export default function PrayerDashboard() {
     window.addEventListener("waqt:dua-due", onUpdated);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      if (timer) clearTimeout(timer);
       window.removeEventListener("waqt:prayer-updated", onUpdated);
       window.removeEventListener("waqt:dua-due", onUpdated);
       document.removeEventListener("visibilitychange", onVisible);
@@ -718,10 +726,23 @@ export default function PrayerDashboard() {
     return () => { cancelled = true; };
   }, [todayStr, statsRange]);
 
-  // Update current time every second for the countdown (shows seconds)
+  // Update current time every second for the countdown (shows seconds).
+  // Pause while the tab is hidden — the whole dashboard re-renders each tick.
   useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(interval);
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (!interval) interval = setInterval(() => setCurrentTime(new Date()), 1000);
+    };
+    const stop = () => {
+      if (interval) { clearInterval(interval); interval = null; }
+    };
+    const onVis = () => {
+      if (document.hidden) stop();
+      else { setCurrentTime(new Date()); start(); }
+    };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
   // Note: statsRange is in the main data-load effect's deps, so changing

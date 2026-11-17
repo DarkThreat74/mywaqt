@@ -1,6 +1,6 @@
 // Single source of truth for homework assignment types.
 // Must stay in sync with the homework_kind Postgres enum
-// (drizzle/0031_homework_kinds.sql + src/lib/db/schema.ts).
+// (drizzle/0030-0059_combined.sql (was 0031_homework_kinds) + src/lib/db/schema.ts).
 export const HOMEWORK_KINDS = [
   "homework",
   "test",

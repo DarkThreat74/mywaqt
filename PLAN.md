@@ -79,7 +79,7 @@ export const goalShareTokens = pgTable('goal_share_tokens', {
 });
 ```
 
-Migration: `drizzle/0005_goals.sql`
+Migration: `drizzle/0000-0029_combined.sql` (was 0005_goals)
 
 ---
 

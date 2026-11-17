@@ -446,8 +446,7 @@ async function processUserBatch(
   // Process each user using the batched data
   for (const s of settings) {
     try {
-      const userNow = userNowAsLocalDate(s.timezone).now;
-      const { today, yesterdayStr } = userNowAsLocalDate(s.timezone);
+      const { now: userNow, today, yesterdayStr } = userNowAsLocalDate(s.timezone);
 
       // 1. Resolve yesterday's unmarked prayers — excused on hayd days (the
       //    obligation was lifted), assumed_prayed otherwise. Only on the

@@ -53,11 +53,15 @@ export async function POST(request: NextRequest) {
 
   // No future dates — logging tomorrow's prayers inflates streaks, heatmap,
   // and qadaa before the day exists. Bounded in the user's own timezone.
-  const [tzRow] = await db
-    .select({ timezone: schema.prayerSettings.timezone })
-    .from(schema.prayerSettings)
-    .where(eq(schema.prayerSettings.userId, session.userId))
-    .limit(1);
+  const [tzRow, hayd] = await Promise.all([
+    db
+      .select({ timezone: schema.prayerSettings.timezone })
+      .from(schema.prayerSettings)
+      .where(eq(schema.prayerSettings.userId, session.userId))
+      .limit(1)
+      .then((r) => r[0]),
+    isHaydDay(session.userId, date),
+  ]);
   let todayStr: string;
   try {
     todayStr = new Date().toLocaleDateString("en-CA", { timeZone: tzRow?.timezone || "UTC" });
@@ -79,7 +83,7 @@ export async function POST(request: NextRequest) {
 
   // Hayd: during a hayd period the obligation is lifted — the UI hides
   // check-in controls; this blocks any queued/manual call that slips through.
-  if (finalStatus !== "excused" && (await isHaydDay(session.userId, date))) {
+  if (finalStatus !== "excused" && hayd) {
     return NextResponse.json(
       { error: "This day is marked as hayd — prayer logging is paused.", excused: true },
       { status: 409 },

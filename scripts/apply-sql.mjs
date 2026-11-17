@@ -1,5 +1,5 @@
 // Apply a SQL migration file to the Neon database.
-// Usage: node scripts/apply-sql.mjs drizzle/0063_subscriptions.sql
+// Usage: node scripts/apply-sql.mjs drizzle/0060-0089_combined.sql
 import { neon } from "@neondatabase/serverless";
 import { readFileSync } from "node:fs";
 

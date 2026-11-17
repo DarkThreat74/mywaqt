@@ -595,7 +595,13 @@ export default function NotificationScheduler() {
       }> | null = null;
       try {
         const db = getOfflineDB();
-        const cached = await db.homework.toArray();
+        // Only the 3-day notification window matters — don't scan old rows.
+        const hwHorizon = new Date(`${today}T12:00:00`);
+        hwHorizon.setDate(hwHorizon.getDate() + 3);
+        const cached = await db.homework
+          .where("dueDate")
+          .between(today, hwHorizon.toLocaleDateString("en-CA"), true, true)
+          .toArray();
         items = cached.map((h) => ({
           id: h.id, title: h.title, dueDate: h.dueDate, status: h.status,
           notified3dAt: h.notified3dAt, notified1dAt: h.notified1dAt, notifiedMorningAt: h.notifiedMorningAt,
@@ -676,6 +682,11 @@ export default function NotificationScheduler() {
     const tomorrow = prayerTimezone
       ? new Date(now.getTime() + 24 * 60 * 60 * 1000).toLocaleDateString("en-CA", { timeZone: prayerTimezone })
       : new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleDateString("en-CA");
+    // Fired tags embed their date — drop anything not from today/tomorrow so
+    // the set doesn't grow unbounded over a long session.
+    for (const t of firedNotifications) {
+      if (!t.includes(today) && !t.includes(tomorrow)) firedNotifications.delete(t);
+    }
     try {
       await Promise.all([
         schedulePrayerNotifications(today),

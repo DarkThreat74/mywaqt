@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import MuscleBody from "@/components/workout/MuscleBody";
+import dynamic from "next/dynamic";
+
+const MuscleBody = dynamic(() => import("@/components/workout/MuscleBody"), { ssr: false });
 import MuscleBody2D from "@/components/workout/MuscleBody2D";
 import { bucketOf, type BodyBucket } from "@/lib/workout/muscleBodyMap";
 

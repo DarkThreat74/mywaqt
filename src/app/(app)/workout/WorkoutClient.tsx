@@ -102,12 +102,15 @@ export default function WorkoutClient() {
   const exName = (slug: string) => catalog?.find((e) => e.slug === slug)?.name || slug.replace(/-/g, " ");
 
   async function load() {
-    const res = await fetch("/api/workout/days").catch(() => null);
+    const [res, pr, prefs] = await Promise.all([
+      fetch("/api/workout/days").catch(() => null),
+      fetch("/api/workout/progress").catch(() => null),
+      fetch("/api/settings/prefs").catch(() => null),
+    ]);
     if (res?.ok) {
       const data = await res.json();
       setDays(data.days || []);
     }
-    const pr = await fetch("/api/workout/progress").catch(() => null);
     if (pr?.ok) {
       const data = await pr.json();
       setProgress(data.progress || []);
@@ -116,16 +119,15 @@ export default function WorkoutClient() {
       setTonWeek(data.tonWeek || 0);
       setTonPrevWeek(data.tonPrevWeek || 0);
       setVolumeSpike(!!data.volumeSpike);
-      const prefs = await fetch("/api/settings/prefs").catch(() => null);
-      if (prefs?.ok) {
-        const { prefs: p } = await prefs.json();
-        const uw = p?.unitWeight === "lb" ? "lb" : "kg";
-        setUnits(uw);
-        if (p?.bodyWeightKg) setBodyWeight(String(uw === "lb" ? Math.round(p.bodyWeightKg * 2.205) : p.bodyWeightKg));
-        if (p?.heightCm) setHeightCm(String(p.heightCm));
-        if (typeof p?.bodyfatPct === "number") setBodyfat(p.bodyfatPct);
-        if (!p?.bodyWeightKg || !p?.heightCm) router.push("/workout/profile");
-      }
+    }
+    if (prefs?.ok) {
+      const { prefs: p } = await prefs.json();
+      const uw = p?.unitWeight === "lb" ? "lb" : "kg";
+      setUnits(uw);
+      if (p?.bodyWeightKg) setBodyWeight(String(uw === "lb" ? Math.round(p.bodyWeightKg * 2.205) : p.bodyWeightKg));
+      if (p?.heightCm) setHeightCm(String(p.heightCm));
+      if (typeof p?.bodyfatPct === "number") setBodyfat(p.bodyfatPct);
+      if (!p?.bodyWeightKg || !p?.heightCm) router.push("/workout/profile");
     }
     // Push any pending offline drafts first so the server answer is current.
     await syncPendingWorkouts();

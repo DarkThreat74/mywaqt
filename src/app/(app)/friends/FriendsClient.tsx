@@ -478,31 +478,34 @@ export default function FriendsClient() {
       const norm = (p?: string) => (p ?? "").replace(/\D/g, "").slice(-10);
       const existing = new Set(friends.map((f) => norm(f.phone ?? "")).filter(Boolean));
       const existingNames = new Set(friends.map((f) => f.name.trim().toLowerCase()));
+      // Dedupe first (also inside the batch itself), then create in parallel —
+      // 25 sequential POSTs each with a photo-compress was the slow path.
+      const toCreate: { name: string; tel: string | null; icon?: Blob }[] = [];
       const report: { name: string; linked: boolean }[] = [];
       for (const c of picked.slice(0, 25)) {
         const name = (c.name?.[0] ?? "").trim().slice(0, 80);
         if (!name) continue;
         const tel = c.tel?.[0]?.trim().slice(0, 40) ?? null;
-        // Phone match when available, name fallback for number-less contacts.
         if ((tel && existing.has(norm(tel))) || existingNames.has(name.toLowerCase())) {
           report.push({ name, linked: true });
           continue;
         }
-        const icon = c.icon?.[0];
-        const photo = icon ? await compressPhoto(icon) : null;
+        toCreate.push({ name, tel, icon: c.icon?.[0] });
+        if (tel) existing.add(norm(tel));
+        existingNames.add(name.toLowerCase());
+      }
+      await Promise.all(toCreate.map(async (c) => {
+        const photo = c.icon ? await compressPhoto(c.icon).catch(() => null) : null;
         const r = await fetch("/api/friends", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name, phone: tel,
+            name: c.name, phone: c.tel,
             ...(photo ? { photo: photo.data, photoMime: photo.mime } : {}),
           }),
         }).catch(() => null);
-        if (r?.ok) {
-          report.push({ name, linked: false });
-          if (tel) existing.add(norm(tel));
-        }
-      }
+        if (r?.ok) report.push({ name: c.name, linked: false });
+      }));
       if (report.length) {
         setImportReport(report);
         void refresh();
