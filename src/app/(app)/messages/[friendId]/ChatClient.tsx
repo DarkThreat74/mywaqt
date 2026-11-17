@@ -45,23 +45,36 @@ export default function ChatClient({ friendId }: { friendId: string }) {
     }).catch(() => {});
   }, [friendId]);
 
+  const lastTs = useRef<string | null>(null);
+
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/messages?friend=${friendId}`, { cache: "no-store" });
+      const since = lastTs.current;
+      const res = await fetch(`/api/messages?friend=${friendId}${since ? `&since=${encodeURIComponent(since)}` : ""}`, { cache: "no-store" });
       if (res.status === 403 || res.status === 404) { setNotFound(true); return; }
       if (!res.ok) return;
       const data = await res.json() as { friend: Friend; messages: Msg[]; me: string; unreadIncoming: number };
       setFriend(data.friend);
       setMe(data.me);
+      const newest = data.messages[data.messages.length - 1];
+      if (newest) lastTs.current = newest.createdAt;
       setMessages((prev) => {
-        // Keep still-pending optimistic bubbles at the tail.
         const pending = prev.filter((m) => m.optimistic);
-        const fresh = data.messages.filter((m) => !prev.some((p) => p.optimistic && p.content === m.content && p.senderId === m.senderId));
-        return [...fresh, ...pending];
+        if (!since) {
+          // Full refresh — keep still-pending optimistic bubbles at the tail.
+          const fresh = data.messages.filter((m) => !prev.some((p) => p.optimistic && p.content === m.content && p.senderId === m.senderId));
+          return [...fresh, ...pending];
+        }
+        // Incremental merge: append new rows, dedupe by id, keep receipts fresh.
+        const byId = new Map(prev.map((m) => [m.id, m]));
+        for (const m of data.messages) byId.set(m.id, m);
+        const merged = [...byId.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+        return [...merged.filter((m) => !m.optimistic), ...pending];
       });
-      const incoming = data.messages.filter((m) => m.senderId === friendId).length;
-      if (lastIncoming.current >= 0 && incoming > lastIncoming.current) play("notification");
-      lastIncoming.current = incoming;
+      const newIncoming = data.messages.filter((m) => m.senderId === friendId).length;
+      // Since-polls return only the delta — play on any new incoming row.
+      if (lastIncoming.current >= 0 ? newIncoming > 0 : false) play("notification");
+      lastIncoming.current = Math.max(0, lastIncoming.current) + newIncoming;
       if (data.unreadIncoming > 0 && document.visibilityState === "visible") markRead();
     } catch {
       // poll failure — next tick retries

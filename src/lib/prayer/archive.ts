@@ -115,8 +115,8 @@ export async function fetchPrayerLogsRange(
         status: schema.prayerLog.status,
         wentToMasjid: schema.prayerLog.wentToMasjid,
         markedAt: schema.prayerLog.markedAt,
-        lastCheckinAt: schema.prayerLog.lastCheckinAt,
-        checkinStage: schema.prayerLog.checkinStage,
+        // lastCheckinAt/checkinStage unused by the only reader (analytics) —
+        // leaving them out trims the 365d+ row set the API ships per call.
       })
       .from(schema.prayerLog)
       .where(and(eq(schema.prayerLog.userId, userId), gte(schema.prayerLog.date, fromDate), lte(schema.prayerLog.date, toDate))),
@@ -128,7 +128,9 @@ export async function fetchPrayerLogsRange(
       : Promise.resolve([] as Array<{ month: string; payload: Buffer }>),
   ]);
 
-  const out: Array<ArchiveLogRow & { userId: string }> = hot.map((r) => ({ ...r, userId }));
+  const out: Array<ArchiveLogRow & { userId: string }> = hot.map((r) => ({
+    ...r, lastCheckinAt: null, checkinStage: null, userId,
+  }));
   for (const a of archiveMonths) {
     const [y, m] = a.month.split("-").map(Number);
     for (const row of unpackMonth(a.payload, y, m)) {

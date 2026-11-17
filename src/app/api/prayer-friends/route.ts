@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
   const distinctTodayStrs = [...new Set(todayByUser.values())];
 
   // Batch all reads in parallel (9 queries total, not 5 per friend)
-  const [friendUsers, friendLogsAll, todayLogsAll, todaySunnahAll, remindersAll, streaksAll, cheersAll, timesAll] =
+  const [friendUsers, friendLogsAll, todaySunnahAll, remindersAll, streaksAll, cheersAll, timesAll] =
     await Promise.all([
       db
         .select({
@@ -95,10 +95,13 @@ export async function GET(request: NextRequest) {
         })
         .from(schema.users)
         .where(inArray(schema.users.id, friendIds)),
+      // 90d logs (includes prayerName) — the 7-day "today" view is derived
+      // from this set below instead of a second overlapping query.
       db
         .select({
           userId: schema.prayerLog.userId,
           date: schema.prayerLog.date,
+          prayerName: schema.prayerLog.prayerName,
           status: schema.prayerLog.status,
           wentToMasjid: schema.prayerLog.wentToMasjid,
         })
@@ -107,21 +110,6 @@ export async function GET(request: NextRequest) {
           and(
             inArray(schema.prayerLog.userId, friendIds),
             gte(schema.prayerLog.date, fromStr),
-          ),
-        ),
-      // Today's logs per friend — resolved below per timezone
-      db
-        .select({
-          userId: schema.prayerLog.userId,
-          date: schema.prayerLog.date,
-          prayerName: schema.prayerLog.prayerName,
-          status: schema.prayerLog.status,
-        })
-        .from(schema.prayerLog)
-        .where(
-          and(
-            inArray(schema.prayerLog.userId, friendIds),
-            gte(schema.prayerLog.date, weekAgoStr),
           ),
         ),
       db
@@ -224,6 +212,10 @@ export async function GET(request: NextRequest) {
     if (!logsByUser.has(log.userId)) logsByUser.set(log.userId, []);
     logsByUser.get(log.userId)!.push(log);
   }
+  const todayLogsAll = friendLogsAll.filter((l) => {
+    const ds = typeof l.date === "string" ? l.date : String(l.date);
+    return ds >= weekAgoStr;
+  });
   const todayLogsByUserDate = new Map<string, Map<string, Array<{ prayerName: string; status: string }>>>();
   for (const log of todayLogsAll) {
     if (!todayLogsByUserDate.has(log.userId)) todayLogsByUserDate.set(log.userId, new Map());

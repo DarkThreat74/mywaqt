@@ -83,15 +83,16 @@ export async function GET(request: NextRequest) {
           .select({ id: schema.users.id, firstName: schema.users.firstName, displayName: schema.users.displayName, avatarUrl: schema.users.avatarUrl })
           .from(schema.users)
           .where(inArray(schema.users.id, ids)),
-        db
-          .select()
-          .from(schema.friendMessages)
-          .where(or(
-            and(eq(schema.friendMessages.senderId, session.userId), inArray(schema.friendMessages.recipientId, ids)),
-            and(inArray(schema.friendMessages.senderId, ids), eq(schema.friendMessages.recipientId, session.userId)),
-          ))
-          .orderBy(desc(schema.friendMessages.createdAt))
-          .limit(500),
+        // One row per friend, latest first — DISTINCT ON beats the old
+        // LIMIT-500 scan which silently dropped quiet friends past the cap.
+        db.execute(sql`
+          SELECT DISTINCT ON (other) m.*,
+            CASE WHEN m.sender_id = ${session.userId}::uuid THEN m.recipient_id ELSE m.sender_id END AS other
+          FROM friend_messages m
+          WHERE (m.sender_id = ${session.userId}::uuid AND m.recipient_id = ANY(${ids}::uuid[]))
+             OR (m.recipient_id = ${session.userId}::uuid AND m.sender_id = ANY(${ids}::uuid[]))
+          ORDER BY other, m.created_at DESC
+        `).then((r) => r.rows as unknown as (typeof schema.friendMessages.$inferSelect)[]),
         db
           .select({ senderId: schema.friendMessages.senderId, n: sql<number>`count(*)::int` })
           .from(schema.friendMessages)
@@ -144,12 +145,18 @@ export async function GET(request: NextRequest) {
       and(eq(schema.friendMessages.senderId, friendId), eq(schema.friendMessages.recipientId, session.userId)),
     );
 
+    // Poll cursor: since=<ISO> returns only newer rows — steady-state polls
+    // download [] instead of the whole thread every 8s.
+    const sinceRaw = request.nextUrl.searchParams.get("since");
+    const since = sinceRaw ? new Date(sinceRaw) : null;
+    const sinceOk = since && !Number.isNaN(since.getTime());
+
     const rows = await db
       .select()
       .from(schema.friendMessages)
-      .where(pair)
+      .where(sinceOk ? and(pair, sql`${schema.friendMessages.createdAt} > ${since}`) : pair)
       .orderBy(desc(schema.friendMessages.createdAt))
-      .limit(PAGE);
+      .limit(sinceOk ? 500 : PAGE);
 
     // Mark incoming as delivered (not read — the client posts /read when the
     // thread is actually on screen).
@@ -165,6 +172,18 @@ export async function GET(request: NextRequest) {
 
     const byId = new Map(rows.map((r) => [r.id, r]));
     const me = session.userId;
+
+    // `since` polls won't include older reply targets — fetch those ids too.
+    const missingReplyIds = rows
+      .map((r) => r.replyToId)
+      .filter((id): id is string => !!id && !byId.has(id));
+    if (missingReplyIds.length > 0) {
+      const targets = await db
+        .select()
+        .from(schema.friendMessages)
+        .where(and(inArray(schema.friendMessages.id, missingReplyIds), pair));
+      for (const t of targets) byId.set(t.id, t);
+    }
 
     const [friend] = await db
       .select({ firstName: schema.users.firstName, displayName: schema.users.displayName, avatarUrl: schema.users.avatarUrl })

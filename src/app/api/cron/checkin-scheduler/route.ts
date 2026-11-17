@@ -443,6 +443,11 @@ async function processUserBatch(
     birthdayMap.get(b.userId)!.push(b);
   }
 
+  // Day completions collected in the loop then fanned out in parallel —
+  // each recordDayCompletion is 4–6 sequential queries; awaiting inside the
+  // per-user loop serialized ~2–3k round trips on a resolve-heavy batch.
+  const dayCompletions: [string, string][] = [];
+
   // Process each user using the batched data
   for (const s of settings) {
     try {
@@ -541,7 +546,7 @@ async function processUserBatch(
         // so shared streaks, races, and challenges stay consistent with the
         // personal streak (which already counts assumed_prayed).
         if (logIdsToUpdate.length > 0 || rowsToInsert.length > 0) {
-          await recordDayCompletion(s.userId, yesterdayStr);
+          dayCompletions.push([s.userId, yesterdayStr]);
         }
       }
       }
@@ -839,6 +844,13 @@ async function processUserBatch(
     } catch (userErr) {
       logError(userErr, { route: "cron/checkin-scheduler", phase: "user", userId: s.userId });
     }
+  }
+
+  // Fan out collected day completions — 20-way parallel chunks.
+  for (let i = 0; i < dayCompletions.length; i += 20) {
+    await Promise.allSettled(
+      dayCompletions.slice(i, i + 20).map(([uid, date]) => recordDayCompletion(uid, date)),
+    );
   }
 
   return { notificationsSent, assumedResolved };

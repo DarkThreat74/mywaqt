@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { isValidUUID } from "@/lib/validation";
@@ -81,14 +81,15 @@ export async function POST(request: NextRequest) {
       }).where(and(eq(schema.workoutSessions.id, draft.id), eq(schema.workoutSessions.userId, auth.userId)));
     }
 
-    for (const set of body.sets || []) {
-      const setIndex = set.setIndex;
-      if (!set.slug || typeof setIndex !== "number" || !Number.isInteger(setIndex)) continue;
-      const loggedAt = set.loggedAt && !Number.isNaN(Date.parse(set.loggedAt)) ? new Date(set.loggedAt) : undefined;
-      const values = {
-        sessionId: draft.id,
+    // One multi-row upsert — a 30-set session was 30 serialized round-trips.
+    const sessionId = draft.id;
+    const setRows = (body.sets || [])
+      .filter((set): set is typeof set & { setIndex: number } =>
+        !!set.slug && typeof set.setIndex === "number" && Number.isInteger(set.setIndex))
+      .map((set) => ({
+        sessionId,
         slug: String(set.slug).slice(0, 120),
-        setIndex,
+        setIndex: set.setIndex,
         weight: (() => { const n = set.weight == null ? NaN : Number(set.weight); return Number.isFinite(n) && n > 0 && n <= 2000 ? String(n).slice(0, 20) : null; })(),
         reps: typeof set.reps === "number" && Number.isInteger(set.reps) && set.reps >= 1 && set.reps <= 500 ? set.reps : null,
         rir: typeof set.rir === "number" && Number.isInteger(set.rir) && set.rir >= 0 && set.rir <= 10 ? set.rir : null,
@@ -100,11 +101,20 @@ export async function POST(request: NextRequest) {
         techniqueFlag: typeof set.techniqueFlag === "string" ? set.techniqueFlag.slice(0, 40) : null,
         isPartial: Boolean(set.isPartial),
         done: Boolean(set.done),
-        ...(loggedAt ? { loggedAt } : {}),
-      };
-      await db.insert(schema.workoutSets).values(values).onConflictDoUpdate({
+        ...(set.loggedAt && !Number.isNaN(Date.parse(set.loggedAt)) ? { loggedAt: new Date(set.loggedAt) } : {}),
+      }));
+    if (setRows.length > 0) {
+      await db.insert(schema.workoutSets).values(setRows).onConflictDoUpdate({
         target: [schema.workoutSets.sessionId, schema.workoutSets.slug, schema.workoutSets.setIndex],
-        set: values,
+        set: {
+          weight: sql`excluded.weight`, reps: sql`excluded.reps`, rir: sql`excluded.rir`,
+          setType: sql`excluded.set_type`, variation: sql`excluded.variation`, side: sql`excluded.side`,
+          restAfterSec: sql`excluded.rest_after_sec`, pain: sql`excluded.pain`,
+          techniqueFlag: sql`excluded.technique_flag`, isPartial: sql`excluded.is_partial`,
+          done: sql`excluded.done`,
+          // Keep the old timestamp when the re-synced row carries none.
+          loggedAt: sql`coalesce(excluded.logged_at, ${schema.workoutSets.loggedAt})`,
+        },
       });
     }
     return NextResponse.json({ ok: true, sessionId: draft.id, syncedSets: (body.sets || []).length }, {
