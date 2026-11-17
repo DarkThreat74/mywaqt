@@ -69,6 +69,9 @@ export async function GET(request: NextRequest) {
     maghribOwed: ledger.maghribOwed,
     ishaOwed: ledger.ishaOwed,
     setupCompleted: ledger.setupCompleted,
+    balighDate: ledger.balighDate ?? null,
+    balighAge: ledger.balighAge ?? null,
+    initialOwed: ledger.initialOwed ?? null,
     unloggedMissed,
     unloggedByPrayer,
   });

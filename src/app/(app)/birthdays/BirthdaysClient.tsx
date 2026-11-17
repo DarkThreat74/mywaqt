@@ -31,9 +31,10 @@ interface FormState {
   remindDays: number[];
   categoryId: string | null;
   friendId: string | null;
+  isSelf: boolean;
 }
 
-const EMPTY_FORM: FormState = { name: "", month: 1, day: "", year: "", remindDays: [0, 1], categoryId: null, friendId: null };
+const EMPTY_FORM: FormState = { name: "", month: 1, day: "", year: "", remindDays: [0, 1], categoryId: null, friendId: null, isSelf: false };
 
 /** Theme-styled dropdown — replaces native <select> for pickers. */
 function CustomSelect({
@@ -246,6 +247,7 @@ export default function BirthdaysClient() {
       remindDays: b.remindDays.length > 0 ? b.remindDays : [0],
       categoryId: b.categoryId,
       friendId: b.friendId ?? null,
+      isSelf: b.isSelf ?? false,
     });
     setError(null);
     setShowFriendSync(false);
@@ -332,6 +334,7 @@ export default function BirthdaysClient() {
       remindDays: form.remindDays,
       categoryId: form.categoryId,
       friendId: form.friendId,
+      isSelf: form.isSelf,
     };
     try {
       const res = editingId
@@ -358,6 +361,7 @@ export default function BirthdaysClient() {
           remindDays: payload.remindDays,
           categoryId: payload.categoryId,
           friendId: payload.friendId,
+          isSelf: payload.isSelf,
           lastNotifiedOn: null,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -544,7 +548,7 @@ export default function BirthdaysClient() {
             </label>
             <div className="sm:col-span-2">
               <button type="button" onClick={() => setShowFriendSync((open) => !open)} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold" style={{ borderColor: form.friendId ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.friendId ? "var(--color-accent-faint)" : "var(--color-paper)", color: form.friendId ? "var(--color-accent)" : "var(--color-ink-soft)" }}>
-                {form.friendId ? "Synced to a friend" : "Sync to Friends"}
+                {form.isSelf ? "This is me" : form.friendId ? "Synced to a friend" : "Sync to Friends"}
                 <ChevronDown className="h-3 w-3" style={{ transform: showFriendSync ? "rotate(180deg)" : undefined }} />
               </button>
             {showFriendSync && <div className="mt-2 rounded-xl border p-3" style={{ borderColor: form.friendId ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
@@ -556,6 +560,14 @@ export default function BirthdaysClient() {
                 {form.friendId && <button type="button" onClick={() => setForm({ ...form, friendId: null })} className="text-[10px] font-semibold" style={{ color: "var(--color-ink-muted)" }}>Unlink</button>}
               </div>
               <div className="mt-2 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, isSelf: !form.isSelf, friendId: form.isSelf ? form.friendId : null })}
+                  className="rounded-full border px-2.5 py-1.5 text-[11px] font-medium"
+                  style={{ borderColor: form.isSelf ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.isSelf ? "var(--color-accent-faint)" : "transparent", color: form.isSelf ? "var(--color-accent)" : "var(--color-ink-soft)" }}
+                >
+                  This is me
+                </button>
                 {friends.length === 0 ? (
                   <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Add a person in Friends first.</span>
                 ) : [...friends].sort((a, b) => `${a.groupLabel || "Other"}:${a.name}`.localeCompare(`${b.groupLabel || "Other"}:${b.name}`)).map((friend) => (
@@ -909,6 +921,7 @@ export default function BirthdaysClient() {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
                           {displayName}
+                          {b.isSelf && <span className="ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide" style={{ backgroundColor: "var(--color-accent-faint)", color: "var(--color-accent)" }}>Me</span>}
                         </p>
                         {(cat || age !== null) && (
                           <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>

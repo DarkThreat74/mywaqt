@@ -28,6 +28,7 @@ import {
   jsonb,
   customType,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // Postgres bytea — driver round-trips as "\\x<hex>" text on the Neon HTTP path.
 const bytea = customType<{ data: Buffer; driverData: string }>({
@@ -672,6 +673,12 @@ export const qadaaLedger = pgTable('qadaa_ledger', {
   // Waterline for the "missed prayers since last update" prompt — missed
   // prayer_log rows with a date after this count toward the nudge.
   unloggedSeenThrough: timestamp('unlogged_seen_through', { withTimezone: true }),
+  // Lifetime view: the day the user became baligh + the age they gave, and a
+  // snapshot of the setup-time owed counts ({fajr,dhuhr,asr,maghrib,isha}).
+  // Null for legacy setups — the lifetime tab prompts for them once.
+  balighDate: date('baligh_date'),
+  balighAge: integer('baligh_age'),
+  initialOwed: jsonb('initial_owed').$type<Record<string, number>>(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -1432,10 +1439,14 @@ export const birthdays = pgTable('birthdays', {
   remindDays: integer('remind_days').array().notNull().default([0, 1]),
   // Last local date a reminder fired — dedupes cron reruns
   lastNotifiedOn: date('last_notified_on'),
+  // "This is me" — at most one row per user (partial unique index below).
+  // Drives the baligh-date lookup for the qadaa lifetime view.
+  isSelf: boolean('is_self').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   userIdIdx: index('birthdays_user_id_idx').on(table.userId),
+  oneSelfPerUser: uniqueIndex('birthdays_one_self_per_user').on(table.userId).where(sql`${table.isSelf}`),
 }));
 
 export type Birthday = typeof birthdays.$inferSelect;

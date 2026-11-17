@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, gte } from "drizzle-orm";
+import { eq, and, gte, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { calculateStreak, calculateBestStreak } from "@/lib/prayer/checkin";
@@ -9,13 +9,13 @@ import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
-type Range = "weekly" | "monthly" | "yearly" | "all-time";
+type Range = "weekly" | "monthly" | "yearly" | "all-time" | "lifetime";
 
 function getRangeStart(range: Range, timezone: string): string {
   const now = new Date();
   const todayStr = now.toLocaleDateString("en-CA", { timeZone: timezone });
 
-  if (range === "all-time") {
+  if (range === "all-time" || range === "lifetime") {
     return "1970-01-01";
   }
 
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     // Parse range param
     const { searchParams } = new URL(request.url);
     const rawRange = searchParams.get("range") || "weekly";
-    const range: Range = (["weekly", "monthly", "yearly", "all-time"].includes(rawRange)
+    const range: Range = (["weekly", "monthly", "yearly", "all-time", "lifetime"].includes(rawRange)
       ? rawRange
       : "weekly") as Range;
 
@@ -455,10 +455,48 @@ export async function GET(request: NextRequest) {
     // Map: dateStr -> number of prayers prayed (0-5). Excused counts so a
     // legit pause doesn't show as a broken chain in the heatmap.
     const heatmapData: Record<string, number> = {};
+    const missedData: Record<string, number> = {};
+    const prayedByPrayer: Record<string, number> = {};
     for (const log of allLogs) {
-      if (log.status !== "prayed" && log.status !== "assumed_prayed" && log.status !== "excused") continue;
       const dateStr = typeof log.date === "string" ? log.date : String(log.date);
+      if (log.status === "missed") {
+        missedData[dateStr] = (missedData[dateStr] || 0) + 1;
+        continue;
+      }
+      if (log.status !== "prayed" && log.status !== "assumed_prayed" && log.status !== "excused") continue;
       heatmapData[dateStr] = (heatmapData[dateStr] || 0) + 1;
+      if (log.status === "prayed" || log.status === "assumed_prayed") {
+        prayedByPrayer[log.prayerName] = (prayedByPrayer[log.prayerName] || 0) + 1;
+      }
+    }
+
+    // ── Lifetime view payload (only computed for range=lifetime) ──
+    let lifetime: Record<string, unknown> | null = null;
+    if (range === "lifetime") {
+      const [ledger] = await db
+        .select()
+        .from(schema.qadaaLedger)
+        .where(eq(schema.qadaaLedger.userId, session.userId))
+        .limit(1);
+      const qadaRows = await db
+        .select({ prayerName: schema.qadaaLogEntries.prayerName, total: sql<number>`coalesce(sum(${schema.qadaaLogEntries.amountLogged}),0)::int` })
+        .from(schema.qadaaLogEntries)
+        .where(eq(schema.qadaaLogEntries.userId, session.userId))
+        .groupBy(schema.qadaaLogEntries.prayerName);
+      const qadaLoggedByPrayer: Record<string, number> = {};
+      for (const r of qadaRows) qadaLoggedByPrayer[r.prayerName] = r.total;
+      lifetime = { userId: session.userId, ...(ledger ? {
+        setupCompleted: ledger.setupCompleted,
+        balighDate: ledger.balighDate ?? null,
+        balighAge: ledger.balighAge ?? null,
+        initialOwed: ledger.initialOwed ?? null,
+        owedNow: {
+          fajr: ledger.fajrOwed, dhuhr: ledger.dhuhrOwed, asr: ledger.asrOwed,
+          maghrib: ledger.maghribOwed, isha: ledger.ishaOwed,
+        },
+        prayedByPrayer,
+        qadaLoggedByPrayer,
+      } : { setupCompleted: false }) };
     }
 
     return NextResponse.json({
@@ -485,6 +523,8 @@ export async function GET(request: NextRequest) {
       mostMissedPrayer,
       dayOfWeekStats,
       heatmapData,
+      missedData,
+      lifetime,
       todayPrayerTimes: todayTimes
         ? {
             fajr: todayTimes.fajr,

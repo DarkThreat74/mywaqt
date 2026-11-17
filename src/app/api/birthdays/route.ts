@@ -20,6 +20,7 @@ interface BDayBody {
   remindDays?: number[];
   categoryId?: string | null;
   friendId?: string | null;
+  isSelf?: boolean;
   clientId?: string;
 }
 
@@ -41,6 +42,24 @@ async function ownedFriendId(userId: string, friendId: unknown): Promise<string 
   const [row] = await db.select({ id: schema.friends.id }).from(schema.friends)
     .where(and(eq(schema.friends.id, friendId), eq(schema.friends.userId, userId))).limit(1);
   return row?.id ?? null;
+}
+
+/** friendId may only be linked to one birthday row per user. */
+async function friendAlreadyLinked(userId: string, friendId: string, excludeId?: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: schema.birthdays.id })
+    .from(schema.birthdays)
+    .where(and(eq(schema.birthdays.userId, userId), eq(schema.birthdays.friendId, friendId)))
+    .limit(2);
+  return rows.some((r) => r.id !== excludeId);
+}
+
+/** Claim the single "me" slot: clears is_self on every other row first. */
+async function claimSelfSlot(userId: string) {
+  await db
+    .update(schema.birthdays)
+    .set({ isSelf: false, updatedAt: new Date() })
+    .where(and(eq(schema.birthdays.userId, userId), eq(schema.birthdays.isSelf, true)));
 }
 
 function validateFields(body: BDayBody, partial: boolean) {
@@ -132,6 +151,12 @@ export async function POST(request: NextRequest) {
     // Offline-created rows carry a client uuid — same contract as events/goals.
     const validClientId = body.clientId && isValidUUID(body.clientId) ? body.clientId : undefined;
 
+    const friendId = await ownedFriendId(session.userId, body.friendId);
+    if (friendId && await friendAlreadyLinked(session.userId, friendId)) {
+      return NextResponse.json({ error: "That person is already linked to another birthday." }, { status: 409 });
+    }
+    if (body.isSelf === true) await claimSelfSlot(session.userId);
+
     const [row] = await db
       .insert(schema.birthdays)
       .values({
@@ -143,7 +168,8 @@ export async function POST(request: NextRequest) {
         birthYear: (out.birthYear as number | null) ?? null,
         remindDays: (out.remindDays as number[]) ?? [0, 1],
         categoryId: await ownedCategoryId(session.userId, body.categoryId),
-        friendId: await ownedFriendId(session.userId, body.friendId),
+        friendId,
+        isSelf: body.isSelf === true,
       })
       .onConflictDoNothing({ target: schema.birthdays.id })
       .returning();
@@ -204,6 +230,14 @@ export async function PATCH(request: NextRequest) {
         if (!owned) return NextResponse.json({ error: "Invalid friend" }, { status: 400 });
         out.friendId = owned;
       }
+    }
+    if (body.isSelf !== undefined) {
+      if (body.isSelf === true) await claimSelfSlot(session.userId);
+      out.isSelf = body.isSelf === true;
+    }
+    if (typeof out.friendId === "string" &&
+        await friendAlreadyLinked(session.userId, out.friendId, body.id)) {
+      return NextResponse.json({ error: "That person is already linked to another birthday." }, { status: 409 });
     }
     if (Object.keys(out).length === 0) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });

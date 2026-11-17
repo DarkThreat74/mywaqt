@@ -12,6 +12,8 @@ import { useUISFX } from "@/components/uisfx-provider";
 import { getOfflineDB } from "@/lib/offline/db";
 import { upsertSunnahLogToCache, cacheBlob } from "@/lib/offline/cache-writers";
 import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
+import LifetimeView from "@/components/prayer/LifetimeView";
+import BalighSetup from "@/components/prayer/BalighSetup";
 import type { PrayerKey } from "@/lib/prayer/checkin";
 
 interface PerPrayerStats {
@@ -67,6 +69,17 @@ interface Analytics {
   mostMissedPrayer: string | null;
   dayOfWeekStats: DayOfWeekStat[];
   heatmapData: Record<string, number>;
+  missedData?: Record<string, number>;
+  lifetime?: {
+    userId: string;
+    setupCompleted: boolean;
+    balighDate: string | null;
+    balighAge?: number | null;
+    initialOwed?: Record<string, number> | null;
+    owedNow?: Record<string, number>;
+    prayedByPrayer?: Record<string, number>;
+    qadaLoggedByPrayer?: Record<string, number>;
+  } | null;
   todayPrayerTimes: TodayPrayerTimes | null;
 }
 
@@ -103,6 +116,9 @@ interface QadaaInfo {
   maghribOwed: number;
   ishaOwed: number;
   setupCompleted: boolean;
+  balighDate?: string | null;
+  balighAge?: number | null;
+  initialOwed?: Record<string, number> | null;
   unloggedMissed?: number;
   unloggedByPrayer?: Record<string, number>;
 }
@@ -211,7 +227,7 @@ function computeEquivTime(
 
 type Tab = "overview" | "friends" | "stats";
 
-type StatsRange = "weekly" | "monthly" | "yearly" | "all-time";
+type StatsRange = "weekly" | "monthly" | "yearly" | "all-time" | "lifetime";
 
 export default function PrayerDashboard() {
   // Deep links: ?tab=friends → friends mgmt, ?tab=stats|qadaa → stats.
@@ -403,6 +419,29 @@ export default function PrayerDashboard() {
       }
     }
   }, []);
+
+  // Refetch just analytics + qadaa — used after baligh/qada setup completes.
+  const refreshQadaaAndAnalytics = useCallback(async () => {
+    const [aRes, qRes] = await Promise.all([
+      fetch(`/api/prayer-log/analytics?range=${statsRange}`).catch(() => null),
+      fetch("/api/qadaa").catch(() => null),
+    ]);
+    if (aRes?.ok) {
+      const data = await aRes.json().catch(() => null);
+      if (data) setAnalytics(data);
+    }
+    if (qRes?.ok) {
+      const data = await qRes.json().catch(() => null);
+      if (data) {
+        setQadaa(data);
+        try { await getOfflineDB().qadaa.put({ id: "current", data, _cachedAt: Date.now() }); } catch { /* non-critical */ }
+      }
+    }
+  }, [statsRange]);
+
+  const scrollToQadaaSetup = () => {
+    document.getElementById("qadaa-setup")?.scrollIntoView({ behavior: "smooth" });
+  };
 
   // ── Refresh data when coming back online ──
   useEffect(() => {
@@ -1964,6 +2003,7 @@ export default function PrayerDashboard() {
                   {statsRange === "monthly" && "This month"}
                   {statsRange === "yearly" && "This year"}
                   {statsRange === "all-time" && "All time"}
+                  {statsRange === "lifetime" && "Lifetime"}
                 </p>
               </div>
               <div className="relative shrink-0">
@@ -1984,6 +2024,7 @@ export default function PrayerDashboard() {
                   <option value="monthly">Monthly</option>
                   <option value="yearly">Yearly</option>
                   <option value="all-time">All-time</option>
+                  <option value="lifetime">Lifetime</option>
                 </select>
               </div>
             </div>
@@ -2115,8 +2156,14 @@ export default function PrayerDashboard() {
             </div>
           )}
 
-          {/* Prayer consistency — range-aware calendar */}
-          {analytics?.heatmapData && (
+          {/* Prayer consistency — range-aware calendar (or lifetime view) */}
+          {statsRange === "lifetime" ? (
+            <LifetimeView
+              analytics={analytics}
+              onSetupQadaa={scrollToQadaaSetup}
+              onBalighDone={refreshQadaaAndAnalytics}
+            />
+          ) : analytics?.heatmapData && (
             <PrayerHistory
               heatmapData={analytics.heatmapData}
               range={statsRange}
@@ -2132,7 +2179,7 @@ export default function PrayerDashboard() {
       {activeTab === "stats" && (
         <div className="mt-6 space-y-6">
           {qadaa && !qadaa.setupCompleted && (
-            <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+            <div id="qadaa-setup" className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
               <div className="border-b px-4 py-3 sm:px-5" style={{ borderColor: "var(--color-paper-3)" }}>
                 <h2 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Set Up Qadaa</h2>
               </div>
@@ -2313,6 +2360,10 @@ export default function PrayerDashboard() {
                 </div>
               </div>
             </div>
+          )}
+
+          {qadaa && qadaa.setupCompleted && !qadaa.balighDate && (
+            <BalighSetup onDone={refreshQadaaAndAnalytics} />
           )}
         </div>
       )}

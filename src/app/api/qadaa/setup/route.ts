@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
         maghribOwed: amounts.maghrib,
         ishaOwed: amounts.isha,
         setupCompleted: true,
+        initialOwed: amounts,
         updatedAt: new Date(),
       })
       .where(eq(schema.qadaaLedger.userId, session.userId));
@@ -88,6 +89,7 @@ export async function POST(request: NextRequest) {
       maghribOwed: amounts.maghrib,
       ishaOwed: amounts.isha,
       setupCompleted: true,
+      initialOwed: amounts,
     });
   }
 
