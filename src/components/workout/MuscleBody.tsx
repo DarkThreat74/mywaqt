@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { atlasBucket, fatigueColor, type BodyBucket } from "@/lib/workout/muscleBodyMap";
+import { atlasBucket, atlasMuscleKey, fatigueColor, type BodyBucket } from "@/lib/workout/muscleBodyMap";
 
 type AtlasMuscle = { id: string; key: string; label: string; group: string; region: string };
 
@@ -11,6 +11,9 @@ interface Props {
   sex?: "male" | "female";
   /** bucket → unrecovered fraction 0..1 */
   fatigue: Partial<Record<BodyBucket, number>>;
+  /** fine muscle key → unrecovered fraction — meshes that map to a tracked
+   *  muscle (soleus vs gastroc, deltoid heads, glute med…) use this first */
+  keyFatigue?: Partial<Record<string, number>>;
   /** bucket currently selected — rendered in highlight color */
   selectedBucket?: BodyBucket | null;
   onSelect?: (bucket: BodyBucket, label: string) => void;
@@ -24,20 +27,20 @@ interface Props {
  * Vanilla three.js — no R3F. Demand-rendered: only draws on interaction.
  * Drag = rotate, wheel/pinch = zoom, tap = select muscle.
  */
-export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSelect, onFallback, className }: Props) {
+export default function MuscleBody({ sex = "male", fatigue, keyFatigue, selectedBucket, onSelect, onFallback, className }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const cbRef = useRef({ fatigue, selectedBucket, onSelect, onFallback });
+  const cbRef = useRef({ fatigue, keyFatigue, selectedBucket, onSelect, onFallback });
   const recolorRef = useRef<() => void>(() => {});
 
   // cbRef tracks latest props every render (cheap). recolor is expensive —
   // ~200 material needsUpdate shader rebuilds — so it only runs when the
   // inputs it actually reads change, not on every parent render.
   useEffect(() => {
-    cbRef.current = { fatigue, selectedBucket, onSelect, onFallback };
-  }, [fatigue, selectedBucket, onSelect, onFallback]);
+    cbRef.current = { fatigue, keyFatigue, selectedBucket, onSelect, onFallback };
+  }, [fatigue, keyFatigue, selectedBucket, onSelect, onFallback]);
   useEffect(() => {
     recolorRef.current();
-  }, [fatigue, selectedBucket]);
+  }, [fatigue, keyFatigue, selectedBucket]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -165,7 +168,7 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
     // Unmapped meshes get a neutral tone so atlas palette never shows through.
     // localCenter feeds the nearest-muscle tap fallback.
     const meshBucket = new Map<THREE.Object3D, {
-      bucket: BodyBucket | null; label: string;
+      bucket: BodyBucket | null; muscleKey: string | null; label: string;
       mats: THREE.MeshStandardMaterial[]; localCenter: THREE.Vector3;
     }>();
     const ray = new THREE.Raycaster();
@@ -173,9 +176,11 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
 
     const recolor = () => {
       const f = cbRef.current.fatigue;
+      const kf = cbRef.current.keyFatigue ?? {};
       const sel = cbRef.current.selectedBucket;
       for (const [, info] of meshBucket) {
-        const v = info.bucket ? (f[info.bucket] ?? 0) : -1;
+        const keyed = info.muscleKey != null && kf[info.muscleKey] != null;
+        const v = keyed ? kf[info.muscleKey!]! : info.bucket ? (f[info.bucket] ?? 0) : -1;
         const col = new THREE.Color(
           info.bucket && info.bucket === sel ? "#d9a441" // selection highlight — warm gold
           : v < 0 ? "#d8cdb8"
@@ -299,10 +304,11 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
         );
         mesh.material = Array.isArray(mesh.material) ? mats : mats[0];
         const bucket = am ? atlasBucket(`${am.label} ${am.key}`, am.group || am.region || "") : null;
+        const muscleKey = am ? atlasMuscleKey(`${am.label} ${am.key}`, am.group || am.region || "") : null;
         const geo = mesh.geometry as THREE.BufferGeometry | undefined;
         geo?.computeBoundingSphere?.();
         const localCenter = geo?.boundingSphere ? geo.boundingSphere.center.clone() : new THREE.Vector3();
-        meshBucket.set(mesh, { bucket, label: am?.label ?? "", mats, localCenter });
+        meshBucket.set(mesh, { bucket, muscleKey, label: am?.label ?? "", mats, localCenter });
       });
       scene.add(gltf.scene);
       // Center + scale: atlas is ~1.8m tall in meters; frame it.

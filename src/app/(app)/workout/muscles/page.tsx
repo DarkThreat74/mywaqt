@@ -62,6 +62,14 @@ export default function MusclesPage() {
     return f;
   }, [stats]);
 
+  // Per-muscle-key fatigue — lets the 3D model color soleus/gastroc, deltoid
+  // heads, trap parts, etc. independently where we actually track them.
+  const keyFatigue = useMemo(() => {
+    const f: Record<string, number> = {};
+    for (const m of stats ?? []) f[m.muscle] = Math.max(0, 1 - m.freshness / 100);
+    return f;
+  }, [stats]);
+
   const rows = useMemo(() =>
     (Object.keys(BUCKET_LABEL) as BodyBucket[])
       .map((b) => ({ bucket: b, f: fatigue[b] ?? 0 }))
@@ -82,7 +90,7 @@ export default function MusclesPage() {
 
       <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", height: "min(52dvh, 460px)", background: "linear-gradient(180deg,#f6f1e6,#efe7d6)" }}>
         {use3D ? (
-          <MuscleBody sex="male" fatigue={fatigue} selectedBucket={sel?.bucket ?? null}
+          <MuscleBody sex="male" fatigue={fatigue} keyFatigue={keyFatigue} selectedBucket={sel?.bucket ?? null}
             onFallback={() => setUse3D(false)}
             onSelect={(bucket, label) => setSel({ bucket, label })} />
         ) : (
