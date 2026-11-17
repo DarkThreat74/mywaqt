@@ -56,6 +56,9 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
   const [worstHint, setWorstHint] = useState<string | null>(null);
   const [shirtOn, setShirtOn] = useState<boolean | null>(null); // true = fabric detected
   const [aligned, setAligned] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   const alignSince = useRef(0);
   const capturing = useRef(false);
   const alignedRef = useRef(false);
@@ -111,8 +114,15 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       const s = Math.max(r.width / vw, r.height / vh);
       const dw = vw * s, dh = vh * s;
       const ox = (r.width - dw) / 2, oy = (r.height - dh) / 2;
+      // The <video> is CSS-scaled about its center — the skeleton must ride
+      // the same zoom while the ghost rect stays unzoomed on purpose.
+      const z = zoomRef.current;
+      const cx = (r.width / 2) * dprX, cy = (r.height / 2) * dprY;
       return {
-        map: (p) => [(ox + p[0] * dw) * dprX, (oy + p[1] * dh) * dprY],
+        map: (p) => {
+          const bx = (ox + p[0] * dw) * dprX, by = (oy + p[1] * dh) * dprY;
+          return [cx + (bx - cx) * z, cy + (by - cy) * z];
+        },
         rect: { x: ox * dprX, y: oy * dprY, w: dw * dprX, h: dh * dprY },
       };
     };
@@ -267,10 +277,15 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       if (poseModelOk && !alignedRef.current) return;
       capturing.current = true;
       const vw = video.videoWidth, vh = video.videoHeight;
-      const scale = Math.min(1, 1920 / Math.max(vw, vh));
+      const z = zoomRef.current;
+      // Crop the center region at the current zoom so the saved photo
+      // matches what the user framed against the ghost.
+      const cw = vw / z, ch = vh / z;
+      const sx = (vw - cw) / 2, sy = (vh - ch) / 2;
+      const scale = Math.min(1, 1920 / Math.max(cw, ch));
       const out = document.createElement("canvas");
-      out.width = Math.round(vw * scale); out.height = Math.round(vh * scale);
-      out.getContext("2d")!.drawImage(video, 0, 0, out.width, out.height);
+      out.width = Math.round(cw * scale); out.height = Math.round(ch * scale);
+      out.getContext("2d")!.drawImage(video, sx, sy, cw, ch, 0, 0, out.width, out.height);
       // WebP q0.9 — ~40% smaller than JPEG at this quality; fall back if unsupported.
       const webp = out.toDataURL("image/webp", 0.9);
       const mime = webp.startsWith("data:image/webp") ? "image/webp" : "image/jpeg";
@@ -282,20 +297,24 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       let freshK: KeyPose | null = null, freshKw: KeyPose3D | null = null;
       let freshLm = lastLm;
       let freshDetect = false;
+      // Landmarks are full-frame normalized — remap into the cropped frame
+      // so the stored pose lines up with the zoomed photo next check-in.
+      const cropX = (x: number) => (x - sx / vw) * z;
+      const cropY = (y: number) => (y - sy / vh) * z;
       try {
         const res = landmarker?.detectForVideo(video, performance.now());
         const lm = res?.landmarks?.[0];
         const w = res?.worldLandmarks?.[0];
         if (lm?.length === 33) {
           lastLm = lm; freshLm = lm; freshK = keyPose(lm); freshDetect = true;
-          pose = lm.map((l) => [l.x, l.y]);
+          pose = lm.map((l) => [cropX(l.x), cropY(l.y)]);
         }
         if (w?.length === 33) {
           lastWlm = w; freshKw = keyPose3D(w);
           worldPose = w.map((l) => [l.x, l.y, l.z ?? 0]);
         }
       } catch { /* fall through to cached landmarks */ }
-      if (!pose.length && lastLm.length === 33) pose = lastLm.map((l) => [l.x, l.y]);
+      if (!pose.length && lastLm.length === 33) pose = lastLm.map((l) => [cropX(l.x), cropY(l.y)]);
       if (!worldPose && lastWlm.length === 33) worldPose = lastWlm.map((l) => [l.x, l.y, l.z ?? 0]);
 
       // Picture analysis: clothing state + the live match score at the
@@ -376,9 +395,31 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
     };
   }, [angle]); // targetPose/onCapture/personalTarget read via refs — no restart
 
+  // Pinch-to-zoom on the live feed — the ghost stays put so the user can
+  // match their framing to the previous photo.
+  const pinch = useRef<{ d: number; z: number } | null>(null);
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const onPtrDown = (e: React.PointerEvent) => { pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); };
+  const onPtrMove = (e: React.PointerEvent) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (!pinch.current) pinch.current = { d, z: zoomRef.current };
+      else if (pinch.current.d > 0) setZoom(Math.min(3, Math.max(1, pinch.current.z * (d / pinch.current.d))));
+    }
+  };
+  const onPtrUp = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+  };
+
   return (
-    <div className="relative overflow-hidden rounded-2xl" style={{ backgroundColor: "#111" }}>
-      <video ref={videoRef} playsInline muted className="block w-full" style={{ aspectRatio: "3/4", objectFit: "cover" }} />
+    <div className="relative overflow-hidden rounded-2xl" style={{ backgroundColor: "#111", touchAction: "none" }}
+      onPointerDown={onPtrDown} onPointerMove={onPtrMove} onPointerUp={onPtrUp} onPointerCancel={onPtrUp}>
+      <video ref={videoRef} playsInline muted className="block w-full"
+        style={{ aspectRatio: "3/4", objectFit: "cover", transform: `scale(${zoom})` }} />
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
       {status === "loading" && (
         <div className="absolute inset-0 grid place-items-center text-xs" style={{ color: "#e8ddc8" }}>
@@ -413,6 +454,12 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
               )}
             </>
           )}
+          <div className="mx-auto mt-3 flex w-48 items-center gap-2">
+            <span className="text-[9px] tabular-nums" style={{ color: "#e8ddc8" }}>{zoom.toFixed(1)}×</span>
+            <input type="range" min={1} max={3} step={0.1} value={zoom}
+              onChange={(e) => setZoom(parseFloat(e.target.value))}
+              className="h-1 flex-1 cursor-pointer accent-[#e8a04c]" aria-label="Camera zoom" />
+          </div>
           <button type="button"
             onClick={() => (window as unknown as { __guidedCapture?: () => void }).__guidedCapture?.()}
             disabled={modelState === "loading" || (modelOk && !aligned)}

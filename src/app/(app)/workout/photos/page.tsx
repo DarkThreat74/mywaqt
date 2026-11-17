@@ -9,6 +9,7 @@ import { DEFAULT_POSES, keyPose, keyPose3D, normalizePose, type KeyPose, type Ke
 import { preloadPoseModel } from "@/lib/workout/poseModel";
 import type { CaptureResult } from "@/components/workout/GuidedCamera";
 import { photoTombstones, saveTombstones } from "@/lib/workout/photoTombstones";
+import PhotoPresent from "@/components/workout/PhotoPresent";
 
 const GuidedCamera = dynamic(() => import("@/components/workout/GuidedCamera"), { ssr: false });
 
@@ -42,12 +43,17 @@ export default function PhotosPage() {
   const [photos, setPhotos] = useState<LocalProgressPhoto[]>([]);
   const [step, setStep] = useState<number | null>(null); // null = grid, 0..2 = angle
   const [viewing, setViewing] = useState<LocalProgressPhoto | null>(null);
+  const [present, setPresent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const db = getOfflineDB();
+      // Render what's on-device first — the label/ghost must never wait on
+      // network hydration (and a thrown fetch can't leave a stale "first
+      // check-in" state over existing local photos).
+      setPhotos(await db.progressPhotos.orderBy("takenAt").reverse().toArray());
       // Pull server metadata, then hydrate any missing photo bodies into IDB —
       // IndexedDB stays the read path so the grid works fully offline.
       const res = await fetch("/api/workout/photos").catch(() => null);
@@ -184,6 +190,9 @@ export default function PhotosPage() {
       const d = new Date(p.takenAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
       (groups.get(d) ?? groups.set(d, []).get(d)!).push(p);
     }
+    // Pair each session's angles — front, side, back side by side.
+    const order = (a: string) => { const i = (ANGLES as readonly string[]).indexOf(a); return i < 0 ? 99 : i; };
+    for (const [, items] of groups) items.sort((a, b) => order(a.angle) - order(b.angle) || a.takenAt.localeCompare(b.takenAt));
     return [...groups.entries()];
   }, [photos]);
 
@@ -226,11 +235,20 @@ export default function PhotosPage() {
         </div>
       ) : (
         <>
-          <button type="button" onClick={() => setStep(0)}
-            className="mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold"
-            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
-            {photos.length ? "New check-in" : "Take your first check-in"}
-          </button>
+          <div className="mt-4 flex gap-2">
+            <button type="button" onClick={() => setStep(0)}
+              className="flex-1 rounded-xl px-4 py-3 text-sm font-semibold"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
+              {photos.length ? "New check-in" : "Take your first check-in"}
+            </button>
+            {photos.length > 0 && (
+              <button type="button" onClick={() => setPresent(true)}
+                className="rounded-xl border px-4 py-3 text-sm font-medium"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                Present
+              </button>
+            )}
+          </div>
           {photos.length > 0 && (
             <div className="mt-6 space-y-5">
               {byDate.map(([date, items]) => (
@@ -255,6 +273,10 @@ export default function PhotosPage() {
         </>
       )}
 
+      {present && (
+        <PhotoPresent photos={photos} onClose={() => setPresent(false)} onView={(p) => setViewing(p)} />
+      )}
+
       {viewing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.85)" }} onClick={() => setViewing(null)}>
           <div className="max-h-[90vh] w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
@@ -267,9 +289,18 @@ export default function PhotosPage() {
                 {viewing.analysis?.shirtless === false && " · shirt on"}
                 {viewing.analysis?.shirtless === true && " · bare skin"}
               </p>
-              <button type="button" onClick={() => void remove(viewing)}
-                className="rounded-lg border px-3 py-1.5 text-xs"
-                style={{ borderColor: "rgba(255,255,255,0.3)", color: "#e8ddc8" }}>Delete</button>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => {
+                  const a = document.createElement("a");
+                  a.href = viewing.photoData;
+                  a.download = `${viewing.angle}-${new Date(viewing.takenAt).toISOString().slice(0, 10)}.${viewing.photoMime?.includes("webp") ? "webp" : "jpg"}`;
+                  a.click();
+                }} className="rounded-lg border px-3 py-1.5 text-xs"
+                  style={{ borderColor: "rgba(255,255,255,0.3)", color: "#e8ddc8" }}>Download</button>
+                <button type="button" onClick={() => void remove(viewing)}
+                  className="rounded-lg border px-3 py-1.5 text-xs"
+                  style={{ borderColor: "rgba(255,255,255,0.3)", color: "#e8ddc8" }}>Delete</button>
+              </div>
             </div>
           </div>
         </div>
