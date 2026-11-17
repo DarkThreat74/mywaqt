@@ -97,13 +97,18 @@ export default function BalighSetup({ onDone }: { onDone?: () => void }) {
     if (balighAge == null || busy) return;
     setError(null);
     setBusy(true);
-    // Mark the birthday as "me" — if this fails the baligh POST still runs and
-    // returns its own helpful error.
-    await fetch("/api/birthdays", {
+    // Mark the birthday as "me" first — without it the baligh POST can't
+    // derive a date, so a failed PATCH must abort, not silently continue.
+    const patchRes = await fetch("/api/birthdays", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: b.id, isSelf: true }),
     }).catch(() => null);
+    if (!patchRes?.ok) {
+      setBusy(false);
+      setError("Couldn't mark that birthday as yours. Try again.");
+      return;
+    }
     const r = await postBaligh({ balighAge });
     setBusy(false);
     if (r.ok) finish();
@@ -248,14 +253,16 @@ export default function BalighSetup({ onDone }: { onDone?: () => void }) {
             <div className="mt-3 flex items-center justify-between">
               <button
                 onClick={() => { setError(null); setStep("create"); }}
-                className="text-xs font-medium"
+                disabled={busy}
+                className="text-xs font-medium disabled:opacity-50"
                 style={{ color: "var(--color-ink-muted)" }}
               >
                 That&apos;s not me
               </button>
               <button
                 onClick={finish}
-                className="text-xs font-medium"
+                disabled={busy}
+                className="text-xs font-medium disabled:opacity-50"
                 style={{ color: "var(--color-ink-muted)" }}
               >
                 Skip for now
@@ -321,7 +328,8 @@ export default function BalighSetup({ onDone }: { onDone?: () => void }) {
             <div className="mt-3 flex items-center justify-between">
               <button
                 onClick={() => { setError(null); setStep(candidates.length > 0 ? "candidates" : "age"); }}
-                className="text-xs font-medium"
+                disabled={busy}
+                className="text-xs font-medium disabled:opacity-50"
                 style={{ color: "var(--color-ink-muted)" }}
               >
                 Back
@@ -347,7 +355,8 @@ export default function BalighSetup({ onDone }: { onDone?: () => void }) {
         {step !== "create" && step !== "candidates" && (
           <button
             onClick={finish}
-            className="mt-3 text-xs font-medium"
+            disabled={busy}
+            className="mt-3 text-xs font-medium disabled:opacity-50"
             style={{ color: "var(--color-ink-muted)" }}
           >
             Skip for now

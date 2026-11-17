@@ -105,7 +105,13 @@ export async function POST(request: NextRequest) {
     if (ledger) {
       await db.update(schema.qadaaLedger).set(values).where(eq(schema.qadaaLedger.userId, session.userId));
     } else {
-      await db.insert(schema.qadaaLedger).values({ userId: session.userId, ...values });
+      try {
+        await db.insert(schema.qadaaLedger).values({ userId: session.userId, ...values });
+      } catch (e) {
+        // Concurrent first write lost the race on the user_id PK — retry as update.
+        if ((e as { code?: string })?.code !== "23505") throw e;
+        await db.update(schema.qadaaLedger).set(values).where(eq(schema.qadaaLedger.userId, session.userId));
+      }
     }
     return NextResponse.json({ ok: true, balighDate, balighAge });
   } catch (e) {

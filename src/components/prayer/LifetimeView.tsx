@@ -64,7 +64,7 @@ function LegendDot({ color }: { color: string }) {
 }
 
 export default function LifetimeView({ analytics, onSetupQadaa, onBalighDone }: Props) {
-  const [selected, setSelected] = useState<LifetimeCell | null>(null);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
   const lifetime = analytics?.lifetime ?? null;
 
@@ -81,6 +81,11 @@ export default function LifetimeView({ analytics, onSetupQadaa, onBalighDone }: 
       missedByDate: analytics.missedData,
     });
   }, [analytics, lifetime]);
+
+  // Resolve by index so a refetched result can't leave stale numbers on screen.
+  const selected: LifetimeCell | null = selectedIdx != null && result
+    ? result.cells.find((c) => c.index === selectedIdx) ?? null
+    : null;
 
   if (!lifetime) return null;
 
@@ -121,7 +126,9 @@ export default function LifetimeView({ analytics, onSetupQadaa, onBalighDone }: 
   if (!result) return null;
 
   const { totals, years } = result;
-  const denom = Math.max(1, totals.days * 5);
+  // The bar's whole = total obligation: prayers logged + made-up qada + debt.
+  // days*5 would clip large backlogs since qada lives outside the tracked span.
+  const denom = Math.max(1, totals.totalPrayed + totals.madeUp + totals.owedRemaining);
   const segs = [
     { label: "prayed", value: totals.totalPrayed, color: "var(--color-success)" },
     { label: "made up", value: totals.madeUp, color: "color-mix(in srgb, var(--color-success) 55%, var(--color-paper-2))" },
@@ -196,7 +203,7 @@ export default function LifetimeView({ analytics, onSetupQadaa, onBalighDone }: 
                   <button
                     key={cell.index}
                     type="button"
-                    onClick={() => setSelected(cell)}
+                    onClick={() => setSelectedIdx(cell.index)}
                     aria-label={`${fmtRange(cell.start, cell.end)}: ${cell.state}`}
                     title={`${fmtRange(cell.start, cell.end)} — prayed ${cell.prayed}, missed ${cell.missed}, owed ${cell.owed}, made up ${cell.filled}`}
                     className="aspect-square min-w-0 flex-1 rounded-[3px] transition-opacity"
@@ -217,7 +224,7 @@ export default function LifetimeView({ analytics, onSetupQadaa, onBalighDone }: 
               </p>
               <button
                 type="button"
-                onClick={() => setSelected(null)}
+                onClick={() => setSelectedIdx(null)}
                 className="text-[11px] font-medium"
                 style={{ color: "var(--color-ink-muted)" }}
               >

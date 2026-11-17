@@ -204,7 +204,7 @@ export async function GET(request: NextRequest) {
 
     // ── Active days (denominator for consistency) ──
     let activeDays: number;
-    if (range === "all-time") {
+    if (range === "all-time" || range === "lifetime") {
       // Use days from first log to today
       if (rangeLogs.length === 0) {
         activeDays = 1;

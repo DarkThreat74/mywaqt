@@ -114,8 +114,7 @@ export function buildLifetime(input: LifetimeInput): LifetimeResult {
     const days: number[] = [];
     for (let i = 0; i < initial; i++) days.push(Math.floor(rand() * backfillDays));
     days.sort((a, b) => a - b);
-    const filledSet = new Set(days.slice(0, filled));
-    for (const d of days) bump(d, p, filledSet.has(d) ? "filled" : "owed");
+    for (let i = 0; i < days.length; i++) bump(days[i], p, i < filled ? "filled" : "owed");
   }
 
   const cellCount = Math.ceil(totalDays / WINDOW);
@@ -177,7 +176,8 @@ export function buildLifetime(input: LifetimeInput): LifetimeResult {
   const owedRemaining = PRAYER_KEYS.reduce((sum, p) => sum + Math.max(0, Math.floor(owedNowMap[p] ?? owed0(p) - filledByPrayer[p])), 0);
   const madeUp = PRAYER_KEYS.reduce((sum, p) => sum + filledByPrayer[p], 0);
   const owedSlots = PRAYER_KEYS.reduce((sum, p) => sum + missedByPrayer[p], 0);
-  const totalPrayed = Object.values(input.prayedByDate).reduce((sum, n) => sum + n, 0);
+  const totalPrayed = Object.entries(input.prayedByDate)
+    .reduce((sum, [d, n]) => sum + (d >= input.balighDate ? n : 0), 0);
 
   return {
     cells,
@@ -189,7 +189,7 @@ export function buildLifetime(input: LifetimeInput): LifetimeResult {
       madeUp,
       owedSlots,
       pctPrayed: totalPrayed + owedRemaining > 0 ? totalPrayed / (totalPrayed + owedRemaining) : null,
-      trackingStart: logDates[0] ?? null,
+      trackingStart: logDates.find((d) => d >= input.balighDate) ?? null,
     },
   };
 }

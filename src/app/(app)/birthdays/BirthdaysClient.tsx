@@ -574,7 +574,7 @@ export default function BirthdaysClient() {
                   <button
                     key={friend.id}
                     type="button"
-                    onClick={() => setForm({ ...form, friendId: form.friendId === friend.id ? null : friend.id, name: friend.name })}
+                    onClick={() => setForm({ ...form, friendId: form.friendId === friend.id ? null : friend.id, name: friend.name, isSelf: false })}
                     className="rounded-full border px-2.5 py-1.5 text-[11px] font-medium"
                     style={{ borderColor: form.friendId === friend.id ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.friendId === friend.id ? "var(--color-accent-faint)" : "transparent", color: form.friendId === friend.id ? "var(--color-accent)" : "var(--color-ink-soft)" }}
                   >

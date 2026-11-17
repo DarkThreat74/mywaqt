@@ -151,7 +151,10 @@ export async function POST(request: NextRequest) {
     // Offline-created rows carry a client uuid — same contract as events/goals.
     const validClientId = body.clientId && isValidUUID(body.clientId) ? body.clientId : undefined;
 
-    const friendId = await ownedFriendId(session.userId, body.friendId);
+    // A "me" birthday can't also be linked to a friend — self wins.
+    const friendId = body.isSelf === true
+      ? null
+      : await ownedFriendId(session.userId, body.friendId);
     if (friendId && await friendAlreadyLinked(session.userId, friendId)) {
       return NextResponse.json({ error: "That person is already linked to another birthday." }, { status: 409 });
     }
@@ -232,9 +235,10 @@ export async function PATCH(request: NextRequest) {
       }
     }
     if (body.isSelf !== undefined) {
-      if (body.isSelf === true) await claimSelfSlot(session.userId);
       out.isSelf = body.isSelf === true;
     }
+    // A "me" birthday can't also be linked to a friend — self wins.
+    if (out.isSelf === true) out.friendId = null;
     if (typeof out.friendId === "string" &&
         await friendAlreadyLinked(session.userId, out.friendId, body.id)) {
       return NextResponse.json({ error: "That person is already linked to another birthday." }, { status: 409 });
@@ -266,6 +270,10 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: "Day must be valid for the month" }, { status: 400 });
       }
     }
+
+    // Claim the me-slot only after every validation has passed, right before
+    // the write — a rejected patch must not strip the existing "me" row.
+    if (out.isSelf === true) await claimSelfSlot(session.userId);
 
     const [row] = await db
       .update(schema.birthdays)
