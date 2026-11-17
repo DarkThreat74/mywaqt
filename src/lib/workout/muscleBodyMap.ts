@@ -15,7 +15,7 @@ const KEY_TO_BUCKET: Record<string, BodyBucket> = {
   biceps: "biceps", triceps: "triceps", forearms: "forearms", grip: "grip", fingers: "forearms",
   quads: "quads", hamstrings: "hamstrings", glutes: "glutes", glute_med: "glutes",
   adductors: "adductors", gastroc: "calves", soleus: "calves", tibialis: "calves", hip_flexors: "quads",
-  upper_abs: "abs", lower_abs: "abs", abs: "abs", obliques: "obliques",
+  upper_abs: "abs", lower_abs: "abs", abs: "abs", all_abs: "abs", obliques: "obliques",
   neck: "neck",
 };
 

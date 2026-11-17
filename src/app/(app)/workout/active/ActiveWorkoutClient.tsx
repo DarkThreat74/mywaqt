@@ -95,6 +95,7 @@ function ActiveInner() {
   const timerStartRef = useRef(0);
   const recordedStartRef = useRef(0); // the day the session belongs to (may be backdated)
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const unitsRef = useRef<Unit>(typeof window !== "undefined" && localStorage.getItem("waqt:unit-weight") === "lb" ? "lb" : "kg");
   const lastSetAtRef = useRef<Record<string, number>>({});
   // Declared before the bootstrap effect — the first-open readiness wizard
   // is triggered from inside it once session + freshness data arrive.
@@ -257,7 +258,8 @@ function ActiveInner() {
       const rows: Record<string, SetRow[]> = {};
       for (const s of sdata.sets || []) {
         rows[s.slug] = rows[s.slug] || [];
-        rows[s.slug][s.setIndex] = { weight: s.weight ?? "", reps: s.reps ?? null, rir: s.rir, setType: s.setType, variation: s.variation, side: s.side, loggedAt: s.loggedAt, done: s.done ?? false };
+        const wNum = parseFloat(s.weight ?? "");
+        rows[s.slug][s.setIndex] = { weight: Number.isFinite(wNum) && unitsRef.current === "lb" ? String(Math.round(wNum * 2.205)) : (s.weight ?? ""), reps: s.reps ?? null, rir: s.rir, setType: s.setType, variation: s.variation, side: s.side, loggedAt: s.loggedAt, done: s.done ?? false };
       }
       setSetRows(rows);
       // Mirror resumed server sets into the local store so the device remains
@@ -271,6 +273,7 @@ function ActiveInner() {
           slug: s.slug,
           setIndex: s.setIndex,
           weight: s.weight ?? "",
+          wKg: true,
           reps: s.reps ?? null,
           rir: s.rir ?? null,
           setType: s.setType ?? "working",
@@ -286,23 +289,29 @@ function ActiveInner() {
       // need their card (and paired L/R counts) restored.
       const modes: Record<string, HandMode> = {};
       for (const [slug, sets] of Object.entries(rows)) {
-        if (sets.some((set) => set?.variation === "hand:left" || set?.variation === "hand:right")) modes[slug] = "one";
+        if (sets.some((set) => set?.variation === "hand:left" || set?.variation === "hand:right" || set?.side === "left" || set?.side === "right")) modes[slug] = "one";
       }
       setHandModes(modes);
+      const rowExercise = (slug: string): DayExercise => {
+        const fromDay = (d.exercises || []).find((e: DayExercise) => e.slug === slug);
+        const lib = exBySlugRef.current.get(slug);
+        const rowCount = rows[slug]?.length || 0;
+        const logicalSets = Math.max(modes[slug] === "one" ? Math.ceil(rowCount / 2) : rowCount, 1);
+        return {
+          slug,
+          name: fromDay?.name || lib?.name || slug.replace(/-/g, " "),
+          sets: Math.max(logicalSets, fromDay?.sets || 1),
+          reps: fromDay?.reps || "",
+          supersetGroup: fromDay?.supersetGroup ?? null,
+        };
+      };
+      const dayList = (d.exercises || []) as DayExercise[];
+      const bySlug = new Map(Object.keys(rows).map((slug) => [slug, rowExercise(slug)]));
       const resumedExercises: DayExercise[] = sdata.resumed
-        ? Object.keys(rows).map((slug) => {
-            const fromDay = (d.exercises || []).find((e: DayExercise) => e.slug === slug);
-            const lib = exBySlugRef.current.get(slug);
-            const rowCount = rows[slug].length;
-            const logicalSets = Math.max(modes[slug] === "one" ? Math.ceil(rowCount / 2) : rowCount, 1);
-            return {
-              slug,
-              name: fromDay?.name || lib?.name || slug.replace(/-/g, " "),
-              sets: Math.max(logicalSets, fromDay?.sets || 1),
-              reps: fromDay?.reps || "",
-              supersetGroup: fromDay?.supersetGroup ?? null,
-            };
-          })
+        ? [
+            ...dayList.map((e) => bySlug.get(e.slug) ?? { slug: e.slug, name: e.name, sets: Math.max(1, e.sets || 1), reps: e.reps || "", supersetGroup: e.supersetGroup ?? null }),
+            ...[...bySlug.entries()].filter(([slug]) => !dayList.some((e) => e.slug === slug)).map(([, ex]) => ex),
+          ]
         : [];
       setExercises(resumedExercises);
       setSetCounts(Object.fromEntries(resumedExercises.map((exercise: DayExercise) => [exercise.slug, Math.max(1, exercise.sets || 1)])));
@@ -455,6 +464,8 @@ function ActiveInner() {
 
   const removeSetRow = async (slug: string, idx: number) => {
     if (!sessionId) return;
+    const tkey = `${slug}:${idx}`;
+    if (saveTimers.current[tkey]) { clearTimeout(saveTimers.current[tkey]); delete saveTimers.current[tkey]; }
     await fetch(`/api/workout/sets?sessionId=${encodeURIComponent(sessionId)}&slug=${encodeURIComponent(slug)}&setIndex=${idx}`, { method: "DELETE" }).catch(() => {});
     // The local draft is the source of truth. Leaving this row in IndexedDB
     // lets the reconnect sweeper resurrect it on the next full sync.
@@ -466,26 +477,50 @@ function ActiveInner() {
     });
   };
 
-  const setHandMode = (slug: string, mode: HandMode) => {
+  const clearSlugTimers = (slug: string) => {
+    for (const key of Object.keys(saveTimers.current)) {
+      if (key.startsWith(`${slug}:`)) { clearTimeout(saveTimers.current[key]); delete saveTimers.current[key]; }
+    }
+  };
+
+  const setHandMode = async (slug: string, mode: HandMode) => {
     setHandModes((prev) => ({ ...prev, [slug]: mode }));
+    clearSlugTimers(slug);
+    const count = setCounts[slug] ?? 1;
     if (mode === "both") {
-      const count = setCounts[slug] ?? 1;
-      // Remove paired side rows before returning to one bilateral row per set.
-      for (let i = 0; i < count; i++) void removeSetRow(slug, count + i);
-      for (let i = 0; i < count; i++) void logSet(slug, i, { variation: "hand:both" });
+      // One-hand rows are L/R pairs at 2i/2i+1 — keep the left numbers as the
+      // bilateral record. Delete every paired row first so indices line up.
+      const leftRows = Array.from({ length: count }, (_, i) => setRows[slug]?.[i * 2]);
+      await Promise.all(Array.from({ length: count * 2 }, (_, i) => removeSetRow(slug, i)));
+      for (let i = 0; i < count; i++) {
+        const l = leftRows[i];
+        void logSet(slug, i, {
+          ...(l ? { weight: l.weight, reps: l.reps, rir: l.rir ?? null, setType: l.setType, done: l.done } : {}),
+          variation: "hand:both", side: "both",
+        });
+      }
     } else {
-      const count = setCounts[slug] ?? 1;
-      // Remove old bilateral rows so a later finish cannot count both modes.
-      for (let i = 0; i < count; i++) void removeSetRow(slug, i);
+      const bilat = Array.from({ length: count }, (_, i) => setRows[slug]?.[i]);
+      await Promise.all(Array.from({ length: count * 2 }, (_, i) => removeSetRow(slug, i)));
+      for (let i = 0; i < count; i++) {
+        const b = bilat[i];
+        const data = b ? { weight: b.weight, reps: b.reps, rir: b.rir ?? null, setType: b.setType, done: b.done } : {};
+        void logSet(slug, i * 2, { ...data, variation: "hand:left", side: "left" });
+        void logSet(slug, i * 2 + 1, { ...data, variation: "hand:right", side: "right" });
+      }
     }
   };
 
   const [units, setUnits] = useState<Unit>("kg");
+  useEffect(() => { unitsRef.current = units; }, [units]);
   useEffect(() => {
     // Default to the unit chosen on /workout/profile; the header toggle still
     // overrides per-session.
     void fetch("/api/settings/prefs").then((r) => (r.ok ? r.json() : null)).then((d) => {
-      if (d?.prefs?.unitWeight === "lb" || d?.prefs?.unitWeight === "kg") setUnits(d.prefs.unitWeight);
+      if (d?.prefs?.unitWeight === "lb" || d?.prefs?.unitWeight === "kg") {
+        setUnits(d.prefs.unitWeight);
+        try { localStorage.setItem("waqt:unit-weight", d.prefs.unitWeight); } catch { /* noop */ }
+      }
     }).catch(() => {});
   }, []);
   const [view, setView] = useState<Exercise | null>(null);
@@ -499,7 +534,11 @@ function ActiveInner() {
   const [customExerciseName, setCustomExerciseName] = useState("");
   const router = useRouter();
 
-  const unitToKg = (v: string) => (units === "lb" ? String(Math.round(parseFloat(v) / 2.205 * 10) / 10) : v);
+  const unitToKg = (v: string) => {
+    const n = parseFloat(v);
+    if (!Number.isFinite(n)) return "";
+    return units === "lb" ? String(Math.round(n / 2.205 * 10) / 10) : v;
+  };
   // Stored weights are canonical kg — convert for display when in lb mode.
   const dispW = (kg: number) => (units === "lb" ? Math.round(kg * 2.205) : Math.round(kg * 10) / 10);
   const dispSet = (s: string) => {
@@ -508,14 +547,19 @@ function ActiveInner() {
     return Number.isFinite(n) && n > 0 ? `${dispW(n)}×${r || ""}` : s;
   };
 
+  const doneLogical = (slug: string) => {
+    const done = (setRows[slug] || []).filter((r) => r?.done).length;
+    return (handModes[slug] ?? (isUni(slug) ? "one" : "both")) === "one" ? Math.ceil(done / 2) : done;
+  };
   const totalDone = useMemo(
-    () => Object.values(setRows).flat().filter((r) => r?.done).length,
-    [setRows],
+    () => exercises.reduce((sum, x) => sum + doneLogical(x.slug), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [setRows, exercises, handModes],
   );
   const totalPlanned = exercises.reduce((s, x) => s + (setCounts[x.slug] ?? 1), 0);
   const activeExerciseIndex = exercises.findIndex((exercise) => {
     const planned = setCounts[exercise.slug] ?? 1;
-    return (setRows[exercise.slug] || []).filter((row) => row?.done).length < planned;
+    return doneLogical(exercise.slug) < planned;
   });
 
   const finish = async () => {
@@ -669,6 +713,7 @@ function ActiveInner() {
     const next = exercises.filter((e) => e.slug !== slug);
     setExercises(next);
     void persistOrder(next);
+    clearSlugTimers(slug);
     const rowCount = Math.max((setRows[slug] || []).length, (setCounts[slug] ?? 1) * 2);
     for (let i = 0; i < rowCount; i++) void removeSetRow(slug, i);
     setSetCounts((c) => { const n = { ...c }; delete n[slug]; return n; });
@@ -683,6 +728,7 @@ function ActiveInner() {
     list[idx] = { ...next, supersetGroup: list[idx].supersetGroup ?? null };
     setExercises(list);
     void persistOrder(list);
+    clearSlugTimers(oldSlug);
     const rowCount = Math.max((setRows[oldSlug] || []).length, (setCounts[oldSlug] ?? 1) * 2);
     for (let i = 0; i < rowCount; i++) void removeSetRow(oldSlug, i);
     setSetCounts((c) => ({ ...c, [next.slug]: 1 }));
@@ -1030,7 +1076,7 @@ function ActiveInner() {
                   style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper-2) 55%, transparent)" }}>
                   <span className="text-[10px] font-medium" style={{ color: "var(--color-ink-muted)" }}>How are you lifting?</span>
                   {(["both", "one"] as const).map((mode) => (
-                    <button key={mode} type="button" onClick={() => setHandMode(x.slug, mode)}
+                    <button key={mode} type="button" onClick={() => void setHandMode(x.slug, mode)}
                       className="rounded-full border px-2.5 py-1 text-[10px] font-semibold"
                       style={{
                         borderColor: handModeOf(x.slug) === mode ? "var(--color-accent)" : "var(--color-paper-3)",

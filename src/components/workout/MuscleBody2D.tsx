@@ -55,13 +55,13 @@ function FrontFigure({ fatigue, selected, onPick }: { fatigue: Props["fatigue"];
         <path d="M74 112 L70 178 Q100 186 130 178 L126 112 Q100 120 74 112 Z" fill={fill("obliques")} {...stroke} opacity="0.55" />
       </>)}
       {R("abs", <rect x="82" y="118" width="36" height="60" rx="10" fill={fill("abs")} {...stroke} />)}
-      {R("adductors", <>
-        <rect x="86" y="182" width="13" height="120" rx="6.5" fill={fill("adductors")} {...stroke} opacity="0.6" />
-        <rect x="101" y="182" width="13" height="120" rx="6.5" fill={fill("adductors")} {...stroke} opacity="0.6" />
-      </>)}
       {R("quads", <>
         <rect x="66" y="184" width="30" height="118" rx="12" fill={fill("quads")} {...stroke} />
         <rect x="104" y="184" width="30" height="118" rx="12" fill={fill("quads")} {...stroke} />
+      </>)}
+      {R("adductors", <>
+        <rect x="86" y="182" width="13" height="120" rx="6.5" fill={fill("adductors")} {...stroke} opacity="0.6" />
+        <rect x="101" y="182" width="13" height="120" rx="6.5" fill={fill("adductors")} {...stroke} opacity="0.6" />
       </>)}
       {R("calves", <>
         <rect x="68" y="306" width="26" height="52" rx="10" fill={fill("calves")} {...stroke} />
@@ -95,7 +95,6 @@ function BackFigure({ fatigue, selected, onPick }: { fatigue: Props["fatigue"]; 
         <path d="M78 108 L58 118 L52 176 Q66 184 80 178 Z" fill={fill("lats")} {...stroke} />
         <path d="M122 108 L142 118 L148 176 Q134 184 120 178 Z" fill={fill("lats")} {...stroke} />
       </>)}
-      {R("lower_back", <rect x="84" y="164" width="32" height="26" rx="8" fill={fill("lower_back")} {...stroke} />)}
       {R("triceps", <>
         <rect x="36" y="94" width="16" height="52" rx="8" fill={fill("triceps")} {...stroke} />
         <rect x="148" y="94" width="16" height="52" rx="8" fill={fill("triceps")} {...stroke} />
@@ -108,6 +107,7 @@ function BackFigure({ fatigue, selected, onPick }: { fatigue: Props["fatigue"]; 
         <ellipse cx="84" cy="184" rx="18" ry="14" fill={fill("glutes")} {...stroke} />
         <ellipse cx="116" cy="184" rx="18" ry="14" fill={fill("glutes")} {...stroke} />
       </>)}
+      {R("lower_back", <rect x="84" y="164" width="32" height="14" rx="8" fill={fill("lower_back")} {...stroke} />)}
       {R("hamstrings", <>
         <rect x="66" y="194" width="30" height="112" rx="12" fill={fill("hamstrings")} {...stroke} />
         <rect x="104" y="194" width="30" height="112" rx="12" fill={fill("hamstrings")} {...stroke} />

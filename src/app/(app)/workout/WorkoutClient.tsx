@@ -970,55 +970,78 @@ export default function WorkoutClient() {
               No sessions yet — finish your first workout and it lands here.
             </p>
           )}
-          {history.map((s) => (
-            <div key={s.id} className="flex items-center justify-between rounded-lg border px-3 py-2"
-              style={{ borderColor: s.endedAt ? "var(--color-paper-3)" : "var(--color-accent)" }}>
-              <div className="min-w-0">
-                <p className="text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{s.dayName}</p>
-                <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                  {s.completedExercises?.length
-                    ? s.completedExercises.map((x) => {
-                      const name = catalog?.find((e) => e.slug === x.slug)?.name || x.slug.replace(/-/g, " ");
-                      return `${name} · ${x.setCount} ${x.setCount === 1 ? "set" : "sets"} · next ${dispW(x.recommendedWeightKg)}${units}${x.pr ? " ★PR" : ""}`;
-                    }).join("  •  ")
-                    : s.endedAt ? "No completed sets" : "No sets logged yet"}
-                </p>
-              </div>
-              <span className="ml-3 flex shrink-0 items-center gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                {new Date(s.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                {" · "}
-                {s.endedAt
-                  ? (() => { const m = Math.round((new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()) / 60000); return m < 1 ? "<1m" : `${m}m`; })()
-                  : "in progress"}
-                {s.syncPending && (
-                  <span style={{ color: "var(--color-accent, #b45309)" }}
-                    title={s.syncError || "Saved on this device — syncs when back online"}>
-                    · unsynced{s.syncError ? ` — ${s.syncError}` : ""}
+          {history.map((s) => {
+            const exs = s.completedExercises ?? [];
+            const totalSets = exs.reduce((a, x) => a + x.setCount, 0);
+            const prs = exs.filter((x) => x.pr).length;
+            const mins = s.endedAt
+              ? Math.max(0, Math.round((new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()) / 60000))
+              : null;
+            const dur = mins == null ? "in progress" : mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
+            const d = new Date(s.startedAt), t = new Date();
+            const dayDiff = Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 86400000);
+            const dayLabel = dayDiff <= 0 ? "Today" : dayDiff === 1 ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+            return (
+              <div key={s.id} className="rounded-xl border px-3 py-2.5"
+                style={{ borderColor: s.endedAt ? "var(--color-paper-3)" : "var(--color-accent)", backgroundColor: "var(--color-paper)" }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{s.dayName}</p>
+                    <p className="mt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                      {dayLabel} · {dur}
+                      {exs.length ? ` · ${exs.length} ${exs.length === 1 ? "exercise" : "exercises"} · ${totalSets} ${totalSets === 1 ? "set" : "sets"}` : ""}
+                      {prs ? ` · ${prs} PR${prs === 1 ? "" : "s"}` : ""}
+                    </p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-2 pt-0.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    {s.syncPending && (
+                      <span style={{ color: "var(--color-accent, #b45309)" }}
+                        title={s.syncError || "Saved on this device — syncs when back online"}>
+                        unsynced
+                      </span>
+                    )}
+                    {!s.endedAt && (
+                      <a href={`/workout/active?day=${s.dayId}`} style={{ color: "var(--color-accent)" }} className="font-medium">Resume →</a>
+                    )}
+                    {confirmDelete === s.id ? (
+                      <span className="flex items-center gap-1.5">
+                        <button type="button" onClick={() => void deleteSession(s.id)}
+                          className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                          style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}>
+                          Delete
+                        </button>
+                        <button type="button" onClick={() => setConfirmDelete(null)}
+                          className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                          Keep
+                        </button>
+                      </span>
+                    ) : (
+                      <button type="button" aria-label="Delete session"
+                        onClick={() => setConfirmDelete(s.id)}
+                        className="text-[11px]" style={{ color: "var(--color-error)" }}>✕</button>
+                    )}
                   </span>
-                )}
-                {!s.endedAt && (
-                  <a href={`/workout/active?day=${s.dayId}`} style={{ color: "var(--color-accent)" }} className="font-medium">Resume →</a>
-                )}
-                {confirmDelete === s.id ? (
-                  <span className="flex items-center gap-1.5">
-                    <button type="button" onClick={() => void deleteSession(s.id)}
-                      className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
-                      style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}>
-                      Delete
-                    </button>
-                    <button type="button" onClick={() => setConfirmDelete(null)}
-                      className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                      Keep
-                    </button>
-                  </span>
+                </div>
+                {exs.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {exs.slice(0, 6).map((x) => (
+                      <span key={x.slug} className="max-w-full truncate rounded-full border px-2 py-0.5 text-[9px]"
+                        style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                        {exName(x.slug)} · {x.setCount}×{dispW(x.recommendedWeightKg)}{units}{x.pr ? " ★" : ""}
+                      </span>
+                    ))}
+                    {exs.length > 6 && (
+                      <span className="px-1 py-0.5 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>+{exs.length - 6} more</span>
+                    )}
+                  </div>
                 ) : (
-                  <button type="button" aria-label="Delete session"
-                    onClick={() => setConfirmDelete(s.id)}
-                    className="text-[11px]" style={{ color: "var(--color-error)" }}>✕</button>
+                  <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    {s.endedAt ? "No completed sets" : "No sets logged yet"}
+                  </p>
                 )}
-              </span>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       )}
 

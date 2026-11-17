@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
       if (!row.done) continue;
       const w = parseFloat(row.weight || "");
       const r = row.reps || 0;
-      if (!w || !r) continue;
+      if (!w || !(r > 0)) continue;
       const e: SlugStats = bySlug.get(row.slug) || {
         points: [], last: null, sessionIds: new Set<string>(), tonnage: 0, best: 0,
         positions: [], rirSum: 0, rirCount: 0, repSum: 0, repCount: 0, exposures: new Map(),
@@ -327,6 +327,10 @@ export async function GET(request: NextRequest) {
       return rir <= 1 ? 1 : rir === 2 ? 0.8 : rir === 3 ? 0.5 : 0.25;
     };
     const weekMs = 7 * 86400000;
+    // Synergist credit (~0.3): pulldowns/rows also grow biceps/traps, presses
+    // grow triceps/front delts — RP fractional-volume model. Hoisted so
+    // lastTrained below credits the same synergists for recovery.
+    const SYN: Record<string, string[]> = { lats: ["biceps", "forearms", "upper_traps"], mid_back: ["biceps", "rear_delts", "forearms", "upper_traps"], rear_delts: ["upper_traps"], chest: ["triceps", "front_delts"], upper_chest: ["front_delts", "triceps"], lower_chest: ["triceps"], quads: ["glutes", "adductors"], hamstrings: ["glutes"], front_delts: ["triceps", "side_delts"], side_delts: ["upper_traps"], glutes: ["hamstrings"], biceps: ["forearms"], back: ["biceps"] };
     const effWeek = new Map<string, number>();
     const directWeek = new Map<string, number>();
     const indirectWeek = new Map<string, number>();
@@ -342,9 +346,6 @@ export async function GET(request: NextRequest) {
       if (age >= 0 && age <= weekMs) {
         effWeek.set(muscle, (effWeek.get(muscle) || 0) + weight);
         directWeek.set(muscle, (directWeek.get(muscle) || 0) + weight);
-        // Synergist credit (~0.3): pulldowns/rows also grow biceps, presses
-        // grow triceps/front delts — RP fractional-volume model.
-        const SYN: Record<string, string[]> = { lats: ["biceps", "forearms"], mid_back: ["biceps", "rear_delts", "forearms"], rear_delts: ["upper_traps"], chest: ["triceps", "front_delts"], upper_chest: ["front_delts", "triceps"], lower_chest: ["triceps"], quads: ["glutes", "adductors"], hamstrings: ["glutes"], front_delts: ["triceps", "side_delts"], side_delts: ["upper_traps"], glutes: ["hamstrings"], biceps: ["forearms"], back: ["biceps"] };
         // Synergy is a confidence-weighted estimate, not a full set: compounds
         // get 0.30 credit, isolation work only 0.15.
         const synergy = compoundOf.get(row.slug) ? 0.3 : 0.15;
@@ -368,7 +369,10 @@ export async function GET(request: NextRequest) {
       if (!row.done || row.at.getTime() > nowMs) continue;
       const muscle = muscleOf.get(row.slug) || "other";
       const t = row.at.getTime();
-      if (!lastTrained.get(muscle) || t > lastTrained.get(muscle)!) lastTrained.set(muscle, t);
+      const credit = (m: string) => { if (!lastTrained.get(m) || t > lastTrained.get(m)!) lastTrained.set(m, t); };
+      credit(muscle);
+      // Indirect work still fatigues the synergist — rows count for traps.
+      for (const m2 of SYN[muscle] || []) credit(m2);
     }
     const muscles = [...new Set([...effWeek.keys(), ...musclePoints.keys()])].map((muscle) => {
       // One best observation per muscle-week prevents a high-volume workout

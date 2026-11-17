@@ -19,10 +19,11 @@ export async function POST(request: NextRequest) {
       .where(and(eq(schema.workoutSessions.id, sessionId!), eq(schema.workoutSessions.userId, session.userId))).limit(1);
     if (!sess) return NextResponse.json({ error: "Not found." }, { status: 404 });
     const loggedDate = loggedAt && !Number.isNaN(Date.parse(loggedAt)) ? new Date(loggedAt) : undefined;
+    const wNum = weight == null ? NaN : Number(weight);
     const shared = {
-      weight: weight == null ? null : String(weight).slice(0, 20),
-      reps: Number.isInteger(reps) ? reps : null,
-      rir: Number.isInteger(rir) ? rir : null,
+      weight: Number.isFinite(wNum) && wNum > 0 && wNum <= 2000 ? String(wNum).slice(0, 20) : null,
+      reps: typeof reps === "number" && Number.isInteger(reps) && reps >= 1 && reps <= 500 ? reps : null,
+      rir: typeof rir === "number" && Number.isInteger(rir) && rir >= 0 && rir <= 10 ? rir : null,
       setType: ["warmup","working","failure"].includes(setType||"") ? setType : "working",
       variation: typeof variation === "string" && variation ? variation.slice(0, 30) : null,
       side: ["left", "right", "both"].includes(side || "") ? side : (variation === "hand:left" ? "left" : variation === "hand:right" ? "right" : variation === "hand:both" ? "both" : null),

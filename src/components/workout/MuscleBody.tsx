@@ -201,14 +201,29 @@ export default function MuscleBody({ sex = "male", fatigue, selectedBucket, onSe
       ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, cam);
       const hits = ray.intersectObjects(scene.children, true);
+      // First bucketed hit per bucket, with distance — the oblique shells in
+      // this atlas protrude ~1cm past rectus abdominis, so a front-core tap
+      // always hits "obliques" first even though the rectus is the muscle
+      // being touched. When both are hit within shell distance, abs wins.
+      const byBucket = new Map<BodyBucket, { d: number; label: string }>();
       for (const h of hits) {
-        // Hit may be a child of the named node — walk ancestors.
         let o: THREE.Object3D | null = h.object;
         while (o) {
           const info = meshBucket.get(o);
-          if (info?.bucket) { cbRef.current.onSelect?.(info.bucket, info.label); return; }
+          if (info?.bucket) {
+            const cur = byBucket.get(info.bucket);
+            if (!cur || h.distance < cur.d) byBucket.set(info.bucket, { d: h.distance, label: info.label });
+            break;
+          }
           o = o.parent;
         }
+      }
+      if (byBucket.size) {
+        let win = [...byBucket.entries()].sort((a, b) => a[1].d - b[1].d)[0];
+        const absHit = byBucket.get("abs");
+        if (win[0] === "obliques" && absHit && absHit.d - win[1].d < 0.15) win = ["abs", absHit];
+        cbRef.current.onSelect?.(win[0], win[1].label);
+        return;
       }
       // Raycast missed (small muscle, edge-on view) — fall back to the mapped
       // muscle whose center projects closest to the tap on screen.
