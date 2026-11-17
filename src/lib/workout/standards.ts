@@ -50,9 +50,11 @@ export const LIFT_SLUGS: Record<string, string[]> = {
   // Standards compare like-for-like. Incline, wide/close grip, machines, and
   // dumbbells remain visible in their own exercise history; they must not
   // silently become a barbell bench/squat/deadlift max.
-  bench: ["barbell-bench-press"],
-  squat: ["barbell-squat", "back-squat"],
-  deadlift: ["conventional-deadlift", "deadlift"],
-  ohp: ["barbell-overhead-press", "overhead-press", "military-press"],
-  row: ["barbell-row", "pendlay-row"],
+  // Curated slugs + wger catalog slugs — several curated-only slugs never
+  // existed, so logged barbell lifts silently graded as "not logged".
+  bench: ["barbell-bench-press", "bench-press"],
+  squat: ["back-squat", "barbell-squat", "squats"],
+  deadlift: ["deadlift", "conventional-deadlift", "deadlifts"],
+  ohp: ["overhead-press", "barbell-overhead-press", "military-press"],
+  row: ["pendlay-row", "barbell-row", "bent-over-rowing", "pendelay-rows"],
 };

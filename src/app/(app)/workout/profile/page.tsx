@@ -46,7 +46,7 @@ export default function WorkoutProfilePage() {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; nextLevel: string | null; nextKg: number | null; pctToNext: number | null; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; comparisonBand: string | null; matchedLifts: number; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null } | null>(null);
+  const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; nextLevel: string | null; nextKg: number | null; pctToNext: number | null; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; comparisonBand: string | null; matchedLifts: number; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null; muscleSets: { muscle: string; sets: number }[] } | null>(null);
   const [growth, setGrowth] = useState<{ name: string; first: number; last: number; gainPct: number | null; points: { e1: number }[] }[]>([]);
   const [forecasts, setForecasts] = useState<{ name: string; status: string; change: number | null; range: [number, number] | null; confidence: number; limiting: string[] }[]>([]);
   const router = useRouter();
@@ -118,15 +118,21 @@ export default function WorkoutProfilePage() {
           : "very strong";
         // Powerlifting total = squat + bench + deadlift e1RMs (the big three).
         const get = (n: string) => lifts.find((l) => l.name === n)?.e1 || 0;
-        const comparableFor = (key: keyof typeof LIFT_SLUGS, name: string) =>
-          lifts.find((lift) => lift.name === name)?.e1 ?? thresholdsFor(key, bwKg, sexKey)[0];
-        const total = comparableFor("squat", "squat") + comparableFor("bench", "press") + comparableFor("deadlift", "deadlift");
+        // Total + Wilks use REAL logged lifts only — filling missing lifts
+        // with the beginner baseline printed a total the user never lifted.
+        const total = get("squat") + get("press") + get("deadlift");
+        const allThreeLogged = get("squat") > 0 && get("press") > 0 && get("deadlift") > 0;
         setStats({
           tonnage: d.totalTonnage || 0, tonWeek: d.tonWeek || 0,
           prs: (d.progress || []).filter((x: { bestE1?: number }) => (x.bestE1 || 0) > 0).length,
           sessions: d.totalSessions || 0,
-          lifts, score, matchedLifts: lifts.length, total,
-          wilks: bwKg > 0 && total > 0 ? Math.round(total * wilks(bwKg, p?.sex === "f" ? "f" : "m")) : null,
+          lifts, score: lifts.length > 0 ? score : null, matchedLifts: lifts.length, total,
+          wilks: bwKg > 0 && allThreeLogged ? Math.round(total * wilks(bwKg, p?.sex === "f" ? "f" : "m")) : null,
+          muscleSets: ((d.muscles || []) as { muscle: string; effSetsWeek: number }[])
+            .filter((m) => m.effSetsWeek > 0)
+            .map((m) => ({ muscle: m.muscle, sets: m.effSetsWeek }))
+            .sort((a, b) => b.sets - a.sets)
+            .slice(0, 8),
           pushPull: get("press") > 0 && get("row") > 0 ? get("press") / get("row") : null,
           upperLower: get("press") > 0 && get("squat") > 0 ? get("press") / get("squat") : null,
           scoreLabel: score === null ? null : score >= 90 ? "elite" : score >= 60 ? "advanced" : score >= 40 ? "intermediate" : score >= 20 ? "novice" : "beginner",
@@ -189,7 +195,7 @@ export default function WorkoutProfilePage() {
       </div>
 
       {!loaded && <p className="mt-8 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>}
-      {loaded && !editing && (() => {
+      {loaded && (() => {
         const LIFT_ROWS = ["squat", "deadlift", "press", "ohp", "row"].map((n) =>
           stats?.lifts.find((l) => l.name === n) ?? { name: n, ratio: 0, level: "—", nextLevel: null, nextKg: null, pctToNext: null, e1: 0, gainPct: null });
         const disp = (kg: number) => wUnit === "lb" ? Math.round(kg * 2.205) : Math.round(kg);
@@ -310,15 +316,61 @@ export default function WorkoutProfilePage() {
                   })()}
                 </span>
                 <span>Body-fat estimate <b>{bodyfat ? `${bodyfat}%` : "—"}</b></span>
+                {bodyfat && ht > 0 && bw > 0 && (() => {
+                  const bf = parseFloat(bodyfat);
+                  if (!(bf > 0 && bf < 60)) return null;
+                  const lean = bw * (1 - bf / 100);
+                  const hm = ht / 100;
+                  const ffmi = lean / (hm * hm);
+                  const norm = ffmi + 6.1 * (1.8 - hm);
+                  return (
+                    <span>FFMI <b>{ffmi.toFixed(1)}</b>
+                      <span className="ml-1" style={{ color: "var(--color-ink-muted)" }}>(adj {norm.toFixed(1)} · natural ceiling ~25)</span>
+                    </span>
+                  );
+                })()}
+                {stats?.pushPull != null && (
+                  <span>Bench : row <b>{stats.pushPull.toFixed(2)}</b>
+                    <span className="ml-1" style={{ color: "var(--color-ink-muted)" }}>(balance ~0.75–1.0)</span>
+                  </span>
+                )}
+                {stats?.upperLower != null && (
+                  <span>Bench : squat <b>{stats.upperLower.toFixed(2)}</b>
+                    <span className="ml-1" style={{ color: "var(--color-ink-muted)" }}>(bench is usually ~60–75% of squat)</span>
+                  </span>
+                )}
               </div>
               <p className="mt-2 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
                 This ratio is your combined squat + press + deadlift estimate divided by bodyweight. Missing lifts use the matched beginner baseline until you log them, so an incomplete profile is not scored as zero. The placement is a bodyweight-and-sex-matched strength comparison, not a claim about every untrained person.
               </p>
             </div>
           )}
+          {stats && stats.muscleSets.length > 0 && (
+            <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Sets per muscle — last 7 days</p>
+              <div className="mt-2 space-y-1.5">
+                {stats.muscleSets.map((m) => {
+                  const max = stats.muscleSets[0].sets;
+                  return (
+                    <div key={m.muscle} className="flex items-center gap-2">
+                      <span className="w-28 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{m.muscle.replace(/_/g, " ")}</span>
+                      <span className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
+                        <span className="block h-full rounded-full" style={{ width: `${Math.round((m.sets / max) * 100)}%`, backgroundColor: "var(--color-accent)" }} />
+                      </span>
+                      <span className="w-10 text-right text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>{Math.round(m.sets)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Effective weekly volume per muscle — indirect work counts fractionally.</p>
+            </div>
+          )}
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Progress since your first workout</p>
             {growth.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Log sets to start your trend lines.</p>}
+            {(() => { const g = growth.filter((x) => x.gainPct != null).sort((a, b) => (b.gainPct ?? 0) - (a.gainPct ?? 0))[0]; return g && g.gainPct! > 0 ? (
+              <p className="mt-1 text-[10px]" style={{ color: "var(--color-success)" }}>Biggest gainer: {g.name} +{g.gainPct}%</p>
+            ) : null; })()}
             <div className="mt-2 space-y-1.5">
               {growth.map((g) => {
                 const vals = g.points.map((p) => p.e1);
