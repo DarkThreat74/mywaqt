@@ -30,7 +30,9 @@ export const RATIOS: Record<string, RatioLink> = {
   "deadlift": { from: ["back-squat", "squats"], r: 1.22, conf: 0.7, why: "coaching standard ~120-125% of squat" },
   "rdl": { from: ["deadlift", "deadlifts", "stiff-leg-deadlift"], r: 0.8, conf: 0.7, why: "no leg drive, no floor reset" },
   "stiff-leg-deadlift": { from: ["deadlift", "deadlifts"], r: 0.75, conf: 0.6, why: "straight legs remove quad contribution" },
-  "dumbbell-sumo-deadlift": { from: ["deadlift", "deadlifts"], r: 0.95, conf: 0.5, why: "shorter ROM, more quads — very individual" },
+  "trap-bar-deadlift": { from: ["deadlift", "deadlifts"], r: 1.07, conf: 0.75, why: "hex bar +6-8%, more quad less hip (Swinton 2011)" },
+  "sumo-deadlift": { from: ["deadlift", "deadlifts"], r: 0.95, conf: 0.5, why: "shorter ROM, more quads — very individual" },
+  "dumbbell-sumo-deadlift": { from: ["sumo-deadlift", "deadlift", "deadlifts"], r: 0.6, conf: 0.4, why: "per-hand dumbbells — far less than a barbell sumo" },
   "standing-db-curl": { from: ["biceps-curls-with-barbell", "ez-bar-curl"], r: 0.46, conf: 0.6, why: "per-hand bilateral deficit" },
   "hammer-curl": { from: ["biceps-curls-with-barbell", "standing-db-curl"], r: 0.9, conf: 0.5, why: "neutral grip recruits brachioradialis" },
   "preacher-curl": { from: ["biceps-curls-with-barbell", "ez-bar-curl"], r: 0.8, conf: 0.55, why: "arms braced, short-range bottom" },
@@ -299,6 +301,14 @@ export function estimateE1(
 ): { e1: number; from: string; conf: number; why: string; personal?: boolean } | null {
   const link = RATIOS[slug];
   const myE = bestBySlug.get(slug);
+  const now = Date.now();
+  // Recency decay — strength estimates fade: full weight <4wk, half at ~12wk.
+  const decay = (slugKey: string) => {
+    const at = lastAt?.get(slugKey);
+    if (!at) return 0.6; // unknown age → cautious
+    const weeks = (now - at) / 604800000;
+    return Math.max(0.4, Math.exp(-weeks / 12));
+  };
   // Fallback for the ~2000 catalog exercises with no literature ratio: if any
   // exercise in the same movement family is logged, start at 75% of its best
   // (the same carryover discount the API uses). Low confidence, but a value.
@@ -310,17 +320,9 @@ export function estimateE1(
       if (s !== slug && e > best && familyOf(s) === fam) { best = e; bestSlug = s; }
     }
     if (!best) return null;
-    return { e1: Math.round(best * 0.75 * 10) / 10, from: bestSlug, conf: 0.3, why: "same movement family — no studied ratio" };
+    return { e1: Math.round(best * 0.75 * decay(bestSlug) * 10) / 10, from: bestSlug, conf: 0.3, why: "same movement family — no studied ratio" };
   };
   if (!link) return familyFallback();
-  const now = Date.now();
-  // Recency decay — strength estimates fade: full weight <4wk, half at ~12wk.
-  const decay = (slugKey: string) => {
-    const at = lastAt?.get(slugKey);
-    if (!at) return 0.6; // unknown age → cautious
-    const weeks = (now - at) / 604800000;
-    return Math.max(0.4, Math.exp(-weeks / 12));
-  };
   for (const parent of link.from) {
     const pe = bestBySlug.get(parent);
     if (pe && pe > 0) {
