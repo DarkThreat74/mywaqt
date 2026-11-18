@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { EXERCISE_ART } from "./exercise-art-map";
-import { ExerciseDiagram } from "./diagrams";
+import { MediaPlaceholder } from "./diagrams";
 
 // Open-GYM / Workout Guide pose illustrations (CC BY-SA 4.0) — multi-frame
 // SVG path data served from /exercise-art/<slug>.txt, tinted via currentColor.
@@ -28,7 +28,7 @@ function loadArt(slug: string): Promise<string[]> {
 
 const FRAME_MS = 650;
 
-export function ExerciseArt({ slug, pattern, className, style }: { slug: string; pattern: string; className?: string; style?: React.CSSProperties }) {
+export function ExerciseArt({ slug, className, style }: { slug: string; className?: string; style?: React.CSSProperties }) {
   const art = EXERCISE_ART[slug];
   const [frames, setFrames] = useState<string[] | null>(null);
   const [idx, setIdx] = useState(0);
@@ -67,7 +67,7 @@ export function ExerciseArt({ slug, pattern, className, style }: { slug: string;
   }, [frames]);
 
   if (!art || (frames && frames.length === 0)) {
-    return <ExerciseDiagram pattern={pattern} className={className} style={style} />;
+    return <MediaPlaceholder className={className} style={style} />;
   }
   if (!frames?.length) return null;
 

@@ -14,7 +14,8 @@ export interface Exercise {
   pattern: string;       // movement pattern
   equip: string;         // barbell|dumbbell|cable|machine|smith|bodyweight|band
   compound?: boolean;
-  tier?: "S" | "A" | "B" | "C" | "D" | "F";
+  tier?: "S" | "A" | "B" | "C" | "D" | "M" | "V";
+  tierWhy?: string;      // evidence-based explanation shown under the badge
   cue: string;           // 1-line setup/execution cue
   howto?: string;        // detailed setup + execution (2-3 sentences)
   pros?: string;         // what makes it good — mechanism

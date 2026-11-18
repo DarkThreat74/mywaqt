@@ -160,7 +160,7 @@ const mw = (slug: string) => `/exercises/${slug}.gif`; // self-hosted — muscle
 type Detail = Pick<Exercise, "howto" | "pros" | "cons" | "source" | "uni" | "load" | "family">;
 const e = (
   slug: string, name: string, muscle: string, pattern: string, equip: string,
-  tier: "S" | "A" | "B" | "C" | "D" | "F" | undefined, cue: string,
+  tier: Exercise["tier"], cue: string,
   compound: boolean | Detail = false,
   detail?: Detail,
 ): Exercise => {
@@ -197,6 +197,7 @@ const UNI_SLUGS = new Set([
 
 import { EXERCISES_EXTRA } from "./exercises-extra";
 import { EXERCISES_WGER } from "./exercises-wger";
+import { autoTier } from "./ratings";
 
 export const EXERCISES: Exercise[] = [
   // ── CHEST ──
@@ -981,12 +982,16 @@ export const EXERCISES: Exercise[] = [
   // curated entries win clashes.
   ...EXERCISES_EXTRA,
   ...EXERCISES_WGER,
-].map((x) => ({
-  ...x,
-  head: HEAD_OF[x.slug] ?? ({ upper_chest: "upper", lower_chest: "lower", chest: "mid", abs: "all_abs" } as Record<string, string>)[x.muscle],
-  uni: UNI_SLUGS.has(x.slug) || x.uni === true || undefined,
-  load: x.load ?? LOAD_DEFAULT[x.equip],
-}));
+].map((x) => {
+  const rated = x.tier ? { tier: x.tier, tierWhy: x.tierWhy } : autoTier(x);
+  return {
+    ...x,
+    head: HEAD_OF[x.slug] ?? ({ upper_chest: "upper", lower_chest: "lower", chest: "mid", abs: "all_abs" } as Record<string, string>)[x.muscle],
+    uni: UNI_SLUGS.has(x.slug) || x.uni === true || undefined,
+    load: x.load ?? LOAD_DEFAULT[x.equip],
+    ...rated,
+  };
+});
 
 // Inherently one-side-at-a-time movements. Catalog `uni` flag is authoritative;
 // the regex only covers custom/user exercises with no catalog record.

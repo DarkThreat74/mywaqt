@@ -4,7 +4,7 @@
 //   2) else map it to the nearest existing Open-GYM pose art by name/
 //      muscle/pattern similarity, appending to exercise-art-map.ts
 // Usage: node scripts/fill-exercise-media.mjs
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
 
 const OUT = 'public/exercises';
 mkdirSync(OUT, { recursive: true });

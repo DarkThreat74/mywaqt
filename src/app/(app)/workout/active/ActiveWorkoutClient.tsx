@@ -19,7 +19,7 @@ type HandMode = "both" | "one";
 // Catalog-dependent helpers live inside ActiveInner — the ~2,000-entry
 // exercise bank is lazy-loaded so this route's initial chunk stays light.
 
-const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
+const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c", D: "#6b4f3f", M: "#3f5d4e", V: "#6b5d3f" };
 
 function fmt(s: number) {
   const m = Math.floor(s / 60), sec = s % 60;
@@ -981,6 +981,7 @@ function ActiveInner() {
                   <button type="button" onClick={() => setView(ex)} title="How to do it" className="shrink-0">
                     <ExerciseMedia
                       slug={ex.slug} pattern={ex.pattern}
+                      variation={rows[0]?.variation}
                       className="h-14 w-14 items-center justify-center rounded-lg"
                       style={{ backgroundColor: "var(--color-paper-2)" }}
                     />
@@ -1452,6 +1453,11 @@ function ActiveInner() {
                 className="mt-4 aspect-square w-full rounded-xl"
                 style={{ backgroundColor: "var(--color-paper-2)" }} />
               <p className="mt-4 text-sm font-medium" style={{ color: "var(--color-ink)" }}>{view.cue}</p>
+              {view.tierWhy && (
+                <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                  <span className="font-semibold" style={{ color: "var(--color-ink)" }}>Why {view.tier}:</span> {view.tierWhy}
+                </p>
+              )}
               {view.howto && (
                 <div className="mt-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>How to do it</p>

@@ -13,7 +13,7 @@ import { recommendLoadKg } from "@/lib/workout/recommend";
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface WDay { id: string; weekday: number | null; name: string; exercises: DayExercise[]; }
 
-const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c" };
+const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c", D: "#6b4f3f", M: "#3f5d4e", V: "#6b5d3f" };
 
 // ── Auto-insights helpers (Phase 3) ──────────────────────────────────────
 const PLATE_SIZES = [25, 20, 15, 10, 5, 2.5, 1.25];
@@ -340,6 +340,11 @@ export default function WorkoutClient() {
             className="mt-4 aspect-square w-full rounded-xl"
             style={{ backgroundColor: "var(--color-paper-2)" }} />
           <p className="mt-4 text-sm font-medium" style={{ color: "var(--color-ink)" }}>{view.cue}</p>
+          {view.tierWhy && (
+            <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              <span className="font-semibold" style={{ color: "var(--color-ink)" }}>Why {view.tier}:</span> {view.tierWhy}
+            </p>
+          )}
           {view.howto && (
             <div className="mt-3">
               <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>How to do it</p>

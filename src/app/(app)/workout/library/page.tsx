@@ -7,7 +7,7 @@ import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
 
 const TIERS = ["all", "S", "A", "B", "C", "D", "F"] as const;
-const TIER_COLORS: Record<string, string> = { S: "#d4a843", A: "#7fbf6b", B: "#5f9ea0", C: "#888888", D: "#b07a5f", F: "#c04f4f" };
+const TIER_COLORS: Record<string, string> = { S: "#d4a843", A: "#7fbf6b", B: "#5f9ea0", C: "#888888", D: "#b07a5f", M: "#6b9e8f", V: "#b08d4f" };
 
 export default function LibraryPage() {
   const [search, setSearch] = useState("");
@@ -154,6 +154,7 @@ export default function LibraryPage() {
             </div>
             <ExerciseMedia slug={view.slug} pattern={view.pattern} className="mt-4 aspect-square w-full rounded-xl" style={{ backgroundColor: "var(--color-paper-2)" }} />
             {view.howto && <p className="mt-4 text-sm leading-relaxed" style={{ color: "var(--color-ink)" }}>{view.howto}</p>}
+            {view.tierWhy && <p className="mt-3 text-xs" style={{ color: "var(--color-ink)" }}><span className="font-semibold">Why {view.tier}:</span> {view.tierWhy}</p>}
             {SCIENCE[view.slug] && <p className="mt-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>{SCIENCE[view.slug].science}</p>}
           </div>
         </div>
