@@ -7,6 +7,7 @@
 import React, { useState } from "react";
 import { ExerciseArt } from "./exercise-art";
 import { EXERCISE_ART } from "./exercise-art-map";
+import { EXERCISE_GIFS } from "./exercise-gifs";
 
 const S = { fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 
@@ -297,9 +298,13 @@ export function ExerciseDiagram({ pattern, className, style }: { pattern: string
  * fall back to the diagram permanently for that mount.
  */
 export function ExerciseMedia({ slug, pattern, className, style, showToggle = true }: { slug: string; pattern: string; className?: string; style?: React.CSSProperties; showToggle?: boolean }) {
-  const [mode, setMode] = useState<"art" | "gif">("art");
+  const hasArt = Boolean(EXERCISE_ART[slug]);
+  const hasGif = EXERCISE_GIFS.has(slug);
+  // Prefer the Open-GYM pose art when the exercise is mapped; exercises with
+  // only a GIF default straight to it — never the stick-figure diagram.
+  const [mode, setMode] = useState<"art" | "gif">(hasArt ? "art" : "gif");
   const [gifFailed, setGifFailed] = useState(false);
-  const useGif = mode === "gif" && !gifFailed;
+  const useGif = !gifFailed && (mode === "gif" || !hasArt);
   return (
     <span className={className} style={{ position: "relative", display: "inline-flex", overflow: "hidden", ...style }}>
       {useGif ? (
@@ -314,7 +319,7 @@ export function ExerciseMedia({ slug, pattern, className, style, showToggle = tr
       ) : (
         <ExerciseDiagram pattern={pattern} style={{ width: "100%", height: "100%" }} />
       )}
-      {showToggle && (
+      {showToggle && hasArt && hasGif && (
         <button
           type="button"
           aria-label={useGif ? "Show illustration" : "Show technique GIF"}
