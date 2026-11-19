@@ -89,6 +89,20 @@ function fatigueColor(f: number, alpha: number): string {
 
 const mid = (a: Pt, b: Pt, k = 0.5): Pt => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
 
+/** Degenerate landmark sets (all points nearly coincident, or off-frame)
+ *  crash MediaPipe's face-geometry solver — sanity-check before using. */
+function faceIsSane(lms: Lm[]): boolean {
+  if (lms.length < 10) return false;
+  let x0 = 1, x1 = 0, y0 = 1, y1 = 0, nan = false;
+  for (const p of lms) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) { nan = true; break; }
+    if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+    if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+  }
+  if (nan) return false;
+  return (x1 - x0) > 0.02 && (y1 - y0) > 0.02;
+}
+
 function blob(g: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, rot = 0) {
   g.beginPath(); g.ellipse(cx, cy, Math.max(2, rx), Math.max(2, ry), rot, 0, Math.PI * 2); g.closePath();
 }
@@ -209,6 +223,8 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const scratchRef = useRef<HTMLCanvasElement | null>(null);
   const pointerRef = useRef<Pt | null>(null);
   const lastStatusRef = useRef("");
+  const faceFails = useRef(0);
+  const lastFaceRebuild = useRef(0);
 
   const [stage, setStage] = useState<Stage>("idle");
   const [status, setStatus] = useState("");
@@ -341,33 +357,55 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
 
       let faceLms: Lm[] | null = null;
       const hands: Lm[][] = [], sides: boolean[] = [];
-      try {
-        const fr = tr.face.detectForVideo(video, now);
-        const rawFace = fr.faceLandmarks?.[0];
-        const mat = fr.facialTransformationMatrixes?.[0];
-        if (rawFace && mat) {
-          faceLms = rawFace as Lm[];
-          let jaw = 0;
-          const bs = fr.faceBlendshapes?.[0];
-          if (bs) for (const c of bs.categories) if (c.categoryName === "jawOpen") jaw = c.score;
-          engine.updateHead(mat.data, faceLms, jaw);
-          lostAt = 0;
-        } else {
+      const frameReady = video.videoWidth > 0 && video.currentTime > 0;
+
+      // Face geometry can throw on degenerate frames (face clipped at the
+      // frame edge, zero-variance landmarks). Contain it per-detector so one
+      // bad frame kills nothing else — the next frame just tries again.
+      if (frameReady) {
+        try {
+          const fr = tr.face.detectForVideo(video, now);
+          const rawFace = fr.faceLandmarks?.[0];
+          const mat = fr.facialTransformationMatrixes?.[0];
+          if (rawFace && mat && faceIsSane(rawFace as Lm[])) {
+            faceLms = rawFace as Lm[];
+            let jaw = 0;
+            const bs = fr.faceBlendshapes?.[0];
+            if (bs) for (const c of bs.categories) if (c.categoryName === "jawOpen") jaw = c.score;
+            engine.updateHead(mat.data, faceLms, jaw);
+            lostAt = 0;
+            faceFails.current = 0;
+          } else {
+            if (!lostAt) lostAt = now;
+            if (now - lostAt > 250) engine.headLost();
+          }
+        } catch {
+          // MediaPipe Procrustes crash — transient, but if it persists the
+          // graph state is wedged; rebuild the face tracker (throttled).
+          faceFails.current++;
+          if (faceFails.current > 10 && now - lastFaceRebuild.current > 4000) {
+            lastFaceRebuild.current = now;
+            faceFails.current = 0;
+            const old = tr.face;
+            void loadFaceTracker().then((f) => { trackersRef.current = { ...tr, face: f }; try { old.close(); } catch { /* noop */ } });
+          }
           if (!lostAt) lostAt = now;
           if (now - lostAt > 250) engine.headLost();
         }
-        if (tr.hand) {
-          const hr = tr.hand.detectForVideo(video, now);
-          const hl = hr.landmarks ?? [];
-          const hd = (hr as { handedness?: { categoryName: string }[][] }).handedness ?? [];
-          for (let i = 0; i < hl.length; i++) {
-            hands.push(hl[i] as Lm[]);
-            // tracker names hands for a mirrored picture; flip for rear camera
-            const left = hd[i]?.[0]?.categoryName === "Left";
-            sides.push(engine.mirror ? left : !left);
+        try {
+          if (tr.hand) {
+            const hr = tr.hand.detectForVideo(video, now);
+            const hl = hr.landmarks ?? [];
+            const hd = (hr as { handedness?: { categoryName: string }[][] }).handedness ?? [];
+            for (let i = 0; i < hl.length; i++) {
+              hands.push(hl[i] as Lm[]);
+              // tracker names hands for a mirrored picture; flip for rear camera
+              const left = hd[i]?.[0]?.categoryName === "Left";
+              sides.push(engine.mirror ? left : !left);
+            }
           }
-        }
-      } catch { /* trackers hiccup — keep last state */ }
+        } catch { /* hand hiccup — no bones this frame */ }
+      }
 
       // Body muscle overlay only when no face is in frame.
       let bodyShown = false;
@@ -395,7 +433,9 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
             }
             mask.close();
           }
-          if (raw) bodyShown = drawBodyOverlay(bodyG, raw, W, H);
+          if (raw) {
+            try { bodyShown = drawBodyOverlay(bodyG, raw, W, H); } catch { bodyShown = false; }
+          }
         } catch { /* pose hiccup */ }
       }
 
