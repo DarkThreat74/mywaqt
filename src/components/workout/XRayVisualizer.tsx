@@ -7,7 +7,30 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getPoseLandmarker } from "@/lib/workout/poseModel";
+import type { PoseLandmarker } from "@mediapipe/tasks-vision";
+
+const MODEL_PATHS = ["/models/pose/pose_landmarker_full.task", "/models/pose/pose_landmarker_lite.task"];
+
+// This view needs the person segmentation mask, which the shared singleton
+// doesn't request — a second landmarker over the same wasm is cheaper than a
+// second model download.
+async function loadSegLandmarker(): Promise<PoseLandmarker> {
+  const vision = await import("@mediapipe/tasks-vision");
+  const fileset = await vision.FilesetResolver.forVisionTasks("/mediapipe/wasm");
+  let lastErr: unknown = null;
+  for (const delegate of ["GPU", "CPU"] as const) {
+    for (const modelAssetPath of MODEL_PATHS) {
+      try {
+        return await vision.PoseLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath, delegate },
+          runningMode: "VIDEO", numPoses: 1, outputSegmentationMasks: true,
+          minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4,
+        });
+      } catch (err) { lastErr = err; }
+    }
+  }
+  throw lastErr ?? new Error("pose model unavailable");
+}
 
 type LM = { x: number; y: number; z?: number; visibility?: number };
 
@@ -179,12 +202,15 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const [dim, setDim] = useState(0.55);
   const [view, setView] = useState<"auto" | "front" | "back">("auto");
   const [reveal, setReveal] = useState<"whole" | "lens">("whole");
+  const [facing, setFacing] = useState<"user" | "environment">("user");
   const dimRef = useRef(dim);
   const labelsRef = useRef(labels);
   const viewRef = useRef(view);
   const revealRef = useRef(reveal);
+  const facingRef = useRef(facing);
   const fatigueRef = useRef(keyFatigue);
   const scratchRef = useRef<HTMLCanvasElement | null>(null);
+  const silRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => { dimRef.current = dim; }, [dim]);
   useEffect(() => { labelsRef.current = labels; }, [labels]);
   useEffect(() => { viewRef.current = view; }, [view]);
@@ -201,7 +227,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     setErrMsg("");
     try {
       const [landmarker, stream] = await Promise.all([
-        getPoseLandmarker(),
+        loadSegLandmarker(),
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }),
       ]);
       streamRef.current = stream;
@@ -221,8 +247,24 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     }
   }
 
-  function runLoop(landmarker: Awaited<ReturnType<typeof getPoseLandmarker>>) {
-    let lastTime = -1;
+  async function switchCamera() {
+    const next = facingRef.current === "user" ? "environment" : "user";
+    setFacing(next);
+    facingRef.current = next;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: next, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+      });
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = stream;
+      const video = videoRef.current;
+      if (video) { video.srcObject = stream; await video.play().catch(() => {}); }
+      smoothRef.current = null; // new feed = new tracking, don't blend across
+    } catch { /* keep the old camera if the flip failed */ }
+  }
+
+  function runLoop(landmarker: PoseLandmarker) {
+    let lastTime = -1, maskFrame = 0;
     const tick = () => {
       rafRef.current = requestAnimationFrame(tick);
       const video = videoRef.current, canvas = canvasRef.current, stageEl = stageRef.current;
@@ -240,6 +282,28 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
         try {
           const res = landmarker.detectForVideo(video, performance.now());
           raw = (res.landmarks?.[0] as LM[] | undefined) ?? null;
+          const mask = res.segmentationMasks?.[0];
+          // Mask → alpha canvas is a ~1MP JS loop — every other frame is plenty.
+          if (mask) {
+            if (maskFrame++ % 2 === 0) {
+              const mw = mask.width, mh = mask.height;
+              const sil = silRef.current ?? (silRef.current = document.createElement("canvas"));
+              if (sil.width !== mw || sil.height !== mh) { sil.width = mw; sil.height = mh; }
+              const sctx = sil.getContext("2d");
+              if (sctx) {
+                const conf = mask.getAsFloat32Array();
+                const img = sctx.createImageData(mw, mh);
+                const d32 = img.data;
+                for (let i = 0; i < conf.length; i++) {
+                  const a = Math.min(255, conf[i] * 340); // soft edge, boosted alpha
+                  d32[i * 4] = d32[i * 4 + 1] = d32[i * 4 + 2] = 255;
+                  d32[i * 4 + 3] = a;
+                }
+                sctx.putImageData(img, 0, 0);
+              }
+            }
+            mask.close();
+          }
         } catch { raw = smoothRef.current; }
       } else raw = smoothRef.current;
       if (!raw) {
@@ -261,8 +325,12 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       const vw = video.videoWidth || W, vh = video.videoHeight || H;
       const scale = Math.max(W / vw, H / vh);
       const ox = (W - vw * scale) / 2, oy = (H - vh * scale) / 2;
-      // Mirror x here (like the video's scaleX(-1)) so canvas text stays readable.
-      const px = (i: number): Pt => ({ x: W - ((sm[i]?.x ?? 0) * vw * scale + ox), y: (sm[i]?.y ?? 0) * vh * scale + oy });
+      // Mirror x only on the front camera (matches the video's scaleX(-1)).
+      const mir = facingRef.current === "user";
+      const px = (i: number): Pt => {
+        const x = (sm[i]?.x ?? 0) * vw * scale + ox;
+        return { x: mir ? W - x : x, y: (sm[i]?.y ?? 0) * vh * scale + oy };
+      };
       const vis = (i: number) => (sm[i]?.visibility ?? 0) > 0.3;
       const shoulderW = Math.abs(px(SH_L).x - px(SH_R).x);
       const u = Math.max(14, shoulderW * 0.5);
@@ -279,48 +347,63 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       const scratch = scratchRef.current ?? (scratchRef.current = document.createElement("canvas"));
       if (scratch.width !== W || scratch.height !== H) { scratch.width = W; scratch.height = H; }
       const sg = scratch.getContext("2d");
+      const sil = silRef.current;
       if (sg) {
         sg.clearRect(0, 0, W, H);
+        // Draws the person silhouette (mask space) into stage space.
+        const drawSil = () => {
+          if (!sil) return;
+          sg.save();
+          if (mir) { sg.translate(W, 0); sg.scale(-1, 1); }
+          sg.drawImage(sil, ox, oy, vw * scale, vh * scale);
+          sg.restore();
+        };
 
-        // Veil: darken the body hull so the muscles read like an x-ray.
+        // Veil: dim the real person so the muscles read like an x-ray.
         const d = dimRef.current;
-        if (d > 0.02) {
-          sg.fillStyle = `rgba(10,10,14,${(d * 0.85).toFixed(3)})`;
-          const sL = px(SH_L), sR = px(SH_R), hL = px(HIP_L), hR = px(HIP_R);
-          const earL = px(EAR_L), earR = px(EAR_R);
-          // head
-          if (vis(EAR_L) && vis(EAR_R)) { blob(sg, mid(earL, earR).x, mid(earL, earR).y + u * 0.15, Math.abs(earL.x - earR.x) * 0.75, u * 0.9); sg.fill(); }
-          // torso hull
-          poly(sg, [sL, sR, { x: hR.x + u * 0.2, y: hR.y + u * 0.4 }, { x: hL.x - u * 0.2, y: hL.y + u * 0.4 }]); sg.fill();
-          // limbs
-          for (const [a, b, w] of [[SH_L, EL_L, 0.42], [EL_L, WR_L, 0.3], [SH_R, EL_R, 0.42], [EL_R, WR_R, 0.3],
-                                   [HIP_L, KNEE_L, 0.55], [KNEE_L, ANK_L, 0.4], [HIP_R, KNEE_R, 0.55], [KNEE_R, ANK_R, 0.4]] as const)
-            if (vis(a) && vis(b)) { capsule(sg, px(a), px(b), u * w); sg.fill(); }
+        if (sil && d > 0.02) {
+          sg.save();
+          drawSil();
+          sg.globalCompositeOperation = "source-in";
+          sg.fillStyle = `rgba(10,10,14,${(d * 0.9).toFixed(3)})`;
+          sg.fillRect(0, 0, W, H);
+          sg.restore();
         }
 
         sg.save();
-        sg.globalCompositeOperation = "lighter";
         const pulse = 1 + 0.16 * Math.sin(performance.now() / 450);
         for (const r of REGIONS) {
           if (!regionVisible(r)) continue;
           const f = Math.max(0, ...r.keys.map((k) => fatigue[k] ?? 0));
           // Sore muscles breathe slowly — draws the eye to what needs rest.
-          const alpha = (0.34 + 0.30 * f) * (f > 0.3 ? pulse : 1);
-          for (const pass of [0, 1] as const) {
-            sg.fillStyle = fatigueColor(f, pass === 0 ? alpha * 0.55 : alpha);
-            sg.shadowColor = fatigueColor(f, 0.8);
-            sg.shadowBlur = pass === 0 ? u * 0.5 : u * 0.12;
-            r.draw(sg, px, u);
-            sg.fill();
-          }
-          // rim
+          const alpha = Math.min(1, (0.30 + 0.35 * f) * (f > 0.3 ? pulse : 1));
+          // Soft halo, then the shape itself — skin texture shows through so
+          // it reads as paint on the body, not a neon sticker.
+          sg.fillStyle = fatigueColor(f, alpha * 0.35);
+          sg.shadowColor = fatigueColor(f, 0.7);
+          sg.shadowBlur = u * 0.35;
+          r.draw(sg, px, u);
+          sg.fill();
           sg.shadowBlur = 0;
-          sg.strokeStyle = fatigueColor(f, 0.55);
+          sg.fillStyle = fatigueColor(f, alpha);
+          r.draw(sg, px, u);
+          sg.fill();
+          // rim
+          sg.strokeStyle = fatigueColor(f, 0.6);
           sg.lineWidth = Math.max(1, u * 0.03);
           r.draw(sg, px, u);
           sg.stroke();
         }
         sg.restore();
+
+        // Clip the whole overlay to the real body silhouette — this is what
+        // makes muscles look painted on you instead of floating blobs.
+        if (sil) {
+          sg.save();
+          sg.globalCompositeOperation = "destination-in";
+          drawSil();
+          sg.restore();
+        }
       }
 
       // Lens reveal: muscle glow only inside a soft circle that follows your
@@ -418,10 +501,20 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
           <h2 className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>Muscle recovery visualizer</h2>
           <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Live camera · redder = less recovered · processed on-device</p>
         </div>
+        {stage === "live" && (
+          <button type="button" onClick={switchCamera} aria-label="Switch camera"
+            className="ml-auto flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", background: "var(--color-paper)" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 7h-3l-1.5-2h-7L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" /><circle cx="12" cy="13" r="3" />
+            </svg>
+            Flip
+          </button>
+        )}
       </div>
 
       <div ref={stageRef} className="relative mx-4 flex-1 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", background: "#0a0a0e" }}>
-        <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" style={{ transform: "scaleX(-1)" }} />
+        <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" style={{ transform: facing === "user" ? "scaleX(-1)" : "none" }} />
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
         {stage !== "live" && (
@@ -432,9 +525,10 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
             <div>
               <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>See your recovery on your own body</p>
               <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                Step back so your full body is in frame. Muscles glow in their recovery
-                color — turn around for the back, or switch to Lens and point a finger
-                to peek inside. Video never leaves your device.
+                Step back so your full body is in frame. Muscles are painted on your
+                real silhouette in their recovery color — turn around for the back, flip
+                to the rear camera with the Flip button, or use Lens to peek inside.
+                Video never leaves your device.
               </p>
             </div>
             {stage === "error" && <p className="max-w-xs text-xs" style={{ color: "#c96b45" }}>{errMsg}</p>}
