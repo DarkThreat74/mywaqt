@@ -148,8 +148,26 @@ public class SalahShieldPlugin extends Plugin {
                 edit.putStringSet("blocked_apps", set);
             }
         } catch (Exception ignored) {}
+        if (data.has("scrollCounter")) {
+            edit.putBoolean("scroll_counter", data.optBoolean("scrollCounter", true));
+        }
         edit.apply();
         call.resolve();
+    }
+
+    /**
+     * Local scroll-counter stats — today + last 14 days of archived days.
+     * {today: {date,total,apps:{pkg:n},sec:{pkg:s}}, history: {date:{…}}}
+     * Everything stays on-device; the web layer only reads SharedPreferences.
+     */
+    @PluginMethod
+    public void getScrollStats(PluginCall call) {
+        SharedPreferences p = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSObject out = new JSObject();
+        out.put("today", p.getString("scroll_today", null));
+        out.put("history", p.getString("scroll_history", "{}"));
+        out.put("enabled", p.getBoolean("scroll_counter", true));
+        call.resolve(out);
     }
 
     /** The overlay's "Open Waqt" button launches the app with a

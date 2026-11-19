@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, CalendarClock, Download, Lightbulb, RefreshCw, Shield, UserRound } from "lucide-react";
 import { setCachedPrayerSettings, getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
 import { FunFactToggle, FunFactCountdown, PrayerPersonalization, type PrayerSettings } from "../SettingsClient";
-import { shieldNativeAvailable, getShieldStatus, setShieldArmed, isShieldArmed, isShieldPausedToday, setShieldPausedToday, openShieldSetting } from "@/lib/salah-shield-native";
+import { shieldNativeAvailable, getShieldStatus, setShieldArmed, isShieldArmed, isShieldPausedToday, setShieldPausedToday, openShieldSetting, getScrollStats, isScrollCounterEnabled, setScrollCounterEnabled, type ScrollDayStats } from "@/lib/salah-shield-native";
 
 type Tab = "planner" | "cards" | "downloads" | "personal" | "guard";
 
@@ -261,6 +261,7 @@ export default function MiscClient() {
       {tab === "downloads" && <OfflineTalksPanel />}
 
       {tab === "guard" && <SalahGuardPanel />}
+      {tab === "guard" && <ScrollCounterPanel />}
 
       {tab === "personal" && (
         <div className="flex flex-col gap-3">
@@ -505,6 +506,140 @@ function SalahGuardPanel() {
           <span className="absolute top-0.5 h-5 w-5 rounded-full transition-all" style={{ backgroundColor: "var(--color-paper)", left: paused ? "22px" : "2px" }} />
         </button>
       </div>
+    </div>
+  );
+}
+
+const SCROLL_APP_NAMES: Record<string, string> = {
+  "com.instagram.android": "Instagram",
+  "com.zhiliaoapp.musically": "TikTok",
+  "com.ss.android.ugc.trill": "TikTok",
+  "com.google.android.youtube": "YouTube",
+  "com.snapchat.android": "Snapchat",
+  "com.facebook.katana": "Facebook",
+  "com.twitter.android": "X",
+  "com.x.android": "X",
+  "com.threads.android": "Threads",
+  "com.reddit.frontpage": "Reddit",
+  "com.pinterest": "Pinterest",
+};
+
+function ScrollCounterPanel() {
+  const [native, setNative] = useState(false);
+  const [on, setOn] = useState(true);
+  const [today, setToday] = useState<ScrollDayStats | null>(null);
+  const [history, setHistory] = useState<Record<string, ScrollDayStats>>({});
+
+  useEffect(() => {
+    let live = true;
+    const refresh = async () => {
+      const ok = shieldNativeAvailable();
+      if (!live) return;
+      setNative(ok);
+      setOn(isScrollCounterEnabled());
+      if (!ok) return;
+      const s = await getScrollStats();
+      if (!live || !s) return;
+      setToday(s.today);
+      setHistory(s.history);
+    };
+    void refresh();
+    const t = setInterval(refresh, 15_000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+
+  const week = useMemo(() => {
+    const days: { label: string; total: number }[] = [];
+    const map = { ...history };
+    if (today) map[today.date] = today;
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      days.push({ label: d.toLocaleDateString(undefined, { weekday: "narrow" }), total: map[key]?.total ?? 0 });
+    }
+    return days;
+  }, [today, history]);
+
+  const maxDay = Math.max(1, ...week.map((d) => d.total));
+  const appRows = useMemo(() => Object.entries(today?.apps ?? {})
+    .map(([pkg, n]) => ({ name: SCROLL_APP_NAMES[pkg] ?? pkg, n, sec: today?.sec?.[pkg] ?? 0 }))
+    .sort((a, b) => b.n - a.n), [today]);
+  const totalSec = Object.values(today?.sec ?? {}).reduce((s, v) => s + v, 0);
+  const fmtSec = (s: number) => s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`;
+
+  const stage = (today?.total ?? 0) < 30 ? { t: "fresh", c: "#7fbf6b" } : (today?.total ?? 0) < 100 ? { t: "deep in it", c: "#d4a843" } : { t: "brain rot", c: "#c96b45" };
+
+  return (
+    <div className="mt-6 flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <RefreshCw className="h-4 w-4 shrink-0" style={{ color: "var(--color-accent)" }} />
+        <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Scroll counter</p>
+      </div>
+      <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+        Counts every feed scroll inside Instagram, TikTok, YouTube, and the rest —
+        with a small counter floating over the app. Everything stays on this phone.
+      </p>
+
+      {!native && (
+        <p className="rounded-xl border px-3 py-2.5 text-[11px]" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+          Available in the Waqt Android app.
+        </p>
+      )}
+
+      <div className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="min-w-0">
+          <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Count my scrolls</p>
+          <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            Local only — no account, no upload.
+          </p>
+        </div>
+        <button
+          role="switch" aria-checked={on} disabled={!native}
+          onClick={() => { const next = !on; setScrollCounterEnabled(next); setOn(next); }}
+          className="relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50"
+          style={{ backgroundColor: on ? "var(--color-accent)" : "var(--color-paper-3)" }}
+          aria-label="Toggle scroll counter"
+        >
+          <span className="absolute top-0.5 h-5 w-5 rounded-full transition-all" style={{ backgroundColor: "var(--color-paper)", left: on ? "22px" : "2px" }} />
+        </button>
+      </div>
+
+      {native && (
+        <div className="rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+          <div className="flex items-baseline justify-between">
+            <p className="text-2xl font-semibold tabular-nums" style={{ color: stage.c }}>
+              {today?.total ?? 0}
+            </p>
+            <p className="text-[11px]" style={{ color: stage.c }}>{stage.t}</p>
+          </div>
+          <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+            scrolls today{totalSec > 0 ? ` · ${fmtSec(totalSec)} in feed apps` : ""}
+          </p>
+
+          {appRows.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              {appRows.map((a) => (
+                <div key={a.name} className="flex items-center justify-between text-[11px]">
+                  <span style={{ color: "var(--color-ink)" }}>{a.name}</span>
+                  <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                    {a.n}{a.sec > 0 ? ` · ${fmtSec(a.sec)}` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3 flex items-end gap-1.5" style={{ height: 44 }}>
+            {week.map((d, i) => (
+              <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                <span className="w-full rounded-sm" title={`${d.total}`}
+                  style={{ height: Math.max(3, (d.total / maxDay) * 30), background: d.total ? "var(--color-accent)" : "var(--color-paper-3)", opacity: 0.85 }} />
+                <span className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}>{d.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

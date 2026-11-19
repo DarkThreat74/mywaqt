@@ -32,6 +32,7 @@ interface SalahShieldPluginHandle {
   syncSchedule(data: Record<string, unknown>): Promise<void>;
   markPrayed(opts: { prayer: string }): Promise<void>;
   consumeLaunchPrayer(): Promise<{ prayer: string | null }>;
+  getScrollStats(): Promise<{ today: string | null; history: string; enabled: boolean }>;
 }
 
 let plugin: SalahShieldPluginHandle | null = null;
@@ -88,6 +89,7 @@ export async function syncShieldSchedule(payload: {
   enabled: boolean;
   windows: ShieldWindow[];
   blockedApps?: string[];
+  scrollCounter?: boolean;
 }): Promise<void> {
   const p = await getPlugin();
   if (!p) return;
@@ -199,6 +201,51 @@ export function getShieldBlockedApps(): string[] | null {
     if (!raw) return null;
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr.filter((s) => typeof s === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Scroll counter (local — stats never leave the device) ──
+
+const SCROLL_COUNTER_KEY = "waqt:scroll-counter";
+
+export interface ScrollDayStats {
+  date: string;
+  total: number;
+  apps: Record<string, number>;
+  sec: Record<string, number>;
+}
+
+export function isScrollCounterEnabled(): boolean {
+  try { return localStorage.getItem(SCROLL_COUNTER_KEY) !== "0"; } catch { return true; }
+}
+export function setScrollCounterEnabled(on: boolean): void {
+  try { localStorage.setItem(SCROLL_COUNTER_KEY, on ? "1" : "0"); } catch { /* ignore */ }
+}
+
+/** Today's count + 14-day history from the native service. Null on web. */
+export async function getScrollStats(): Promise<{ today: ScrollDayStats | null; history: Record<string, ScrollDayStats>; enabled: boolean } | null> {
+  const p = await getPlugin();
+  if (!p) return null;
+  try {
+    const r = await p.getScrollStats();
+    const parse = (raw: string | null | undefined): ScrollDayStats | null => {
+      if (!raw) return null;
+      try {
+        const d = JSON.parse(raw);
+        return { date: d.date ?? "", total: d.total ?? 0, apps: d.apps ?? {}, sec: d.sec ?? {} };
+      } catch { return null; }
+    };
+    const history: Record<string, ScrollDayStats> = {};
+    try {
+      const h = JSON.parse(r.history ?? "{}");
+      for (const k of Object.keys(h)) {
+        const d = h[k];
+        if (d && typeof d === "object") history[k] = { date: d.date ?? k, total: d.total ?? 0, apps: d.apps ?? {}, sec: d.sec ?? {} };
+      }
+    } catch { /* empty */ }
+    return { today: parse(r.today), history, enabled: r.enabled };
   } catch {
     return null;
   }

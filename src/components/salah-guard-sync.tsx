@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect } from "react";
 import { getPrayerWindowStart, getPrayerWindowEnd, type PrayerKey, type PrayerTimings } from "@/lib/prayer/checkin";
-import { shieldNativeAvailable, syncShieldSchedule, consumeShieldPrayer, isShieldPausedToday, SHIELD_LS_KEY } from "@/lib/salah-shield-native";
+import { shieldNativeAvailable, syncShieldSchedule, consumeShieldPrayer, isShieldPausedToday, isScrollCounterEnabled, SHIELD_LS_KEY } from "@/lib/salah-shield-native";
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -48,7 +48,7 @@ export default function SalahGuardSync() {
         }
       }
       // No blockedApps — the service blocks every non-system app by default.
-      void syncShieldSchedule({ enabled, windows });
+      void syncShieldSchedule({ enabled, windows, scrollCounter: isScrollCounterEnabled() });
 
       // The overlay's "Open Waqt" launches with shield_prayer — consume it
       // once and let check-in UIs preselect that prayer.

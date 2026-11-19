@@ -73,6 +73,197 @@ public class ShieldAccessibilityService extends AccessibilityService {
             "com.bereal.ft"
     ));
 
+    // ── Local scroll counter ──
+    // Counted apps — short-form feeds. Each debounced TYPE_VIEW_SCROLLED
+    // event ≈ one more piece of content consumed. Everything stays in
+    // SharedPreferences on this device; nothing is uploaded.
+    private static final Set<String> SCROLL_APPS = new HashSet<>(java.util.Arrays.asList(
+            "com.instagram.android",
+            "com.zhiliaoapp.musically",        // TikTok
+            "com.ss.android.ugc.trill",      // TikTok (regional)
+            "com.google.android.youtube",
+            "com.snapchat.android",
+            "com.facebook.katana",
+            "com.twitter.android",
+            "com.x.android",
+            "com.threads.android",
+            "com.reddit.frontpage",
+            "com.pinterest"
+    ));
+    private static final long SCROLL_DEBOUNCE_MS = 650;
+
+    private android.view.View counterView;
+    private TextView counterText;
+    private long lastScrollAt = 0;
+    private String fgPkg = null;
+    private long fgSince = 0;
+    private int counterX = -1, counterY = -1; // remembered drag position
+
+    private SharedPreferences prefs() {
+        return getSharedPreferences(SalahShieldPlugin.PREFS, MODE_PRIVATE);
+    }
+
+    private boolean counterEnabled() {
+        return prefs().getBoolean("scroll_counter", true);
+    }
+
+    private static String todayKey() {
+        return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+    }
+
+    /** Today's stats object — {total, apps:{pkg:n}, sec:{pkg:s}} — created fresh
+     *  when the stored date has rolled over. */
+    private JSONObject todayStats() throws Exception {
+        SharedPreferences p = prefs();
+        JSONObject day = null;
+        String raw = p.getString("scroll_today", null);
+        if (raw != null) {
+            day = new JSONObject(raw);
+            if (!todayKey().equals(day.optString("date"))) {
+                archiveDay(day);                    // move yesterday into history
+                day = null;
+            }
+        }
+        if (day == null) {
+            day = new JSONObject();
+            day.put("date", todayKey());
+            day.put("total", 0);
+            day.put("apps", new JSONObject());
+            day.put("sec", new JSONObject());
+        }
+        return day;
+    }
+
+    private void saveToday(JSONObject day) {
+        prefs().edit().putString("scroll_today", day.toString()).apply();
+    }
+
+    /** Yesterday's finished stats go into scroll_history (last 14 days kept). */
+    private void archiveDay(JSONObject day) {
+        try {
+            String raw = prefs().getString("scroll_history", "{}");
+            JSONObject hist = new JSONObject(raw);
+            hist.put(day.optString("date"), day);
+            // prune to newest 14 entries
+            java.util.List<String> keys = new java.util.ArrayList<>();
+            java.util.Iterator<String> it = hist.keys();
+            while (it.hasNext()) keys.add(it.next());
+            java.util.Collections.sort(keys);
+            while (keys.size() > 14) hist.remove(keys.remove(0));
+            prefs().edit().putString("scroll_history", hist.toString()).apply();
+        } catch (Exception ignored) {}
+    }
+
+    private void countScroll(String pkg) {
+        long now = System.currentTimeMillis();
+        if (now - lastScrollAt < SCROLL_DEBOUNCE_MS) return;
+        lastScrollAt = now;
+        try {
+            JSONObject day = todayStats();
+            day.put("total", day.optInt("total") + 1);
+            JSONObject apps = day.optJSONObject("apps");
+            if (apps != null) apps.put(pkg, apps.optInt(pkg) + 1);
+            saveToday(day);
+            updateCounter(day.optInt("total"));
+        } catch (Exception ignored) {}
+    }
+
+    private void trackForeground(String pkg) {
+        long now = System.currentTimeMillis();
+        // Close out the previous app's session time.
+        if (fgPkg != null && SCROLL_APPS.contains(fgPkg) && fgSince > 0) {
+            try {
+                JSONObject day = todayStats();
+                JSONObject sec = day.optJSONObject("sec");
+                if (sec != null) sec.put(fgPkg, sec.optLong(fgPkg) + (now - fgSince) / 1000);
+                saveToday(day);
+            } catch (Exception ignored) {}
+        }
+        fgPkg = SCROLL_APPS.contains(pkg) ? pkg : null;
+        fgSince = SCROLL_APPS.contains(pkg) ? now : 0;
+    }
+
+    // ── Floating counter pill ──
+
+    private void showCounter(int total) {
+        if (!counterEnabled()) { hideCounter(); return; }
+        if (wm == null) return;
+        if (counterView == null) {
+            counterText = new TextView(this);
+            counterText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            counterText.setTypeface(Typeface.DEFAULT_BOLD);
+            counterText.setTextColor(Color.parseColor("#efe8dd"));
+            counterText.setPadding(dp(12), dp(6), dp(12), dp(6));
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.parseColor("#e61a1815")); // warm ink, ~90% opaque
+            bg.setCornerRadius(dp(14));
+            bg.setStroke(dp(1), Color.parseColor("#40efe8dd"));
+            counterText.setBackground(bg);
+            WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    PixelFormat.TRANSLUCENT);
+            lp.gravity = Gravity.TOP | Gravity.END;
+            lp.x = dp(10); lp.y = dp(120);
+            // Drag anywhere on the pill.
+            final WindowManager.LayoutParams flp = lp;
+            counterText.setOnTouchListener(new android.view.View.OnTouchListener() {
+                float downX, downY; int startX, startY;
+                @Override public boolean onTouch(android.view.View v, android.view.MotionEvent e) {
+                    if (e.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                        downX = e.getRawX(); downY = e.getRawY(); startX = flp.x; startY = flp.y; return true;
+                    }
+                    if (e.getAction() == android.view.MotionEvent.ACTION_MOVE) {
+                        // RIGHT gravity: dragging left increases x.
+                        flp.x = (int) (startX - (e.getRawX() - downX));
+                        flp.y = (int) (startY + (e.getRawY() - downY));
+                        try { wm.updateViewLayout(counterView, flp); } catch (Exception ignored) {}
+                        return true;
+                    }
+                    return e.getAction() == android.view.MotionEvent.ACTION_UP;
+                }
+            });
+            try { wm.addView(counterText, lp); counterView = counterText; } catch (Exception ignored) { return; }
+        }
+        updateCounter(total);
+        if (counterX >= 0) {
+            WindowManager.LayoutParams lp = (WindowManager.LayoutParams) counterView.getLayoutParams();
+            lp.x = counterX; lp.y = counterY;
+            try { wm.updateViewLayout(counterView, lp); } catch (Exception ignored) {}
+        }
+    }
+
+    private void updateCounter(int total) {
+        if (counterText == null) return;
+        counterText.setText("↕ " + total);
+        int color = total < 30 ? 0xff7fbf6b : total < 100 ? 0xffd4a843 : 0xffc96b45;
+        counterText.setTextColor(color);
+    }
+
+    private void hideCounter() {
+        if (counterView != null && wm != null) {
+            WindowManager.LayoutParams lp = (WindowManager.LayoutParams) counterView.getLayoutParams();
+            counterX = lp.x; counterY = lp.y;
+            try { wm.removeView(counterView); } catch (Exception ignored) {}
+        }
+        counterView = null;
+        counterText = null;
+    }
+
+    private void tickCounter(String pkg) {
+        // Show the pill only inside a counted app with the counter enabled.
+        if (SCROLL_APPS.contains(pkg) && counterEnabled()) {
+            try {
+                JSONObject day = todayStats();
+                showCounter(day.optInt("total"));
+            } catch (Exception ignored) {}
+        } else {
+            hideCounter();
+        }
+    }
+
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
@@ -83,7 +274,15 @@ public class ShieldAccessibilityService extends AccessibilityService {
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null || event.getPackageName() == null) return;
         String pkg = event.getPackageName().toString();
-        if (pkg.equals(getPackageName())) { hideOverlay(); return; } // never block ourselves
+        if (pkg.equals(getPackageName())) { hideOverlay(); hideCounter(); return; } // never block ourselves
+
+        // Scroll counter bookkeeping — foreground time + feed scrolls.
+        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            trackForeground(pkg);
+            tickCounter(pkg);
+        } else if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED && SCROLL_APPS.contains(pkg)) {
+            countScroll(pkg);
+        }
 
         JSONObject due = dueWindow();
         if (due == null || !isBlocked(pkg)) {
@@ -104,11 +303,13 @@ public class ShieldAccessibilityService extends AccessibilityService {
     @Override
     public void onInterrupt() {
         hideOverlay();
+        hideCounter();
     }
 
     @Override
     public void onDestroy() {
         hideOverlay();
+        hideCounter();
         super.onDestroy();
     }
 

@@ -333,10 +333,13 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       };
       const vis = (i: number) => (sm[i]?.visibility ?? 0) > 0.3;
       const shoulderW = Math.abs(px(SH_L).x - px(SH_R).x);
-      const u = Math.max(14, shoulderW * 0.5);
+      const earW = Math.abs(px(EAR_L).x - px(EAR_R).x);
+      // Head-only framing: shoulders off-screen → scale off ear width instead.
+      const headOnly = !vis(SH_L) && !vis(SH_R) && (vis(NOSE) || earW > 8);
+      const u = headOnly ? Math.max(14, earW * 0.45) : Math.max(14, shoulderW * 0.5);
       const detectedFront = vis(NOSE) || (vis(EAR_L) && vis(EAR_R));
       const v = viewRef.current;
-      const frontView = v === "auto" ? detectedFront : v === "front";
+      const frontView = headOnly ? detectedFront : (v === "auto" ? detectedFront : v === "front");
       const regionVisible = (r: Region) =>
         (r.side === "both" || (r.side === "front") === frontView) &&
         r.need.every((i) => vis(i));
@@ -372,6 +375,23 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
 
         sg.save();
         const pulse = 1 + 0.16 * Math.sin(performance.now() / 450);
+        if (headOnly) {
+          // Only the head is framed — the neck is the one tracked muscle that
+          // still shows: capsule from just under the chin down out of frame.
+          const f = fatigue.neck ?? 0;
+          const chinY = mid(px(EAR_L), px(EAR_R)).y + u * 1.1;
+          const nx = mid(px(EAR_L), px(EAR_R)).x;
+          const alpha = Math.min(1, (0.30 + 0.35 * f) * (f > 0.3 ? pulse : 1));
+          sg.fillStyle = fatigueColor(f, alpha * 0.35);
+          sg.shadowColor = fatigueColor(f, 0.7);
+          sg.shadowBlur = u * 0.35;
+          capsule(sg, { x: nx, y: chinY - u * 0.3 }, { x: nx, y: chinY + u * 2.2 }, u * 0.42);
+          sg.fill();
+          sg.shadowBlur = 0;
+          sg.fillStyle = fatigueColor(f, alpha);
+          capsule(sg, { x: nx, y: chinY - u * 0.3 }, { x: nx, y: chinY + u * 2.2 }, u * 0.42);
+          sg.fill();
+        }
         for (const r of REGIONS) {
           if (!regionVisible(r)) continue;
           const f = Math.max(0, ...r.keys.map((k) => fatigue[k] ?? 0));
@@ -423,6 +443,12 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
         }
       }
       if (sg) g.drawImage(scratch, 0, 0);
+      if (headOnly) {
+        g.fillStyle = "rgba(255,255,255,0.7)";
+        g.font = "600 11px system-ui, sans-serif";
+        g.textAlign = "center";
+        g.fillText("head tracked — step back for body muscles", W / 2, H - 14);
+      }
       if (lens) {
         g.strokeStyle = "rgba(127,209,255,0.75)";
         g.lineWidth = 2;
