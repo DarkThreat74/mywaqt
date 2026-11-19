@@ -13,8 +13,8 @@ type LM = { x: number; y: number; z?: number; visibility?: number };
 
 // MediaPipe pose landmark indices.
 const NOSE = 0, EAR_L = 7, EAR_R = 8, SH_L = 11, SH_R = 12, EL_L = 13, EL_R = 14,
-  WR_L = 15, WR_R = 16, HIP_L = 23, HIP_R = 24, KNEE_L = 25, KNEE_R = 26,
-  ANK_L = 27, ANK_R = 28;
+  WR_L = 15, WR_R = 16, IDX_L = 19, IDX_R = 20, HIP_L = 23, HIP_R = 24,
+  KNEE_L = 25, KNEE_R = 26, ANK_L = 27, ANK_R = 28;
 
 // Recovery color ramp — same scale as the muscles page.
 const RAMP = [[0.42, 0.75, 0.42], [0.83, 0.66, 0.26], [0.79, 0.42, 0.27], [0.56, 0.20, 0.10]];
@@ -32,7 +32,7 @@ function fatigueColor(f: number, alpha: number): string {
 type Pt = { x: number; y: number };
 type Shape = (g: CanvasRenderingContext2D, p: (i: number) => Pt, u: number) => void;
 
-interface Region { keys: string[]; label: string; side: "front" | "back" | "both"; draw: Shape; anchor: (p: (i: number) => Pt, u: number) => Pt }
+interface Region { keys: string[]; label: string; side: "front" | "back" | "both"; need: number[]; draw: Shape; anchor: (p: (i: number) => Pt, u: number) => Pt }
 
 function blob(g: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, rot = 0) {
   g.beginPath();
@@ -59,25 +59,31 @@ const mid = (a: Pt, b: Pt, k = 0.5): Pt => ({ x: a.x + (b.x - a.x) * k, y: a.y +
 const REGIONS: Region[] = [
   // ── shared / both views ──
   { keys: ["neck"], label: "Neck", side: "both",
+    need: [EAR_L, EAR_R, SH_L, SH_R],
     draw: (g, p, u) => { const n = mid(p(EAR_L), p(EAR_R)), s = mid(p(SH_L), p(SH_R)); blob(g, mid(n, s, 0.4).x, mid(n, s, 0.4).y, u * 0.24, u * 0.30); },
     anchor: (p) => mid(p(EAR_L), p(EAR_R), 0.5) },
   { keys: ["forearms", "grip"], label: "Forearm", side: "both",
+    need: [EL_L, WR_L, EL_R, WR_R],
     draw: (g, p, u) => { capsule(g, p(EL_L), p(WR_L), u * 0.20); capsule(g, p(EL_R), p(WR_R), u * 0.20); },
     anchor: (p) => mid(p(EL_R), p(WR_R)) },
   // ── front view ──
   { keys: ["upper_traps"], label: "Traps", side: "front",
+    need: [EAR_L, EAR_R, SH_L, SH_R],
     draw: (g, p, u) => {
       const n = mid(p(EAR_L), p(EAR_R)), c = mid(p(SH_L), p(SH_R));
       poly(g, [{ x: n.x - u * 0.22, y: n.y + u * 0.35 }, p(SH_L), { x: c.x, y: c.y + u * 0.55 }, p(SH_R), { x: n.x + u * 0.22, y: n.y + u * 0.35 }]);
     },
     anchor: (p) => mid(p(EAR_R), p(SH_R), 0.5) },
   { keys: ["front_delts"], label: "Front delts", side: "front",
+    need: [SH_L, SH_R],
     draw: (g, p, u) => { blob(g, p(SH_L).x, p(SH_L).y + u * 0.12, u * 0.34, u * 0.30); blob(g, p(SH_R).x, p(SH_R).y + u * 0.12, u * 0.34, u * 0.30); },
     anchor: (p) => p(SH_R) },
   { keys: ["side_delts"], label: "Side delts", side: "front",
+    need: [SH_L, SH_R],
     draw: (g, p, u) => { blob(g, p(SH_L).x - u * 0.28, p(SH_L).y + u * 0.16, u * 0.22, u * 0.28); blob(g, p(SH_R).x + u * 0.28, p(SH_R).y + u * 0.16, u * 0.22, u * 0.28); },
     anchor: (p, u) => ({ x: p(SH_L).x - u * 0.3, y: p(SH_L).y }) },
   { keys: ["chest"], label: "Chest", side: "front",
+    need: [SH_L, SH_R, HIP_L, HIP_R],
     draw: (g, p, u) => {
       const c = mid(p(SH_L), p(SH_R)), bot = mid(p(HIP_L), p(HIP_R));
       poly(g, [p(SH_L), { x: c.x - u * 0.08, y: c.y + u * 0.30 }, { x: c.x - u * 0.06, y: c.y + u * 1.9 }, { x: p(SH_L).x + u * 0.15, y: mid(c, bot, 0.35).y }]);
@@ -85,12 +91,15 @@ const REGIONS: Region[] = [
     },
     anchor: (p) => mid(p(SH_R), p(HIP_R), 0.3) },
   { keys: ["biceps"], label: "Biceps", side: "front",
+    need: [SH_L, EL_L, SH_R, EL_R],
     draw: (g, p, u) => { capsule(g, p(SH_L), p(EL_L), u * 0.21, 0.55, u * 0.10); capsule(g, p(SH_R), p(EL_R), u * 0.21, 0.55, -u * 0.10); },
     anchor: (p) => mid(p(SH_R), p(EL_R)) },
   { keys: ["triceps"], label: "Triceps", side: "back",
+    need: [SH_L, EL_L, SH_R, EL_R],
     draw: (g, p, u) => { capsule(g, p(SH_L), p(EL_L), u * 0.18, 0.5, -u * 0.16); capsule(g, p(SH_R), p(EL_R), u * 0.18, 0.5, u * 0.16); },
     anchor: (p) => mid(p(SH_L), p(EL_L)) },
   { keys: ["abs"], label: "Abs", side: "front",
+    need: [SH_L, SH_R, HIP_L, HIP_R],
     draw: (g, p, u) => {
       const c = mid(p(SH_L), p(SH_R)), h = mid(p(HIP_L), p(HIP_R));
       const top = mid(c, h, 0.45), bot = mid(c, h, 0.92);
@@ -102,6 +111,7 @@ const REGIONS: Region[] = [
     },
     anchor: (p) => mid(mid(p(SH_L), p(SH_R)), mid(p(HIP_L), p(HIP_R)), 0.7) },
   { keys: ["obliques"], label: "Obliques", side: "front",
+    need: [SH_L, SH_R, HIP_L, HIP_R],
     draw: (g, p, u) => {
       const c = mid(p(SH_L), p(SH_R)), h = mid(p(HIP_L), p(HIP_R)), w = Math.abs(p(HIP_L).x - p(HIP_R).x) * 0.5;
       capsule(g, { x: c.x - w - u * 0.45, y: mid(c, h, 0.4).y }, { x: h.x - w, y: h.y }, u * 0.20);
@@ -109,13 +119,16 @@ const REGIONS: Region[] = [
     },
     anchor: (p) => mid(p(HIP_L), mid(p(SH_L), p(HIP_L))) },
   { keys: ["quads", "adductors", "hip_flexors"], label: "Quads", side: "front",
+    need: [HIP_L, KNEE_L, HIP_R, KNEE_R],
     draw: (g, p, u) => { capsule(g, p(HIP_L), p(KNEE_L), u * 0.34); capsule(g, p(HIP_R), p(KNEE_R), u * 0.34); },
     anchor: (p) => mid(p(HIP_R), p(KNEE_R), 0.4) },
   // ── back view ──
   { keys: ["rear_delts"], label: "Rear delts", side: "back",
+    need: [SH_L, SH_R],
     draw: (g, p, u) => { blob(g, p(SH_L).x + u * 0.1, p(SH_L).y + u * 0.1, u * 0.30, u * 0.26); blob(g, p(SH_R).x - u * 0.1, p(SH_R).y + u * 0.1, u * 0.30, u * 0.26); },
     anchor: (p) => p(SH_L) },
   { keys: ["lats"], label: "Lats", side: "back",
+    need: [SH_L, SH_R, HIP_L, HIP_R],
     draw: (g, p, u) => {
       const c = mid(p(SH_L), p(SH_R)), h = mid(p(HIP_L), p(HIP_R));
       poly(g, [p(SH_L), { x: c.x - u * 0.15, y: mid(c, h, 0.55).y }, { x: h.x - u * 0.25, y: h.y - u * 0.3 }, { x: p(SH_L).x - u * 0.25, y: p(SH_L).y + u * 1.1 }]);
@@ -123,6 +136,7 @@ const REGIONS: Region[] = [
     },
     anchor: (p) => mid(p(SH_L), p(HIP_L), 0.45) },
   { keys: ["erectors", "lower_traps", "mid_back"], label: "Erectors", side: "back",
+    need: [SH_L, SH_R, HIP_L, HIP_R],
     draw: (g, p, u) => {
       const c = mid(p(SH_L), p(SH_R)), h = mid(p(HIP_L), p(HIP_R));
       capsule(g, { x: c.x, y: c.y + u * 0.9 }, h, u * 0.14, 0.5, -u * 0.16);
@@ -130,15 +144,19 @@ const REGIONS: Region[] = [
     },
     anchor: (p) => mid(mid(p(SH_L), p(SH_R)), mid(p(HIP_L), p(HIP_R)), 0.75) },
   { keys: ["glutes"], label: "Glutes", side: "back",
+    need: [HIP_L, HIP_R],
     draw: (g, p, u) => { blob(g, p(HIP_L).x, p(HIP_L).y + u * 0.28, u * 0.38, u * 0.32); blob(g, p(HIP_R).x, p(HIP_R).y + u * 0.28, u * 0.38, u * 0.32); },
     anchor: (p) => p(HIP_L) },
   { keys: ["hamstrings"], label: "Hamstrings", side: "back",
+    need: [HIP_L, KNEE_L, HIP_R, KNEE_R],
     draw: (g, p, u) => { capsule(g, p(HIP_L), p(KNEE_L), u * 0.30); capsule(g, p(HIP_R), p(KNEE_R), u * 0.30); },
     anchor: (p) => mid(p(HIP_R), p(KNEE_R), 0.5) },
   { keys: ["gastroc", "soleus"], label: "Calves", side: "back",
+    need: [KNEE_L, ANK_L, KNEE_R, ANK_R],
     draw: (g, p, u) => { capsule(g, p(KNEE_L), p(ANK_L), u * 0.22, 0.35); capsule(g, p(KNEE_R), p(ANK_R), u * 0.22, 0.35); },
     anchor: (p) => mid(p(KNEE_R), p(ANK_R), 0.3) },
   { keys: ["tibialis"], label: "Shins", side: "front",
+    need: [KNEE_L, ANK_L, KNEE_R, ANK_R],
     draw: (g, p, u) => { capsule(g, p(KNEE_L), p(ANK_L), u * 0.14, 0.4); capsule(g, p(KNEE_R), p(ANK_R), u * 0.14, 0.4); },
     anchor: (p) => mid(p(KNEE_L), p(ANK_L), 0.4) },
 ];
@@ -159,11 +177,18 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const [errMsg, setErrMsg] = useState("");
   const [labels, setLabels] = useState(true);
   const [dim, setDim] = useState(0.55);
+  const [view, setView] = useState<"auto" | "front" | "back">("auto");
+  const [reveal, setReveal] = useState<"whole" | "lens">("whole");
   const dimRef = useRef(dim);
   const labelsRef = useRef(labels);
+  const viewRef = useRef(view);
+  const revealRef = useRef(reveal);
   const fatigueRef = useRef(keyFatigue);
+  const scratchRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => { dimRef.current = dim; }, [dim]);
   useEffect(() => { labelsRef.current = labels; }, [labels]);
+  useEffect(() => { viewRef.current = view; }, [view]);
+  useEffect(() => { revealRef.current = reveal; }, [reveal]);
   useEffect(() => { fatigueRef.current = keyFatigue; }, [keyFatigue]);
 
   useEffect(() => () => {
@@ -241,51 +266,87 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       const vis = (i: number) => (sm[i]?.visibility ?? 0) > 0.3;
       const shoulderW = Math.abs(px(SH_L).x - px(SH_R).x);
       const u = Math.max(14, shoulderW * 0.5);
-      const frontView = vis(NOSE) || (vis(EAR_L) && vis(EAR_R));
+      const detectedFront = vis(NOSE) || (vis(EAR_L) && vis(EAR_R));
+      const v = viewRef.current;
+      const frontView = v === "auto" ? detectedFront : v === "front";
+      const regionVisible = (r: Region) =>
+        (r.side === "both" || (r.side === "front") === frontView) &&
+        r.need.every((i) => vis(i));
 
-      // Veil: darken the body hull so the muscles read like an x-ray.
-      const d = dimRef.current;
-      if (d > 0.02) {
-        g.fillStyle = `rgba(10,10,14,${(d * 0.85).toFixed(3)})`;
-        const sL = px(SH_L), sR = px(SH_R), hL = px(HIP_L), hR = px(HIP_R);
-        const earL = px(EAR_L), earR = px(EAR_R);
-        g.save();
-        // head
-        if (vis(EAR_L) && vis(EAR_R)) { blob(g, mid(earL, earR).x, mid(earL, earR).y + u * 0.15, Math.abs(earL.x - earR.x) * 0.75, u * 0.9); g.fill(); }
-        // torso hull
-        poly(g, [sL, sR, { x: hR.x + u * 0.2, y: hR.y + u * 0.4 }, { x: hL.x - u * 0.2, y: hL.y + u * 0.4 }]); g.fill();
-        // limbs
-        for (const [a, b, w] of [[SH_L, EL_L, 0.42], [EL_L, WR_L, 0.3], [SH_R, EL_R, 0.42], [EL_R, WR_R, 0.3],
-                                 [HIP_L, KNEE_L, 0.55], [KNEE_L, ANK_L, 0.4], [HIP_R, KNEE_R, 0.55], [KNEE_R, ANK_R, 0.4]] as const)
-          if (vis(a) && vis(b)) { capsule(g, px(a), px(b), u * w); g.fill(); }
-        g.restore();
-      }
-
-      // Muscle glow — additive-ish feel via shadowBlur + two passes.
+      // Overlay pass (veil + muscle glow) renders on a scratch canvas so the
+      // lens reveal can mask the whole x-ray layer as one image.
       const fatigue = fatigueRef.current;
-      g.save();
-      g.globalCompositeOperation = "lighter";
-      for (const r of REGIONS) {
-        if (r.side !== "both" && ((r.side === "front") !== frontView)) continue;
-        const f = Math.max(0, ...r.keys.map((k) => fatigue[k] ?? 0));
-        const alpha = 0.34 + 0.30 * f;
-        for (const pass of [0, 1] as const) {
-          g.fillStyle = fatigueColor(f, pass === 0 ? alpha * 0.55 : alpha);
-          g.shadowColor = fatigueColor(f, 0.8);
-          g.shadowBlur = pass === 0 ? u * 0.5 : u * 0.12;
-          r.draw(g, px, u);
-          g.fill();
-        }
-        // rim
-        g.shadowBlur = 0;
-        g.strokeStyle = fatigueColor(f, 0.55);
-        g.lineWidth = Math.max(1, u * 0.03);
-        r.draw(g, px, u);
-        g.stroke();
-      }
-      g.restore();
+      const scratch = scratchRef.current ?? (scratchRef.current = document.createElement("canvas"));
+      if (scratch.width !== W || scratch.height !== H) { scratch.width = W; scratch.height = H; }
+      const sg = scratch.getContext("2d");
+      if (sg) {
+        sg.clearRect(0, 0, W, H);
 
-      if (labelsRef.current) drawLabels(g, px, u, frontView, fatigue, W);
+        // Veil: darken the body hull so the muscles read like an x-ray.
+        const d = dimRef.current;
+        if (d > 0.02) {
+          sg.fillStyle = `rgba(10,10,14,${(d * 0.85).toFixed(3)})`;
+          const sL = px(SH_L), sR = px(SH_R), hL = px(HIP_L), hR = px(HIP_R);
+          const earL = px(EAR_L), earR = px(EAR_R);
+          // head
+          if (vis(EAR_L) && vis(EAR_R)) { blob(sg, mid(earL, earR).x, mid(earL, earR).y + u * 0.15, Math.abs(earL.x - earR.x) * 0.75, u * 0.9); sg.fill(); }
+          // torso hull
+          poly(sg, [sL, sR, { x: hR.x + u * 0.2, y: hR.y + u * 0.4 }, { x: hL.x - u * 0.2, y: hL.y + u * 0.4 }]); sg.fill();
+          // limbs
+          for (const [a, b, w] of [[SH_L, EL_L, 0.42], [EL_L, WR_L, 0.3], [SH_R, EL_R, 0.42], [EL_R, WR_R, 0.3],
+                                   [HIP_L, KNEE_L, 0.55], [KNEE_L, ANK_L, 0.4], [HIP_R, KNEE_R, 0.55], [KNEE_R, ANK_R, 0.4]] as const)
+            if (vis(a) && vis(b)) { capsule(sg, px(a), px(b), u * w); sg.fill(); }
+        }
+
+        sg.save();
+        sg.globalCompositeOperation = "lighter";
+        const pulse = 1 + 0.16 * Math.sin(performance.now() / 450);
+        for (const r of REGIONS) {
+          if (!regionVisible(r)) continue;
+          const f = Math.max(0, ...r.keys.map((k) => fatigue[k] ?? 0));
+          // Sore muscles breathe slowly — draws the eye to what needs rest.
+          const alpha = (0.34 + 0.30 * f) * (f > 0.3 ? pulse : 1);
+          for (const pass of [0, 1] as const) {
+            sg.fillStyle = fatigueColor(f, pass === 0 ? alpha * 0.55 : alpha);
+            sg.shadowColor = fatigueColor(f, 0.8);
+            sg.shadowBlur = pass === 0 ? u * 0.5 : u * 0.12;
+            r.draw(sg, px, u);
+            sg.fill();
+          }
+          // rim
+          sg.shadowBlur = 0;
+          sg.strokeStyle = fatigueColor(f, 0.55);
+          sg.lineWidth = Math.max(1, u * 0.03);
+          r.draw(sg, px, u);
+          sg.stroke();
+        }
+        sg.restore();
+      }
+
+      // Lens reveal: muscle glow only inside a soft circle that follows your
+      // index fingertip (falls back to wrist, then frame centre).
+      let lens: { x: number; y: number; r: number } | null = null;
+      if (revealRef.current === "lens") {
+        const tip = vis(IDX_L) ? px(IDX_L) : vis(IDX_R) ? px(IDX_R) : vis(WR_L) ? px(WR_L) : vis(WR_R) ? px(WR_R) : { x: W / 2, y: H / 2 };
+        const rad = Math.min(W, H) * 0.42;
+        lens = { x: tip.x, y: tip.y, r: rad };
+        if (sg) {
+          sg.globalCompositeOperation = "destination-in";
+          const grad = sg.createRadialGradient(tip.x, tip.y, rad * 0.55, tip.x, tip.y, rad);
+          grad.addColorStop(0, "rgba(0,0,0,1)");
+          grad.addColorStop(1, "rgba(0,0,0,0)");
+          sg.fillStyle = grad;
+          sg.fillRect(0, 0, W, H);
+        }
+      }
+      if (sg) g.drawImage(scratch, 0, 0);
+      if (lens) {
+        g.strokeStyle = "rgba(127,209,255,0.75)";
+        g.lineWidth = 2;
+        g.beginPath(); g.arc(lens.x, lens.y, lens.r, 0, 6.3); g.stroke();
+      }
+
+      if (labelsRef.current && revealRef.current === "whole") drawLabels(g, px, u, frontView, fatigue, W);
     };
     rafRef.current = requestAnimationFrame(tick);
   }
@@ -327,6 +388,28 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     }
   }
 
+  async function snapshot() {
+    const video = videoRef.current, overlay = canvasRef.current;
+    if (!video || !overlay) return;
+    const W = overlay.width, H = overlay.height;
+    const out = document.createElement("canvas");
+    out.width = W; out.height = H;
+    const g = out.getContext("2d");
+    if (!g) return;
+    // Draw the video frame mirrored to match what the user sees.
+    const vw = video.videoWidth || W, vh = video.videoHeight || H;
+    const scale = Math.max(W / vw, H / vh);
+    const dw = vw * scale, dh = vh * scale;
+    g.translate(W, 0); g.scale(-1, 1);
+    g.drawImage(video, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.drawImage(overlay, 0, 0);
+    const a = document.createElement("a");
+    a.download = `waqt-xray-${new Date().toISOString().slice(0, 10)}.png`;
+    a.href = out.toDataURL("image/png");
+    a.click();
+  }
+
   return (
     <div className="fixed inset-0 z-[70] flex flex-col" style={{ background: "var(--color-paper)" }}>
       <div className="flex items-center gap-3 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
@@ -350,7 +433,8 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
               <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>See your recovery on your own body</p>
               <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
                 Step back so your full body is in frame. Muscles glow in their recovery
-                color — turn around for the back. Video never leaves your device.
+                color — turn around for the back, or switch to Lens and point a finger
+                to peek inside. Video never leaves your device.
               </p>
             </div>
             {stage === "error" && <p className="max-w-xs text-xs" style={{ color: "#c96b45" }}>{errMsg}</p>}
@@ -363,18 +447,46 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
         )}
       </div>
 
-      <div className="flex items-center gap-4 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <label className="flex items-center gap-2 text-xs" style={{ color: "var(--color-ink)" }}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="flex overflow-hidden rounded-lg border text-[11px]" style={{ borderColor: "var(--color-paper-3)" }}>
+          {(["auto", "front", "back"] as const).map((v) => (
+            <button key={v} type="button" onClick={() => setView(v)}
+              className="px-2.5 py-1.5 capitalize"
+              style={{ background: view === v ? "var(--color-accent)" : "var(--color-paper)", color: view === v ? "var(--color-paper)" : "var(--color-ink-muted)" }}>
+              {v}
+            </button>
+          ))}
+        </div>
+        <div className="flex overflow-hidden rounded-lg border text-[11px]" style={{ borderColor: "var(--color-paper-3)" }}>
+          {([["whole", "X-ray"], ["lens", "Lens"]] as const).map(([v, t]) => (
+            <button key={v} type="button" onClick={() => setReveal(v)}
+              className="px-2.5 py-1.5"
+              style={{ background: reveal === v ? "var(--color-accent)" : "var(--color-paper)", color: reveal === v ? "var(--color-paper)" : "var(--color-ink-muted)" }}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--color-ink)" }}>
           <input type="checkbox" checked={labels} onChange={(e) => setLabels(e.target.checked)} /> Labels
         </label>
-        <label className="flex flex-1 items-center gap-2 text-xs" style={{ color: "var(--color-ink)" }}>
-          <span style={{ color: "var(--color-ink-muted)" }}>Dim body</span>
+        <label className="flex min-w-24 flex-1 items-center gap-2 text-xs" style={{ color: "var(--color-ink)" }}>
+          <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Dim</span>
           <input type="range" min={0} max={1} step={0.01} value={dim} onChange={(e) => setDim(parseFloat(e.target.value))} className="flex-1" />
         </label>
         <span className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
           <i className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#7fbf6b" }} />fresh
           <i className="ml-1 inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#8e3419" }} />sore
         </span>
+        {stage === "live" && (
+          <button type="button" onClick={snapshot}
+            className="ml-auto flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", background: "var(--color-paper)" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+            </svg>
+            Save
+          </button>
+        )}
       </div>
     </div>
   );
