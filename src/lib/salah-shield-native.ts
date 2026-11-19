@@ -71,15 +71,17 @@ export type ShieldPermissionKey =
   | "usageAccess"
   | "overlay"
   | "battery"
-  | "notifications";
+  | "notifications"
+  | "appDetails";
 
-export async function openShieldSetting(key: ShieldPermissionKey): Promise<void> {
+export async function openShieldSetting(key: ShieldPermissionKey): Promise<boolean> {
   const p = await getPlugin();
-  if (!p) return;
+  if (!p) return false;
   try {
     await p.openPermissionSettings({ key });
+    return true;
   } catch {
-    /* user can still navigate manually */
+    return false;
   }
 }
 

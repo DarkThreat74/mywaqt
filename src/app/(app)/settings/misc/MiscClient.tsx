@@ -400,6 +400,7 @@ function SalahGuardPanel() {
   const [paused, setPaused] = useState(false);
   const [accOn, setAccOn] = useState<boolean | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [grantFailed, setGrantFailed] = useState(false);
   // Read on mount AND on a short retry — the Capacitor bridge injects after
   // first paint, so a render-time check can freeze "not native" forever
   // (which is why the buttons looked dead).
@@ -425,6 +426,18 @@ function SalahGuardPanel() {
     }, 2500);
     return () => clearInterval(t);
   }, []);
+
+  const grantAccessibility = async () => {
+    setGrantFailed(false);
+    const ok = await openShieldSetting("accessibility");
+    if (!ok) {
+      // The bridge rejected — usually means the installed APK predates the
+      // plugin. Fall back to the app's own details page (generic intent is
+      // more widely supported) and show the manual path either way.
+      await openShieldSetting("appDetails").catch(() => false);
+      setGrantFailed(true);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -459,7 +472,7 @@ function SalahGuardPanel() {
             const next = !armed;
             setShieldArmed(next);
             setArmed(next);
-            if (next && !accOn) void openShieldSetting("accessibility");
+            if (next && !accOn) void grantAccessibility();
           }}
           className="relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50"
           style={{ backgroundColor: armed ? "var(--color-accent)" : "var(--color-paper-3)" }}
@@ -478,7 +491,7 @@ function SalahGuardPanel() {
         </div>
         {!accOn && native && (
           <button
-            onClick={() => void openShieldSetting("accessibility")}
+            onClick={() => void grantAccessibility()}
             className="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
           >
@@ -486,6 +499,14 @@ function SalahGuardPanel() {
           </button>
         )}
       </div>
+      {grantFailed && (
+        <p className="rounded-xl border px-3 py-2.5 text-[11px] leading-relaxed" style={{ borderColor: "#c96b45", color: "#c96b45" }}>
+          Couldn&rsquo;t open the setting automatically — open it by hand:
+          Settings → Accessibility → Installed apps → Waqt → On.
+          If Waqt isn&rsquo;t listed there, this build is older than the guard —
+          reinstall the app.
+        </p>
+      )}
 
       <div className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
         <div className="min-w-0">
