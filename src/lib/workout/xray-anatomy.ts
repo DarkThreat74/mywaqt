@@ -267,11 +267,42 @@ export class XRayEngine {
    *  best screen-space scale+offset between projected model points and the
    *  landmarks the tracker saw. */
   updateHead(matrixData: number[] | Float32Array, lms: Lm[], jawOpen: number) {
-    const head = this.head;
     const tmpM = this.tmpM.fromArray(matrixData as number[]);
     const e = tmpM.elements;
     if (Math.abs(e[12]) + Math.abs(e[13]) + Math.abs(e[14]) < 1e-6 &&
         Math.abs(e[3]) + Math.abs(e[7]) + Math.abs(e[11]) > 1e-3) tmpM.transpose();
+    this.applyHeadPose(tmpM, lms, jawOpen);
+  }
+
+  /** Matrix-free head pose — for when the tracker's face-geometry solver
+   *  keeps crashing (partially-cropped faces). Places the model at a fixed
+   *  depth with a scale inferred from the face's screen width; the same
+   *  auto-fit correction then pins it to the real landmarks. */
+  updateHeadApprox(lms: Lm[], jawOpen: number) {
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (const p of lms) {
+      if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+      if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+    }
+    const faceW = x1 - x0;
+    if (!(faceW > 0.02)) return;
+    const Z = 45; // cm — tracker sits heads roughly here
+    const pe = this.baseProj.elements;   // pe[0] = 1/(tan·aspect), pe[5] = 1/tan
+    // Model ear-to-ear span is ~15.3cm (fit pts 234/454 at x=±7.66).
+    const modelNdcW = (15.3 * pe[0]) / Z;
+    const s = Math.max(0.3, Math.min(3, faceW / (modelNdcW || 1e-6)));
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const wx = (cx * 2 - 1) * (Z / pe[0]);
+    const wy = (1 - cy * 2) * (Z / pe[5]);
+    this.tmpP.set(wx - HEAD_C[0] * s, wy - HEAD_C[1] * s, -Z);
+    this.tmpQ.identity();
+    this.tmpS.set(s, s, s);
+    this.tmpM.compose(this.tmpP, this.tmpQ, this.tmpS);
+    this.applyHeadPose(this.tmpM, lms, jawOpen);
+  }
+
+  private applyHeadPose(tmpM: Mat4, lms: Lm[], jawOpen: number) {
+    const head = this.head;
     tmpM.decompose(this.tmpP, this.tmpQ, this.tmpS);
     if (!head.found) {
       head.pos!.copy(this.tmpP); head.quat!.copy(this.tmpQ); head.scl!.copy(this.tmpS);

@@ -41,7 +41,7 @@ async function loadSegLandmarker(): Promise<PoseLandmarker> {
   throw lastErr ?? new Error("pose model unavailable");
 }
 
-async function loadFaceTracker(): Promise<FaceLandmarker> {
+async function loadFaceTracker(withMatrixes = true): Promise<FaceLandmarker> {
   const { vision, files } = await visionBundle();
   let lastErr: unknown = null;
   for (const delegate of ["GPU", "CPU"] as const) {
@@ -49,7 +49,7 @@ async function loadFaceTracker(): Promise<FaceLandmarker> {
       return await vision.FaceLandmarker.createFromOptions(files, {
         baseOptions: { modelAssetPath: "/models/face/face_landmarker.task", delegate },
         runningMode: "VIDEO", numFaces: 1,
-        outputFacialTransformationMatrixes: true, outputFaceBlendshapes: true,
+        outputFacialTransformationMatrixes: withMatrixes, outputFaceBlendshapes: true,
       });
     } catch (err) { lastErr = err; }
   }
@@ -217,7 +217,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef(0);
   const engineRef = useRef<XRayEngine | null>(null);
-  const trackersRef = useRef<{ face: FaceLandmarker; hand: HandLandmarker | null; pose: PoseLandmarker } | null>(null);
+  const trackersRef = useRef<{ face: FaceLandmarker; faceHasMat: boolean; hand: HandLandmarker | null; pose: PoseLandmarker | null } | null>(null);
   const smoothRef = useRef<LM[] | null>(null);
   const silRef = useRef<HTMLCanvasElement | null>(null);
   const scratchRef = useRef<HTMLCanvasElement | null>(null);
@@ -290,7 +290,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       engine.build(glRef.current!, b64);
       engineRef.current = engine;
       if (!pose) { /* body overlay unavailable — head/hands still work */ }
-      trackersRef.current = { face, hand, pose: pose as PoseLandmarker };
+      trackersRef.current = { face, faceHasMat: true, hand, pose };
       setStage("live");
       runLoop();
     } catch (e) {
@@ -367,12 +367,13 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
           const fr = tr.face.detectForVideo(video, now);
           const rawFace = fr.faceLandmarks?.[0];
           const mat = fr.facialTransformationMatrixes?.[0];
-          if (rawFace && mat && faceIsSane(rawFace as Lm[])) {
+          if (rawFace && faceIsSane(rawFace as Lm[])) {
             faceLms = rawFace as Lm[];
             let jaw = 0;
             const bs = fr.faceBlendshapes?.[0];
             if (bs) for (const c of bs.categories) if (c.categoryName === "jawOpen") jaw = c.score;
-            engine.updateHead(mat.data, faceLms, jaw);
+            if (mat) engine.updateHead(mat.data, faceLms, jaw);
+            else engine.updateHeadApprox(faceLms, jaw);
             lostAt = 0;
             faceFails.current = 0;
           } else {
@@ -380,14 +381,20 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
             if (now - lostAt > 250) engine.headLost();
           }
         } catch {
-          // MediaPipe Procrustes crash — transient, but if it persists the
-          // graph state is wedged; rebuild the face tracker (throttled).
+          // MediaPipe's face-geometry solver throws away the whole detection
+          // on degenerate frames — if it persists, the geometry pipeline is
+          // wedged for this device. Rebuild WITHOUT matrixes: landmarks come
+          // back unconditionally and the approx pose keeps tracking.
           faceFails.current++;
-          if (faceFails.current > 10 && now - lastFaceRebuild.current > 4000) {
+          if (faceFails.current > 3) engine.headLost(); // don't freeze a stale head on screen
+          if (faceFails.current > 10 && tr.faceHasMat && now - lastFaceRebuild.current > 4000) {
             lastFaceRebuild.current = now;
             faceFails.current = 0;
             const old = tr.face;
-            void loadFaceTracker().then((f) => { trackersRef.current = { ...tr, face: f }; try { old.close(); } catch { /* noop */ } });
+            void loadFaceTracker(false).then((f) => {
+              if (trackersRef.current) trackersRef.current = { ...trackersRef.current, face: f, faceHasMat: false };
+              try { old.close(); } catch { /* noop */ }
+            }).catch(() => { /* keep the old one */ });
           }
           if (!lostAt) lostAt = now;
           if (now - lostAt > 250) engine.headLost();
