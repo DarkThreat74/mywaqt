@@ -5,6 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 
 const MuscleBody = dynamic(() => import("@/components/workout/MuscleBody"), { ssr: false });
+const XRayVisualizer = dynamic(() => import("@/components/workout/XRayVisualizer"), { ssr: false });
 import MuscleBody2D from "@/components/workout/MuscleBody2D";
 import { bucketOf, type BodyBucket } from "@/lib/workout/muscleBodyMap";
 import { muscleInfo } from "@/lib/workout/muscleAnatomy";
@@ -42,6 +43,7 @@ export default function MusclesPage() {
   const [stats, setStats] = useState<MuscleStat[] | null>(null);
   const [sel, setSel] = useState<{ bucket: BodyBucket; label: string } | null>(null);
   const [use3D, setUse3D] = useState(true);
+  const [xray, setXray] = useState(false);
 
   useEffect(() => {
     fetch("/api/workout/progress")
@@ -83,6 +85,14 @@ export default function MusclesPage() {
       <div className="flex items-center gap-3">
         <Link href="/workout" className="text-sm" style={{ color: "var(--color-ink-muted)" }}>←</Link>
         <h1 className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>Muscle recovery</h1>
+        <button type="button" onClick={() => setXray(true)}
+          className="ml-auto flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", background: "var(--color-paper)" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <rect x="3" y="6" width="13" height="12" rx="2.5" /><path d="M16 10.5 21 8v8l-5-2.5" />
+          </svg>
+          Visualizer
+        </button>
       </div>
       <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
         {use3D ? "Drag to rotate · tap a muscle · double-tap to reset · redder = less recovered" : "Tap a muscle · redder = less recovered"}
@@ -185,6 +195,7 @@ export default function MusclesPage() {
           </div>
         </div>
       )}
+      {xray && <XRayVisualizer keyFatigue={keyFatigue} onClose={() => setXray(false)} />}
     </div>
   );
 }
