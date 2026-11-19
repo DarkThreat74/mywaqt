@@ -1832,6 +1832,7 @@ self.addEventListener("fetch", (event) => {
     url.origin === self.location.origin &&
     (url.pathname.startsWith("/models/") ||
       url.pathname.startsWith("/mediapipe/") ||
+      url.pathname.startsWith("/xray/") ||
       url.pathname.startsWith("/exercise-art/"))
   ) {
     event.respondWith(

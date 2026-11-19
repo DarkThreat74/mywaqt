@@ -14,6 +14,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -79,18 +80,41 @@ public class ShieldAccessibilityService extends AccessibilityService {
     // SharedPreferences on this device; nothing is uploaded.
     private static final Set<String> SCROLL_APPS = new HashSet<>(java.util.Arrays.asList(
             "com.instagram.android",
+            "com.instagram.lite",
             "com.zhiliaoapp.musically",        // TikTok
             "com.ss.android.ugc.trill",      // TikTok (regional)
+            "com.ss.android.ugc.aweme",      // TikTok/Douyin variants
+            "com.zhiliaoapp.musically.go",   // TikTok Lite
             "com.google.android.youtube",
             "com.snapchat.android",
             "com.facebook.katana",
+            "com.facebook.lite",
             "com.twitter.android",
             "com.x.android",
             "com.threads.android",
             "com.reddit.frontpage",
-            "com.pinterest"
+            "com.pinterest",
+            "com.kwai.video",                // Kwai
+            "com.smile.gifmaker",            // Kuaishou
+            "video.likee",                   // Likee
+            "com.next.innovation.takatak"    // Josh/MX TakaTak class apps
     ));
-    private static final long SCROLL_DEBOUNCE_MS = 650;
+    // Apps where every scroll is already a feed — count all scroll events.
+    private static final Set<String> FEED_ALWAYS = new HashSet<>(java.util.Arrays.asList(
+            "com.instagram.android", "com.instagram.lite",
+            "com.zhiliaoapp.musically", "com.ss.android.ugc.trill",
+            "com.ss.android.ugc.aweme", "com.zhiliaoapp.musically.go",
+            "com.kwai.video", "com.smile.gifmaker", "video.likee"
+    ));
+    // For the rest (YouTube/Facebook/Snap/Reddit/…), only count scrolls on
+    // surfaces that look like a feed — node ids/classes mentioning these.
+    private static final String[] FEED_HINTS = {
+            "reel", "shorts", "feed", "spotlight", "stories", "story",
+            "timeline", "pager", "watch", "discover", "for_you", "fyp", "recycler", "list"
+    };
+    // One counted scroll ≈ one piece of content. A swipe burst produces many
+    // raw scroll events; ~0.9s between counts approximates "next video".
+    private static final long SCROLL_DEBOUNCE_MS = 900;
 
     private android.view.View counterView;
     private TextView counterText;
@@ -98,6 +122,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
     private String fgPkg = null;
     private long fgSince = 0;
     private int counterX = -1, counterY = -1; // remembered drag position
+    private boolean counterExpanded = false;
 
     private SharedPreferences prefs() {
         return getSharedPreferences(SalahShieldPlugin.PREFS, MODE_PRIVATE);
@@ -154,9 +179,27 @@ public class ShieldAccessibilityService extends AccessibilityService {
         } catch (Exception ignored) {}
     }
 
-    private void countScroll(String pkg) {
+    /** True when the scrolled surface looks like a feed — checked against the
+     *  event source's view-id and class name for feed-ish hints. */
+    private boolean looksLikeFeed(AccessibilityEvent event) {
+        try {
+            AccessibilityNodeInfo src = event.getSource();
+            if (src == null) return false;
+            String id = src.getViewIdResourceName();
+            String cls = String.valueOf(event.getClassName());
+            src.recycle();
+            if (id == null) id = "";
+            String hay = (id + " " + cls).toLowerCase(Locale.US);
+            for (String h : FEED_HINTS) if (hay.contains(h)) return true;
+            return false;
+        } catch (Exception e) { return false; }
+    }
+
+    private void countScroll(String pkg, AccessibilityEvent event) {
         long now = System.currentTimeMillis();
         if (now - lastScrollAt < SCROLL_DEBOUNCE_MS) return;
+        // Non-feed-only apps: require the scrolled surface to look like a feed.
+        if (!FEED_ALWAYS.contains(pkg) && !looksLikeFeed(event)) return;
         lastScrollAt = now;
         try {
             JSONObject day = todayStats();
@@ -207,27 +250,49 @@ public class ShieldAccessibilityService extends AccessibilityService {
                     PixelFormat.TRANSLUCENT);
             lp.gravity = Gravity.TOP | Gravity.END;
             lp.x = dp(10); lp.y = dp(120);
-            // Drag anywhere on the pill.
+            // Drag anywhere on the pill; a tap (no move) toggles the expanded
+            // detail ("142 today · TikTok"). The pill is never dismissible —
+            // it lives as long as a counted app is in front.
             final WindowManager.LayoutParams flp = lp;
             counterText.setOnTouchListener(new android.view.View.OnTouchListener() {
-                float downX, downY; int startX, startY;
+                float downX, downY; int startX, startY; boolean moved;
                 @Override public boolean onTouch(android.view.View v, android.view.MotionEvent e) {
-                    if (e.getAction() == android.view.MotionEvent.ACTION_DOWN) {
-                        downX = e.getRawX(); downY = e.getRawY(); startX = flp.x; startY = flp.y; return true;
-                    }
-                    if (e.getAction() == android.view.MotionEvent.ACTION_MOVE) {
+                    switch (e.getAction()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        downX = e.getRawX(); downY = e.getRawY();
+                        startX = flp.x; startY = flp.y; moved = false;
+                        return true;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        if (!moved && Math.hypot(e.getRawX() - downX, e.getRawY() - downY) > dp(6)) moved = true;
+                        if (!moved) return true;
                         // RIGHT gravity: dragging left increases x.
                         flp.x = (int) (startX - (e.getRawX() - downX));
                         flp.y = (int) (startY + (e.getRawY() - downY));
                         try { wm.updateViewLayout(counterView, flp); } catch (Exception ignored) {}
                         return true;
+                    case android.view.MotionEvent.ACTION_UP:
+                        if (moved) {
+                            prefs().edit().putInt("counter_x", flp.x).putInt("counter_y", flp.y).apply();
+                        } else {
+                            counterExpanded = !counterExpanded;
+                            try {
+                                JSONObject day = todayStats();
+                                updateCounter(day.optInt("total"));
+                            } catch (Exception ignored) {}
+                        }
+                        return true;
                     }
-                    return e.getAction() == android.view.MotionEvent.ACTION_UP;
+                    return true;
                 }
             });
             try { wm.addView(counterText, lp); counterView = counterText; } catch (Exception ignored) { return; }
         }
         updateCounter(total);
+        // Restore the remembered drag position (persisted across sessions).
+        if (counterX < 0) {
+            counterX = prefs().getInt("counter_x", -1);
+            counterY = prefs().getInt("counter_y", -1);
+        }
         if (counterX >= 0) {
             WindowManager.LayoutParams lp = (WindowManager.LayoutParams) counterView.getLayoutParams();
             lp.x = counterX; lp.y = counterY;
@@ -237,7 +302,12 @@ public class ShieldAccessibilityService extends AccessibilityService {
 
     private void updateCounter(int total) {
         if (counterText == null) return;
-        counterText.setText("↕ " + total);
+        if (counterExpanded && fgPkg != null) {
+            String app = fgPkg.substring(fgPkg.lastIndexOf('.') + 1);
+            counterText.setText("↕ " + total + " today · " + app);
+        } else {
+            counterText.setText("↕ " + total);
+        }
         int color = total < 30 ? 0xff7fbf6b : total < 100 ? 0xffd4a843 : 0xffc96b45;
         counterText.setTextColor(color);
     }
@@ -281,7 +351,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
             trackForeground(pkg);
             tickCounter(pkg);
         } else if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED && SCROLL_APPS.contains(pkg)) {
-            countScroll(pkg);
+            countScroll(pkg, event);
         }
 
         JSONObject due = dueWindow();
