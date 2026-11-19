@@ -235,16 +235,17 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
 
   const setStatusOnce = (t: string) => { if (lastStatusRef.current !== t) { lastStatusRef.current = t; setStatus(t); } };
 
-  /** video-normalized coords → stage-normalized (cover-fit + the canvas is
-   *  drawn unmirrored and CSS-flipped, same as the video). */
-  const coverMap = (video: HTMLVideoElement, W: number, H: number) => {
-    const vw = video.videoWidth || W, vh = video.videoHeight || H;
-    const sc = Math.max(W / vw, H / vh);
-    const ox = (W - vw * sc) / 2, oy = (H - vh * sc) / 2;
-    return (lms: LM[]): LM[] => lms.map((p) => ({
-      x: (p.x * vw * sc + ox) / W, y: (p.y * vh * sc + oy) / H, z: p.z, visibility: p.visibility,
-    }));
-  };
+  /** The stage is sized to the video's own aspect ratio, so tracker coords
+   *  map 1:1 — no cover-crop remapping at all (same trick as the reference). */
+  const [ar, setAr] = useState(4 / 3);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const update = () => { if (v.videoWidth && v.videoHeight) setAr(v.videoWidth / v.videoHeight); };
+    v.addEventListener("loadedmetadata", update);
+    v.addEventListener("playing", update);
+    return () => { v.removeEventListener("loadedmetadata", update); v.removeEventListener("playing", update); };
+  }, [stage]);
 
   async function start() {
     setStage("starting");
@@ -337,7 +338,6 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       }
       lastTime = video.currentTime;
       const now = performance.now();
-      const map = coverMap(video, W, H);
 
       let faceLms: Lm[] | null = null;
       const hands: Lm[][] = [], sides: boolean[] = [];
@@ -346,7 +346,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
         const rawFace = fr.faceLandmarks?.[0];
         const mat = fr.facialTransformationMatrixes?.[0];
         if (rawFace && mat) {
-          faceLms = map(rawFace as Lm[]);
+          faceLms = rawFace as Lm[];
           let jaw = 0;
           const bs = fr.faceBlendshapes?.[0];
           if (bs) for (const c of bs.categories) if (c.categoryName === "jawOpen") jaw = c.score;
@@ -361,7 +361,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
           const hl = hr.landmarks ?? [];
           const hd = (hr as { handedness?: { categoryName: string }[][] }).handedness ?? [];
           for (let i = 0; i < hl.length; i++) {
-            hands.push(map(hl[i] as Lm[]));
+            hands.push(hl[i] as Lm[]);
             // tracker names hands for a mirrored picture; flip for rear camera
             const left = hd[i]?.[0]?.categoryName === "Left";
             sides.push(engine.mirror ? left : !left);
@@ -395,7 +395,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
             }
             mask.close();
           }
-          if (raw) bodyShown = drawBodyOverlay(bodyG, map(raw), W, H);
+          if (raw) bodyShown = drawBodyOverlay(bodyG, raw, W, H);
         } catch { /* pose hiccup */ }
       }
 
@@ -450,11 +450,9 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     const drawSil = () => {
       const sil = silRef.current;
       if (!sil) return;
-      const vw = videoRef.current?.videoWidth || W, vh = videoRef.current?.videoHeight || H;
-      const scv = Math.max(W / vw, H / vh);
       sg.save();
       if (mir) { sg.translate(W, 0); sg.scale(-1, 1); }
-      sg.drawImage(sil, (W - vw * scv) / 2, (H - vh * scv) / 2, vw * scv, vh * scv);
+      sg.drawImage(sil, 0, 0, W, H); // stage AR == video AR → direct stretch
       sg.restore();
     };
 
@@ -521,24 +519,33 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   async function snapshot() {
     const video = videoRef.current;
     if (!video) return;
-    const W = hudRef.current?.width ?? 0, H = hudRef.current?.height ?? 0;
-    if (!W || !H) return;
+    // Capture at video resolution — the stage is the same aspect ratio.
+    const W = video.videoWidth || 1280, H = video.videoHeight || 720;
     const out = document.createElement("canvas");
     out.width = W; out.height = H;
     const g = out.getContext("2d")!;
     const mir = facingRef.current === "user";
-    const vw = video.videoWidth || W, vh = video.videoHeight || H;
-    const sc = Math.max(W / vw, H / vh);
     g.save();
     if (mir) { g.translate(W, 0); g.scale(-1, 1); }
-    g.drawImage(video, (W - vw * sc) / 2, (H - vh * sc) / 2, vw * sc, vh * sc);
-    for (const c of [bodyRef.current, shadeRef.current, glRef.current]) if (c) g.drawImage(c, 0, 0);
+    g.drawImage(video, 0, 0, W, H);
+    for (const c of [bodyRef.current, shadeRef.current, glRef.current]) if (c) g.drawImage(c, 0, 0, W, H);
     g.restore();
-    if (hudRef.current) g.drawImage(hudRef.current, 0, 0);
+    if (hudRef.current) g.drawImage(hudRef.current, 0, 0, W, H);
+    const blob = await new Promise<Blob | null>((res) => out.toBlob(res, "image/png"));
+    if (!blob) return;
+    const file = new File([blob], `waqt-xray-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`, { type: "image/png" });
+    // Mobile-first: share sheet (Save to Photos) where available, else download.
+    try {
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+    } catch { /* user cancelled or share unsupported — fall through */ }
     const a = document.createElement("a");
-    a.download = `waqt-xray-${new Date().toISOString().slice(0, 10)}.png`;
-    a.href = out.toDataURL("image/png");
+    a.download = file.name;
+    a.href = URL.createObjectURL(blob);
     a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
 
   const mir = facing === "user";
@@ -561,11 +568,6 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
         </div>
         {stage === "live" && (
           <div className="ml-auto flex items-center gap-2">
-            <button type="button" onClick={snapshot} aria-label="Save a picture"
-              className="rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", background: "var(--color-paper)" }}>
-              Save
-            </button>
             <button type="button" onClick={switchCamera} aria-label="Switch camera"
               className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", background: "var(--color-paper)" }}>
@@ -578,13 +580,14 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
         )}
       </div>
 
-      {/* stage */}
+      {/* stage — sized to the video's own aspect ratio so tracking is 1:1 */}
+      <div className="flex min-h-0 flex-1 items-center justify-center px-3 sm:px-4">
       <div ref={stageRef}
-        className="relative mx-3 flex-1 touch-none overflow-hidden rounded-2xl border sm:mx-4"
-        style={{ borderColor: "var(--color-paper-3)", background: "#07090f" }}
+        className="relative touch-none overflow-hidden rounded-2xl border"
+        style={{ borderColor: "var(--color-paper-3)", background: "#07090f", aspectRatio: String(ar), width: `min(100%, calc((100dvh - 190px) * ${ar}))` }}
         onPointerMove={(e) => { const r = stageRef.current!.getBoundingClientRect(); pointerRef.current = { x: e.clientX - r.left, y: e.clientY - r.top }; }}
         onPointerLeave={() => { pointerRef.current = null; }}>
-        <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" style={{ transform: flip }} />
+        <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-fill" style={{ transform: flip }} />
         <canvas ref={bodyRef} className="pointer-events-none absolute inset-0 h-full w-full" />
         <canvas ref={shadeRef} className="pointer-events-none absolute inset-0 h-full w-full" style={{ transform: flip }} />
         <canvas ref={glRef} className="pointer-events-none absolute inset-0 h-full w-full" style={{ transform: flip }} />
@@ -611,6 +614,16 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
             </button>
           </div>
         )}
+
+        {/* capture shutter — floating, camera-app style */}
+        {stage === "live" && (
+          <button type="button" onClick={snapshot} aria-label="Capture a picture"
+            className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border-2 p-1"
+            style={{ borderColor: "rgba(239,232,221,0.9)", background: "rgba(7,9,15,0.4)" }}>
+            <span className="block h-11 w-11 rounded-full" style={{ background: "var(--color-paper)" }} />
+          </button>
+        )}
+      </div>
       </div>
 
       {/* controls — scrollable chip row, thumb-friendly on mobile */}

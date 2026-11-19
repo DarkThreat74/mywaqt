@@ -174,7 +174,7 @@ export class XRayEngine {
     this.hm = new T.Matrix4();
     this.head.pos = new T.Vector3(); this.head.quat = new T.Quaternion(); this.head.scl = new T.Vector3(1, 1, 1);
 
-    this.renderer = new T.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true });
+    this.renderer = new T.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.autoClear = false;
     this.headScene = new T.Scene();
