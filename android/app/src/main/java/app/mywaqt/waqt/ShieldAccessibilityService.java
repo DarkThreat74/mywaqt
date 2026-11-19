@@ -197,9 +197,17 @@ public class ShieldAccessibilityService extends AccessibilityService {
 
     private void countScroll(String pkg, AccessibilityEvent event) {
         long now = System.currentTimeMillis();
-        if (now - lastScrollAt < SCROLL_DEBOUNCE_MS) return;
-        // Non-feed-only apps: require the scrolled surface to look like a feed.
-        if (!FEED_ALWAYS.contains(pkg) && !looksLikeFeed(event)) return;
+        // Feed surfaces only: IG/TikTok-style apps always count, others must
+        // scroll something that looks like a feed.
+        final boolean feed = FEED_ALWAYS.contains(pkg) || looksLikeFeed(event);
+        // Show the pill during active scrolling — even on debounced events —
+        // and hide it a beat after scrolling stops.
+        if (feed && counterEnabled()) {
+            try { showCounter(todayStats().optInt("total")); } catch (Exception ignored) {}
+            handler.removeCallbacks(hideCounterSoon);
+            handler.postDelayed(hideCounterSoon, COUNTER_HIDE_MS);
+        }
+        if (!feed || now - lastScrollAt < SCROLL_DEBOUNCE_MS) return;
         lastScrollAt = now;
         try {
             JSONObject day = todayStats();
@@ -210,6 +218,9 @@ public class ShieldAccessibilityService extends AccessibilityService {
             updateCounter(day.optInt("total"));
         } catch (Exception ignored) {}
     }
+
+    private final Runnable hideCounterSoon = this::hideCounter;
+    private static final long COUNTER_HIDE_MS = 1800;
 
     private void trackForeground(String pkg) {
         long now = System.currentTimeMillis();
@@ -323,13 +334,9 @@ public class ShieldAccessibilityService extends AccessibilityService {
     }
 
     private void tickCounter(String pkg) {
-        // Show the pill only inside a counted app with the counter enabled.
-        if (SCROLL_APPS.contains(pkg) && counterEnabled()) {
-            try {
-                JSONObject day = todayStats();
-                showCounter(day.optInt("total"));
-            } catch (Exception ignored) {}
-        } else {
+        // The pill only exists while scrolling — app switches always hide it.
+        if (!SCROLL_APPS.contains(pkg) || !counterEnabled()) {
+            handler.removeCallbacks(hideCounterSoon);
             hideCounter();
         }
     }
