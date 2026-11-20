@@ -431,7 +431,7 @@ export default function WorkoutClient() {
 
   if (step !== null) {
     return (
-      <div className="mx-auto w-full max-w-2xl px-4 py-6">
+      <div className="mx-auto w-full px-4 py-6">
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setStep(editId ? null : 1)} className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
             ←
@@ -577,7 +577,7 @@ export default function WorkoutClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-6">
+    <div className="mx-auto w-full px-4 py-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Workout</h1>
         <div className="flex gap-1.5">

@@ -197,7 +197,7 @@ export default function PhotosPage() {
   }, [photos]);
 
   return (
-    <div className="page-fade mx-auto w-full max-w-2xl px-4 py-6">
+    <div className="page-fade mx-auto w-full px-4 py-6">
       <div className="flex items-center gap-3">
         <Link href="/workout/profile" className="text-sm" style={{ color: "var(--color-ink-muted)" }}>←</Link>
         <h1 className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>Progress photos</h1>

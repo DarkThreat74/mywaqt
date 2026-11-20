@@ -198,14 +198,15 @@ type LayerKey = "skull" | "brain" | "muscles" | "eyes" | "hands" | "outline";
 const LAYERS: [LayerKey, string][] = [["skull", "Skull"], ["brain", "Brain"], ["muscles", "Face muscles"], ["eyes", "Eyes"], ["hands", "Hands"], ["outline", "Outline"]];
 
 const SETTINGS_KEY = "waqt-xray-v3";
+type RevealMode = "full" | "lens" | "left" | "right" | "top" | "bottom";
 interface Prefs {
-  layers: Record<LayerKey, boolean>; labels: boolean; solid: boolean; lens: boolean;
-  real: number; bright: number; size: number; offX: number; offY: number;
+  layers: Record<LayerKey, boolean>; labels: boolean; solid: boolean; reveal: RevealMode;
+  real: number; bright: number; feather: number; cut: number; size: number; offX: number; offY: number;
 }
 const DEFAULT_PREFS: Prefs = {
   layers: { skull: true, brain: false, muscles: false, eyes: true, hands: true, outline: true },
-  labels: true, solid: false, lens: false, real: 0.3,
-  bright: 1, size: 1, offX: 0, offY: 0,
+  labels: true, solid: false, reveal: "full", real: 0.3,
+  bright: 1, feather: 0.2, cut: 0.5, size: 1, offX: 0, offY: 0,
 };
 
 export default function XRayVisualizer({ keyFatigue, onClose }: {
@@ -238,7 +239,11 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const [facing, setFacing] = useState<"user" | "environment">("user");
   const [prefs, setPrefs] = useState<Prefs>(() => {
     if (typeof window === "undefined") return DEFAULT_PREFS;
-    try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}"), layers: { ...DEFAULT_PREFS.layers, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as Partial<Prefs>).layers } }; }
+    try {
+      const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as Partial<Prefs> & { lens?: boolean };
+      const reveal: RevealMode = raw.reveal ?? (raw.lens ? "lens" : "full");
+      return { ...DEFAULT_PREFS, ...raw, reveal, layers: { ...DEFAULT_PREFS.layers, ...raw.layers } };
+    }
     catch { return DEFAULT_PREFS; }
   });
 
@@ -358,10 +363,11 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       engine.S.muscles = P.layers.muscles; engine.S.eyes = P.layers.eyes;
       engine.S.outline = P.layers.outline; engine.S.hands = P.layers.hands;
       engine.S.labels = P.labels;
-      engine.S.reveal = P.lens ? "lens" : "full";
+      engine.S.reveal = P.reveal;
       engine.S.style = P.solid ? "solid" : "xray";
       engine.S.real = P.real;
       engine.S.bright = P.bright;
+      engine.S.feather = P.feather; engine.S.cut = P.cut;
       engine.S.size = P.size; engine.S.offX = P.offX; engine.S.offY = P.offY;
 
       if (frozenRef.current || video.currentTime === lastTime) {
@@ -629,7 +635,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     color: on ? "var(--color-paper)" : "var(--color-ink-muted)",
   });
 
-  const slider = (label: string, k: "real" | "bright" | "size" | "offX" | "offY", min: number, max: number) => (
+  const slider = (label: string, k: "real" | "bright" | "feather" | "cut" | "size" | "offX" | "offY", min: number, max: number) => (
     <label key={k} className="flex items-center gap-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
       <span className="w-12 shrink-0 text-right">{label}</span>
       <input type="range" min={min} max={max} step={0.01} value={prefs[k]}
@@ -728,7 +734,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
             </button>
           ))}
           <span className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--color-paper-3)" }} />
-          {([["labels", "Labels", prefs.labels], ["solid", "Solid", prefs.solid], ["lens", "Lens", prefs.lens]] as const).map(([k, t, on]) => (
+          {([["labels", "Labels", prefs.labels], ["solid", "Solid", prefs.solid]] as const).map(([k, t, on]) => (
             <button key={k} type="button"
               onClick={() => setPrefs((p) => ({ ...p, [k]: !p[k] }))}
               className="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium"
@@ -737,8 +743,17 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
             </button>
           ))}
           <span className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--color-paper-3)" }} />
+          {([["full", "Full"], ["lens", "Lens"], ["left", "L"], ["right", "R"], ["top", "T"], ["bottom", "B"]] as [RevealMode, string][]).map(([m, t]) => (
+            <button key={m} type="button"
+              onClick={() => setPrefs((p) => ({ ...p, reveal: m }))}
+              className="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium"
+              style={{ borderColor: "var(--color-paper-3)", ...chip(prefs.reveal === m) }}>
+              {t}
+            </button>
+          ))}
+          <span className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--color-paper-3)" }} />
           <button type="button"
-            onClick={() => setPrefs((p) => ({ ...p, bright: 1, size: 1, offX: 0, offY: 0, real: 0.3 }))}
+            onClick={() => setPrefs((p) => ({ ...p, bright: 1, feather: 0.2, cut: 0.5, size: 1, offX: 0, offY: 0, real: 0.3, reveal: "full" }))}
             className="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", background: "var(--color-paper)" }}>
             Reset
@@ -749,7 +764,9 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
           {slider("Bright", "bright", 0.3, 2)}
           {slider("Shift ↔", "offX", -0.6, 0.6)}
           {slider("Shift ↕", "offY", -0.6, 0.6)}
-          <div className="col-span-2">{slider("Show me", "real", 0, 1)}</div>
+          {slider("Show me", "real", 0, 1)}
+          {slider("Feather", "feather", 0, 1)}
+          {prefs.reveal !== "full" && <div className="col-span-2">{slider(prefs.reveal === "lens" ? "Lens size" : "Cut pos", "cut", 0, 1)}</div>}
         </div>
         <p className="mt-1 flex items-center gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
           <i className="inline-block h-2 w-2 rounded-full" style={{ background: "#7fbf6b" }} />recovered

@@ -813,7 +813,7 @@ function ActiveInner() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-6 pb-24">
+    <div className="mx-auto w-full px-4 py-6 pb-24">
       {sessionError && (
         <div className="mb-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }}>
           {sessionError}
