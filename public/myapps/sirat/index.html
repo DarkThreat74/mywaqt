@@ -292,6 +292,8 @@ const GL={};for(const k in IC)GL[k]=new Path2D(IC[k]);
 const $=s=>document.querySelector(s);
 const store={get(){try{return JSON.parse(localStorage.getItem('fa2'))||{}}catch(e){return{}}},set(o){try{localStorage.setItem('fa2',JSON.stringify(o))}catch(e){}}};
 let saved=Object.assign({fav:[],vis:[],notes:{},theme:'auto'},store.get());
+// ?theme=light|dark overrides the saved theme without persisting (used by the mywaqt.app/sirat wrapper).
+let themeOverride='';try{const _qt=new URLSearchParams(location.search).get('theme');if(_qt==='light'||_qt==='dark')themeOverride=_qt}catch(e){}
 const persist=()=>store.set(saved);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -727,7 +729,7 @@ $('#iBody').addEventListener('change',e=>{if(e.target.id!=='selFrom')return;cons
  if(v==='home')setRef({lat:HOME.lat,lng:HOME.lng,name:HOME.name,user:false,home:true});
  else if(v!=='me'){const t=TOWNS.find(x=>x[0]===v);setRef({lat:t[1],lng:t[2],name:t[0],user:false,home:false})}});
 function setRef(r){ref=r;recalc();render(false);fly(wx(r.lng),wy(r.lat),Math.max(V.s,6));toast('Measuring from '+(r.home?'Glen Ellyn':r.name))}
-function applyTheme(){const r=document.documentElement;saved.theme==='auto'?r.removeAttribute('data-theme'):r.setAttribute('data-theme',saved.theme);colors();draw()}
+function applyTheme(){const r=document.documentElement,t=themeOverride||saved.theme;t==='auto'?r.removeAttribute('data-theme'):r.setAttribute('data-theme',t);colors();draw()}
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{colors();draw()});
 function locate(){if(!navigator.geolocation){toast('Location is not available');return}
  navigator.geolocation.getCurrentPosition(pos=>{const lat=pos.coords.latitude,lng=pos.coords.longitude;const x=wx(lng),y=wy(lat);
