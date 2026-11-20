@@ -2,6 +2,7 @@
 // happens ONCE per session instead of once per camera mount (front/side/back
 // each remount GuidedCamera). GPU delegate first, CPU fallback, full model
 // with lite as last resort.
+import { meteredConnection } from "@/lib/net";
 import type { PoseLandmarker } from "@mediapipe/tasks-vision";
 
 const MODELS = ["/models/pose/pose_landmarker_full.task", "/models/pose/pose_landmarker_lite.task"];
@@ -38,6 +39,7 @@ export function getPoseLandmarker(): Promise<PoseLandmarker> {
 
 /** Warm the model+wasm caches on idle so the camera opens instantly. */
 export function preloadPoseModel(): void {
+  if (meteredConnection()) return; // don't idle-download ~15MB on cellular
   const warm = () => { getPoseLandmarker().catch(() => {}); };
   if (typeof requestIdleCallback === "function") requestIdleCallback(warm, { timeout: 4000 });
   else setTimeout(warm, 1500);

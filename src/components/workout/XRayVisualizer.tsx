@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { FaceLandmarker, HandLandmarker, PoseLandmarker } from "@mediapipe/tasks-vision";
+import { meteredConnection } from "@/lib/net";
 import { XRayEngine, type XRayMeta, type Lm } from "@/lib/workout/xray-anatomy";
 
 const POSE_MODELS = ["/models/pose/pose_landmarker_full.task", "/models/pose/pose_landmarker_lite.task"];
@@ -222,6 +223,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef(0);
   const engineRef = useRef<XRayEngine | null>(null);
+  const meteredOk = useRef(false);
   const trackersRef = useRef<{ face: FaceLandmarker; faceHasMat: boolean; hand: HandLandmarker | null; pose: PoseLandmarker | null } | null>(null);
   const smoothRef = useRef<LM[] | null>(null);
   const silRef = useRef<HTMLCanvasElement | null>(null);
@@ -295,6 +297,13 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   }, [ar, stage]);
 
   async function start() {
+    // ~50MB of models/wasm/three — warn once on mobile data, second tap proceeds.
+    if (!meteredOk.current && meteredConnection()) {
+      meteredOk.current = true;
+      setErrMsg("Downloads ~50 MB of tracking models — tap Start again to continue on mobile data.");
+      setStage("error");
+      return;
+    }
     setStage("starting");
     setErrMsg("");
     let step = "camera";
