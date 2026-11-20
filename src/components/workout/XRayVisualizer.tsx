@@ -197,11 +197,15 @@ type Stage = "idle" | "starting" | "live" | "error";
 type LayerKey = "skull" | "brain" | "muscles" | "eyes" | "hands" | "outline";
 const LAYERS: [LayerKey, string][] = [["skull", "Skull"], ["brain", "Brain"], ["muscles", "Face muscles"], ["eyes", "Eyes"], ["hands", "Hands"], ["outline", "Outline"]];
 
-const SETTINGS_KEY = "waqt-xray-v2";
-interface Prefs { layers: Record<LayerKey, boolean>; labels: boolean; solid: boolean; lens: boolean; real: number }
+const SETTINGS_KEY = "waqt-xray-v3";
+interface Prefs {
+  layers: Record<LayerKey, boolean>; labels: boolean; solid: boolean; lens: boolean;
+  real: number; bright: number; size: number; offX: number; offY: number;
+}
 const DEFAULT_PREFS: Prefs = {
   layers: { skull: true, brain: false, muscles: false, eyes: true, hands: true, outline: true },
   labels: true, solid: false, lens: false, real: 0.3,
+  bright: 1, size: 1, offX: 0, offY: 0,
 };
 
 export default function XRayVisualizer({ keyFatigue, onClose }: {
@@ -229,6 +233,8 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const [stage, setStage] = useState<Stage>("idle");
   const [status, setStatus] = useState("");
   const [errMsg, setErrMsg] = useState("");
+  const [frozen, setFrozen] = useState<string | null>(null);
+  const frozenRef = useRef<string | null>(null);
   const [facing, setFacing] = useState<"user" | "environment">("user");
   const [prefs, setPrefs] = useState<Prefs>(() => {
     if (typeof window === "undefined") return DEFAULT_PREFS;
@@ -268,8 +274,11 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     setErrMsg("");
     try {
       setStatusOnce("asking for the camera…");
+      // Phones get a smaller feed — same tracking quality, far less CPU +
+      // decode work per frame.
+      const small = Math.min(window.innerWidth, window.innerHeight) < 700;
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+        video: { facingMode: "user", width: { ideal: small ? 640 : 1280 }, height: { ideal: small ? 480 : 720 } }, audio: false,
       });
       streamRef.current = stream;
       const video = videoRef.current;
@@ -277,28 +286,33 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       video.srcObject = stream;
       await video.play().catch(() => {});
 
-      setStatusOnce("loading anatomy + trackers…");
-      const [THREE, meta, b64, face, hand, pose] = await Promise.all([
+      setStatusOnce("loading anatomy + face tracker…");
+      // Staggered load: get head tracking live with the essentials only, then
+      // attach hand + pose models in the background. On phones the parallel
+      // ~50MB load + three GPU contexts is what made this screen die or sit
+      // on "loading" forever.
+      const [THREE, meta, b64, face] = await Promise.all([
         import("three"),
         fetch("/xray/meshmeta.json").then((r) => r.json()) as Promise<XRayMeta>,
         fetch("/xray/meshdata.b64").then((r) => r.text()),
         loadFaceTracker(),
-        loadHandTracker(),
-        loadSegLandmarker().catch(() => null),
       ]);
       const engine = new XRayEngine(THREE, meta);
       engine.build(glRef.current!, b64);
       engineRef.current = engine;
-      if (!pose) { /* body overlay unavailable — head/hands still work */ }
-      trackersRef.current = { face, faceHasMat: true, hand, pose };
+      trackersRef.current = { face, faceHasMat: true, hand: null, pose: null };
       setStage("live");
       runLoop();
+      setStatusOnce("loading hand + body trackers…");
+      void Promise.all([loadHandTracker(), loadSegLandmarker().catch(() => null)]).then(([hand, pose]) => {
+        if (trackersRef.current) trackersRef.current = { ...trackersRef.current, hand, pose };
+      }).catch(() => { /* head tracking still works without them */ });
     } catch (e) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       setErrMsg(e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "NotFoundError")
         ? "Camera access was denied — allow it and try again."
-        : "Couldn't start the visualizer on this device.");
+        : `Couldn't start the visualizer on this device (${e instanceof Error ? e.message : String(e)}).`);
       setStage("error");
     }
   }
@@ -347,9 +361,11 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       engine.S.reveal = P.lens ? "lens" : "full";
       engine.S.style = P.solid ? "solid" : "xray";
       engine.S.real = P.real;
+      engine.S.bright = P.bright;
+      engine.S.size = P.size; engine.S.offX = P.offX; engine.S.offY = P.offY;
 
-      if (video.currentTime === lastTime) {
-        // reuse last frame's detections — nothing new to see
+      if (frozenRef.current || video.currentTime === lastTime) {
+        // frozen preview on top / no new frame — nothing new to see
         return;
       }
       lastTime = video.currentTime;
@@ -565,7 +581,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
 
   async function snapshot() {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || frozen) return;
     // Capture at video resolution — the stage is the same aspect ratio.
     const W = video.videoWidth || 1280, H = video.videoHeight || 720;
     const out = document.createElement("canvas");
@@ -578,9 +594,15 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     for (const c of [bodyRef.current, shadeRef.current, glRef.current]) if (c) g.drawImage(c, 0, 0, W, H);
     g.restore();
     if (hudRef.current) g.drawImage(hudRef.current, 0, 0, W, H);
-    const blob = await new Promise<Blob | null>((res) => out.toBlob(res, "image/png"));
-    if (!blob) return;
-    const file = new File([blob], `waqt-xray-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`, { type: "image/png" });
+    const url = out.toDataURL("image/jpeg", 0.92);
+    frozenRef.current = url;
+    setFrozen(url);
+  }
+
+  async function saveFrozen() {
+    if (!frozen) return;
+    const blob = await (await fetch(frozen)).blob();
+    const file = new File([blob], `waqt-xray-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`, { type: "image/jpeg" });
     // Mobile-first: share sheet (Save to Photos) where available, else download.
     try {
       if (navigator.canShare?.({ files: [file] })) {
@@ -595,6 +617,11 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
 
+  function unfreeze() {
+    frozenRef.current = null;
+    setFrozen(null);
+  }
+
   const mir = facing === "user";
   const flip = mir ? "scaleX(-1)" : "none";
   const chip = (on: boolean) => ({
@@ -602,28 +629,31 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     color: on ? "var(--color-paper)" : "var(--color-ink-muted)",
   });
 
+  const slider = (label: string, k: "real" | "bright" | "size" | "offX" | "offY", min: number, max: number) => (
+    <label key={k} className="flex items-center gap-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+      <span className="w-12 shrink-0 text-right">{label}</span>
+      <input type="range" min={min} max={max} step={0.01} value={prefs[k]}
+        onChange={(e) => setPrefs((p) => ({ ...p, [k]: parseFloat(e.target.value) }))}
+        className="w-full min-w-0 flex-1" />
+    </label>
+  );
+
   return (
     <div className="fixed inset-0 z-[70] flex flex-col" style={{ background: "var(--color-paper)" }}>
-      {/* header */}
-      <div className="flex items-center gap-3 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
-        <button type="button" onClick={onClose} className="text-lg leading-none" style={{ color: "var(--color-ink-muted)" }} aria-label="Close">✕</button>
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>X-ray visualizer</h2>
-          <p className="truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-            {stage === "live" ? status : "Real anatomy, live · on-device · nothing uploaded"}
-          </p>
-        </div>
+      {/* header — one slim line */}
+      <div className="flex items-center gap-2 px-3 pb-2 pt-[max(0.6rem,env(safe-area-inset-top))]">
+        <button type="button" onClick={onClose} className="px-1 text-lg leading-none" style={{ color: "var(--color-ink-muted)" }} aria-label="Close">✕</button>
+        <p className="min-w-0 flex-1 truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+          {stage === "live" ? status : "Anatomy mirror — on-device, nothing uploaded"}
+        </p>
         {stage === "live" && (
-          <div className="ml-auto flex items-center gap-2">
-            <button type="button" onClick={switchCamera} aria-label="Switch camera"
-              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
-              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", background: "var(--color-paper)" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 7h-3l-1.5-2h-7L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" /><circle cx="12" cy="13" r="3" />
-              </svg>
-              Flip
-            </button>
-          </div>
+          <button type="button" onClick={switchCamera} aria-label="Switch camera"
+            className="rounded-md border p-1.5"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", background: "var(--color-paper)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 7h-3l-1.5-2h-7L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" /><circle cx="12" cy="13" r="3" />
+            </svg>
+          </button>
         )}
       </div>
 
@@ -631,7 +661,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       <div className="flex min-h-0 flex-1 items-center justify-center px-3 sm:px-4">
       <div ref={stageRef}
         className="relative touch-none overflow-hidden rounded-2xl border"
-        style={{ borderColor: "var(--color-paper-3)", background: "#07090f", aspectRatio: String(ar), width: `min(100%, calc((100dvh - 190px) * ${ar}))` }}
+        style={{ borderColor: "var(--color-paper-3)", background: "#07090f", aspectRatio: String(ar), width: `min(100%, calc((100dvh - 250px) * ${ar}))` }}
         onPointerMove={(e) => { const r = stageRef.current!.getBoundingClientRect(); pointerRef.current = { x: e.clientX - r.left, y: e.clientY - r.top }; }}
         onPointerLeave={() => { pointerRef.current = null; }}>
         <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-fill" style={{ transform: flip }} />
@@ -641,29 +671,42 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
         <canvas ref={hudRef} className="pointer-events-none absolute inset-0 h-full w-full" />
 
         {stage !== "live" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-6 text-center" style={{ background: "var(--color-paper)" }}>
-            <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--color-accent)" }}>
-              <circle cx="12" cy="8" r="5" /><path d="M12 13v3M9.5 17.5h5M8 21h8" />
-            </svg>
-            <div className="max-w-sm">
-              <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>A real x-ray mirror</p>
-              <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                Hold the camera to your face — a real skull, brain and facial muscles
-                track your head. Show a hand for its bones. Step back and muscle
-                recovery colors paint your whole body. Everything runs on-device.
-              </p>
-            </div>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center" style={{ background: "var(--color-paper)" }}>
+            <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>Anatomy mirror</p>
+            <p className="max-w-xs text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Face the camera for skull and hand bones. Step back for muscle recovery colors. Everything stays on this phone.
+            </p>
             {stage === "error" && <p className="max-w-xs text-xs" style={{ color: "#c96b45" }}>{errMsg}</p>}
             <button type="button" onClick={start} disabled={stage === "starting"}
               className="rounded-xl px-5 py-2.5 text-sm font-semibold"
               style={{ background: "var(--color-accent)", color: "var(--color-paper)", opacity: stage === "starting" ? 0.6 : 1 }}>
-              {stage === "starting" ? "Loading anatomy…" : stage === "error" ? "Try again" : "Start camera"}
+              {stage === "starting" ? "Loading…" : stage === "error" ? "Try again" : "Start camera"}
             </button>
           </div>
         )}
 
-        {/* capture shutter — floating, camera-app style */}
-        {stage === "live" && (
+        {/* frozen capture preview */}
+        {frozen && (
+          <div className="absolute inset-0 z-20 flex flex-col" style={{ background: "#07090f" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={frozen} alt="Captured frame" className="min-h-0 flex-1 object-contain" />
+            <div className="flex items-center justify-center gap-3 py-3">
+              <button type="button" onClick={unfreeze}
+                className="rounded-full border px-5 py-2 text-xs font-medium"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", background: "var(--color-paper)" }}>
+                Retake
+              </button>
+              <button type="button" onClick={saveFrozen}
+                className="rounded-full px-5 py-2 text-xs font-semibold"
+                style={{ background: "var(--color-accent)", color: "var(--color-paper)" }}>
+                Save photo
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* capture shutter */}
+        {stage === "live" && !frozen && (
           <button type="button" onClick={snapshot} aria-label="Capture a picture"
             className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border-2 p-1"
             style={{ borderColor: "rgba(239,232,221,0.9)", background: "rgba(7,9,15,0.4)" }}>
@@ -673,8 +716,8 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       </div>
       </div>
 
-      {/* controls — scrollable chip row, thumb-friendly on mobile */}
-      <div className="px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-3 sm:px-4">
+      {/* controls */}
+      <div className="px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
           {LAYERS.map(([k, t]) => (
             <button key={k} type="button"
@@ -693,17 +736,25 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
               {t}
             </button>
           ))}
-          <label className="ml-1 flex min-w-[7.5rem] shrink-0 items-center gap-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-            show me
-            <input type="range" min={0} max={1} step={0.01} value={prefs.real}
-              onChange={(e) => setPrefs((p) => ({ ...p, real: parseFloat(e.target.value) }))}
-              className="w-16 flex-1" />
-          </label>
+          <span className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--color-paper-3)" }} />
+          <button type="button"
+            onClick={() => setPrefs((p) => ({ ...p, bright: 1, size: 1, offX: 0, offY: 0, real: 0.3 }))}
+            className="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", background: "var(--color-paper)" }}>
+            Reset
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1">
+          {slider("Size", "size", 0.4, 2.2)}
+          {slider("Bright", "bright", 0.3, 2)}
+          {slider("Shift ↔", "offX", -0.6, 0.6)}
+          {slider("Shift ↕", "offY", -0.6, 0.6)}
+          <div className="col-span-2">{slider("Show me", "real", 0, 1)}</div>
         </div>
         <p className="mt-1 flex items-center gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
           <i className="inline-block h-2 w-2 rounded-full" style={{ background: "#7fbf6b" }} />recovered
           <i className="ml-1 inline-block h-2 w-2 rounded-full" style={{ background: "#8e3419" }} />sore
-          <span className="ml-auto">BodyParts3D anatomy · CC BY-SA 2.1</span>
+          <span className="ml-auto">BodyParts3D · CC BY-SA 2.1</span>
         </p>
       </div>
     </div>

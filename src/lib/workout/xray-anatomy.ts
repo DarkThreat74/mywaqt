@@ -26,6 +26,8 @@ export interface XRaySettings {
   style: "xray" | "solid";
   reveal: "full" | "lens" | "left" | "right" | "top" | "bottom";
   bright: number; real: number; feather: number; cut: number;
+  /** User framing: extra screen-space scale + NDC offset on the head overlay. */
+  size: number; offX: number; offY: number;
 }
 
 type Vec3 = InstanceType<THREE["Vector3"]>;
@@ -93,6 +95,7 @@ export class XRayEngine {
     skull: true, brain: false, muscles: false, eyes: true, outline: true,
     hands: true, labels: false, style: "xray", reveal: "full",
     bright: 1, real: 0.25, feather: 0.2, cut: 0.5,
+    size: 1, offX: 0, offY: 0,
   };
   mirror = true;
 
@@ -335,7 +338,8 @@ export class XRayEngine {
     head.fitS += (s - head.fitS) * 0.5;
     head.fitX += (qmx - head.fitS * pmx - head.fitX) * 0.7;
     head.fitY += (qmy - head.fitS * pmy - head.fitY) * 0.7;
-    this.corr.set(head.fitS, 0, 0, head.fitX, 0, head.fitS, 0, head.fitY, 0, 0, 1, 0, 0, 0, 0, 1);
+    const us = head.fitS * this.S.size;
+    this.corr.set(us, 0, 0, head.fitX + this.S.offX, 0, us, 0, head.fitY + this.S.offY, 0, 0, 1, 0, 0, 0, 0, 1);
     this.cam.projectionMatrix.copy(this.baseProj).premultiply(this.corr);
     this.cam.projectionMatrixInverse.copy(this.cam.projectionMatrix).invert();
 
