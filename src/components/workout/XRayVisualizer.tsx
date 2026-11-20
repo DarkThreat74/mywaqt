@@ -205,8 +205,8 @@ interface Prefs {
 }
 const DEFAULT_PREFS: Prefs = {
   layers: { skull: true, brain: false, muscles: false, eyes: true, hands: true, outline: true },
-  labels: true, solid: false, reveal: "full", real: 0.3,
-  bright: 1, feather: 0.2, cut: 0.5, size: 1, offX: 0, offY: 0,
+  labels: true, solid: false, reveal: "full", real: 0.7,
+  bright: 1, feather: 0.2, cut: 0.5, size: 1.2, offX: 0, offY: 0,
 };
 
 export default function XRayVisualizer({ keyFatigue, onClose }: {
@@ -631,16 +631,18 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const mir = facing === "user";
   const flip = mir ? "scaleX(-1)" : "none";
   const chip = (on: boolean) => ({
-    background: on ? "var(--color-accent)" : "var(--color-paper)",
+    background: on ? "var(--color-ink)" : "transparent",
     color: on ? "var(--color-paper)" : "var(--color-ink-muted)",
   });
+  const tgl = "shrink-0 border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em]";
 
   const slider = (label: string, k: "real" | "bright" | "feather" | "cut" | "size" | "offX" | "offY", min: number, max: number) => (
-    <label key={k} className="flex items-center gap-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-      <span className="w-12 shrink-0 text-right">{label}</span>
+    <label key={k} className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--color-ink-muted)" }}>
+      <span className="w-12 shrink-0">{label}</span>
       <input type="range" min={min} max={max} step={0.01} value={prefs[k]}
         onChange={(e) => setPrefs((p) => ({ ...p, [k]: parseFloat(e.target.value) }))}
-        className="w-full min-w-0 flex-1" />
+        className="w-full min-w-0 flex-1" style={{ accentColor: "var(--color-ink)" }} />
+      <span className="w-9 shrink-0 text-right tabular-nums" style={{ color: "var(--color-ink)" }}>{prefs[k].toFixed(2)}</span>
     </label>
   );
 
@@ -684,7 +686,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
             </p>
             {stage === "error" && <p className="max-w-xs text-xs" style={{ color: "#c96b45" }}>{errMsg}</p>}
             <button type="button" onClick={start} disabled={stage === "starting"}
-              className="rounded-xl px-5 py-2.5 text-sm font-semibold"
+              className="rounded-md px-5 py-2.5 text-sm font-semibold"
               style={{ background: "var(--color-accent)", color: "var(--color-paper)", opacity: stage === "starting" ? 0.6 : 1 }}>
               {stage === "starting" ? "Loading…" : stage === "error" ? "Try again" : "Start camera"}
             </button>
@@ -696,14 +698,14 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
           <div className="absolute inset-0 z-20 flex flex-col" style={{ background: "#07090f" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={frozen} alt="Captured frame" className="min-h-0 flex-1 object-contain" />
-            <div className="flex items-center justify-center gap-3 py-3">
+            <div className="flex items-center justify-center gap-2 py-3">
               <button type="button" onClick={unfreeze}
-                className="rounded-full border px-5 py-2 text-xs font-medium"
+                className="rounded-md border px-5 py-2 text-[11px] font-semibold uppercase tracking-[0.08em]"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", background: "var(--color-paper)" }}>
                 Retake
               </button>
               <button type="button" onClick={saveFrozen}
-                className="rounded-full px-5 py-2 text-xs font-semibold"
+                className="rounded-md px-5 py-2 text-[11px] font-semibold uppercase tracking-[0.08em]"
                 style={{ background: "var(--color-accent)", color: "var(--color-paper)" }}>
                 Save photo
               </button>
@@ -722,55 +724,58 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       </div>
       </div>
 
-      {/* controls */}
-      <div className="px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-          {LAYERS.map(([k, t]) => (
-            <button key={k} type="button"
-              onClick={() => setPrefs((p) => ({ ...p, layers: { ...p.layers, [k]: !p.layers[k] } }))}
-              className="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium"
-              style={{ borderColor: "var(--color-paper-3)", ...chip(prefs.layers[k]) }}>
-              {t}
-            </button>
-          ))}
-          <span className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--color-paper-3)" }} />
-          {([["labels", "Labels", prefs.labels], ["solid", "Solid", prefs.solid]] as const).map(([k, t, on]) => (
-            <button key={k} type="button"
-              onClick={() => setPrefs((p) => ({ ...p, [k]: !p[k] }))}
-              className="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium"
-              style={{ borderColor: "var(--color-paper-3)", ...chip(on) }}>
-              {t}
-            </button>
-          ))}
-          <span className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--color-paper-3)" }} />
-          {([["full", "Full"], ["lens", "Lens"], ["left", "L"], ["right", "R"], ["top", "T"], ["bottom", "B"]] as [RevealMode, string][]).map(([m, t]) => (
-            <button key={m} type="button"
-              onClick={() => setPrefs((p) => ({ ...p, reveal: m }))}
-              className="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium"
-              style={{ borderColor: "var(--color-paper-3)", ...chip(prefs.reveal === m) }}>
-              {t}
-            </button>
-          ))}
-          <span className="mx-1 h-5 w-px shrink-0" style={{ background: "var(--color-paper-3)" }} />
+      {/* controls — instrument panel */}
+      <div className="border-t px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-2 sm:px-4" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="flex items-stretch gap-2 overflow-x-auto pb-1.5" style={{ scrollbarWidth: "none" }}>
+          <div className="flex shrink-0 items-stretch divide-x rounded-md border" style={{ borderColor: "var(--color-paper-3)", background: "var(--color-paper)" }}>
+            {LAYERS.map(([k, t]) => (
+              <button key={k} type="button"
+                onClick={() => setPrefs((p) => ({ ...p, layers: { ...p.layers, [k]: !p.layers[k] } }))}
+                className={tgl}
+                style={{ borderColor: "var(--color-paper-3)", ...chip(prefs.layers[k]) }}>
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="flex shrink-0 items-stretch divide-x rounded-md border" style={{ borderColor: "var(--color-paper-3)", background: "var(--color-paper)" }}>
+            {([["labels", "Labels", prefs.labels], ["solid", "Solid", prefs.solid]] as const).map(([k, t, on]) => (
+              <button key={k} type="button"
+                onClick={() => setPrefs((p) => ({ ...p, [k]: !p[k] }))}
+                className={tgl}
+                style={{ borderColor: "var(--color-paper-3)", ...chip(on) }}>
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="flex shrink-0 items-stretch divide-x rounded-md border" style={{ borderColor: "var(--color-paper-3)", background: "var(--color-paper)" }}>
+            {([["full", "Full"], ["lens", "Lens"], ["left", "L"], ["right", "R"], ["top", "T"], ["bottom", "B"]] as [RevealMode, string][]).map(([m, t]) => (
+              <button key={m} type="button"
+                onClick={() => setPrefs((p) => ({ ...p, reveal: m }))}
+                className={tgl}
+                style={{ borderColor: "var(--color-paper-3)", ...chip(prefs.reveal === m) }}>
+                {t}
+              </button>
+            ))}
+          </div>
           <button type="button"
-            onClick={() => setPrefs((p) => ({ ...p, bright: 1, feather: 0.2, cut: 0.5, size: 1, offX: 0, offY: 0, real: 0.3, reveal: "full" }))}
-            className="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium"
+            onClick={() => setPrefs((p) => ({ ...p, bright: 1, feather: 0.2, cut: 0.5, size: 1.2, offX: 0, offY: 0, real: 0.7, reveal: "full" }))}
+            className={tgl + " rounded-md border"}
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", background: "var(--color-paper)" }}>
             Reset
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pt-1">
           {slider("Size", "size", 0.4, 2.2)}
           {slider("Bright", "bright", 0.3, 2)}
-          {slider("Shift ↔", "offX", -0.6, 0.6)}
-          {slider("Shift ↕", "offY", -0.6, 0.6)}
+          {slider("Shift X", "offX", -0.6, 0.6)}
+          {slider("Shift Y", "offY", -0.6, 0.6)}
           {slider("Show me", "real", 0, 1)}
           {slider("Feather", "feather", 0, 1)}
           {prefs.reveal !== "full" && <div className="col-span-2">{slider(prefs.reveal === "lens" ? "Lens size" : "Cut pos", "cut", 0, 1)}</div>}
         </div>
-        <p className="mt-1 flex items-center gap-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-          <i className="inline-block h-2 w-2 rounded-full" style={{ background: "#7fbf6b" }} />recovered
-          <i className="ml-1 inline-block h-2 w-2 rounded-full" style={{ background: "#8e3419" }} />sore
+        <p className="mt-1 flex items-center gap-2 text-[9px] uppercase tracking-[0.08em]" style={{ color: "var(--color-ink-muted)" }}>
+          <i className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "#7fbf6b" }} />recovered
+          <i className="ml-1 inline-block h-1.5 w-1.5 rounded-full" style={{ background: "#8e3419" }} />sore
           <span className="ml-auto">BodyParts3D · CC BY-SA 2.1</span>
         </p>
       </div>
