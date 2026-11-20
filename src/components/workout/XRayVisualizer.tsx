@@ -230,6 +230,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const lastStatusRef = useRef("");
   const faceFails = useRef(0);
   const lastFaceRebuild = useRef(0);
+  const allFail = useRef(0);
 
   const [stage, setStage] = useState<Stage>("idle");
   const [status, setStatus] = useState("");
@@ -265,6 +266,8 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   /** The stage is sized to the video's own aspect ratio, so tracker coords
    *  map 1:1 — no cover-crop remapping at all (same trick as the reference). */
   const [ar, setAr] = useState(4 / 3);
+  const [stageSize, setStageSize] = useState<{ w: number; h: number } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -273,10 +276,28 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
     v.addEventListener("playing", update);
     return () => { v.removeEventListener("loadedmetadata", update); v.removeEventListener("playing", update); };
   }, [stage]);
+  // Fit the largest video-AR rectangle inside the free space — no fixed
+  // controls-height guess, so the mirror actually uses what the screen has.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const fit = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) return;
+      let w = r.width, h = w / ar;
+      if (h > r.height) { h = r.height; w = h * ar; }
+      setStageSize({ w: Math.floor(w), h: Math.floor(h) });
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ar, stage]);
 
   async function start() {
     setStage("starting");
     setErrMsg("");
+    let step = "camera";
     try {
       setStatusOnce("asking for the camera…");
       // Phones get a smaller feed — same tracking quality, far less CPU +
@@ -295,16 +316,19 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       // Staggered load: get head tracking live with the essentials only, then
       // attach hand + pose models in the background. On phones the parallel
       // ~50MB load + three GPU contexts is what made this screen die or sit
-      // on "loading" forever.
-      const [THREE, meta, b64, face] = await Promise.all([
-        import("three"),
-        fetch("/xray/meshmeta.json").then((r) => r.json()) as Promise<XRayMeta>,
-        fetch("/xray/meshdata.b64").then((r) => r.text()),
-        loadFaceTracker(),
-      ]);
+      // on "loading" forever. Each step is labeled so failures name themselves.
+      step = "models";
+      const THREE = await import("three").catch((e) => { step = "three"; throw e; });
+      const [meta, b64] = await Promise.all([
+        fetch("/xray/meshmeta.json").then((r) => { if (!r.ok) throw new Error(`meshmeta ${r.status}`); return r.json() as Promise<XRayMeta>; }),
+        fetch("/xray/meshdata.b64").then((r) => { if (!r.ok) throw new Error(`meshdata ${r.status}`); return r.text(); }),
+      ]).catch((e) => { step = "mesh files"; throw e; });
       const engine = new XRayEngine(THREE, meta);
-      engine.build(glRef.current!, b64);
+      try {
+        engine.build(glRef.current!, b64);
+      } catch (e) { step = "webgl"; throw e; }
       engineRef.current = engine;
+      const face = await loadFaceTracker().catch((e) => { step = "face tracker"; throw e; });
       trackersRef.current = { face, faceHasMat: true, hand: null, pose: null };
       setStage("live");
       runLoop();
@@ -317,7 +341,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       streamRef.current = null;
       setErrMsg(e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "NotFoundError")
         ? "Camera access was denied — allow it and try again."
-        : `Couldn't start the visualizer on this device (${e instanceof Error ? e.message : String(e)}).`);
+        : `Failed at "${step}": ${e instanceof Error ? e.message : String(e)}`);
       setStage("error");
     }
   }
@@ -384,6 +408,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       // Face geometry can throw on degenerate frames (face clipped at the
       // frame edge, zero-variance landmarks). Contain it per-detector so one
       // bad frame kills nothing else — the next frame just tries again.
+      let faceThrew = false, handThrew = false, poseThrew = false;
       if (frameReady) {
         try {
           const fr = tr.face.detectForVideo(video, now);
@@ -403,6 +428,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
             if (now - lostAt > 250) engine.headLost();
           }
         } catch {
+          faceThrew = true;
           // MediaPipe's face-geometry solver throws away the whole detection
           // on degenerate frames — if it persists, the geometry pipeline is
           // wedged for this device. Rebuild WITHOUT matrixes: landmarks come
@@ -433,7 +459,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
               sides.push(engine.mirror ? left : !left);
             }
           }
-        } catch { /* hand hiccup — no bones this frame */ }
+        } catch { handThrew = true; /* hand hiccup — no bones this frame */ }
       }
 
       // Body muscle overlay only when no face is in frame.
@@ -465,8 +491,14 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
           if (raw) {
             try { bodyShown = drawBodyOverlay(bodyG, raw, W, H); } catch { bodyShown = false; }
           }
-        } catch { /* pose hiccup */ }
+        } catch { poseThrew = true; /* pose hiccup */ }
       }
+
+      // Every detector throwing every frame = the device's GPU/graph stack
+      // can't run the models (known on some mobile GPUs). Surface it instead
+      // of looking "live but dead."
+      if (faceThrew && (tr.hand == null || handThrew) && (tr.pose == null || poseThrew)) allFail.current++;
+      else allFail.current = 0;
 
       const maskCss = engine.renderFrame(shadeG, hudG, faceLms, hands, sides, pointerRef.current);
       for (const c of [shadeRef.current, glRef.current]) {
@@ -476,7 +508,8 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       }
 
       setStatusOnce(
-        engine.headVisible ? (hands.length ? "Head + hands tracked" : "Head tracked")
+        allFail.current > 90 ? "Trackers keep failing on this device — try Chrome, not the in-app browser"
+        : engine.headVisible ? (hands.length ? "Head + hands tracked" : "Head tracked")
         : hands.length ? "Hand bones on — face the camera for the head"
         : bodyShown ? "Muscles on — come closer for head anatomy"
         : "No tracking — face the camera or step back",
@@ -666,10 +699,10 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       </div>
 
       {/* stage — sized to the video's own aspect ratio so tracking is 1:1 */}
-      <div className="flex min-h-0 flex-1 items-center justify-center px-3 sm:px-4">
+      <div ref={wrapRef} className="flex min-h-0 flex-1 items-center justify-center px-3 sm:px-4">
       <div ref={stageRef}
         className="relative touch-none overflow-hidden rounded-2xl border"
-        style={{ borderColor: "var(--color-paper-3)", background: "#07090f", aspectRatio: String(ar), width: `min(100%, calc((100dvh - 250px) * ${ar}))` }}
+        style={{ borderColor: "var(--color-paper-3)", background: "#07090f", width: stageSize?.w ?? "100%", height: stageSize?.h ?? "auto", aspectRatio: String(ar) }}
         onPointerMove={(e) => { const r = stageRef.current!.getBoundingClientRect(); pointerRef.current = { x: e.clientX - r.left, y: e.clientY - r.top }; }}
         onPointerLeave={() => { pointerRef.current = null; }}>
         <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-fill" style={{ transform: flip }} />
