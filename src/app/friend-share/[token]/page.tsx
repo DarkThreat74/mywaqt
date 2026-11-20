@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { createHash } from "crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,13 @@ export default async function FriendSharePage({ params }: { params: Promise<{ to
   if (!friend) notFound();
   const [birthday] = await db.select({ month: schema.birthdays.birthMonth, day: schema.birthdays.birthDay, year: schema.birthdays.birthYear }).from(schema.birthdays).where(and(eq(schema.birthdays.friendId, share.friendId), eq(schema.birthdays.userId, share.userId))).limit(1);
   const photo = friend.photoData && friend.photoMime ? `data:${friend.photoMime};base64,${friend.photoData}` : null;
+  // Past profile photos — the same gallery the owner sees, minus the current
+  // avatar (already shown up top).
+  const gallery = (await db.select({ data: schema.friendPhotos.photoData, mime: schema.friendPhotos.photoMime }).from(schema.friendPhotos)
+    .where(and(eq(schema.friendPhotos.friendId, share.friendId), eq(schema.friendPhotos.userId, share.userId)))
+    .orderBy(desc(schema.friendPhotos.createdAt)).limit(12))
+    .filter((g) => g.data !== friend.photoData)
+    .map((g) => `data:${g.mime};base64,${g.data}`);
   return (
     <main className="min-h-dvh bg-[var(--color-paper)] px-5 py-10 text-[var(--color-ink)]">
       <div className="mx-auto max-w-md rounded-3xl border bg-[var(--color-paper)] p-6 shadow-sm" style={{ borderColor: "var(--color-paper-3)" }}>
@@ -40,6 +47,17 @@ export default async function FriendSharePage({ params }: { params: Promise<{ to
           {friend.phone && <div><b>Phone</b><p className="text-[var(--color-ink-muted)]">{friend.phone}</p></div>}
           {friend.notes && <div><b>Notes</b><p className="whitespace-pre-wrap text-[var(--color-ink-muted)]">{friend.notes}</p></div>}
         </div>
+        {gallery.length > 0 && (
+          <div className="mt-6">
+            <b className="text-sm">Photo history</b>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {gallery.map((src, i) => (
+                // eslint-disable-next-line @next/next/no-img-element -- data URLs from private profile
+                <img key={i} src={src} alt="" className="aspect-square w-full rounded-xl border object-cover" style={{ borderColor: "var(--color-paper-3)" }} />
+              ))}
+            </div>
+          </div>
+        )}
         <p className="mt-8 text-center text-[10px] uppercase tracking-widest text-[var(--color-ink-muted)]">Shared from Waqt</p>
       </div>
     </main>

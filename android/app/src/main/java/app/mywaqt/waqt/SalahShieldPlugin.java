@@ -1,6 +1,7 @@
 package app.mywaqt.waqt;
 
 import android.app.AppOpsManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -88,9 +89,20 @@ public class SalahShieldPlugin extends Plugin {
         Context ctx = getContext();
         Intent i;
         switch (key) {
-            case "accessibility":
-                i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            case "accessibility": {
+                // Deep-link straight to THIS service's accessibility page
+                // (Android 12+); older builds ignore the extras and land on
+                // the generic Installed-services list instead.
+                // Hidden API constants — literal strings are intentional.
+                i = new Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS");
+                ComponentName cn = new ComponentName(ctx, ShieldAccessibilityService.class);
+                i.putExtra("android.provider.extra.ACCESSIBILITY_COMPONENT_NAME", cn.flattenToString());
+                i.putExtra("android.settings.EXTRA_ACCESSIBILITY_COMPONENT_NAME", cn.flattenToString());
+                if (ctx.getPackageManager().resolveActivity(i, 0) == null) {
+                    i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                }
                 break;
+            }
             case "usageAccess":
                 i = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
                 break;

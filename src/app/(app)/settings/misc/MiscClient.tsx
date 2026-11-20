@@ -659,6 +659,36 @@ function ScrollCounterPanel() {
               </div>
             ))}
           </div>
+
+          {(() => {
+            const days = Object.values(history).sort((a, b) => b.date.localeCompare(a.date));
+            const allTime = days.reduce((s, d) => s + d.total, 0) + (today?.total ?? 0);
+            const weekTotal = week.reduce((s, d) => s + d.total, 0);
+            if (allTime === 0) return null;
+            return (
+              <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
+                <div className="flex justify-between text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                  <span>This week <b className="tabular-nums" style={{ color: "var(--color-ink)" }}>{weekTotal}</b></span>
+                  <span>All time <b className="tabular-nums" style={{ color: "var(--color-ink)" }}>{allTime}</b></span>
+                </div>
+                {days.length > 0 && (
+                  <div className="mt-2 max-h-36 space-y-1 overflow-y-auto">
+                    {days.map((d) => {
+                      const top = Object.entries(d.apps).sort((a, b) => b[1] - a[1])[0];
+                      return (
+                        <div key={d.date} className="flex items-center justify-between text-[11px]">
+                          <span style={{ color: "var(--color-ink-muted)" }}>{d.date}</span>
+                          <span className="tabular-nums" style={{ color: "var(--color-ink)" }}>
+                            {d.total}{top ? ` · ${SCROLL_APP_NAMES[top[0]] ?? top[0].split(".").pop()}` : ""}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

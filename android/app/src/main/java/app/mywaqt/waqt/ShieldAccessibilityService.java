@@ -127,6 +127,20 @@ public class ShieldAccessibilityService extends AccessibilityService {
     };
     private String fgActivity = "";
 
+    // Human labels for the overlay's expanded line.
+    private static final java.util.Map<String, String> SCROLL_APP_NAMES = new java.util.HashMap<String, String>() {{
+        put("com.instagram.android", "Instagram"); put("com.instagram.lite", "Instagram Lite");
+        put("com.zhiliaoapp.musically", "TikTok"); put("com.ss.android.ugc.trill", "TikTok");
+        put("com.ss.android.ugc.aweme", "TikTok"); put("com.zhiliaoapp.musically.go", "TikTok Lite");
+        put("com.google.android.youtube", "YouTube"); put("com.snapchat.android", "Snapchat");
+        put("com.facebook.katana", "Facebook"); put("com.facebook.lite", "Facebook Lite");
+        put("com.twitter.android", "X"); put("com.x.android", "X");
+        put("com.threads.android", "Threads"); put("com.reddit.frontpage", "Reddit");
+        put("com.pinterest", "Pinterest"); put("com.kwai.video", "Kwai");
+        put("com.smile.gifmaker", "Kuaishou"); put("video.likee", "Likee");
+        put("com.next.innovation.takatak", "Josh");
+    }};
+
     private android.view.View counterView;
     private TextView counterText;
     private long lastScrollAt = 0;
@@ -350,11 +364,21 @@ public class ShieldAccessibilityService extends AccessibilityService {
 
     private void updateCounter(int total) {
         if (counterText == null) return;
+        String appLabel = "";
+        int sec = 0;
+        try {
+            JSONObject day = todayStats();
+            if (fgPkg != null) {
+                String known = SCROLL_APP_NAMES.get(fgPkg);
+                appLabel = known != null ? known : fgPkg.substring(fgPkg.lastIndexOf('.') + 1);
+                sec = day.optJSONObject("sec") != null ? day.optJSONObject("sec").optInt(fgPkg) : 0;
+            }
+        } catch (Exception ignored) {}
         if (counterExpanded && fgPkg != null) {
-            String app = fgPkg.substring(fgPkg.lastIndexOf('.') + 1);
-            counterText.setText("↕ " + total + " today · " + app);
+            String t = sec >= 60 ? (sec / 60) + "m" : sec > 0 ? sec + "s" : "";
+            counterText.setText(total + " today · " + appLabel + (t.isEmpty() ? "" : " · " + t));
         } else {
-            counterText.setText("↕ " + total);
+            counterText.setText(total + " today");
         }
         int color = total < 30 ? 0xff7fbf6b : total < 100 ? 0xffd4a843 : 0xffc96b45;
         counterText.setTextColor(color);
