@@ -1619,3 +1619,20 @@ export const bodyMetrics = pgTable('body_metrics', {
 }, (table) => ({
   userDate: index('body_metrics_user_date_idx').on(table.userId, table.measuredAt),
 }));
+
+// Scroll counter — synced up from the Android service's local stats.
+// Local device date (yyyy-mm-dd) is the grain; JSON blobs carry the detail
+// so the shape can grow without migrations.
+export const scrollDays = pgTable('scroll_days', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),                    // yyyy-mm-dd, device-local
+  total: integer('total').notNull().default(0),
+  apps: jsonb('apps').$type<Record<string, number>>(),
+  sec: jsonb('sec').$type<Record<string, number>>(),
+  hours: jsonb('hours').$type<Record<string, number>>(),
+  sessions: jsonb('sessions').$type<{ p: string; t: number; c: number; d: number }[]>(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userDate: uniqueIndex('scroll_days_user_date_idx').on(table.userId, table.date),
+}));

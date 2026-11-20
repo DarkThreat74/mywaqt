@@ -697,7 +697,8 @@ function ScrollCounterPanel() {
       </div>
       <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
         Counts every feed scroll inside Instagram, TikTok, YouTube, and the rest —
-        with a small counter floating over the app. Everything stays on this phone.
+        with a small counter floating over the app.{" "}
+        {native && <Link href="/scroll" style={{ color: "var(--color-accent)" }}>Open full stats →</Link>}
       </p>
 
       {!native && (

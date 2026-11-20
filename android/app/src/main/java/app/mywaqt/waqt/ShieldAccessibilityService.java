@@ -184,6 +184,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
         if (raw != null) {
             day = new JSONObject(raw);
             if (!todayKey().equals(day.optString("date"))) {
+                try { flushSession(day); } catch (Exception ignored) {}
                 archiveDay(day);                    // move yesterday into history
                 day = null;
             }
@@ -258,9 +259,53 @@ public class ShieldAccessibilityService extends AccessibilityService {
             day.put("total", day.optInt("total") + 1);
             JSONObject apps = day.optJSONObject("apps");
             if (apps != null) apps.put(pkg, apps.optInt(pkg) + 1);
+            // Hour-of-day bucket for the time-of-day chart.
+            JSONObject hours = day.optJSONObject("hours");
+            if (hours == null) { hours = new JSONObject(); day.put("hours", hours); }
+            String h = String.valueOf(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY));
+            hours.put(h, hours.optInt(h) + 1);
+            // Sessions: a burst of counted scrolls in one app with gaps under
+            // 45s. Powers "how many at a time" + session-length stats.
+            trackSession(day, pkg, now);
             saveToday(day);
             updateCounter(day.optInt("total"));
         } catch (Exception ignored) {}
+    }
+
+    // ── Session tracking ──
+    private String sessPkg = null;
+    private long sessStart = 0, sessLast = 0;
+    private int sessCount = 0;
+    private static final long SESSION_GAP_MS = 45_000;
+
+    /** Extends the open session or closes it into day.sessions and starts a
+     *  new one. Entries: {p:pkg, t:minutes-since-midnight, c:count, d:sec}. */
+    private void trackSession(JSONObject day, String pkg, long now) throws Exception {
+        if (pkg.equals(sessPkg) && now - sessLast <= SESSION_GAP_MS) {
+            sessCount++;
+            sessLast = now;
+            return;
+        }
+        flushSession(day);
+        sessPkg = pkg; sessStart = now; sessLast = now; sessCount = 1;
+    }
+
+    /** Writes the open session into the day's sessions array (capped at 200). */
+    private void flushSession(JSONObject day) throws Exception {
+        if (sessPkg == null) return;
+        org.json.JSONArray arr = day.optJSONArray("sessions");
+        if (arr == null) { arr = new org.json.JSONArray(); day.put("sessions", arr); }
+        if (arr.length() < 200) {
+            java.util.Calendar cal = java.util.Calendar.getInstance();
+            cal.setTimeInMillis(sessStart);
+            JSONObject s = new JSONObject();
+            s.put("p", sessPkg);
+            s.put("t", cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE));
+            s.put("c", sessCount);
+            s.put("d", Math.max(1, (sessLast - sessStart) / 1000));
+            arr.put(s);
+        }
+        sessPkg = null;
     }
 
     /** Re-checks whether the pill should still exist — posted with a delay
@@ -276,13 +321,21 @@ public class ShieldAccessibilityService extends AccessibilityService {
      *  meaningful pixel distance. Item indices exist on most list widgets;
      *  deltas exist on API 28+. Both absent → accept the event. */
     private boolean meaningfulScroll(AccessibilityEvent event) {
+        // Only reject when BOTH signals agree nothing moved: same index AND
+        // a tiny delta. An unchanged index with a big delta is a long item
+        // mid-swipe; a moved index with no delta data is still real.
         int from = event.getFromIndex(), to = event.getToIndex();
-        if (from >= 0 && to >= 0 && from == to) return false; // index didn't move
         if (android.os.Build.VERSION.SDK_INT < 28) return true;
         int dy = 0, dx = 0;
         try { dy = event.getScrollDeltaY(); dx = event.getScrollDeltaX(); } catch (Exception ignored) {}
         if (dy == -1 && dx == -1) return true;        // deltas unavailable
-        return Math.max(Math.abs(dy), Math.abs(dx)) > 90;
+        int dist = Math.max(Math.abs(dy), Math.abs(dx));
+        if (from >= 0 && to >= 0) {
+            // Both signals available: unmoved index AND tiny distance →
+            // in-place update / bounce. Either signal moving → real swipe.
+            return to != from || dist > 90;
+        }
+        return dist > 90;
     }
 
     private boolean inFeedContext() {
@@ -299,6 +352,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
                 JSONObject day = todayStats();
                 JSONObject sec = day.optJSONObject("sec");
                 if (sec != null) sec.put(fgPkg, sec.optLong(fgPkg) + (now - fgSince) / 1000);
+                flushSession(day);   // leaving the app ends the scroll session
                 saveToday(day);
             } catch (Exception ignored) {}
         }

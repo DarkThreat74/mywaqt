@@ -222,6 +222,8 @@ export interface ScrollDayStats {
   total: number;
   apps: Record<string, number>;
   sec: Record<string, number>;
+  hours?: Record<string, number>;
+  sessions?: { p: string; t: number; c: number; d: number }[];
 }
 
 export function isScrollCounterEnabled(): boolean {
@@ -241,7 +243,12 @@ export async function getScrollStats(): Promise<{ today: ScrollDayStats | null; 
       if (!raw) return null;
       try {
         const d = JSON.parse(raw);
-        return { date: d.date ?? "", total: d.total ?? 0, apps: d.apps ?? {}, sec: d.sec ?? {} };
+        return {
+          date: d.date ?? "", total: d.total ?? 0,
+          apps: d.apps ?? {}, sec: d.sec ?? {},
+          hours: d.hours ?? undefined,
+          sessions: Array.isArray(d.sessions) ? d.sessions : undefined,
+        };
       } catch { return null; }
     };
     const history: Record<string, ScrollDayStats> = {};
@@ -249,13 +256,36 @@ export async function getScrollStats(): Promise<{ today: ScrollDayStats | null; 
       const h = JSON.parse(r.history ?? "{}");
       for (const k of Object.keys(h)) {
         const d = h[k];
-        if (d && typeof d === "object") history[k] = { date: d.date ?? k, total: d.total ?? 0, apps: d.apps ?? {}, sec: d.sec ?? {} };
+        if (d && typeof d === "object") history[k] = {
+          date: d.date ?? k, total: d.total ?? 0,
+          apps: d.apps ?? {}, sec: d.sec ?? {},
+          hours: d.hours ?? undefined,
+          sessions: Array.isArray(d.sessions) ? d.sessions : undefined,
+        };
       }
     } catch { /* empty */ }
     return { today: parse(r.today), history, enabled: r.enabled };
   } catch {
     return null;
   }
+}
+
+/** Push native local stats into the account DB so history survives
+ *  reinstalls and feeds the Scrolls page. Best-effort — failures stay
+ *  silent; local data is the source of truth. */
+export async function pushScrollStats(): Promise<void> {
+  const s = await getScrollStats();
+  if (!s) return;
+  const days = [...Object.values(s.history), ...(s.today ? [s.today] : [])]
+    .filter((d) => d.date && d.total > 0);
+  if (days.length === 0) return;
+  try {
+    await fetch("/api/scroll/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days }),
+    });
+  } catch { /* offline — next poll retries */ }
 }
 
 export function setShieldBlockedApps(pkgs: string[] | null): void {
