@@ -113,8 +113,19 @@ public class ShieldAccessibilityService extends AccessibilityService {
             "timeline", "pager", "watch", "discover", "for_you", "fyp", "recycler", "list"
     };
     // One counted scroll ≈ one piece of content. A swipe burst produces many
-    // raw scroll events; ~0.9s between counts approximates "next video".
-    private static final long SCROLL_DEBOUNCE_MS = 900;
+    // raw scroll events; ~1.2s between counts approximates "next video" and
+    // soaks up double-fires on the same card.
+    private static final long SCROLL_DEBOUNCE_MS = 1200;
+
+    // Activities that are never a feed, even inside a feed app — DMs, chats,
+    // search, comments, camera, settings. Tracked from window-state events:
+    // the class name there IS the activity (e.g. DirectThreadActivity).
+    private static final String[] NOT_FEED_ACTIVITY = {
+            "direct", "message", "messenger", "chat", "inbox", "comment",
+            "setting", "search", "camera", "call", "share", "picker",
+            "login", "onboarding", "browser", "weblink", "webview", "reply"
+    };
+    private String fgActivity = "";
 
     private android.view.View counterView;
     private TextView counterText;
@@ -197,9 +208,13 @@ public class ShieldAccessibilityService extends AccessibilityService {
 
     private void countScroll(String pkg, AccessibilityEvent event) {
         long now = System.currentTimeMillis();
-        // Feed surfaces only: IG/TikTok-style apps always count, others must
-        // scroll something that looks like a feed.
-        final boolean feed = FEED_ALWAYS.contains(pkg) || looksLikeFeed(event);
+        // Feed surfaces only: the foreground screen must not be a non-feed
+        // activity (kills DM-thread counting), either the app is always a
+        // feed or the scrolled surface looks like one, and the swipe moved
+        // a meaningful distance — micro-scrolls/bounces aren't content.
+        final boolean feed = inFeedContext()
+                && (FEED_ALWAYS.contains(pkg) || looksLikeFeed(event))
+                && meaningfulScroll(event);
         // Show the pill during active scrolling — even on debounced events —
         // and hide it a beat after scrolling stops.
         if (feed && counterEnabled()) {
@@ -222,7 +237,24 @@ public class ShieldAccessibilityService extends AccessibilityService {
     private final Runnable hideCounterSoon = this::hideCounter;
     private static final long COUNTER_HIDE_MS = 1800;
 
-    private void trackForeground(String pkg) {
+    /** Scroll deltas exist on API 28+. Below that, accept the event; on 28+,
+     *  a real "next item" swipe is a large delta — tiny ones are partial
+     *  drags, edge bounces, or in-place updates we shouldn't count. */
+    private boolean meaningfulScroll(AccessibilityEvent event) {
+        if (android.os.Build.VERSION.SDK_INT < 28) return true;
+        int dy = 0, dx = 0;
+        try { dy = event.getScrollDeltaY(); dx = event.getScrollDeltaX(); } catch (Exception ignored) {}
+        if (dy == -1 && dx == -1) return true;        // deltas unavailable
+        return Math.max(Math.abs(dy), Math.abs(dx)) > 90;
+    }
+
+    private boolean inFeedContext() {
+        String a = fgActivity.toLowerCase(Locale.US);
+        for (String bad : NOT_FEED_ACTIVITY) if (a.contains(bad)) return false;
+        return true;
+    }
+
+    private void trackForeground(String pkg, AccessibilityEvent event) {
         long now = System.currentTimeMillis();
         // Close out the previous app's session time.
         if (fgPkg != null && SCROLL_APPS.contains(fgPkg) && fgSince > 0) {
@@ -235,6 +267,11 @@ public class ShieldAccessibilityService extends AccessibilityService {
         }
         fgPkg = SCROLL_APPS.contains(pkg) ? pkg : null;
         fgSince = SCROLL_APPS.contains(pkg) ? now : 0;
+        // The event's class name is the Activity on window-state changes —
+        // remember it so scrolls inside non-feed screens (DMs, search…) are
+        // ignored. Empty/system classes keep the previous value.
+        String cls = event == null ? null : String.valueOf(event.getClassName());
+        if (cls != null && !cls.equals("null") && !cls.startsWith("android.")) fgActivity = cls;
     }
 
     // ── Floating counter pill ──
@@ -355,7 +392,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
 
         // Scroll counter bookkeeping — foreground time + feed scrolls.
         if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            trackForeground(pkg);
+            trackForeground(pkg, event);
             tickCounter(pkg);
         } else if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED && SCROLL_APPS.contains(pkg)) {
             countScroll(pkg, event);
