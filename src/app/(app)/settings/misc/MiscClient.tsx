@@ -405,6 +405,9 @@ function SalahGuardPanel() {
   // Once we've seen the restriction, keep step 1 rendered so it can show a
   // checkmark after the user allows it — instead of silently disappearing.
   const [restrictedNeeded, setRestrictedNeeded] = useState(false);
+  // True while a system settings page we opened is in front — shows a
+  // "finish it there" hint so the wait feels intentional, not frozen.
+  const [awaiting, setAwaiting] = useState<"restricted" | "accessibility" | null>(null);
   const [mounted, setMounted] = useState(false);
   const [grantFailed, setGrantFailed] = useState(false);
   // Read on mount AND on a short retry — the Capacitor bridge injects after
@@ -426,6 +429,9 @@ function SalahGuardPanel() {
           const r = s.restrictedAllowed !== false;
           setRestrictedOn(r);
           if (!r) setRestrictedNeeded(true);
+          // The waiting hint clears the moment its target state lands.
+          setAwaiting((a) =>
+            (a === "restricted" && r) || (a === "accessibility" && s.accessibility) ? null : a);
         }
       }
     };
@@ -435,18 +441,30 @@ function SalahGuardPanel() {
       if (!shieldNativeAvailable() && attempts > 12) return;
       void refresh();
     }, 2500);
-    return () => clearInterval(t);
+    // Coming back from a settings page shouldn't wait for the poll —
+    // refresh the moment the app is foregrounded again.
+    const onShow = () => void refresh();
+    document.addEventListener("visibilitychange", onShow);
+    window.addEventListener("pageshow", onShow);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onShow);
+      window.removeEventListener("pageshow", onShow);
+    };
   }, []);
 
   // Step 1 → step 2 handoff: the moment restricted access is allowed,
   // carry the user straight into the accessibility service page so they
   // don't have to come back and figure out what's next.
   useEffect(() => {
-    if (restrictedNeeded && restrictedOn && accOn === false) void openShieldSetting("accessibility");
+    if (restrictedNeeded && restrictedOn && accOn === false) {
+      void openShieldSetting("accessibility").then((ok) => { if (ok) setAwaiting("accessibility"); });
+    }
   }, [restrictedOn, accOn, restrictedNeeded]);
 
   const grantAccessibility = async () => {
     setGrantFailed(false);
+    setAwaiting("accessibility");
     const ok = await openShieldSetting("accessibility");
     if (!ok) {
       // The bridge rejected — usually means the installed APK predates the
@@ -454,6 +472,7 @@ function SalahGuardPanel() {
       // more widely supported) and show the manual path either way.
       await openShieldSetting("appDetails").catch(() => false);
       setGrantFailed(true);
+      setAwaiting(null);
     }
   };
 
@@ -529,7 +548,10 @@ function SalahGuardPanel() {
                 </div>
                 {!restrictedOn && (
                   <button
-                    onClick={() => void openShieldSetting("restrictedAccess").then((ok) => { if (!ok) setGrantFailed(true); })}
+                    onClick={() => {
+                      setAwaiting("restricted");
+                      void openShieldSetting("restrictedAccess").then((ok) => { if (!ok) { setGrantFailed(true); setAwaiting(null); } });
+                    }}
                     className="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium"
                     style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
                   >
@@ -559,6 +581,13 @@ function SalahGuardPanel() {
                 Grant
               </button>
             </div>
+            {awaiting && (
+              <p className="text-[10px] italic" style={{ color: "var(--color-ink-muted)" }}>
+                {awaiting === "restricted"
+                  ? "Finish it in Settings — come back and step 2 opens itself."
+                  : "Finish it in Settings — come back and you're done."}
+              </p>
+            )}
           </div>
         )}
         {accOn && (
