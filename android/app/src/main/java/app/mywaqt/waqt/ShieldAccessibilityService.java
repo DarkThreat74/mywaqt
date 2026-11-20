@@ -107,10 +107,24 @@ public class ShieldAccessibilityService extends AccessibilityService {
             "com.kwai.video", "com.smile.gifmaker", "video.likee"
     ));
     // For the rest (YouTube/Facebook/Snap/Reddit/…), only count scrolls on
-    // surfaces that look like a feed — node ids/classes mentioning these.
-    private static final String[] FEED_HINTS = {
-            "reel", "shorts", "feed", "spotlight", "stories", "story",
-            "timeline", "pager", "watch", "discover", "for_you", "fyp", "recycler", "list"
+    // surfaces that look like SHORT-FORM content — a scrolled node's id or
+    // class must contain one of these. Per-app so YouTube's home feed and
+    // long-video pages don't count; generic "recycler"/"list" would match
+    // every settings page and DM thread, so they're deliberately absent.
+    private static final java.util.Map<String, String[]> SHORT_HINTS = new java.util.HashMap<String, String[]>() {{
+        put("com.google.android.youtube", new String[]{"reel", "shorts", "pivot"});            // Shorts only, not Home/watch pages
+        put("com.facebook.katana",      new String[]{"reel", "stories", "watch", "video"});
+        put("com.facebook.lite",        new String[]{"reel", "stories", "watch", "video"});
+        put("com.snapchat.android",     new String[]{"spotlight", "stories", "discover", "subscription"});
+        put("com.twitter.android",      new String[]{"timeline", "video"});
+        put("com.x.android",            new String[]{"timeline", "video"});
+        put("com.threads.android",      new String[]{"feed", "timeline"});
+        put("com.reddit.frontpage",     new String[]{"feed", "post", "video"});
+        put("com.pinterest",            new String[]{"pin", "feed", "idea", "story"});
+        put("com.next.innovation.takatak", new String[]{"feed", "video", "pager"});
+    }};
+    private static final String[] SHORT_HINTS_DEFAULT = {
+            "reel", "shorts", "spotlight", "video", "clips", "for_you", "fyp", "feed"
     };
     // One counted scroll ≈ one piece of content. A swipe burst produces many
     // raw scroll events; ~1.2s between counts approximates "next video" and
@@ -206,7 +220,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
 
     /** True when the scrolled surface looks like a feed — checked against the
      *  event source's view-id and class name for feed-ish hints. */
-    private boolean looksLikeFeed(AccessibilityEvent event) {
+    private boolean looksLikeFeed(String pkg, AccessibilityEvent event) {
         try {
             AccessibilityNodeInfo src = event.getSource();
             if (src == null) return false;
@@ -215,7 +229,9 @@ public class ShieldAccessibilityService extends AccessibilityService {
             src.recycle();
             if (id == null) id = "";
             String hay = (id + " " + cls).toLowerCase(Locale.US);
-            for (String h : FEED_HINTS) if (hay.contains(h)) return true;
+            String[] hints = SHORT_HINTS.get(pkg);
+            if (hints == null) hints = SHORT_HINTS_DEFAULT;
+            for (String h : hints) if (hay.contains(h)) return true;
             return false;
         } catch (Exception e) { return false; }
     }
@@ -227,14 +243,13 @@ public class ShieldAccessibilityService extends AccessibilityService {
         // feed or the scrolled surface looks like one, and the swipe moved
         // a meaningful distance — micro-scrolls/bounces aren't content.
         final boolean feed = inFeedContext()
-                && (FEED_ALWAYS.contains(pkg) || looksLikeFeed(event))
+                && (FEED_ALWAYS.contains(pkg) || looksLikeFeed(pkg, event))
                 && meaningfulScroll(event);
-        // Show the pill during active scrolling — even on debounced events —
-        // and hide it a beat after scrolling stops.
+        // Presence-anchored: once it appears on a real feed scroll it stays
+        // until the user actually leaves the feed — no inactivity timer.
         if (feed && counterEnabled()) {
             try { showCounter(todayStats().optInt("total")); } catch (Exception ignored) {}
-            handler.removeCallbacks(hideCounterSoon);
-            handler.postDelayed(hideCounterSoon, COUNTER_HIDE_MS);
+            handler.removeCallbacks(evaluateHide);
         }
         if (!feed || now - lastScrollAt < SCROLL_DEBOUNCE_MS) return;
         lastScrollAt = now;
@@ -248,13 +263,21 @@ public class ShieldAccessibilityService extends AccessibilityService {
         } catch (Exception ignored) {}
     }
 
-    private final Runnable hideCounterSoon = this::hideCounter;
-    private static final long COUNTER_HIDE_MS = 1800;
+    /** Re-checks whether the pill should still exist — posted with a delay
+     *  on context changes so one stray window event can't blink it. */
+    private final Runnable evaluateHide = new Runnable() {
+        @Override public void run() {
+            if (fgPkg == null || !inFeedContext() || !counterEnabled()) hideCounter();
+        }
+    };
+    private static final long HIDE_HYSTERESIS_MS = 600;
 
-    /** Scroll deltas exist on API 28+. Below that, accept the event; on 28+,
-     *  a real "next item" swipe is a large delta — tiny ones are partial
-     *  drags, edge bounces, or in-place updates we shouldn't count. */
+    /** A real "next item" swipe either advances the adapter index or moves a
+     *  meaningful pixel distance. Item indices exist on most list widgets;
+     *  deltas exist on API 28+. Both absent → accept the event. */
     private boolean meaningfulScroll(AccessibilityEvent event) {
+        int from = event.getFromIndex(), to = event.getToIndex();
+        if (from >= 0 && to >= 0 && from == to) return false; // index didn't move
         if (android.os.Build.VERSION.SDK_INT < 28) return true;
         int dy = 0, dx = 0;
         try { dy = event.getScrollDeltaY(); dx = event.getScrollDeltaX(); } catch (Exception ignored) {}
@@ -347,7 +370,12 @@ public class ShieldAccessibilityService extends AccessibilityService {
                     return true;
                 }
             });
-            try { wm.addView(counterText, lp); counterView = counterText; } catch (Exception ignored) { return; }
+            try {
+                counterText.setAlpha(0f);
+                wm.addView(counterText, lp);
+                counterView = counterText;
+                counterText.animate().alpha(1f).setDuration(160).start();
+            } catch (Exception ignored) { return; }
         }
         updateCounter(total);
         // Restore the remembered drag position (persisted across sessions).
@@ -386,19 +414,26 @@ public class ShieldAccessibilityService extends AccessibilityService {
 
     private void hideCounter() {
         if (counterView != null && wm != null) {
-            WindowManager.LayoutParams lp = (WindowManager.LayoutParams) counterView.getLayoutParams();
+            final android.view.View v = counterView;
+            WindowManager.LayoutParams lp = (WindowManager.LayoutParams) v.getLayoutParams();
             counterX = lp.x; counterY = lp.y;
-            try { wm.removeView(counterView); } catch (Exception ignored) {}
+            v.animate().alpha(0f).setDuration(140).withEndAction(new Runnable() {
+                @Override public void run() {
+                    try { wm.removeView(v); } catch (Exception ignored) {}
+                }
+            }).start();
         }
         counterView = null;
         counterText = null;
     }
 
     private void tickCounter(String pkg) {
-        // The pill only exists while scrolling — app switches always hide it.
-        if (!SCROLL_APPS.contains(pkg) || !counterEnabled()) {
-            handler.removeCallbacks(hideCounterSoon);
-            hideCounter();
+        // Any window change can end the pill's context — leaving the app, or
+        // entering a non-feed screen in the same app. Evaluate after a short
+        // hysteresis so transient window events can't flicker it away.
+        if (!SCROLL_APPS.contains(pkg) || !inFeedContext() || !counterEnabled()) {
+            handler.removeCallbacks(evaluateHide);
+            handler.postDelayed(evaluateHide, HIDE_HYSTERESIS_MS);
         }
     }
 
