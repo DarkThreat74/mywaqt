@@ -549,6 +549,13 @@ export default function MarketingPage() {
             </Link>
             <ShareQrButton />
             <Link
+              href="/sirat"
+              className="transition-opacity hover:opacity-70"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Halal Places
+            </Link>
+            <Link
               href="/admin/login"
               className="transition-opacity hover:opacity-70"
               style={{ color: "var(--color-ink-muted)" }}
