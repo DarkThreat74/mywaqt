@@ -11,6 +11,10 @@ import { isNativeApp, getPlatform } from "./native-bridge";
 
 export interface ShieldStatus {
   accessibility: boolean;
+  /** Android 13+: sideloaded apps need App info → ⋮ → "Allow restricted
+   *  settings" before the accessibility toggle unlocks. True when already
+   *  allowed or not restricted (pre-13 / Play install). */
+  restrictedAllowed?: boolean;
   usageAccess: boolean;
   battery: boolean;
   notifications: boolean;
@@ -68,6 +72,7 @@ export async function getShieldStatus(): Promise<ShieldStatus | null> {
 
 export type ShieldPermissionKey =
   | "accessibility"
+  | "restrictedAccess"
   | "usageAccess"
   | "overlay"
   | "battery"

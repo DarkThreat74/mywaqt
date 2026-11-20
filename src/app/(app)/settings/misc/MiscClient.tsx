@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CalendarClock, Download, Lightbulb, RefreshCw, Shield, UserRound } from "lucide-react";
+import { ArrowLeft, CalendarClock, Check, Download, Lightbulb, RefreshCw, Shield, UserRound } from "lucide-react";
 import { setCachedPrayerSettings, getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import { getAudioCacheCount, getAudioCacheSize, getDownloadLimitMB, setDownloadLimitMB } from "@/components/audio-player-context";
 import { FunFactToggle, FunFactCountdown, PrayerPersonalization, type PrayerSettings } from "../SettingsClient";
@@ -399,6 +399,12 @@ function SalahGuardPanel() {
   const [armed, setArmed] = useState(false);
   const [paused, setPaused] = useState(false);
   const [accOn, setAccOn] = useState<boolean | null>(null);
+  // Android 13+ sideload gate: undefined field (old APK / unreadable op)
+  // is treated as unrestricted so the flow never traps on a phantom step.
+  const [restrictedOn, setRestrictedOn] = useState<boolean>(true);
+  // Once we've seen the restriction, keep step 1 rendered so it can show a
+  // checkmark after the user allows it — instead of silently disappearing.
+  const [restrictedNeeded, setRestrictedNeeded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [grantFailed, setGrantFailed] = useState(false);
   // Read on mount AND on a short retry — the Capacitor bridge injects after
@@ -415,7 +421,12 @@ function SalahGuardPanel() {
         setArmed(isShieldArmed());
         setPaused(isShieldPausedToday());
         const s = await getShieldStatus();
-        if (s) setAccOn(s.accessibility);
+        if (s) {
+          setAccOn(s.accessibility);
+          const r = s.restrictedAllowed !== false;
+          setRestrictedOn(r);
+          if (!r) setRestrictedNeeded(true);
+        }
       }
     };
     Promise.resolve().then(refresh).then(() => setMounted(true));
@@ -426,6 +437,13 @@ function SalahGuardPanel() {
     }, 2500);
     return () => clearInterval(t);
   }, []);
+
+  // Step 1 → step 2 handoff: the moment restricted access is allowed,
+  // carry the user straight into the accessibility service page so they
+  // don't have to come back and figure out what's next.
+  useEffect(() => {
+    if (restrictedNeeded && restrictedOn && accOn === false) void openShieldSetting("accessibility");
+  }, [restrictedOn, accOn, restrictedNeeded]);
 
   const grantAccessibility = async () => {
     setGrantFailed(false);
@@ -482,21 +500,72 @@ function SalahGuardPanel() {
         </button>
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
-        <div className="min-w-0">
-          <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Accessibility access</p>
-          <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-            {accOn ? "Granted — the guard can cover other apps." : "Required — tap to open the system setting and allow Waqt."}
-          </p>
-        </div>
+      <div className="rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
+        <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Accessibility access</p>
+        <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+          {accOn
+            ? "Granted — the guard can cover other apps."
+            : "Required — Android makes sideloaded apps take two steps."}
+        </p>
         {!accOn && native && (
-          <button
-            onClick={() => void grantAccessibility()}
-            className="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium"
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-          >
-            Grant
-          </button>
+          <div className="mt-2.5 space-y-2">
+            {restrictedNeeded && (
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  {restrictedOn ? (
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: "#7fbf6b" }}>
+                      <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />
+                    </span>
+                  ) : (
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                      style={{ backgroundColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>1</span>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-xs" style={{ color: "var(--color-ink)" }}>Allow restricted access</p>
+                    <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                      App info → ⋮ top right → &ldquo;Allow restricted settings&rdquo;
+                    </p>
+                  </div>
+                </div>
+                {!restrictedOn && (
+                  <button
+                    onClick={() => void openShieldSetting("restrictedAccess").then((ok) => { if (!ok) setGrantFailed(true); })}
+                    className="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+                  >
+                    Open
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                  style={{ backgroundColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+                  {restrictedNeeded ? "2" : "1"}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs" style={{ color: "var(--color-ink)" }}>Turn on Waqt in Accessibility</p>
+                  <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    Opens the Waqt service page — switch it on.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => void grantAccessibility()}
+                className="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", opacity: restrictedOn ? 1 : 0.5 }}
+              >
+                Grant
+              </button>
+            </div>
+          </div>
+        )}
+        {accOn && (
+          <div className="mt-2 flex items-center gap-1.5">
+            <Check className="h-3.5 w-3.5" style={{ color: "#7fbf6b" }} />
+            <p className="text-[11px]" style={{ color: "#7fbf6b" }}>All set</p>
+          </div>
         )}
       </div>
       {grantFailed && (

@@ -76,6 +76,7 @@ public class SalahShieldPlugin extends Plugin {
         Context ctx = getContext();
         JSObject out = new JSObject();
         out.put("accessibility", isAccessibilityEnabled(ctx));
+        out.put("restrictedAllowed", isRestrictedAllowed(ctx));
         out.put("usageAccess", hasUsageAccess(ctx));
         out.put("battery", isBatteryExempt(ctx));
         out.put("notifications", NotificationManagerCompat.from(ctx).areNotificationsEnabled());
@@ -103,6 +104,14 @@ public class SalahShieldPlugin extends Plugin {
                 }
                 break;
             }
+            case "restrictedAccess":
+                // Android 13+ sideloaded apps gate accessibility behind
+                // App info → ⋮ → "Allow restricted settings". There is no
+                // API to open that menu item — the app-info page is the
+                // closest reachable surface.
+                i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + ctx.getPackageName()));
+                break;
             case "usageAccess":
                 i = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
                 break;
@@ -238,6 +247,25 @@ public class SalahShieldPlugin extends Plugin {
             if (svc.equalsIgnoreCase(expected)) return true;
         }
         return false;
+    }
+
+    /** True when the user has tapped App info → ⋮ → "Allow restricted
+     *  settings" — or when the restriction doesn't exist (pre-13 or an
+     *  app-store install). Drives the two-step Grant flow web-side. */
+    private boolean isRestrictedAllowed(Context ctx) {
+        if (Build.VERSION.SDK_INT < 33) return true;
+        try {
+            AppOpsManager ops = (AppOpsManager) ctx.getSystemService(Context.APP_OPS_SERVICE);
+            ApplicationInfo info = ctx.getApplicationInfo();
+            int mode = ops.unsafeCheckOpNoThrow("android:access_restricted_settings",
+                    info.uid, info.packageName);
+            return mode == AppOpsManager.MODE_ALLOWED;
+        } catch (Exception e) {
+            // Can't read the op — assume unrestricted so the flow skips
+            // step 1 rather than trapping the user on a screen that may
+            // not need it.
+            return true;
+        }
     }
 
     private boolean hasUsageAccess(Context ctx) {
