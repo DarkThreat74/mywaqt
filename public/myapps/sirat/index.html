@@ -747,7 +747,8 @@ addEventListener('resize',()=>{size();renderChips();metrics();setSnap(snap);draw
 refreshKeys().then(()=>{need()});
 boot();
 requestAnimationFrame(()=>{renderChips();metrics();setSnap('peek');visPx=VIS.peek;layout();V.s=Math.max(4.4,Math.min(W,H-TOPH-VIS.peek-navPx())/2/44);draw()});
-if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){navigator.serviceWorker.register('sw.js').catch(()=>{});
+ navigator.serviceWorker.addEventListener('message',e=>{if(e.data&&e.data.type==='sirat:new-data'){const t=+sessionStorage.siratRel||0;if(Date.now()-t>30000){sessionStorage.siratRel=Date.now();location.reload()}}});}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
 </script>
 </body>

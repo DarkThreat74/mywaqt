@@ -1,5 +1,5 @@
 // Sirat service worker. Bump VERSION whenever index.html changes.
-const VERSION = "fa-v11";
+const VERSION = "fa-v12";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png", "icons/favicon-32.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith("fa-") && k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
@@ -12,7 +12,18 @@ self.addEventListener("fetch", e => {
     e.respondWith((async () => {
       const cache = await caches.open(VERSION);
       const cached = await cache.match("index.html");
-      const net = fetch(e.request).then(r => { if (r && r.ok) cache.put("index.html", r.clone()); return r; });
+      const net = fetch(e.request).then(async r => {
+        if (r && r.ok) {
+          const txt = await r.clone().text();
+          const old = cached ? await cached.clone().text() : "";
+          await cache.put("index.html", r.clone());
+          if (old && old !== txt) {
+            const cs = await self.clients.matchAll({ type: "window" });
+            cs.forEach(c => c.postMessage({ type: "sirat:new-data" }));
+          }
+        }
+        return r;
+      });
       e.waitUntil(net.catch(() => {}));
       if (!cached) return net;
       return Promise.race([net, new Promise(res => setTimeout(() => res(cached), 3000))]).catch(() => cached);
