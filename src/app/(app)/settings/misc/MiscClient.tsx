@@ -528,43 +528,44 @@ function SalahGuardPanel() {
         </p>
         {!accOn && native && (
           <div className="mt-2.5 space-y-2">
-            {restrictedNeeded && (
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  {restrictedOn ? (
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: "#7fbf6b" }}>
-                      <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />
-                    </span>
-                  ) : (
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
-                      style={{ backgroundColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>1</span>
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-xs" style={{ color: "var(--color-ink)" }}>Allow restricted access</p>
-                    <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                      App info → ⋮ top right → &ldquo;Allow restricted settings&rdquo;
-                    </p>
-                  </div>
-                </div>
-                {!restrictedOn && (
-                  <button
-                    onClick={() => {
-                      setAwaiting("restricted");
-                      void openShieldSetting("restrictedAccess").then((ok) => { if (!ok) { setGrantFailed(true); setAwaiting(null); } });
-                    }}
-                    className="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium"
-                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
-                  >
-                    Open
-                  </button>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                {restrictedOn ? (
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: "#7fbf6b" }}>
+                    <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />
+                  </span>
+                ) : (
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                    style={{ backgroundColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>1</span>
                 )}
+                <div className="min-w-0">
+                  <p className="text-xs" style={{ color: "var(--color-ink)" }}>Allow restricted access</p>
+                  <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                    Waqt app info → ⋮ top right → &ldquo;Allow restricted settings&rdquo;
+                  </p>
+                </div>
               </div>
-            )}
+              {!restrictedOn && (
+                <button
+                  onClick={() => {
+                    setAwaiting("restricted");
+                    // "appDetails" lands on the same app-info page as
+                    // "restrictedAccess" but exists in every plugin build —
+                    // an older APK still opens something rather than nothing.
+                    void openShieldSetting("appDetails").then((ok) => { if (!ok) { setGrantFailed(true); setAwaiting(null); } });
+                  }}
+                  className="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+                >
+                  Open
+                </button>
+              )}
+            </div>
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2.5">
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
                   style={{ backgroundColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
-                  {restrictedNeeded ? "2" : "1"}
+                  2
                 </span>
                 <div className="min-w-0">
                   <p className="text-xs" style={{ color: "var(--color-ink)" }}>Turn on Waqt in Accessibility</p>
