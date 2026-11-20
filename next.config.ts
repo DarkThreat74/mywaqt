@@ -84,7 +84,7 @@ const nextConfig: NextConfig = {
           // (mushaf fonts via FontFace are no-cors loads — without this the
           // scoped isolation on /quran-tester would break glyph loading).
           { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
-          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=(self)" },
           // CSP: script-src keeps 'unsafe-inline' for the theme boot script +
@@ -110,8 +110,8 @@ const nextConfig: NextConfig = {
               "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com https://*.r2.cloudflarestorage.com https://overpass-api.de https://overpass.kumi.systems https://overpass.private.coffee",
               "worker-src 'self' blob:",
               "media-src 'self' blob: https:",
-              "frame-src https://challenges.cloudflare.com",
-              "frame-ancestors 'none'",
+              "frame-src 'self' https://challenges.cloudflare.com",
+              "frame-ancestors 'self'",
               "base-uri 'self'",
               "form-action 'self'",
               "object-src 'none'",
@@ -137,8 +137,8 @@ const nextConfig: NextConfig = {
               "connect-src 'self' https://nominatim.openstreetmap.org https://api.latlng.work https://router.project-osrm.org https://tiles.openfreemap.org https://fonts.openfreemap.org https://*.basemaps.cartocdn.com https://challenges.cloudflare.com https://*.r2.cloudflarestorage.com",
               "worker-src 'self' blob:",
               "media-src 'self' blob: https:",
-              "frame-src https://challenges.cloudflare.com",
-              "frame-ancestors 'none'",
+              "frame-src 'self' https://challenges.cloudflare.com",
+              "frame-ancestors 'self'",
               "base-uri 'self'",
               "form-action 'self'",
               "object-src 'none'",
