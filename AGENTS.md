@@ -289,6 +289,10 @@ empty state — never generate content to fill it.**
 ## 10. Design Rules
 
 ### 10.1 Invoke Hallmark Before Any UI Work
+- `CRAFT.md` (repo root) is the UI audit standard — the checklist every
+  screen is reviewed against (five-state contract, Arabic typography,
+  offline-as-state, moral-neutral numbers). Run its PART F ritual before
+  calling any screen done.
 - Pre-emit self-critique on: Philosophy, Hierarchy, Execution, Specificity,
   Restraint, Variety. Anything <3 triggers revision.
 - No Inter/Roboto/Open Sans as the only font (one-font page = template page).
