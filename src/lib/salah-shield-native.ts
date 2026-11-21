@@ -37,6 +37,7 @@ interface SalahShieldPluginHandle {
   markPrayed(opts: { prayer: string }): Promise<void>;
   consumeLaunchPrayer(): Promise<{ prayer: string | null }>;
   getScrollStats(): Promise<{ today: string | null; history: string; enabled: boolean }>;
+  pickContacts(opts: { multiple: boolean }): Promise<{ contacts: NativeContact[] }>;
 }
 
 let plugin: SalahShieldPluginHandle | null = null;
@@ -286,6 +287,30 @@ export async function pushScrollStats(): Promise<void> {
       body: JSON.stringify({ days }),
     });
   } catch { /* offline — next poll retries */ }
+}
+
+export interface NativeContact { name?: string | null; phone?: string | null; photo?: string | null }
+
+/**
+ * WebView doesn't expose navigator.contacts — the plugin's pickContacts
+ * launches the system ACTION_PICK intent instead. Returns the picked
+ * contacts in the Contact Picker API shape (name[]/tel[]/icon[] as Blob) so
+ * FriendsClient can treat both paths identically. null when the native
+ * picker isn't available (browser / non-Android shell).
+ */
+export async function pickContactsNative(multiple: boolean): Promise<{ name?: string[]; tel?: string[]; icon?: Blob[] }[] | null> {
+  const p = await getPlugin();
+  if (!p) return null;
+  try {
+    const { contacts } = await p.pickContacts({ multiple });
+    return await Promise.all((contacts ?? []).map(async (c) => ({
+      name: c.name ? [c.name] : [],
+      tel: c.phone ? [c.phone] : [],
+      icon: c.photo ? [await (await fetch(c.photo)).blob()] : undefined,
+    })));
+  } catch {
+    return null;
+  }
 }
 
 export function setShieldBlockedApps(pkgs: string[] | null): void {

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, X, Camera, Trash2, ContactRound, Pencil, EyeOff, Share2 } from "lucide-react";
 import { friendScore, friendTier } from "@/lib/friends-score";
+import { pickContactsNative } from "@/lib/salah-shield-native";
 import { compressImage } from "@/lib/image";
 import PhotoLightbox from "@/components/photo-lightbox";
 import PhotoCropper from "@/components/photo-cropper";
@@ -220,6 +221,20 @@ interface DeviceContact {
 }
 const contactsApi = () =>
   (navigator as Navigator & { contacts?: { select: (p: string[], o: { multiple: boolean }) => Promise<DeviceContact[]> } }).contacts;
+
+// Inside the Capacitor shell navigator.contacts doesn't exist — the native
+// plugin's ACTION_PICK picker fills that gap first, browser API second.
+async function pickDeviceContacts(multiple: boolean): Promise<DeviceContact[] | null> {
+  const native = await pickContactsNative(multiple).catch(() => null);
+  if (native) return native;
+  const api = contactsApi();
+  if (!api) return null;
+  try {
+    return await api.select(["name", "icon", "tel"], { multiple });
+  } catch {
+    return [];
+  }
+}
 
 function Avatar({ f, size }: { f: Friend; size: number }) {
   return (
@@ -438,13 +453,13 @@ export default function FriendsClient() {
   }, [friends]);
 
   async function pickFromContacts() {
-    const api = contactsApi();
-    if (!api) {
-      setContactHint("Contact import needs the Android app or Chrome on Android.");
+    const list = await pickDeviceContacts(false);
+    if (list === null) {
+      setContactHint("Your device doesn't have a contacts picker.");
       return;
     }
     try {
-      const [c] = await api.select(["name", "icon", "tel"], { multiple: false });
+      const [c] = list;
       if (!c) return;
       const full = (c.name?.[0] ?? "").trim();
       if (full) {
@@ -466,14 +481,14 @@ export default function FriendsClient() {
   // enumerate or annotate the address book, so "already linked" is reported
   // after the pick, matched on normalized digits.
   async function importFromContacts() {
-    const api = contactsApi();
-    if (!api) {
-      setContactHint("Contact import needs the Android app or Chrome on Android.");
+    const list = await pickDeviceContacts(true);
+    if (list === null) {
+      setContactHint("Your device doesn't have a contacts picker.");
       return;
     }
     setImporting(true);
     try {
-      const picked = await api.select(["name", "icon", "tel"], { multiple: true });
+      const picked = list;
       if (!picked?.length) return;
       const norm = (p?: string) => (p ?? "").replace(/\D/g, "").slice(-10);
       const existing = new Set(friends.map((f) => norm(f.phone ?? "")).filter(Boolean));

@@ -1,24 +1,33 @@
 package app.mywaqt.waqt;
 
+import android.app.Activity;
 import android.app.AppOpsManager;
+import android.content.ClipData;
 import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
+import android.provider.ContactsContract;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.Base64;
 
+import androidx.activity.result.ActivityResult;
 import androidx.core.app.NotificationManagerCompat;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONObject;
@@ -234,6 +243,74 @@ public class SalahShieldPlugin extends Plugin {
             }
         } catch (Exception ignored) {}
         call.resolve();
+    }
+
+    // ── Contacts picker ──
+    // navigator.contacts doesn't exist inside the Capacitor WebView, so the
+    // Friends "Import"/"Connect to contacts" buttons bridge here. ACTION_PICK
+    // needs no READ_CONTACTS permission — the system picker grants temporary
+    // access to whatever the user picks.
+
+    @PluginMethod
+    public void pickContacts(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI);
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true); // honored by stock + Google Contacts
+        try {
+            startActivityForResult(call, intent, "handleContactsPicked");
+        } catch (Exception e) {
+            call.reject("No contacts app on this device");
+        }
+    }
+
+    @ActivityCallback
+    private void handleContactsPicked(PluginCall call, ActivityResult result) {
+        JSArray out = new JSArray();
+        Intent data = result.getData();
+        if (result.getResultCode() == Activity.RESULT_OK && data != null) {
+            ContentResolver cr = getContext().getContentResolver();
+            ClipData clip = data.getClipData();
+            if (clip != null) {
+                for (int i = 0; i < clip.getItemCount() && i < 50; i++) {
+                    out.put(readContact(cr, clip.getItemAt(i).getUri()));
+                }
+            } else if (data.getData() != null) {
+                out.put(readContact(cr, data.getData()));
+            }
+        }
+        call.resolve(new JSObject().put("contacts", out));
+    }
+
+    private JSObject readContact(ContentResolver cr, Uri uri) {
+        JSObject c = new JSObject();
+        long id = -1;
+        try (Cursor cur = cr.query(uri,
+                new String[]{ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME},
+                null, null, null)) {
+            if (cur != null && cur.moveToFirst()) {
+                id = cur.getLong(0);
+                c.put("name", cur.getString(1));
+            }
+        } catch (Exception ignored) {}
+        if (id >= 0) {
+            try (Cursor p = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER},
+                    ContactsContract.CommonDataKinds.Phone.CONTACT_ID + "=?",
+                    new String[]{String.valueOf(id)}, null)) {
+                if (p != null && p.moveToFirst()) c.put("phone", p.getString(0));
+            } catch (Exception ignored) {}
+        }
+        try {
+            java.io.InputStream in = ContactsContract.Contacts.openContactPhotoInputStream(cr, uri);
+            if (in != null) {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) bos.write(buf, 0, n);
+                in.close();
+                c.put("photo", "data:image/jpeg;base64," + Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP));
+            }
+        } catch (Exception ignored) {}
+        return c;
     }
 
     // ── Grant checks ──
