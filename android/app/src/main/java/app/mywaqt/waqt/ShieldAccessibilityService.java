@@ -141,6 +141,19 @@ public class ShieldAccessibilityService extends AccessibilityService {
     };
     private String fgActivity = "";
 
+    // Transient system windows — notification shade, permission dialogs,
+    // keyboard — fire window-state events but aren't "leaving the app".
+    // Ignoring them keeps the pill alive while they're on screen.
+    private static final Set<String> TRANSIENT_PKGS = new HashSet<>(java.util.Arrays.asList(
+            "com.android.systemui",
+            "android",
+            "com.google.android.permissioncontroller",
+            "com.android.packageinstaller"
+    ));
+    private boolean isTransientPkg(String pkg) {
+        return TRANSIENT_PKGS.contains(pkg) || pkg.contains("inputmethod");
+    }
+
     // Human labels for the overlay's expanded line.
     private static final java.util.Map<String, String> SCROLL_APP_NAMES = new java.util.HashMap<String, String>() {{
         put("com.instagram.android", "Instagram"); put("com.instagram.lite", "Instagram Lite");
@@ -395,6 +408,8 @@ public class ShieldAccessibilityService extends AccessibilityService {
 
     private void trackForeground(String pkg, AccessibilityEvent event) {
         long now = System.currentTimeMillis();
+        // System overlays don't change which app is really in front.
+        if (isTransientPkg(pkg)) return;
         // Close out the previous app's session time.
         if (fgPkg != null && SCROLL_APPS.contains(fgPkg) && fgSince > 0) {
             try {
@@ -559,8 +574,16 @@ public class ShieldAccessibilityService extends AccessibilityService {
         // Scroll counter bookkeeping — foreground time + feed scrolls.
         if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             lastWindowChangeAt = System.currentTimeMillis();
-            trackForeground(pkg, event);
-            tickCounter(pkg);
+            if (!isTransientPkg(pkg)) {
+                trackForeground(pkg, event);
+                tickCounter(pkg);
+                // Show as soon as a counted app is in front on a feed-ish
+                // screen — not only after the first scroll event.
+                if (counterEnabled() && SCROLL_APPS.contains(pkg) && inFeedContext()) {
+                    try { showCounter(todayStats().optInt("total")); } catch (Exception ignored) {}
+                    handler.removeCallbacks(evaluateHide);
+                }
+            }
         } else if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED && SCROLL_APPS.contains(pkg)) {
             countScroll(pkg, event);
         }
