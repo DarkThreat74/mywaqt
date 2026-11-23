@@ -338,47 +338,82 @@ public class ShieldAccessibilityService extends AccessibilityService {
                 // Ship density once so the web UI can convert px → metres.
                 if (!day.has("dpi")) day.put("dpi", getResources().getDisplayMetrics().densityDpi);
             }
-            // ── Items: debounced count ≈ cards passed — secondary metric. ──
-            if (now - lastScrollAt >= SCROLL_DEBOUNCE_MS) {
+            // ── Items: cards passed — secondary metric. ──
+            // Pager feeds (TikTok/Reels/Shorts): each new landing index IS a
+            // card — settle-aware by construction (the index only exists once
+            // the page settles). Dedup by index so re-events on the same card
+            // don't recount. List feeds keep the 1.2s debounce.
+            int toIdx = event.getToIndex();
+            boolean newPagerCard = FEED_ALWAYS.contains(pkg) && toIdx >= 0
+                    && event.getFromIndex() != toIdx
+                    && !(pkg.equals(lastCardPkg) && toIdx == lastCardIdx);
+            if (newPagerCard || now - lastScrollAt >= SCROLL_DEBOUNCE_MS) {
                 lastScrollAt = now;
-                day.put("total", day.optInt("total") + 1);
-                JSONObject apps = day.optJSONObject("apps");
-                if (apps != null) apps.put(pkg, apps.optInt(pkg) + 1);
-                // Hour-of-day bucket for the time-of-day chart.
-                JSONObject hours = day.optJSONObject("hours");
-                if (hours == null) { hours = new JSONObject(); day.put("hours", hours); }
-                String h = String.valueOf(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY));
-                hours.put(h, hours.optInt(h) + 1);
-                // Sessions: a burst of counted scrolls in one app with gaps
-                // under 45s. Powers "how many at a time" + session length.
-                trackSession(day, pkg, now, event);
+                if (newPagerCard) { lastCardPkg = pkg; lastCardIdx = toIdx; }
+                countCard(day, pkg, now, event);
             }
             saveToday(day);
             updateCounter(day.optInt("total"));
         } catch (Exception ignored) {}
     }
 
+    private String lastCardPkg = null;
+    private int lastCardIdx = -1;
+
+    private void countCard(JSONObject day, String pkg, long now, AccessibilityEvent event) throws Exception {
+        day.put("total", day.optInt("total") + 1);
+        JSONObject apps = day.optJSONObject("apps");
+        if (apps != null) apps.put(pkg, apps.optInt(pkg) + 1);
+        // Hour-of-day bucket for the time-of-day chart.
+        JSONObject hours = day.optJSONObject("hours");
+        if (hours == null) { hours = new JSONObject(); day.put("hours", hours); }
+        String h = String.valueOf(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY));
+        hours.put(h, hours.optInt(h) + 1);
+        // Sessions: a burst of counted scrolls in one app with gaps
+        // under 45s. Powers "how many at a time" + session length.
+        trackSession(day, pkg, now, event);
+    }
+
     // ── Session tracking ──
     private String sessPkg = null;
     private long sessStart = 0, sessLast = 0;
     private int sessCount = 0;
-    private final java.util.Set<Integer> sessSeen = new java.util.HashSet<>();
+    private final java.util.Set<String> sessSeen = new java.util.HashSet<>();
+
+    /** Card identity for unique-counting: the adapter index when present,
+     *  else a hash of the scrolled node's text/description/id — only the
+     *  hash is kept, content never leaves the event. */
+    private String eventIdentity(AccessibilityEvent event) {
+        int to = event.getToIndex();
+        if (to >= 0) return "i" + to;
+        android.view.accessibility.AccessibilityNodeInfo src = event.getSource();
+        if (src == null) return null;
+        try {
+            CharSequence t = src.getText();
+            CharSequence d = src.getContentDescription();
+            String id = src.getViewIdResourceName();
+            if (t == null && d == null && id == null) return null;
+            return "h" + java.util.Objects.hash(t, d, id);
+        } finally {
+            src.recycle();
+        }
+    }
     private static final long SESSION_GAP_MS = 45_000;
 
     /** Extends the open session or closes it into day.sessions and starts a
      *  new one. Entries: {p:pkg, t:minutes-since-midnight, c:count, d:sec}. */
     private void trackSession(JSONObject day, String pkg, long now, AccessibilityEvent event) throws Exception {
-        int idx = event.getToIndex();
+        String ident = eventIdentity(event);
         if (pkg.equals(sessPkg) && now - sessLast <= SESSION_GAP_MS) {
             sessCount++;
             sessLast = now;
-            if (idx >= 0) sessSeen.add(idx);
+            if (ident != null) sessSeen.add(ident);
             return;
         }
         flushSession(day);
         sessPkg = pkg; sessStart = now; sessLast = now; sessCount = 1;
         sessSeen.clear();
-        if (idx >= 0) sessSeen.add(idx);
+        if (ident != null) sessSeen.add(ident);
     }
 
     /** Writes the open session into the day's sessions array (capped at 200). */
@@ -593,6 +628,41 @@ public class ShieldAccessibilityService extends AccessibilityService {
     public void onServiceConnected() {
         super.onServiceConnected();
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        startGuardNotification();
+    }
+
+    /** OEMs kill accessibility services to save battery; a silent ongoing
+     *  notification makes the service foreground-priority. IMPORTANCE_MIN —
+     *  sits collapsed in the shade, taps through to the app. */
+    private void startGuardNotification() {
+        try {
+            final String ch = "waqt_guard_bg";
+            android.app.NotificationManager nm =
+                    (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (android.os.Build.VERSION.SDK_INT >= 26 && nm != null) {
+                nm.createNotificationChannel(new android.app.NotificationChannel(
+                        ch, "Waqt guard", android.app.NotificationManager.IMPORTANCE_MIN));
+            }
+            android.content.Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            android.app.PendingIntent pi = launch == null ? null : android.app.PendingIntent.getActivity(
+                    this, 0, launch, android.app.PendingIntent.FLAG_IMMUTABLE);
+            android.app.Notification.Builder b = android.os.Build.VERSION.SDK_INT >= 26
+                    ? new android.app.Notification.Builder(this, ch)
+                    : new android.app.Notification.Builder(this);
+            b.setContentTitle("Waqt guard active")
+             .setContentText("Scroll counter and prayer shield running")
+             .setSmallIcon(getApplicationInfo().icon)
+             .setOngoing(true);
+            if (pi != null) b.setContentIntent(pi);
+            android.app.Notification n = b.build();
+            if (android.os.Build.VERSION.SDK_INT >= 34) {
+                startForeground(1001, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            } else if (android.os.Build.VERSION.SDK_INT >= 29) {
+                startForeground(1001, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST);
+            } else {
+                startForeground(1001, n);
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -644,6 +714,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
     public void onDestroy() {
         hideOverlay();
         hideCounter();
+        try { stopForeground(true); } catch (Exception ignored) {}
         super.onDestroy();
     }
 
