@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Cake, CalendarDays, Check, ChevronDown, List, Loader2, Pencil, Plus, Tag, Trash2, X } from "lucide-react";
 import type { Birthday, BirthdayCategory } from "@/lib/db/schema";
-import { birthdayLabel, daysUntilBirthday, turningAge, zodiac } from "@/lib/birthdays/math";
+import { birthdayLabel, daysUntilBirthday, turningAge } from "@/lib/birthdays/math";
 import { CATEGORY_COLORS } from "@/lib/birthdays/palette";
 
 const MONTHS = [
@@ -1037,11 +1037,7 @@ export default function BirthdaysClient() {
                           {MONTHS[b.birthMonth - 1]} {b.birthDay}{b.birthYear ? `, ${b.birthYear}` : ""}
                         </p>
                         <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                          {/* AUDIT FLAG: zodiac on a prayer-centered app is
-                              questionable domain-fit — pending a product-owner
-                              call on removal. Left in place until confirmed. */}
-                          {zodiac(b.birthMonth, b.birthDay)}
-                          <span className="hidden sm:inline"> · reminds {reminds}</span>
+                          reminds {reminds}
                         </p>
                       </div>
                       <span

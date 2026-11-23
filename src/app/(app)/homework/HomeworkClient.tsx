@@ -72,6 +72,9 @@ export interface HomeworkItem {
   grade?: string | null;
 }
 
+// How far an edit/delete reaches across a recurring series.
+type SeriesScope = "one" | "future" | "all";
+
 interface ClassItem {
   id: string;
   name: string;
@@ -187,6 +190,9 @@ export default function HomeworkClient({
   const [editClassColor, setEditClassColor] = useState("");
   const [savingEditClass, setSavingEditClass] = useState(false);
   const [deleteHwConfirm, setDeleteHwConfirm] = useState<HomeworkItem | null>(null);
+  const [deleteScope, setDeleteScope] = useState<SeriesScope>("one");
+  // Series edit scope — only offered when the item being edited has a seriesId.
+  const [editScope, setEditScope] = useState<SeriesScope>("one");
   const [completeConfirm, setCompleteConfirm] = useState<HomeworkItem | null>(null);
   // Grade prompt — completed test/quiz/exam opens this to record the outcome.
   const [gradeFor, setGradeFor] = useState<HomeworkItem | null>(null);
@@ -417,10 +423,12 @@ export default function HomeworkClient({
     touchedRef.current.clear();
     setError(null);
     setEditingId(null);
+    setEditScope("one");
   }
 
   function handleEditClick(hw: HomeworkItem) {
     setEditingId(hw.id);
+    setEditScope("one");
     setTitle(hw.title);
     setDescription(hw.description || "");
     setClassId(hw.classId);
@@ -490,14 +498,29 @@ export default function HomeworkClient({
       };
 
       if (editingId) {
-        // Update existing homework
+        // Update existing homework — a series item can fan the edit out to
+        // later/all occurrences (server returns { series: true, updated: n })
+        const editingItem = homework.find((h) => h.id === editingId);
+        const seriesEdit = editingItem?.seriesId && editScope !== "one";
         const res = await fetch(`/api/homework/${editingId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(
+            seriesEdit
+              ? { ...payload, seriesId: editingItem!.seriesId, scope: editScope }
+              : payload,
+          ),
         });
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
+          if (data.series) {
+            // Multi-row update — refetch rather than patching local state
+            refreshHomework();
+            invalidateApiCache("/api/homework");
+            resetForm();
+            setShowAddForm(false);
+            return;
+          }
           // When offline, the SW returns a generic 202 with no homework object.
           // In that case, keep the optimistic state (the existing item with
           // the edited fields applied) rather than overwriting with a broken object.
@@ -730,11 +753,21 @@ export default function HomeworkClient({
     }
   }
 
-  async function handleDelete(id: string) {
-    setHomework((prev) => prev.filter((h) => h.id !== id));
-    deleteHomeworkFromCache(id);
+  async function handleDelete(hw: HomeworkItem, scope: SeriesScope = "one") {
+    // Scope fans a delete out across the series: "future" drops this and
+    // later-due occurrences, "all" the whole series.
+    const matches = (h: HomeworkItem) =>
+      scope === "one"
+        ? h.id === hw.id
+        : h.seriesId === hw.seriesId && (scope === "all" || h.dueDate >= hw.dueDate);
+    const removed = homework.filter(matches);
+    setHomework((prev) => prev.filter((h) => !matches(h)));
+    removed.forEach((h) => deleteHomeworkFromCache(h.id));
     try {
-      const res = await fetch(`/api/homework/${id}`, { method: "DELETE" });
+      const qs = scope !== "one" && hw.seriesId
+        ? `?seriesId=${hw.seriesId}&scope=${scope}`
+        : "";
+      const res = await fetch(`/api/homework/${hw.id}${qs}`, { method: "DELETE" });
       // 202 = queued offline — keep it removed. Other failures — refetch.
       if (!res.ok && res.status !== 202) {
         refreshHomework();
@@ -825,6 +858,7 @@ export default function HomeworkClient({
   }, [homework]);
 
   function handleDeleteClick(hw: HomeworkItem) {
+    setDeleteScope("one");
     setDeleteHwConfirm(hw);
   }
 
@@ -1156,7 +1190,7 @@ export default function HomeworkClient({
               <span
                 className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
                 style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
-                title="Part of a recurring series — edits and deletes apply to this one only"
+                title="Part of a recurring series — edit or delete it to choose how far changes reach"
               >
                 series
               </span>
@@ -1918,6 +1952,50 @@ export default function HomeworkClient({
               </select>
             </div>
 
+            {/* Series scope — only when editing an item in a recurring series.
+                Due dates stay per-occurrence; the server applies the shared
+                fields (title/class/time/priority/kind/estimate). */}
+            {editingId && homework.find((h) => h.id === editingId)?.seriesId && (
+              <fieldset aria-label="Apply these changes to">
+                <legend className="mb-2 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                  Part of a recurring series — apply changes to:
+                </legend>
+                <div className="flex flex-col gap-1.5">
+                  {([
+                    ["one", "This one only"],
+                    ["future", "This and future ones"],
+                    ["all", "The whole series"],
+                  ] as const).map(([value, label]) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors"
+                      style={{
+                        borderColor: editScope === value ? "var(--color-accent)" : "var(--color-paper-3)",
+                        backgroundColor: editScope === value ? "color-mix(in oklab, var(--color-accent) 6%, transparent)" : "transparent",
+                        color: "var(--color-ink)",
+                        minHeight: 40,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="edit-scope"
+                        value={value}
+                        checked={editScope === value}
+                        onChange={() => setEditScope(value)}
+                        className="accent-[var(--color-accent)]"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                {editScope !== "one" && (
+                  <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                    Due dates, completion, checklists and planned sessions stay per-assignment — only the shared details change.
+                  </p>
+                )}
+              </fieldset>
+            )}
+
             {error && (
               <p className="flex items-center gap-1.5 text-xs" style={{ color: "var(--color-error)" }}>
                 <AlertCircle className="h-3 w-3" />
@@ -2253,8 +2331,42 @@ export default function HomeworkClient({
             </h3>
             <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
               &ldquo;{deleteHwConfirm.title}&rdquo; will be permanently removed. This cannot be undone.
-              {deleteHwConfirm.seriesId && " It\u2019s one of a recurring series — only this one is deleted; the rest stay."}
             </p>
+            {deleteHwConfirm.seriesId && (
+              <fieldset className="mb-4" aria-label="How much of the series to delete">
+                <legend className="mb-2 text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                  It&apos;s part of a recurring series — delete:
+                </legend>
+                <div className="flex flex-col gap-1.5">
+                  {([
+                    ["one", "This one only"],
+                    ["future", "This and future ones"],
+                    ["all", "The whole series"],
+                  ] as const).map(([value, label]) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition-colors"
+                      style={{
+                        borderColor: deleteScope === value ? "var(--color-accent)" : "var(--color-paper-3)",
+                        backgroundColor: deleteScope === value ? "color-mix(in oklab, var(--color-accent) 6%, transparent)" : "transparent",
+                        color: "var(--color-ink)",
+                        minHeight: 44,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="delete-scope"
+                        value={value}
+                        checked={deleteScope === value}
+                        onChange={() => setDeleteScope(value)}
+                        className="accent-[var(--color-accent)]"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={() => setDeleteHwConfirm(null)}
@@ -2265,7 +2377,7 @@ export default function HomeworkClient({
                 Cancel
               </button>
               <button
-                onClick={() => { handleDelete(deleteHwConfirm.id); setDeleteHwConfirm(null); }}
+                onClick={() => { handleDelete(deleteHwConfirm, deleteScope); setDeleteHwConfirm(null); }}
                 className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold"
                 style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)", minHeight: 44 }}
               >

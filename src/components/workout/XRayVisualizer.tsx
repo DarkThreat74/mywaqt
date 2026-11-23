@@ -16,57 +16,83 @@
 import { useEffect, useRef, useState } from "react";
 import type { FaceLandmarker, HandLandmarker, PoseLandmarker } from "@mediapipe/tasks-vision";
 import { meteredConnection } from "@/lib/net";
+import { fatigueColor as recoveryColor, RECOVERY_STATES, recoveryStateColor } from "@/lib/workout/muscleBodyMap";
 import { XRayEngine, type XRayMeta, type Lm } from "@/lib/workout/xray-anatomy";
 
 const POSE_MODELS = ["/models/pose/pose_landmarker_full.task", "/models/pose/pose_landmarker_lite.task"];
+
+// Tracker runtime config. VIDEO is smoother but some mobile GPUs (iOS Safari
+// in particular) crash MediaPipe's GPU delegate mid-inference; IMAGE mode +
+// CPU delegate is the documented fallback for those devices.
+type RunningMode = "VIDEO" | "IMAGE";
+type Delegate = "GPU" | "CPU";
+interface TrackerOpts { mode?: RunningMode; cpuOnly?: boolean }
 
 async function visionBundle() {
   const vision = await import("@mediapipe/tasks-vision");
   return vision.FilesetResolver.forVisionTasks("/mediapipe/wasm").then((files) => ({ vision, files }));
 }
 
+const modeOrder = (o?: TrackerOpts): RunningMode[] => (o?.mode ? [o.mode] : ["VIDEO", "IMAGE"]);
+const delegateOrder = (o?: TrackerOpts): Delegate[] => (o?.cpuOnly ? ["CPU"] : ["GPU", "CPU"]);
+
 /** Pose landmarker with the person-segmentation mask (body fallback view). */
-async function loadSegLandmarker(): Promise<PoseLandmarker> {
+async function loadSegLandmarker(o?: TrackerOpts): Promise<{ tracker: PoseLandmarker; mode: RunningMode; delegate: Delegate }> {
   const { vision, files } = await visionBundle();
   let lastErr: unknown = null;
-  for (const delegate of ["GPU", "CPU"] as const)
-    for (const modelAssetPath of POSE_MODELS) {
-      try {
-        return await vision.PoseLandmarker.createFromOptions(files, {
-          baseOptions: { modelAssetPath, delegate },
-          runningMode: "VIDEO", numPoses: 1, outputSegmentationMasks: true,
-          minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4,
-        });
-      } catch (err) { lastErr = err; }
-    }
+  for (const runningMode of modeOrder(o))
+    for (const delegate of delegateOrder(o))
+      for (const modelAssetPath of POSE_MODELS) {
+        try {
+          const tracker = await vision.PoseLandmarker.createFromOptions(files, {
+            baseOptions: { modelAssetPath, delegate },
+            runningMode, numPoses: 1, outputSegmentationMasks: true,
+            minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4,
+          });
+          return { tracker, mode: runningMode, delegate };
+        } catch (err) { lastErr = err; }
+      }
   throw lastErr ?? new Error("pose model unavailable");
 }
 
-async function loadFaceTracker(withMatrixes = true): Promise<FaceLandmarker> {
+async function loadFaceTracker(withMatrixes = true, o?: TrackerOpts): Promise<{ tracker: FaceLandmarker; mode: RunningMode; delegate: Delegate }> {
   const { vision, files } = await visionBundle();
   let lastErr: unknown = null;
-  for (const delegate of ["GPU", "CPU"] as const) {
-    try {
-      return await vision.FaceLandmarker.createFromOptions(files, {
-        baseOptions: { modelAssetPath: "/models/face/face_landmarker.task", delegate },
-        runningMode: "VIDEO", numFaces: 1,
-        outputFacialTransformationMatrixes: withMatrixes, outputFaceBlendshapes: true,
-      });
-    } catch (err) { lastErr = err; }
-  }
+  for (const runningMode of modeOrder(o))
+    for (const delegate of delegateOrder(o)) {
+      try {
+        const tracker = await vision.FaceLandmarker.createFromOptions(files, {
+          baseOptions: { modelAssetPath: "/models/face/face_landmarker.task", delegate },
+          runningMode, numFaces: 1,
+          outputFacialTransformationMatrixes: withMatrixes, outputFaceBlendshapes: true,
+        });
+        return { tracker, mode: runningMode, delegate };
+      } catch (err) { lastErr = err; }
+    }
   throw lastErr ?? new Error("face model unavailable");
 }
 
-async function loadHandTracker(): Promise<HandLandmarker | null> {
+async function loadHandTracker(o?: TrackerOpts): Promise<{ tracker: HandLandmarker; mode: RunningMode; delegate: Delegate } | null> {
   const { vision, files } = await visionBundle();
-  for (const delegate of ["GPU", "CPU"] as const) {
-    try {
-      return await vision.HandLandmarker.createFromOptions(files, {
-        baseOptions: { modelAssetPath: "/models/hand/hand_landmarker.task", delegate },
-        runningMode: "VIDEO", numHands: 2,
-      });
-    } catch { /* hands are optional */ }
-  }
+  for (const runningMode of modeOrder(o))
+    for (const delegate of delegateOrder(o)) {
+      try {
+        const tracker = await vision.HandLandmarker.createFromOptions(files, {
+          baseOptions: { modelAssetPath: "/models/hand/hand_landmarker.task", delegate },
+          runningMode, numHands: 2,
+        });
+        return { tracker, mode: runningMode, delegate };
+      } catch { /* hands are optional */ }
+    }
+  return null;
+}
+
+/** Next rung down the ladder when a tracker keeps throwing at inference time:
+ *  VIDEO → IMAGE (video-mode graphs are what crash on some mobile GPUs),
+ *  then GPU → CPU within IMAGE. null = nothing left to try. */
+function downgradeOpts(mode: RunningMode, delegate: Delegate): TrackerOpts | null {
+  if (mode === "VIDEO") return { mode: "IMAGE" };
+  if (delegate === "GPU") return { mode: "IMAGE", cpuOnly: true };
   return null;
 }
 
@@ -78,14 +104,12 @@ const NOSE = 0, EAR_L = 7, EAR_R = 8, SH_L = 11, SH_R = 12, EL_L = 13, EL_R = 14
   WR_L = 15, WR_R = 16, HIP_L = 23, HIP_R = 24, KNEE_L = 25, KNEE_R = 26,
   ANK_L = 27, ANK_R = 28;
 
-// Recovery color ramp — same scale as the muscles page.
-const RAMP = [[0.42, 0.75, 0.42], [0.83, 0.66, 0.26], [0.79, 0.42, 0.27], [0.56, 0.20, 0.10]];
+// Recovery color ramp — the shared one from muscleBodyMap (same ramp as the
+// muscles page + legend), adapted to rgba for canvas alpha compositing.
 function fatigueColor(f: number, alpha: number): string {
-  const t = Math.min(1, Math.max(0, f)) * (RAMP.length - 1);
-  const i = Math.min(RAMP.length - 2, Math.floor(t));
-  const u = t - i;
-  const c = RAMP[i].map((v, k) => Math.round((v + (RAMP[i + 1][k] - v) * u) * 255));
-  return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
+  const hex = recoveryColor(f);
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 const mid = (a: Pt, b: Pt, k = 0.5): Pt => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
@@ -224,14 +248,21 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
   const rafRef = useRef(0);
   const engineRef = useRef<XRayEngine | null>(null);
   const meteredOk = useRef(false);
-  const trackersRef = useRef<{ face: FaceLandmarker; faceHasMat: boolean; hand: HandLandmarker | null; pose: PoseLandmarker | null } | null>(null);
+  const trackersRef = useRef<{
+    face: FaceLandmarker; faceHasMat: boolean; faceMode: RunningMode; faceDelegate: Delegate;
+    hand: HandLandmarker | null; handMode: RunningMode; handDelegate: Delegate;
+    pose: PoseLandmarker | null; poseMode: RunningMode; poseDelegate: Delegate;
+  } | null>(null);
   const smoothRef = useRef<LM[] | null>(null);
   const silRef = useRef<HTMLCanvasElement | null>(null);
   const scratchRef = useRef<HTMLCanvasElement | null>(null);
   const pointerRef = useRef<Pt | null>(null);
   const lastStatusRef = useRef("");
   const faceFails = useRef(0);
+  const handFails = useRef(0);
+  const poseFails = useRef(0);
   const lastFaceRebuild = useRef(0);
+  const lastAuxRebuild = useRef(0);
   const allFail = useRef(0);
 
   const [stage, setStage] = useState<Stage>("idle");
@@ -319,7 +350,14 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       const video = videoRef.current;
       if (!video) return;
       video.srcObject = stream;
-      await video.play().catch(() => {});
+      try {
+        await video.play();
+      } catch {
+        // iOS rejects play() while the stream is still negotiating — retry
+        // once the first frame is buffered instead of giving up on the feed.
+        await new Promise((r) => video.addEventListener("canplay", r, { once: true }));
+        await video.play().catch(() => {});
+      }
 
       setStatusOnce("loading anatomy + face tracker…");
       // Staggered load: get head tracking live with the essentials only, then
@@ -338,12 +376,20 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       } catch (e) { step = "webgl"; throw e; }
       engineRef.current = engine;
       const face = await loadFaceTracker().catch((e) => { step = "face tracker"; throw e; });
-      trackersRef.current = { face, faceHasMat: true, hand: null, pose: null };
+      trackersRef.current = {
+        face: face.tracker, faceHasMat: true, faceMode: face.mode, faceDelegate: face.delegate,
+        hand: null, handMode: "VIDEO", handDelegate: "GPU",
+        pose: null, poseMode: "VIDEO", poseDelegate: "GPU",
+      };
       setStage("live");
       runLoop();
       setStatusOnce("loading hand + body trackers…");
       void Promise.all([loadHandTracker(), loadSegLandmarker().catch(() => null)]).then(([hand, pose]) => {
-        if (trackersRef.current) trackersRef.current = { ...trackersRef.current, hand, pose };
+        if (trackersRef.current) trackersRef.current = {
+          ...trackersRef.current,
+          hand: hand?.tracker ?? null, handMode: hand?.mode ?? "VIDEO", handDelegate: hand?.delegate ?? "GPU",
+          pose: pose?.tracker ?? null, poseMode: pose?.mode ?? "VIDEO", poseDelegate: pose?.delegate ?? "GPU",
+        };
       }).catch(() => { /* head tracking still works without them */ });
     } catch (e) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -366,7 +412,11 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = stream;
       const video = videoRef.current;
-      if (video) { video.srcObject = stream; await video.play().catch(() => {}); }
+      if (video) {
+        video.srcObject = stream;
+        try { await video.play(); }
+        catch { await new Promise((r) => video.addEventListener("canplay", r, { once: true })); await video.play().catch(() => {}); }
+      }
       smoothRef.current = null;
       if (engineRef.current) { engineRef.current.headLost(); engineRef.current.mirror = next === "user"; }
     } catch { /* keep the old camera if the flip failed */ }
@@ -420,7 +470,7 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
       let faceThrew = false, handThrew = false, poseThrew = false;
       if (frameReady) {
         try {
-          const fr = tr.face.detectForVideo(video, now);
+          const fr = tr.faceMode === "IMAGE" ? tr.face.detect(video) : tr.face.detectForVideo(video, now);
           const rawFace = fr.faceLandmarks?.[0];
           const mat = fr.facialTransformationMatrixes?.[0];
           if (rawFace && faceIsSane(rawFace as Lm[])) {
@@ -444,21 +494,29 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
           // back unconditionally and the approx pose keeps tracking.
           faceFails.current++;
           if (faceFails.current > 3) engine.headLost(); // don't freeze a stale head on screen
-          if (faceFails.current > 10 && tr.faceHasMat && now - lastFaceRebuild.current > 4000) {
-            lastFaceRebuild.current = now;
-            faceFails.current = 0;
-            const old = tr.face;
-            void loadFaceTracker(false).then((f) => {
-              if (trackersRef.current) trackersRef.current = { ...trackersRef.current, face: f, faceHasMat: false };
-              try { old.close(); } catch { /* noop */ }
-            }).catch(() => { /* keep the old one */ });
+          if (faceFails.current > 10 && now - lastFaceRebuild.current > 4000) {
+            // Rebuild ladder: drop matrices (geometry-solver wedge), then drop
+            // VIDEO mode (mobile GPU-delegate crash), then CPU-only.
+            const opts = tr.faceHasMat ? undefined : downgradeOpts(tr.faceMode, tr.faceDelegate);
+            if (tr.faceHasMat || opts) {
+              lastFaceRebuild.current = now;
+              faceFails.current = 0;
+              const old = tr.face;
+              void loadFaceTracker(false, opts ?? undefined).then((f) => {
+                if (trackersRef.current) trackersRef.current = {
+                  ...trackersRef.current,
+                  face: f.tracker, faceHasMat: false, faceMode: f.mode, faceDelegate: f.delegate,
+                };
+                try { old.close(); } catch { /* noop */ }
+              }).catch(() => { /* keep the old one */ });
+            }
           }
           if (!lostAt) lostAt = now;
           if (now - lostAt > 250) engine.headLost();
         }
         try {
           if (tr.hand) {
-            const hr = tr.hand.detectForVideo(video, now);
+            const hr = tr.handMode === "IMAGE" ? tr.hand.detect(video) : tr.hand.detectForVideo(video, now);
             const hl = hr.landmarks ?? [];
             const hd = (hr as { handedness?: { categoryName: string }[][] }).handedness ?? [];
             for (let i = 0; i < hl.length; i++) {
@@ -467,15 +525,31 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
               const left = hd[i]?.[0]?.categoryName === "Left";
               sides.push(engine.mirror ? left : !left);
             }
+            handFails.current = 0;
           }
-        } catch { handThrew = true; /* hand hiccup — no bones this frame */ }
+        } catch {
+          handThrew = true;
+          handFails.current++;
+          const o = tr.hand && downgradeOpts(tr.handMode, tr.handDelegate);
+          if (tr.hand && o && handFails.current > 15 && now - lastAuxRebuild.current > 4000) {
+            lastAuxRebuild.current = now;
+            handFails.current = 0;
+            const old = tr.hand;
+            void loadHandTracker(o).then((h) => {
+              if (h && trackersRef.current) trackersRef.current = {
+                ...trackersRef.current, hand: h.tracker, handMode: h.mode, handDelegate: h.delegate,
+              };
+              try { old.close(); } catch { /* noop */ }
+            }).catch(() => { /* keep the old one */ });
+          }
+        }
       }
 
       // Body muscle overlay only when no face is in frame.
       let bodyShown = false;
       if (!engine.headVisible && tr.pose) {
         try {
-          const res = tr.pose.detectForVideo(video, now);
+          const res = tr.poseMode === "IMAGE" ? tr.pose.detect(video) : tr.pose.detectForVideo(video, now);
           const raw = (res.landmarks?.[0] as LM[] | undefined) ?? smoothRef.current;
           const mask = res.segmentationMasks?.[0];
           if (mask) {
@@ -500,7 +574,23 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
           if (raw) {
             try { bodyShown = drawBodyOverlay(bodyG, raw, W, H); } catch { bodyShown = false; }
           }
-        } catch { poseThrew = true; /* pose hiccup */ }
+          poseFails.current = 0;
+        } catch {
+          poseThrew = true;
+          poseFails.current++;
+          const o = tr.pose && downgradeOpts(tr.poseMode, tr.poseDelegate);
+          if (tr.pose && o && poseFails.current > 15 && now - lastAuxRebuild.current > 4000) {
+            lastAuxRebuild.current = now;
+            poseFails.current = 0;
+            const old = tr.pose;
+            void loadSegLandmarker(o).then((p) => {
+              if (trackersRef.current) trackersRef.current = {
+                ...trackersRef.current, pose: p.tracker, poseMode: p.mode, poseDelegate: p.delegate,
+              };
+              try { old.close(); } catch { /* noop */ }
+            }).catch(() => { /* keep the old one */ });
+          }
+        }
       }
 
       // Every detector throwing every frame = the device's GPU/graph stack
@@ -816,8 +906,8 @@ export default function XRayVisualizer({ keyFatigue, onClose }: {
           {prefs.reveal !== "full" && <div className="col-span-2">{slider(prefs.reveal === "lens" ? "Lens size" : "Cut pos", "cut", 0, 1)}</div>}
         </div>
         <p className="mt-1 flex items-center gap-2 text-[9px] uppercase tracking-[0.08em]" style={{ color: "var(--color-ink-muted)" }}>
-          <i className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: "#7fbf6b" }} />recovered
-          <i className="ml-1 inline-block h-1.5 w-1.5 rounded-full" style={{ background: "#8e3419" }} />sore
+          <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: recoveryStateColor(0) }} />{RECOVERY_STATES[0].label}
+          <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full" style={{ background: recoveryStateColor(RECOVERY_STATES.length - 1) }} />{RECOVERY_STATES[RECOVERY_STATES.length - 1].label}
           <span className="ml-auto">BodyParts3D · CC BY-SA 2.1</span>
         </p>
       </div>

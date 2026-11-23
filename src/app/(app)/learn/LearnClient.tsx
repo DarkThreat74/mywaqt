@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Search, Library, ChevronDown } from "lucide-react";
-import { learnSections, type LearnBlock, type Hadith } from "@/lib/content/learn";
+import { Search, Library, ChevronDown, AlertCircle } from "lucide-react";
+import type { LearnBlock, Hadith, LearnSection } from "@/lib/content/learn-types";
 
 type Tab = "search" | "library";
 type Madhab = "standard" | "hanafi";
@@ -30,14 +30,14 @@ const SUGGESTED_QUERIES = [
 
 // Client-side keyword matching — used as offline fallback when the API is unreachable.
 // Mirrors the server-side keywordMatch logic in /api/learn/search/route.ts.
-function clientSideKeywordMatch(query: string): string[] {
+function clientSideKeywordMatch(query: string, sections: LearnSection[]): string[] {
   const queryLower = query.toLowerCase();
   const queryWords = queryLower
     .split(/\s+/)
     .filter((w) => w.length > 2)
     .map((w) => w.replace(/[^a-z]/g, ""));
 
-  const scored = learnSections.map((s) => {
+  const scored = sections.map((s) => {
     const haystack = `${s.title} ${s.subtitle}`.toLowerCase();
     // Also search heading texts within the content
     const headings = s.content
@@ -72,14 +72,38 @@ export default function LearnClient({
   // Deep-link support: /learn?section=<id> or /learn#<id> opens that
   // lesson directly in the Library tab. Read lazily — client components
   // still prerender on the server where `window` doesn't exist.
+  // The id can't be validated against the section list here — sections are
+  // fetched from /api/learn/sections on mount (they no longer ship in the
+  // JS bundle). An unknown id simply opens the Library with nothing expanded.
   const [deepLinkedId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const id =
       new URLSearchParams(window.location.search).get("section") ??
       window.location.hash.replace(/^#/, "");
-    return id && learnSections.some((s) => s.id === id) ? id : null;
+    return id || null;
   });
   const [tab, setTab] = useState<Tab>(deepLinkedId ? "library" : "search");
+
+  // Learn content comes from the API — keeps ~1400 lines of curated text
+  // out of the client bundle and lets the library update without a deploy
+  // of the JS chunk.
+  const [sections, setSections] = useState<LearnSection[] | null>(null);
+  const [sectionsFailed, setSectionsFailed] = useState(false);
+  const loadSections = useCallback(async () => {
+    try {
+      const res = await fetch("/api/learn/sections");
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      if (!Array.isArray(data)) throw new Error("bad shape");
+      setSections(data);
+      setSectionsFailed(false);
+    } catch {
+      setSectionsFailed(true);
+    }
+  }, []);
+  useEffect(() => {
+    void Promise.resolve().then(() => loadSections());
+  }, [loadSections]);
 
   return (
     <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 py-8 sm:px-6 sm:py-12">
@@ -159,8 +183,50 @@ export default function LearnClient({
         </div>
       )}
 
-      {/* ── Tab content ── */}
-      {tab === "search" ? <SearchTab /> : <LibraryTab deepLinkedId={deepLinkedId} />}
+      {/* ── Tab content — both tabs need the fetched sections ── */}
+      {sectionsFailed ? (
+        <div
+          className="rounded-lg px-4 py-6 text-center"
+          style={{
+            backgroundColor: "color-mix(in oklab, var(--color-danger) 6%, transparent)",
+            color: "var(--color-ink-soft)",
+          }}
+          role="alert"
+        >
+          <AlertCircle
+            className="mx-auto mb-2 h-6 w-6"
+            style={{ color: "var(--color-warmth)" }}
+          />
+          <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+            Couldn&apos;t load the library.
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            Check your connection and try again.
+          </p>
+          <button
+            onClick={() => void loadSections()}
+            className="mt-4 rounded-lg px-4 py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+            style={{
+              backgroundColor: "var(--color-accent)",
+              color: "var(--color-paper)",
+              minHeight: 44,
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      ) : sections === null ? (
+        <div
+          className="rounded-lg px-4 py-6 text-center text-sm"
+          style={{ color: "var(--color-ink-muted)" }}
+        >
+          Loading lessons…
+        </div>
+      ) : tab === "search" ? (
+        <SearchTab sections={sections} />
+      ) : (
+        <LibraryTab sections={sections} deepLinkedId={deepLinkedId} />
+      )}
     </div>
   );
 }
@@ -196,7 +262,7 @@ function TabButton({
 
 // ── Search Tab ──
 
-function SearchTab() {
+function SearchTab({ sections }: { sections: LearnSection[] }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<string[] | null>(null);
   const [matched, setMatched] = useState(true);
@@ -229,7 +295,7 @@ function SearchTab() {
 
       if (!res.ok) {
         // API failed (e.g. offline, server error) — fall back to client-side matching
-        const fallbackIds = clientSideKeywordMatch(q);
+        const fallbackIds = clientSideKeywordMatch(q, sections);
         setResults(fallbackIds);
         setMatched(fallbackIds.length > 0);
         if (fallbackIds.length > 0) {
@@ -248,7 +314,7 @@ function SearchTab() {
       }
     } catch {
       // Network error (offline) — fall back to client-side keyword matching
-      const fallbackIds = clientSideKeywordMatch(q);
+      const fallbackIds = clientSideKeywordMatch(q, sections);
       setResults(fallbackIds);
       setMatched(fallbackIds.length > 0);
       if (fallbackIds.length > 0) {
@@ -257,14 +323,14 @@ function SearchTab() {
     } finally {
       setSearching(false);
     }
-  }, [query]);
+  }, [query, sections]);
 
   const handleSuggestion = useCallback((suggestion: string) => {
     handleSearch(suggestion);
   }, [handleSearch]);
 
   const resultSections = results
-    ?.map((id) => learnSections.find((s) => s.id === id))
+    ?.map((id) => sections.find((s) => s.id === id))
     .filter((s): s is NonNullable<typeof s> => s !== undefined) ?? [];
 
   return (
@@ -410,7 +476,13 @@ function SearchTab() {
 
 // ── Library Tab ──
 
-function LibraryTab({ deepLinkedId = null }: { deepLinkedId?: string | null }) {
+function LibraryTab({
+  sections,
+  deepLinkedId = null,
+}: {
+  sections: LearnSection[];
+  deepLinkedId?: string | null;
+}) {
   const [openId, setOpenId] = useState<string | null>(deepLinkedId);
 
   // Scroll a deep-linked section into view once mounted
@@ -456,11 +528,11 @@ function LibraryTab({ deepLinkedId = null }: { deepLinkedId?: string | null }) {
   return (
     <div className="space-y-6">
       {categories.map((category) => {
-        const sections = category.sectionIds
-          .map((id) => learnSections.find((s) => s.id === id))
+        const catSections = category.sectionIds
+          .map((id) => sections.find((s) => s.id === id))
           .filter((s): s is NonNullable<typeof s> => s !== undefined);
 
-        if (sections.length === 0) return null;
+        if (catSections.length === 0) return null;
 
         return (
           <div key={category.label}>
@@ -471,7 +543,7 @@ function LibraryTab({ deepLinkedId = null }: { deepLinkedId?: string | null }) {
               {category.label}
             </h2>
             <div className="space-y-3">
-              {sections.map((section) => (
+              {catSections.map((section) => (
                 <SectionCard
                   key={section.id}
                   section={section}
@@ -506,7 +578,7 @@ function SectionCard({
   isOpen,
   onToggle,
 }: {
-  section: typeof learnSections[number];
+  section: LearnSection;
   isOpen: boolean;
   onToggle: () => void;
 }) {

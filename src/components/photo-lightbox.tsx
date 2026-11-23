@@ -12,10 +12,12 @@ export default function PhotoLightbox({
   src,
   alt,
   onClose,
+  saveLabel,
 }: {
   src: string;
   alt: string;
   onClose: () => void;
+  saveLabel?: string;
 }) {
   const [zoomed, setZoomed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -135,7 +137,7 @@ export default function PhotoLightbox({
           style={{ backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
         >
           {isMobile ? <Share2 className="h-4 w-4" /> : <Download className="h-4 w-4" />}
-          {busy ? "Saving…" : isMobile ? "Save to device" : "Download"}
+          {busy ? "Saving…" : saveLabel ?? (isMobile ? "Save to device" : "Download")}
         </button>
       </div>
       {hint && <p role="status" className="mt-2 text-xs" style={{ color: "var(--color-paper)" }}>{hint}</p>}

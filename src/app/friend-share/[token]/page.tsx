@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import ShareLinkExpired from "@/components/share-link-expired";
+import SharePhotoViewer from "./SharePhotoViewer";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Shared friend profile · Waqt", robots: { index: false, follow: false } };
@@ -43,40 +44,16 @@ export default async function FriendSharePage({ params }: { params: Promise<{ to
   return (
     <main className="min-h-dvh bg-[var(--color-paper)] px-5 py-10 text-[var(--color-ink)]">
       <div className="mx-auto max-w-md rounded-3xl border bg-[var(--color-paper)] p-6 shadow-sm" style={{ borderColor: "var(--color-paper-3)" }}>
-        <div className="flex flex-col items-center text-center">
-          <div className="h-24 w-24 overflow-hidden rounded-full border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
-            {photo ? (
-              <>
-                <span className="sr-only">Profile photo</span>
-                {/* eslint-disable-next-line @next/next/no-img-element -- data URL from private profile */}
-                <img src={photo} alt="" className="h-full w-full object-cover" />
-              </>
-            ) : (
-              <span className="flex h-full items-center justify-center text-3xl font-semibold text-[var(--color-accent)]">{friend.name[0]?.toUpperCase()}</span>
-            )}
-          </div>
-          <h1 className="mt-4 text-2xl font-semibold">{friend.name}</h1>
-          {friend.groupLabel && <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{friend.groupLabel}</p>}
-        </div>
         {/* Scope is fixed: name, crew, where-they-met tag, and photos only.
             Notes, phone, birthday, and met details are the owner's private
             data — never selected above, so they can never leak here. */}
-        {friend.metTag && (
-          <p className="mt-6 text-center text-sm text-[var(--color-ink-muted)]">
-            Met through <span className="text-[var(--color-ink)]">{MET_LABELS[friend.metTag] ?? friend.metTag}</span>
-          </p>
-        )}
-        {gallery.length > 0 && (
-          <div className="mt-6">
-            <b className="text-sm">Photos</b>
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              {gallery.map((src, i) => (
-                // eslint-disable-next-line @next/next/no-img-element -- data URLs from private profile
-                <img key={i} src={src} alt="" className="aspect-square w-full rounded-xl border object-cover" style={{ borderColor: "var(--color-paper-3)" }} />
-              ))}
-            </div>
-          </div>
-        )}
+        <SharePhotoViewer
+          name={friend.name}
+          groupLabel={friend.groupLabel}
+          metLabel={friend.metTag ? MET_LABELS[friend.metTag] ?? friend.metTag : null}
+          avatar={photo}
+          gallery={gallery}
+        />
         <div className="mt-8 flex flex-col items-center gap-3">
           <Link
             href="/"

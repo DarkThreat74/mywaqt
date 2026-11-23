@@ -333,6 +333,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDetails, setNewDetails] = useState("");
   const [hangoutWith, setHangoutWith] = useState("");
@@ -1738,6 +1739,7 @@ export default function DayViewClient({ date }: { date: string }) {
     setExtendEndDate("");
     setShowSeriesList(false);
     setSeriesEvents([]);
+    setConfirmDiscard(false);
   }
 
   // Fetch all events in a series for the series list view
@@ -1826,8 +1828,8 @@ export default function DayViewClient({ date }: { date: string }) {
       (formStep === 2 && eventKind !== "event"),
   );
   function requestCloseForm() {
-    if (formDirty && !window.confirm("Discard this event?")) return;
-    closeForm();
+    if (formDirty) setConfirmDiscard(true);
+    else closeForm();
   }
 
   // Escape + focus trap + focus restore on every hand-rolled dialog.
@@ -2939,6 +2941,30 @@ export default function DayViewClient({ date }: { date: string }) {
                 <X className="h-5 w-5" style={{ color: "var(--color-ink-muted)" }} />
               </button>
             </div>
+            {/* Discard guard — inline confirm instead of a second overlay */}
+            {confirmDiscard && (
+              <div className="mb-3 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Discard this event?</p>
+                <div className="mt-2.5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDiscard(false)}
+                    className="flex-1 rounded-lg py-2 text-xs font-bold"
+                    style={{ backgroundColor: "var(--color-paper)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink)" }}
+                  >
+                    Keep editing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => closeForm()}
+                    className="flex-1 rounded-lg py-2 text-xs font-bold"
+                    style={{ backgroundColor: "var(--color-error, #b42318)", color: "var(--color-paper)" }}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            )}
             {/* Stepper — adding starts at the type picker; editing lands on fields */}
             {!editingEvent && formStep === 1 ? (
               <div className="flex flex-col gap-2.5">

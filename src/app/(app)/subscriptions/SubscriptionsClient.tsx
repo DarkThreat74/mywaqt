@@ -135,6 +135,7 @@ export default function SubscriptionsClient() {
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [moneyTab, setMoneyTab] = useState<MoneyTab>("subs");
   const [logOpen, setLogOpen] = useState(false);
+  const [confirmDiscardLog, setConfirmDiscardLog] = useState(false);
   const [logKind, setLogKind] = useState<"sub" | string>("sub");
   const [newTagName, setNewTagName] = useState("");
   const [expForm, setExpForm] = useState<ExpFormState>(emptyExpForm);
@@ -183,6 +184,7 @@ export default function SubscriptionsClient() {
     setNewTagName("");
     setExpForm(emptyExpForm());
     setExpError(null);
+    setConfirmDiscardLog(false);
   };
 
   async function saveExpense(e: React.FormEvent) {
@@ -470,8 +472,8 @@ export default function SubscriptionsClient() {
   // backdrop tap throw it away silently.
   function tryCloseLog() {
     const dirty = !!(expForm.amount || expForm.quantity || expForm.place || expForm.detail || expForm.photoB64 || (logKind === "new-tag" && newTagName.trim()));
-    if (dirty && !window.confirm("Discard this entry?")) return;
-    setLogOpen(false);
+    if (dirty) setConfirmDiscardLog(true);
+    else setLogOpen(false);
   }
 
   const dueSoon = (s: Enriched) => s.inDays <= s.remindDaysBefore;
@@ -1107,6 +1109,29 @@ export default function SubscriptionsClient() {
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            {/* Discard guard — inline confirm, never window.confirm */}
+            {confirmDiscardLog && (
+              <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Discard this entry?</p>
+                <div className="mt-2.5 flex gap-2">
+                  <button
+                    onClick={() => setConfirmDiscardLog(false)}
+                    className="flex-1 rounded-lg py-2 text-xs font-bold"
+                    style={{ backgroundColor: "var(--color-paper)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink)" }}
+                  >
+                    Keep editing
+                  </button>
+                  <button
+                    onClick={() => { setConfirmDiscardLog(false); setLogOpen(false); }}
+                    className="flex-1 rounded-lg py-2 text-xs font-bold"
+                    style={{ backgroundColor: "var(--color-error, #b42318)", color: "var(--color-paper)" }}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            )}
 
             <label className="mt-4 block">
               <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gte, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -45,6 +45,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       estimatedMinutes?: number | null;
       grade?: string | null;
       subtasks?: Array<{ id?: string; title: string; done?: boolean }>;
+      // Series edit — when the client chose "this and future" / "whole
+      // series" it passes the item's seriesId plus the scope.
+      seriesId?: string;
+      scope?: string;
     };
     try {
       body = await request.json();
@@ -149,6 +153,115 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         return NextResponse.json({ error: "Invalid estimate" }, { status: 400 });
       }
       updates.estimatedMinutes = body.estimatedMinutes === null ? null : Math.round(body.estimatedMinutes);
+    }
+
+    // ── Series edit ──
+    // scope=future updates this + every later occurrence; scope=all the whole
+    // series. Only occurrence-agnostic fields apply — dueDate, status, grade,
+    // subtasks and the planned session stay per-occurrence (one date can't
+    // fan out across a series sensibly).
+    const scope = body.scope === "future" || body.scope === "all" ? body.scope : null;
+    if (scope) {
+      if (!body.seriesId || !isValidUUID(body.seriesId) || body.seriesId !== existing.seriesId) {
+        return NextResponse.json({ error: "Invalid series" }, { status: 400 });
+      }
+      const SERIES_FIELDS = ["title", "description", "classId", "dueTime", "priority", "kind", "estimatedMinutes"] as const;
+      const shared: Record<string, unknown> = { updatedAt: new Date() };
+      for (const k of SERIES_FIELDS) {
+        if (k in updates) shared[k] = updates[k];
+      }
+      if (Object.keys(shared).length === 1) {
+        return NextResponse.json({ error: "Nothing to update across the series" }, { status: 400 });
+      }
+      // Verify ownership of every target row via userId in WHERE (IDOR-safe)
+      // — and for scope=future, anchor on this occurrence's due date.
+      const targetWhere = and(
+        eq(schema.homeworks.userId, session.userId),
+        eq(schema.homeworks.seriesId, existing.seriesId!),
+        ...(scope === "future" ? [gte(schema.homeworks.dueDate, existing.dueDate)] : []),
+      );
+      const targets = await db
+        .select({
+          id: schema.homeworks.id,
+          title: schema.homeworks.title,
+          status: schema.homeworks.status,
+          classId: schema.homeworks.classId,
+          plannedEventId: schema.homeworks.plannedEventId,
+        })
+        .from(schema.homeworks)
+        .where(targetWhere);
+      if (targets.length === 0) {
+        return NextResponse.json({ error: "Homework not found" }, { status: 404 });
+      }
+      const targetIds = targets.map((t) => t.id);
+
+      // Numbered series titles ("Essay 3") keep their numbering — apply the
+      // new title as a base and re-append each row's existing number.
+      const newTitle = typeof shared.title === "string" ? shared.title : null;
+      if (newTitle) {
+        const newBase = newTitle.replace(/\s+\d+$/, "");
+        const renumbered = targets.map((t) => {
+          const m = /(\d+)$/.exec(t.title);
+          return { id: t.id, title: m ? `${newBase} ${m[1]}` : newTitle };
+        });
+        // neon-http has no transactions — per-row updates run in parallel;
+        // a mid-flight failure is reported by the count check below.
+        await Promise.all(
+          renumbered.map((r) =>
+            db.update(schema.homeworks).set({ title: r.title })
+              .where(and(eq(schema.homeworks.id, r.id), eq(schema.homeworks.userId, session.userId))),
+          ),
+        );
+        delete shared.title;
+      }
+
+      if (Object.keys(shared).length > 1) {
+        await db
+          .update(schema.homeworks)
+          .set(shared)
+          .where(and(eq(schema.homeworks.userId, session.userId), inArray(schema.homeworks.id, targetIds)));
+      }
+
+      // Keep linked study-session events in sync when their rendered fields
+      // (title / class color) changed. Best-effort — events are a view, the
+      // homework row is the source of truth.
+      if (newTitle || "classId" in shared) {
+        try {
+          const withEvents = targets.filter((t) => t.plannedEventId);
+          if (withEvents.length > 0) {
+            const [evs, clsRows] = await Promise.all([
+              db.select({ id: schema.events.id, startAt: schema.events.startAt, endAt: schema.events.endAt })
+                .from(schema.events)
+                .where(and(eq(schema.events.userId, session.userId), inArray(schema.events.id, withEvents.map((t) => t.plannedEventId!)))),
+              db.select({ id: schema.classes.id, color: schema.classes.color })
+                .from(schema.classes)
+                .where(eq(schema.classes.userId, session.userId)),
+            ]);
+            const evById = new Map(evs.map((e) => [e.id, e]));
+            const colorById = new Map(clsRows.map((c) => [c.id, c.color]));
+            const newClassId = "classId" in shared ? (shared.classId as string | null) : undefined;
+            await Promise.all(withEvents.map(async (t) => {
+              const ev = evById.get(t.plannedEventId!);
+              if (!ev?.startAt) return;
+              const m = /(\d+)$/.exec(t.title);
+              const title = newTitle ? (m ? `${newTitle.replace(/\s+\d+$/, "")} ${m[1]}` : newTitle) : t.title;
+              await syncPlannedEvent(session.userId, {
+                id: t.id,
+                title,
+                status: t.status,
+                plannedStartAt: ev.startAt.toISOString(),
+                plannedEndAt: ev.endAt?.toISOString() ?? null,
+                plannedEventId: t.plannedEventId,
+                classColor: newClassId !== undefined ? (newClassId ? colorById.get(newClassId) ?? null : null) : (t.classId ? colorById.get(t.classId) ?? null : null),
+              });
+            }));
+          }
+        } catch (err) {
+          logError(err, { route: "homework/PATCH", phase: "series-planned-events", hwId: id });
+        }
+      }
+
+      return NextResponse.json({ series: true, updated: targetIds.length });
     }
 
     const [updated] = await db
@@ -272,6 +385,58 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const { id } = await params;
     if (!id || !isValidUUID(id)) {
       return NextResponse.json({ error: "Invalid homework ID" }, { status: 400 });
+    }
+
+    // ── Series delete ──
+    // ?seriesId=<uuid>&scope=all    → every occurrence in the series
+    // ?seriesId=<uuid>&scope=future → this occurrence + all later due dates
+    const { searchParams } = new URL(request.url);
+    const scopeParam = searchParams.get("scope");
+    const seriesIdParam = searchParams.get("seriesId");
+    if (scopeParam || seriesIdParam) {
+      if (scopeParam !== "all" && scopeParam !== "future") {
+        return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
+      }
+      if (!seriesIdParam || !isValidUUID(seriesIdParam)) {
+        return NextResponse.json({ error: "Invalid series" }, { status: 400 });
+      }
+      // The anchor row proves ownership AND its seriesId must match the
+      // claimed one — deletes are always filtered by userId below regardless.
+      const [anchor] = await db
+        .select({ id: schema.homeworks.id, seriesId: schema.homeworks.seriesId, dueDate: schema.homeworks.dueDate })
+        .from(schema.homeworks)
+        .where(and(eq(schema.homeworks.id, id), eq(schema.homeworks.userId, session.userId)))
+        .limit(1);
+      if (!anchor) {
+        return NextResponse.json({ error: "Homework not found" }, { status: 404 });
+      }
+      if (anchor.seriesId !== seriesIdParam) {
+        return NextResponse.json({ error: "Invalid series" }, { status: 400 });
+      }
+
+      const deleted = await db
+        .delete(schema.homeworks)
+        .where(and(
+          eq(schema.homeworks.userId, session.userId),
+          eq(schema.homeworks.seriesId, seriesIdParam),
+          ...(scopeParam === "future" ? [gte(schema.homeworks.dueDate, anchor.dueDate)] : []),
+        ))
+        .returning({ id: schema.homeworks.id, plannedEventId: schema.homeworks.plannedEventId });
+
+      // Subtasks cascade via FK. Linked calendar events only set-null the
+      // pointer — delete the blocks themselves (best-effort).
+      const eventIds = deleted.map((d) => d.plannedEventId).filter((e): e is string => !!e);
+      if (eventIds.length > 0) {
+        try {
+          await db
+            .delete(schema.events)
+            .where(and(eq(schema.events.userId, session.userId), inArray(schema.events.id, eventIds)));
+        } catch (err) {
+          logError(err, { route: "homework/DELETE", phase: "series-planned-events", hwId: id });
+        }
+      }
+
+      return NextResponse.json({ success: true, deleted: deleted.length });
     }
 
     // Verify ownership + delete with userId in WHERE (prevents IDOR)
