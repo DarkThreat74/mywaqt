@@ -13,7 +13,7 @@ type DayPayload = {
   apps?: Record<string, number>;
   sec?: Record<string, number>;
   hours?: Record<string, number>;
-  sessions?: { p: string; t: number; c: number; d: number }[];
+  sessions?: { p: string; t: number; c: number; d: number; u?: number }[];
   px?: Record<string, number>;
   pxTotal?: number;
   dpi?: number;
@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
       const sessions = Array.isArray(d.sessions)
         ? d.sessions.slice(0, 250).map((s) => ({
             p: String(s.p ?? "").slice(0, 80), t: num(s.t), c: num(s.c), d: num(s.d),
+            ...(typeof s.u === "number" ? { u: num(s.u) } : {}),
           })).filter((s) => s.c > 0)
         : undefined;
       const values = {

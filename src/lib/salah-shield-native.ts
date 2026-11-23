@@ -224,7 +224,7 @@ export interface ScrollDayStats {
   apps: Record<string, number>;
   sec: Record<string, number>;
   hours?: Record<string, number>;
-  sessions?: { p: string; t: number; c: number; d: number }[];
+  sessions?: { p: string; t: number; c: number; d: number; u?: number }[];
   /** Real scrolled distance in px per app (API 28+ deltas, estimated elsewhere). */
   px?: Record<string, number>;
   pxTotal?: number;

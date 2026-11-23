@@ -47,7 +47,7 @@ type ServerDay = {
   date: string; total: number;
   apps: Record<string, number> | null; sec: Record<string, number> | null;
   hours: Record<string, number> | null;
-  sessions: { p: string; t: number; c: number; d: number }[] | null;
+  sessions: { p: string; t: number; c: number; d: number; u?: number }[] | null;
   px: Record<string, number> | null; pxTotal: number | null; dpi: number | null;
 };
 
@@ -109,7 +109,7 @@ export default function ScrollClient() {
   const todayM = today ? meters(today) : null;
   const totalSec = Object.values(today?.sec ?? {}).reduce((s, v) => s + v, 0);
   const sessions = today?.sessions ?? [];
-  const longest = sessions.reduce<{ p: string; t: number; c: number; d: number } | null>(
+  const longest = sessions.reduce<{ p: string; t: number; c: number; d: number; u?: number } | null>(
     (m, s) => (m === null || s.d > m.d) ? s : m, null);
 
   const hourAvg = useMemo(() => {
@@ -288,7 +288,7 @@ export default function ScrollClient() {
       {/* Longest session */}
       {longest && (
         <Section icon={<Ruler className="h-4 w-4" />} title="Longest session" sub="today">
-          <p className="text-sm"><b className="tabular-nums">{fmtSec(longest.d)}</b> on {name(longest.p)} — {longest.c} cards passed, started {fmtT(longest.t)}</p>
+          <p className="text-sm"><b className="tabular-nums">{fmtSec(longest.d)}</b> on {name(longest.p)} — {longest.u != null ? `${longest.u} unique cards, ${longest.c} passes` : `${longest.c} cards passed`}, started {fmtT(longest.t)}</p>
         </Section>
       )}
 

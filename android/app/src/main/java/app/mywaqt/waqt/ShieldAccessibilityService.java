@@ -278,7 +278,10 @@ public class ShieldAccessibilityService extends AccessibilityService {
         int from = event.getFromIndex(), to = event.getToIndex();
         if (from >= 0 && to >= 0 && to != from) {
             int items = Math.min(Math.abs(to - from), 8);
-            return items * (screenH / 4);
+            // Pager feeds (TikTok/Reels/Shorts) show one full-screen item per
+            // card; list feeds average ~quarter-screen rows.
+            int perItem = FEED_ALWAYS.contains(pkg) ? screenH : screenH / 4;
+            return items * perItem;
         }
         int y = event.getScrollY();
         if (y >= 0) {
@@ -348,7 +351,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
                 hours.put(h, hours.optInt(h) + 1);
                 // Sessions: a burst of counted scrolls in one app with gaps
                 // under 45s. Powers "how many at a time" + session length.
-                trackSession(day, pkg, now);
+                trackSession(day, pkg, now, event);
             }
             saveToday(day);
             updateCounter(day.optInt("total"));
@@ -359,18 +362,23 @@ public class ShieldAccessibilityService extends AccessibilityService {
     private String sessPkg = null;
     private long sessStart = 0, sessLast = 0;
     private int sessCount = 0;
+    private final java.util.Set<Integer> sessSeen = new java.util.HashSet<>();
     private static final long SESSION_GAP_MS = 45_000;
 
     /** Extends the open session or closes it into day.sessions and starts a
      *  new one. Entries: {p:pkg, t:minutes-since-midnight, c:count, d:sec}. */
-    private void trackSession(JSONObject day, String pkg, long now) throws Exception {
+    private void trackSession(JSONObject day, String pkg, long now, AccessibilityEvent event) throws Exception {
+        int idx = event.getToIndex();
         if (pkg.equals(sessPkg) && now - sessLast <= SESSION_GAP_MS) {
             sessCount++;
             sessLast = now;
+            if (idx >= 0) sessSeen.add(idx);
             return;
         }
         flushSession(day);
         sessPkg = pkg; sessStart = now; sessLast = now; sessCount = 1;
+        sessSeen.clear();
+        if (idx >= 0) sessSeen.add(idx);
     }
 
     /** Writes the open session into the day's sessions array (capped at 200). */
@@ -386,6 +394,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
             s.put("t", cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE));
             s.put("c", sessCount);
             s.put("d", Math.max(1, (sessLast - sessStart) / 1000));
+            if (!sessSeen.isEmpty()) s.put("u", sessSeen.size());
             arr.put(s);
         }
         sessPkg = null;
