@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Copy, QrCode, Share2, X } from "lucide-react";
 import QRCode from "qrcode";
@@ -16,34 +16,53 @@ export function ShareQrButton({ variant = "link" }: { variant?: "link" | "icon" 
   const [closing, setClosing] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [svg, setSvg] = useState<string | null>(null);
+  const [qrError, setQrError] = useState(false);
   const [copied, setCopied] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Mount guard for portal (document.body doesn't exist during SSR)
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
 
-  // ESC to close
+  // Focus trap + ESC to close; focus moves into the dialog on open and
+  // returns to the trigger on close.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") dismiss(); };
+    const dialog = dialogRef.current;
+    dialog?.querySelector<HTMLElement>("button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { dismiss(); return; }
+      if (e.key !== "Tab" || !dialog) return;
+      const focusables = dialog.querySelectorAll<HTMLElement>("button, [href]");
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
   useEffect(() => {
-    if (!open || svg) return;
+    if (!open || svg || qrError) return;
     // White card + dark modules regardless of theme — scanners need contrast.
     QRCode.toString(SITE_URL, {
       type: "svg",
       margin: 0,
       width: 480,
       color: { dark: "#1a1815", light: "#ffffff" },
-    }).then(setSvg).catch(() => setSvg(null));
-  }, [open, svg]);
+    }).then(setSvg).catch(() => setQrError(true));
+  }, [open, svg, qrError]);
 
   function dismiss() {
     setClosing(true);
-    setTimeout(() => { setOpen(false); setClosing(false); }, 220);
+    setTimeout(() => {
+      setOpen(false);
+      setClosing(false);
+      triggerRef.current?.focus();
+    }, 220);
   }
 
   async function copyLink() {
@@ -68,6 +87,7 @@ export function ShareQrButton({ variant = "link" }: { variant?: "link" | "icon" 
     <>
       {variant === "icon" ? (
         <button
+          ref={triggerRef}
           onClick={() => setOpen(true)}
           className="inline-flex items-center justify-center rounded-full border transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44, minWidth: 44 }}
@@ -78,6 +98,7 @@ export function ShareQrButton({ variant = "link" }: { variant?: "link" | "icon" 
         </button>
       ) : (
         <button
+          ref={triggerRef}
           onClick={() => setOpen(true)}
           className="inline-flex items-center gap-1.5 transition-opacity hover:opacity-70"
           style={{ color: "var(--color-ink-muted)" }}
@@ -97,6 +118,7 @@ export function ShareQrButton({ variant = "link" }: { variant?: "link" | "icon" 
           onClick={dismiss}
         >
           <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label="Share Waqt"
@@ -139,6 +161,13 @@ export function ShareQrButton({ variant = "link" }: { variant?: "link" | "icon" 
                   dangerouslySetInnerHTML={{ __html: svg }}
                   aria-label={`QR code linking to ${SITE_URL}`}
                 />
+              ) : qrError ? (
+                <div className="flex h-48 w-48 flex-col items-center justify-center gap-2">
+                  <QrCode className="h-8 w-8" style={{ color: "#1a1815", opacity: 0.3 }} />
+                  <p className="px-3 text-xs leading-snug" style={{ color: "#1a1815", opacity: 0.6 }}>
+                    QR unavailable — copy the link below instead.
+                  </p>
+                </div>
               ) : (
                 <div className="flex h-48 w-48 items-center justify-center">
                   <QrCode className="h-8 w-8 animate-pulse" style={{ color: "#1a1815", opacity: 0.3 }} />

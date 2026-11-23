@@ -62,8 +62,24 @@ function clientSideKeywordMatch(query: string): string[] {
     .map((s) => s.id);
 }
 
-export default function LearnClient({ madhab = "hanafi" }: { madhab?: Madhab }) {
-  const [tab, setTab] = useState<Tab>("search");
+export default function LearnClient({
+  madhab = "hanafi",
+  madhabLoadFailed = false,
+}: {
+  madhab?: Madhab;
+  madhabLoadFailed?: boolean;
+}) {
+  // Deep-link support: /learn?section=<id> or /learn#<id> opens that
+  // lesson directly in the Library tab. Read lazily — client components
+  // still prerender on the server where `window` doesn't exist.
+  const [deepLinkedId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const id =
+      new URLSearchParams(window.location.search).get("section") ??
+      window.location.hash.replace(/^#/, "");
+    return id && learnSections.some((s) => s.id === id) ? id : null;
+  });
+  const [tab, setTab] = useState<Tab>(deepLinkedId ? "library" : "search");
 
   return (
     <div className="mx-auto w-full max-w-2xl overflow-x-hidden px-4 py-8 sm:px-6 sm:py-12">
@@ -103,6 +119,25 @@ export default function LearnClient({ madhab = "hanafi" }: { madhab?: Madhab }) 
         />
       </div>
 
+      {/* ── Madhab load failure — honest notice, not a silent fallback ── */}
+      {madhabLoadFailed && (
+        <div
+          className="mb-6 rounded-lg px-3 py-3 sm:px-4"
+          style={{
+            backgroundColor: "color-mix(in oklab, var(--color-warmth) 6%, transparent)",
+            borderLeft: "3px solid var(--color-warmth)",
+          }}
+        >
+          <p
+            className="text-xs leading-relaxed"
+            style={{ color: "var(--color-ink-soft)" }}
+          >
+            We couldn&rsquo;t load your madhab preference — content below is shown
+            for the <strong>Hanafi</strong> school. Refresh the page to try again.
+          </p>
+        </div>
+      )}
+
       {/* ── Madhab notice for non-Hanafi ── */}
       {madhab !== "hanafi" && (
         <div
@@ -125,7 +160,7 @@ export default function LearnClient({ madhab = "hanafi" }: { madhab?: Madhab }) 
       )}
 
       {/* ── Tab content ── */}
-      {tab === "search" ? <SearchTab /> : <LibraryTab />}
+      {tab === "search" ? <SearchTab /> : <LibraryTab deepLinkedId={deepLinkedId} />}
     </div>
   );
 }
@@ -169,11 +204,6 @@ function SearchTab() {
   const [error, setError] = useState<string | null>(null);
   const [openSectionId, setOpenSectionId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Focus the input on mount
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
 
   const handleSearch = useCallback(async (searchQuery?: string) => {
     const q = (searchQuery ?? query).trim();
@@ -247,13 +277,14 @@ function SearchTab() {
         />
         <input
           ref={inputRef}
-          type="text"
+          type="search"
+          enterKeyHint="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSearch();
           }}
-          placeholder="Ask about salah, wudu, khushu, qadaa..."
+          placeholder="Ask about salah, wudu, khushu, qadaa…"
           maxLength={200}
           className="w-full rounded-xl py-3.5 pl-11 pr-4 text-sm outline-none transition-colors"
           style={{
@@ -266,15 +297,24 @@ function SearchTab() {
 
       {/* ── Search button ── */}
       <button
-        onClick={() => handleSearch()}
-        disabled={searching || !query.trim()}
-        className="mb-6 w-full rounded-xl py-3 text-sm font-medium transition-colors disabled:opacity-50"
+        onClick={() => {
+          if (searching) return;
+          if (!query.trim()) {
+            // G4: never disable submit — validate on click and say what's missing
+            setError("Type a question first, or pick a suggestion below.");
+            inputRef.current?.focus();
+            return;
+          }
+          handleSearch();
+        }}
+        className="mb-6 w-full rounded-xl py-3 text-sm font-medium transition-opacity"
         style={{
           backgroundColor: "var(--color-accent)",
           color: "var(--color-paper)",
+          opacity: searching ? 0.7 : 1,
         }}
       >
-        {searching ? "Searching..." : "Search"}
+        {searching ? "Searching…" : "Search"}
       </button>
 
       {/* ── Suggested queries (shown when no results yet) ── */}
@@ -370,8 +410,16 @@ function SearchTab() {
 
 // ── Library Tab ──
 
-function LibraryTab() {
-  const [openId, setOpenId] = useState<string | null>(null);
+function LibraryTab({ deepLinkedId = null }: { deepLinkedId?: string | null }) {
+  const [openId, setOpenId] = useState<string | null>(deepLinkedId);
+
+  // Scroll a deep-linked section into view once mounted
+  useEffect(() => {
+    if (deepLinkedId) {
+      document.getElementById(`section-${deepLinkedId}`)?.scrollIntoView({ block: "start" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+  }, []);
 
   // Group sections into categories for easier browsing
   const categories: { label: string; sectionIds: string[] }[] = [
@@ -443,8 +491,9 @@ function LibraryTab() {
         className="pt-4 text-center text-xs leading-relaxed"
         style={{ color: "var(--color-ink-muted)" }}
       >
-        All hadith are sourced from authenticated collections. Sources are cited
-        for verification. Content follows the Hanafi school of fiqh.
+        All hadith are sourced from authenticated collections. English renderings
+        are paraphrased for readability and cite the collection; translator
+        attribution is shown where known. Content follows the Hanafi school of fiqh.
       </p>
     </div>
   );
@@ -463,6 +512,7 @@ function SectionCard({
 }) {
   return (
     <div
+      id={`section-${section.id}`}
       className="overflow-hidden rounded-xl border transition-colors"
       style={{
         borderColor: isOpen
@@ -626,11 +676,12 @@ function HadithBlock({ hadith }: { hadith: Hadith }) {
     >
       <p
         dir="rtl"
+        lang="ar"
         className="mb-3 text-right leading-loose"
         style={{
           fontFamily: "var(--font-amiri), Georgia, serif",
           color: "var(--color-ink)",
-          fontSize: "1rem",
+          fontSize: "1.25rem",
           lineHeight: 2,
           wordBreak: "break-word",
           overflowWrap: "break-word",
@@ -663,6 +714,17 @@ function HadithBlock({ hadith }: { hadith: Hadith }) {
         >
           {hadith.source}
         </span>
+        {hadith.translator && (
+          <span
+            className="rounded-md px-2 py-1 text-[11px] font-medium"
+            style={{
+              backgroundColor: "var(--color-paper-2)",
+              color: "var(--color-ink-muted)",
+            }}
+          >
+            tr. {hadith.translator}
+          </span>
+        )}
         {hadith.grade && (
           <span
             className="rounded-md px-2 py-1 text-[11px] font-medium"

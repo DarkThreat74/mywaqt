@@ -38,6 +38,7 @@ interface Masjid {
   phone: string | null;
   website: string | null;
   masjidTz: string | null; // masjid's timezone — offsets/adhan need it to match ours
+  iqamahCheckedAt?: string | null; // ISO — when the server last verified iqamah
 }
 
 // Only Fajr/Dhuhr/Asr/Isha have distinct iqamah times — Maghrib iqamah is
@@ -140,6 +141,9 @@ function IqamahTable({ m, prayerTimes, sameTz }: { m: Masjid; prayerTimes: Praye
   // Maghrib iqamah: prefer the published/submitted time; else derive from
   // offset; else (same tz only) sunset = iqamah. Foreign masjids: fixed only.
   const maghribOff = m.iqamaOffsets?.[3];
+  // Last fallback is OUR local adhan, not the masjid's published time — it
+  // must be labelled as an estimate or it reads as the masjid's own iqamah.
+  const maghribEstimated = !m.iqamaFixed?.[3] && !(sameTz && maghribOff != null && prayerTimes?.maghrib);
   const maghrib =
     m.iqamaFixed?.[3] ??
     (sameTz && maghribOff != null && prayerTimes?.maghrib
@@ -152,42 +156,55 @@ function IqamahTable({ m, prayerTimes, sameTz }: { m: Masjid; prayerTimes: Praye
     ["Maghrib", maghrib],
     ["Isha", iq[3]],
   ];
+  const notes: string[] = [];
+  if (maghribEstimated && maghrib) notes.push("* Maghrib estimated from your local adhan");
+  if (m.iqamahCheckedAt) {
+    const d = new Date(m.iqamahCheckedAt);
+    if (!isNaN(d.getTime())) notes.push(`Iqamah checked ${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`);
+  }
   return (
-    <table
-      className="w-full table-fixed rounded-lg text-center"
-      style={{ backgroundColor: "color-mix(in oklab, var(--color-paper-2) 60%, transparent)" }}
-    >
-      <thead>
-        <tr>
-          {cells.map(([label]) => (
-            <th
-              key={label}
-              className="truncate px-0.5 pt-2 text-[9px] font-semibold uppercase tracking-wide"
-              style={{ color: "var(--color-ink-muted)" }}
-            >
-              {label}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          {cells.map(([label, t]) => (
-            <td
-              key={label}
-              className="whitespace-nowrap px-0.5 pb-2 pt-0.5 text-[11px] font-semibold tabular-nums"
-              style={{ color: "var(--color-ink)" }}
-            >
-              {fmt12(t)}
-            </td>
-          ))}
-        </tr>
-      </tbody>
-    </table>
+    <>
+      <table
+        className="w-full table-fixed rounded-lg text-center"
+        style={{ backgroundColor: "color-mix(in oklab, var(--color-paper-2) 60%, transparent)" }}
+      >
+        <thead>
+          <tr>
+            {cells.map(([label]) => (
+              <th
+                key={label}
+                className="truncate px-0.5 pt-2 text-[9px] font-semibold uppercase tracking-wide"
+                style={{ color: "var(--color-ink-muted)" }}
+              >
+                {label}{label === "Maghrib" && maghribEstimated && maghrib ? "*" : ""}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {cells.map(([label, t]) => (
+              <td
+                key={label}
+                className="whitespace-nowrap px-0.5 pb-2 pt-0.5 text-[11px] font-semibold tabular-nums"
+                style={{ color: "var(--color-ink)" }}
+              >
+                {fmt12(t)}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+      {notes.length > 0 && (
+        <p className="mt-1 text-[9px] leading-snug" style={{ color: "var(--color-ink-muted)" }}>
+          {notes.join(" · ")}
+        </p>
+      )}
+    </>
   );
 }
 
-export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes | null }) {
+export default function MasjidFinder({ prayerTimes, prayerTimesAsOf }: { prayerTimes: PrayerTimes | null; prayerTimesAsOf?: string | null }) {
   // Read AFTER mount — getCachedPrayerSettings() hits localStorage, so
   // reading it during render diverges between SSR (empty) and client.
   const [loc, setLoc] = useState<ReturnType<typeof getCachedPrayerSettings>>(null);
@@ -404,7 +421,12 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
 
   // Re-geolocate → applyLocation persists + refetches for the new spot.
   function refreshLocation() {
-    if (locating || typeof navigator === "undefined" || !navigator.geolocation) return;
+    if (locating) return;
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      // Was a silent no-op — the button looked live but could never work.
+      setError("Geolocation isn't available on this device — search an address instead.");
+      return;
+    }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -602,11 +624,23 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         const m = shown[mi];
         const el = document.createElement("div");
         el.title = m.name;
+        // Pins are the only way to reach a masjid on the map — make them
+        // focusable/activatable so AT users aren't forced back to list view.
+        el.tabIndex = 0;
+        el.setAttribute("role", "button");
+        el.setAttribute("aria-label", `${m.name} — show details`);
         el.style.cssText = "width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer";
         el.innerHTML = pinSvg;
         el.addEventListener("click", (e) => {
           e.stopPropagation(); // don't let the map's deselect handler eat it
           setSelected(m);
+        });
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            setSelected(m);
+          }
         });
         markerObjs.current.push(
           new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([m.lng, m.lat]).addTo(map),
@@ -651,6 +685,9 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
     return (
       <div className="rounded-xl border p-4 text-xs" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
         <p>Set your location to find masjids nearby.</p>
+        {error && (
+          <p className="mt-1.5" style={{ color: "var(--color-warmth)" }}>{error}</p>
+        )}
         <div className="mt-2 flex items-center gap-1.5">
           <button
             onClick={refreshLocation}
@@ -706,12 +743,17 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
               · {total} found
             </span>
           )}
+          {prayerTimes && prayerTimesAsOf && (
+            <span className="basis-full text-[10px] font-normal" style={{ color: "var(--color-ink-muted)" }}>
+              Prayer times for {prayerTimesAsOf}
+            </span>
+          )}
         </h3>
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             onClick={refreshLocation}
             disabled={locating}
-            className="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium disabled:opacity-50"
+            className="flex min-h-6 items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium disabled:opacity-50"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
             aria-label="Refresh my location"
             title="Update my location"
@@ -721,7 +763,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           </button>
           <button
             onClick={() => setAddrOpen((o) => !o)}
-            className="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium"
+            className="flex min-h-6 items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
             aria-label="Search an address"
             title="Search an address or ZIP"
@@ -731,7 +773,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           <button
             onClick={() => void reload()}
             disabled={loading || searching}
-            className="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium disabled:opacity-50"
+            className="flex min-h-6 items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium disabled:opacity-50"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
             aria-label="Reload masjids"
             title="Reload masjids"
@@ -741,7 +783,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           <div className="flex rounded-lg border" style={{ borderColor: "var(--color-paper-3)" }}>
             <button
               onClick={() => setMode("list")}
-            className="flex items-center gap-1 rounded-l-lg px-2.5 py-1 text-[11px] font-medium"
+            className="flex min-h-6 items-center gap-1 rounded-l-lg px-2.5 py-1.5 text-[11px] font-medium"
             style={mode === "list" ? { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" } : { color: "var(--color-ink-soft)" }}
             aria-label="List view"
           >
@@ -749,7 +791,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           </button>
           <button
             onClick={() => setMode("map")}
-            className="flex items-center gap-1 rounded-r-lg px-2.5 py-1 text-[11px] font-medium"
+            className="flex min-h-6 items-center gap-1 rounded-r-lg px-2.5 py-1.5 text-[11px] font-medium"
             style={mode === "map" ? { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" } : { color: "var(--color-ink-soft)" }}
             aria-label="Map view"
           >
@@ -798,7 +840,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
         {isSearching && (
           <button
             onClick={() => { setQuery(""); setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5"
+            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded"
             style={{ color: "var(--color-ink-muted)" }}
             aria-label="Clear search"
           >
@@ -813,7 +855,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
           <span className="truncate">Results near {addrLabel} — your saved location is unchanged</span>
           <button
             onClick={() => { setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }}
-            className="ml-auto shrink-0 rounded p-0.5"
+            className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded"
             style={{ color: "var(--color-ink-muted)" }}
             aria-label="Back to my location"
           >
@@ -845,8 +887,16 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
               behind this fullscreen layer and can never be seen here. */}
           {error && (
             <div className="absolute inset-x-3 z-10 flex justify-center" style={{ top: "calc(env(safe-area-inset-top) + 64px)" }}>
-              <span className="rounded-full border px-4 py-2 text-xs shadow-lg" style={{ borderColor: "var(--color-warmth)", backgroundColor: "var(--color-paper)", color: "var(--color-warmth)" }}>
+              <span className="flex items-center gap-2 rounded-full border px-4 py-2 text-xs shadow-lg" style={{ borderColor: "var(--color-warmth)", backgroundColor: "var(--color-paper)", color: "var(--color-warmth)" }}>
                 {error}
+                {/* A dead map must not strand the user fullscreen — always offer the way back. */}
+                <button
+                  onClick={() => setMode("list")}
+                  className="shrink-0 rounded-full border px-2.5 py-1 font-semibold"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+                >
+                  Use list view
+                </button>
               </span>
             </div>
           )}
@@ -879,7 +929,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
               {isSearching && (
                 <button
                   onClick={() => { setQuery(""); setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5"
+                  className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded"
                   style={{ color: "var(--color-ink-muted)" }}
                   aria-label="Clear search"
                 >
@@ -907,7 +957,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
               <span className="truncate">Results near {addrLabel} — your saved location is unchanged</span>
               <button
                 onClick={() => { setSearchResults(null); setAddrLabel(null); setSearchCenter(null); }}
-                className="ml-auto shrink-0 rounded p-0.5"
+                className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded"
                 style={{ color: "var(--color-ink-muted)" }}
                 aria-label="Back to my location"
               >
@@ -949,7 +999,7 @@ export default function MasjidFinder({ prayerTimes }: { prayerTimes: PrayerTimes
                 </div>
                 <button
                   onClick={() => setSelected(null)}
-                  className="shrink-0 rounded p-1 text-xs"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs"
                   style={{ color: "var(--color-ink-muted)" }}
                   aria-label="Close details"
                 >

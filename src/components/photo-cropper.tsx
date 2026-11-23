@@ -27,6 +27,14 @@ export default function PhotoCropper({
   const [minScale, setMinScale] = useState(1);
   const [off, setOff] = useState({ x: 0, y: 0 }); // display-px offset from center
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cancelRef = useRef(onCancel);
+  useEffect(() => { cancelRef.current = onCancel; }, [onCancel]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cancelRef.current(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const boxRef = useRef<HTMLDivElement>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ d: number; scale: number } | null>(null);
@@ -102,9 +110,13 @@ export default function PhotoCropper({
         mime = "image/jpeg";
       }
       onDone({ data: dataUrl.split(",")[1], mime, dataUrl });
-    } finally {
+    } catch (err) {
+      console.error("[PhotoCropper] export failed", err);
+      setError("Could not process this image — try a different photo.");
       setBusy(false);
+      return;
     }
+    setBusy(false);
   }
 
   const w = dims ? dims.w * scale : 0;
@@ -115,6 +127,7 @@ export default function PhotoCropper({
       className="fixed inset-0 z-[140] flex flex-col items-center justify-center px-4"
       style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 88%, transparent)", animation: "drawer-app-in 0.18s ease-out" }}
       role="dialog"
+      aria-modal="true"
       aria-label="Crop photo"
     >
       <p className="mb-4 text-sm font-semibold" style={{ color: "var(--color-paper)" }}>Move and zoom</p>
@@ -123,6 +136,9 @@ export default function PhotoCropper({
       <div className="relative">
         <div
           ref={boxRef}
+          tabIndex={0}
+          role="application"
+          aria-label="Crop area — arrow keys move the photo"
           className="relative touch-none select-none overflow-hidden rounded-full"
           style={{ width: BOX, height: BOX, cursor: "grab" }}
           onPointerDown={onPointerDown}
@@ -130,6 +146,15 @@ export default function PhotoCropper({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onWheel={(e) => zoomTo(scale * (e.deltaY < 0 ? 1.08 : 0.92))}
+          onKeyDown={(e) => {
+            const step = e.shiftKey ? 20 : 4;
+            const d: Record<string, { x: number; y: number }> = {
+              ArrowLeft: { x: step, y: 0 }, ArrowRight: { x: -step, y: 0 },
+              ArrowUp: { x: 0, y: step }, ArrowDown: { x: 0, y: -step },
+            };
+            const m = d[e.key];
+            if (m) { e.preventDefault(); setOff((o) => clamp({ x: o.x + m.x, y: o.y + m.y }, scale)); }
+          }}
         >
           {url && dims && (
             // eslint-disable-next-line @next/next/no-img-element -- raw user file preview
@@ -173,6 +198,8 @@ export default function PhotoCropper({
         />
         <Plus className="h-4 w-4 shrink-0" style={{ color: "var(--color-paper)" }} />
       </div>
+
+      {error && <p role="alert" className="mt-3 text-xs" style={{ color: "var(--color-paper)" }}>{error}</p>}
 
       <div className="mt-6 flex gap-2">
         <button

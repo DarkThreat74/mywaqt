@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Handshake, Swords, Timer, Trophy } from "lucide-react";
 import { MatchSurrender } from "@/components/match-surrender";
 import { SURAHS } from "@/lib/content/quran";
@@ -54,6 +54,7 @@ export default function MutashabihMatchView({
   families: MutashabihFamily[];
   onExit: () => void;
 }) {
+  const router = useRouter();
   const [st, setSt] = useState<MatchState | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [fam, setFam] = useState<MutashabihFamily | null>(null);
@@ -73,6 +74,15 @@ export default function MutashabihMatchView({
       setSt(await res.json());
     } catch { /* keep polling — transient blips are fine */ }
   }, [matchId]);
+
+  // First-load timeout: offline, the interval retries forever while the
+  // screen reads "Loading match…" — give up and offer a retry instead.
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    if (st || err) return;
+    const t = setTimeout(() => setStalled(true), 12000);
+    return () => clearTimeout(t);
+  }, [st, err]);
 
   useEffect(() => {
     let live = true;
@@ -203,8 +213,11 @@ export default function MutashabihMatchView({
   }
 
   // Wrong page — an AyaTrace invite that landed here hands off to /quran.
-  // Below all hooks so the throw can't short-circuit hook order.
-  if (st?.game === "trace") redirect(`/quran?match=${matchId}`);
+  // Effect, not mid-render redirect: navigate after commit.
+  const wrongGame = st?.game === "trace";
+  useEffect(() => {
+    if (wrongGame) router.replace(`/quran?match=${matchId}`);
+  }, [wrongGame, matchId, router]);
 
   const surahName = (n: number) => SURAHS[n - 1]?.name ?? `#${n}`;
   const mode = st?.round?.mode ?? null;
@@ -213,11 +226,27 @@ export default function MutashabihMatchView({
     : null;
 
   /* ── Render ── */
+  if (wrongGame) return null;
   if (err || !st) {
     return (
       <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-16 text-center">
-        <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>{err ?? "Loading match…"}</p>
-        <button onClick={onExit} className="mt-4 text-sm font-medium" style={{ color: "var(--color-accent)" }}>Back to solo</button>
+        <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
+          {err ?? (stalled
+            ? (typeof navigator !== "undefined" && !navigator.onLine
+                ? "You're offline — the match loads when you're back."
+                : "The match isn't answering — check your connection.")
+            : "Loading match…")}
+        </p>
+        {stalled && !err && (
+          <button
+            onClick={() => { setStalled(false); void poll(); }}
+            className="mt-4 rounded-xl border px-4 py-2 text-sm font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+          >
+            Try again
+          </button>
+        )}
+        <button onClick={onExit} className="mt-4 block w-full text-sm font-medium" style={{ color: "var(--color-accent)" }}>Back to solo</button>
       </div>
     );
   }
@@ -301,7 +330,7 @@ export default function MutashabihMatchView({
                 : <Swords className="h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />}
           </p>
           <h2 className="mt-3 text-xl font-semibold" style={{ color: "var(--color-ink)" }}>
-            {meWon ? "You win!" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
+            {meWon ? "You take it" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>{st.myWins} — {st.oppWins} over {st.roundsPlayed} round{st.roundsPlayed === 1 ? "" : "s"}</p>
           {st.endReason === "abandoned" && (
@@ -348,7 +377,7 @@ export default function MutashabihMatchView({
           <div className="mt-6">
             <div className="rounded-2xl border p-6 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
               <p className="text-lg font-semibold" style={{ color: won ? "var(--color-accent)" : drawR ? "var(--color-ink-muted)" : "var(--color-error)" }}>
-                {won ? "Your round!" : drawR ? "No one got it" : `${st.opponentName} got there first`}
+                {won ? "Your round" : drawR ? "No one got it" : `${st.opponentName} got there first`}
               </p>
               <p className="mt-2 text-sm tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                 you {result.meMs !== null ? `${(result.meMs / 1000).toFixed(1)}s ${result.meCorrect ? "✓" : "✗"}` : "—"} · {st.opponentName} {result.oppMs !== null ? `${(result.oppMs / 1000).toFixed(1)}s ${result.oppCorrect ? "✓" : "✗"}` : "—"}
@@ -361,7 +390,7 @@ export default function MutashabihMatchView({
 
       {/* Waiting */}
       {st.status === "active" && !result && st.round && !fam && (
-        <div className="mt-6 animate-pulse rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="mt-6 rounded-2xl border p-8 text-center motion-safe:animate-pulse" style={{ borderColor: "var(--color-paper-3)" }}>
           <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
             {st.round.started ? `Round ${st.round.n} — get ready…` : `Round ${st.round.n} — waiting for ${st.opponentName}…`}
           </p>
@@ -393,7 +422,7 @@ export default function MutashabihMatchView({
           </div>
 
           {answered !== null ? (
-            <div className="mt-4 animate-pulse rounded-xl border p-4 text-center text-sm" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
+            <div className="mt-4 rounded-xl border p-4 text-center text-sm motion-safe:animate-pulse" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
               <Timer className="mr-1 inline h-3.5 w-3.5" /> Waiting for {st.opponentName}&rsquo;s answer…
             </div>
           ) : mode === "count" ? (

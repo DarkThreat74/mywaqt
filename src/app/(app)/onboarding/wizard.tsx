@@ -344,6 +344,35 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
   const [tourIdx, setTourIdx] = useState(0);
   const tourTouchX = useRef<number | null>(null);
 
+  // Browser notification permission — surfaced honestly on the notifications
+  // step (default / granted / denied / unsupported).
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission | "unsupported">("default");
+
+  // Step-change a11y: move focus to the step heading so screen-reader users
+  // know the content swapped. Skipped when a step's own autofocus field
+  // already took focus (name, manual location search).
+  const stepRootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!mounted) return;
+    const heading = stepRootRef.current?.querySelector("h1, h2");
+    if (!(heading instanceof HTMLElement)) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) {
+      heading.tabIndex = -1;
+      heading.style.outline = "none";
+      heading.focus({ preventScroll: true });
+    }
+  }, [step, mounted]);
+
+  useEffect(() => {
+    if (step !== "notifications") return;
+    // Deferred — a synchronous setState in the effect body trips the
+    // cascading-render lint; a microtask still lands before paint matters.
+    Promise.resolve().then(() => {
+      setNotifPerm(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+    });
+  }, [step]);
+
   // ── Draft persistence — every field the user has touched so far rides in
   // localStorage. Reload, sign-out, device sleep mid-flow: the wizard comes
   // back with everything filled in. Cleared on completion.
@@ -656,6 +685,14 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
     setPending(true);
     setError(null);
     try {
+      // Actually request permission — a saved "push" preference is useless
+      // if the browser never asked. Only prompt when a push channel is on.
+      const wantsPush = earlyMid.includes("push") || finalReminder.includes("push") || otherReminders === "push";
+      if (wantsPush && typeof Notification !== "undefined" && Notification.permission === "default") {
+        try {
+          setNotifPerm(await Notification.requestPermission());
+        } catch { /* older browsers throw synchronously-ish */ }
+      }
       const notifRes = await fetch("/api/onboarding/save-notifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -711,7 +748,8 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
 
   const afterInstall: Step = "tour";
 
-  // Progress dots: hayd step only exists for girls — count it conditionally
+  // Progress dots: hayd step only exists for female users — count it
+  // conditionally (and it can only be reached via the gender step).
   const steps: Step[] = [
     "terms", "name", "avatar", "gender",
     ...(gender === "female" ? (["hayd"] as Step[]) : []),
@@ -725,7 +763,20 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
   }
 
   return (
-    <div className="mx-auto flex w-full min-h-dvh max-w-lg flex-col justify-center overflow-x-hidden px-4 py-10 sm:px-6">
+    <div ref={stepRootRef} className="mx-auto flex w-full min-h-dvh max-w-lg flex-col justify-center overflow-x-hidden px-4 py-10 sm:px-6">
+      {/* Back control — the 6px dots alone were the only way back, and they
+          read as decoration. A quiet explicit Back fixes reversibility. */}
+      {step !== "terms" && step !== "done" && currentIdx > 0 && (
+        <button
+          onClick={() => setStep(steps[currentIdx - 1])}
+          className="mb-4 inline-flex items-center gap-1.5 self-start text-sm font-medium transition-opacity hover:opacity-60"
+          style={{ color: "var(--color-ink-muted)" }}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+      )}
+
       {/* Progress dots */}
       {step !== "done" && (
         <div className="mb-10 flex items-center justify-center gap-2">
@@ -995,8 +1046,9 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
               className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
             >
+              {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
               {pending ? "Saving…" : "Continue"}
-              <ArrowRight className="h-4 w-4" />
+              {!pending && <ArrowRight className="h-4 w-4" />}
             </button>
             <button
               onClick={() => setStep("gender")}
@@ -1013,20 +1065,22 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
       {step === "gender" && (
         <div className="flex flex-col items-center text-center">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
-            Are you a boy or a girl?
+            Are you male or female?
           </h1>
           <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
             Prayer obligations differ — this keeps your tracking accurate.
           </p>
 
-          <div className="mt-8 w-full max-w-sm space-y-3">
+          <div className="mt-8 w-full max-w-sm space-y-3" role="radiogroup" aria-label="Gender">
             {(["male", "female"] as const).map((g) => (
               <button
                 key={g}
+                type="button"
+                role="radio"
+                aria-checked={gender === g}
                 onClick={() => {
                   setGender(g);
                   setError(null);
-                  setStep(g === "female" ? "hayd" : "theme");
                 }}
                 className="flex w-full items-center justify-center rounded-xl border p-4 text-sm font-semibold transition-colors"
                 style={{
@@ -1035,14 +1089,33 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
                   color: "var(--color-ink)",
                 }}
               >
-                {g === "male" ? "Boy" : "Girl"}
+                {g === "male" ? "Male" : "Female"}
               </button>
             ))}
+            <button
+              onClick={() => {
+                // Explicit confirm — selecting alone must not jump the
+                // wizard forward irreversibly.
+                if (!gender) {
+                  setError("Choose one to continue.");
+                  return;
+                }
+                setStep(gender === "female" ? "hayd" : "theme");
+              }}
+              disabled={pending}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+            >
+              Continue
+              <ArrowRight className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}
 
-      {/* ── Step 2b: Hayd tracking (girls only) ── */}
+      {/* ── Step 2b: Hayd tracking (only shown after "Female" — the hayd
+          step is inserted into `steps` only when gender === "female", so it
+          can never appear for male users) ── */}
       {step === "hayd" && (
         <div className="flex flex-col items-center text-center">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
@@ -1092,10 +1165,13 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
           <p className="mt-4 max-w-md text-base leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
             You can change this anytime in Settings.
           </p>
-          <div className="mt-8 flex w-full max-w-sm gap-3">
+          <div className="mt-8 flex w-full max-w-sm gap-3" role="radiogroup" aria-label="Theme">
             {(["light", "dark", "system"] as const).map((t) => (
               <button
                 key={t}
+                type="button"
+                role="radio"
+                aria-checked={theme === t}
                 onClick={() => {
                   setTheme(t);
                   try {
@@ -1228,8 +1304,9 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
                   className="inline-flex items-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
                   style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
                 >
+                  {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
                   {pending ? "Saving..." : "Continue"}
-                  <ArrowRight className="h-4 w-4" />
+                  {!pending && <ArrowRight className="h-4 w-4" />}
                 </button>
               </div>
             )}
@@ -1247,8 +1324,11 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
             This determines how your Asr prayer time is calculated and which sunnah prayers are tracked.
           </p>
 
-          <div className="mb-6 w-full max-w-sm space-y-3">
+          <div className="mb-6 w-full max-w-sm space-y-3" role="radiogroup" aria-label="School of thought">
             <button
+              type="button"
+              role="radio"
+              aria-checked={madhab === "standard"}
               onClick={() => setMadhab("standard")}
               className="flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors"
               style={{
@@ -1276,6 +1356,9 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
             </button>
 
             <button
+              type="button"
+              role="radio"
+              aria-checked={madhab === "hanafi"}
               onClick={() => setMadhab("hanafi")}
               className="flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors"
               style={{
@@ -1315,6 +1398,7 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
             className="inline-flex items-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
           >
+            {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
             {pending ? "Saving..." : "Continue"}
           </button>
         </div>
@@ -1341,6 +1425,7 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
               className="w-full rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
             >
+              {pending && <Loader2 className="mr-2 inline h-4 w-4 animate-spin" aria-hidden />}
               Yes, I&rsquo;m a hafidh
               <ArrowRight className="ml-2 inline h-4 w-4" />
             </button>
@@ -1384,14 +1469,24 @@ export default function OnboardingWizard({ userId }: { userId?: string }) {
               allowSms={false}
             />
 
+            {/* Honest permission state — preferences are saved regardless,
+                but the user deserves to know whether they'll actually arrive. */}
+            <p className="text-left text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              {notifPerm === "granted" && "Notifications are enabled on this device."}
+              {notifPerm === "denied" && "Notifications are blocked in your browser settings — reminders will be saved but won't arrive until you allow them for this site."}
+              {notifPerm === "unsupported" && "This browser can't show notifications — preferences are saved, but reminders won't arrive on this device."}
+              {notifPerm === "default" && "Your browser will ask for notification permission when you continue."}
+            </p>
+
             <button
               onClick={saveNotifications}
               disabled={pending}
               className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full px-8 py-3.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
             >
+              {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
               {pending ? "Saving..." : "Complete setup"}
-              <Check className="h-4 w-4" />
+              {!pending && <Check className="h-4 w-4" />}
             </button>
           </div>
         </div>

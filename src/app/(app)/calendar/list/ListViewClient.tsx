@@ -112,9 +112,33 @@ function formatMonthDay(dateObj: Date): string {
 
 export default function ListViewClient({ today }: { today: string }) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
+  // Per-day prayer times — each day's row shows ITS OWN times, not weekStart's.
+  const [prayerTimesByDay, setPrayerTimesByDay] = useState<Record<string, PrayerTimes>>({});
   const [loading, setLoading] = useState(true);
-  const [weekOffset, setWeekOffset] = useState(0); // 0 = this week, 1 = next week, etc.
+  // Week offset lives in the URL (?week=N) — shareable + survives reloads.
+  const [weekOffset, setWeekOffsetState] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    const w = parseInt(new URLSearchParams(window.location.search).get("week") ?? "0", 10);
+    return Number.isFinite(w) ? w : 0;
+  });
+  const setWeekOffset = (update: number | ((w: number) => number)) => {
+    setWeekOffsetState((prev) => {
+      const next = typeof update === "function" ? update(prev) : update;
+      window.history.replaceState(
+        null,
+        "",
+        next === 0 ? "/calendar/list" : `/calendar/list?week=${next}`,
+      );
+      return next;
+    });
+  };
+  // Loading spinner waits 300ms — a fast fetch never flashes it (CRAFT G8).
+  const [showLoading, setShowLoading] = useState(false);
+  useEffect(() => {
+    if (!loading) return;
+    const t = window.setTimeout(() => setShowLoading(true), 300);
+    return () => window.clearTimeout(t);
+  }, [loading]);
   // Locale-dependent label — computed AFTER mount to avoid hydration mismatch
   // (toLocaleDateString produces different output on Node.js vs browser)
   const [weekLabel, setWeekLabel] = useState<string>("");
@@ -168,18 +192,25 @@ export default function ListViewClient({ today }: { today: string }) {
     }
   }, [weekStart, weekEnd, weekDays]);
 
-  // Fetch prayer times for the week
+  // Fetch prayer times for every day in the viewed week — one request per
+  // day, all parallel; failures leave that day's row without times.
   const fetchPrayerTimes = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/prayer-times?date=${weekStart}`);
-      if (res.ok) {
-        const data = await res.json();
-        // API returns flat object with fajr/sunrise/dhuhr/asr/maghrib/isha
-        const safe = sanitizeTimings(data);
-        if (safe) setPrayerTimes(safe);
-      }
-    } catch { /* non-critical */ }
-  }, [weekStart]);
+    const results = await Promise.all(
+      weekDays.map(async (d) => {
+        try {
+          const res = await fetch(`/api/prayer-times?date=${d}`);
+          if (!res.ok) return [d, null] as const;
+          const safe = sanitizeTimings(await res.json());
+          return [d, safe] as const;
+        } catch {
+          return [d, null] as const;
+        }
+      }),
+    );
+    const map: Record<string, PrayerTimes> = {};
+    for (const [d, t] of results) if (t) map[d] = t;
+    setPrayerTimesByDay(map);
+  }, [weekDays]);
 
   useEffect(() => {
     // Defer to avoid cascading renders (react-hooks/set-state-in-effect)
@@ -248,7 +279,7 @@ export default function ListViewClient({ today }: { today: string }) {
           {/* Prev week */}
           <button
             onClick={() => setWeekOffset((w) => w - 1)}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Previous week"
           >
@@ -259,7 +290,10 @@ export default function ListViewClient({ today }: { today: string }) {
           <div className="flex min-w-0 flex-1 flex-col items-center gap-1 sm:flex-row sm:justify-center sm:gap-4">
             <div className="text-center">
               <h1 className="truncate text-sm font-semibold tracking-tight sm:text-lg" style={{ color: "var(--color-ink)" }}>
-                {weekLabel}
+                {weekLabel || (
+                  // Neutral skeleton — never paint an empty h1
+                  <span className="inline-block h-[1em] w-44 rounded" style={{ backgroundColor: "var(--color-paper-2)" }} aria-hidden="true" />
+                )}
               </h1>
               <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
                 {totalEvents} {totalEvents === 1 ? "event" : "events"}
@@ -273,19 +307,20 @@ export default function ListViewClient({ today }: { today: string }) {
             >
               <Link
                 href="/calendar/day"
-                className="rounded-l-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                className="rounded-l-lg px-3 py-1.5 text-xs font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-ink-soft)" }}
               >
                 Day
               </Link>
               <Link
                 href="/calendar/month"
-                className="px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                className="px-3 py-1.5 text-xs font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-ink-soft)" }}
               >
                 Month
               </Link>
               <span
+                aria-current="page"
                 className="rounded-r-lg px-3 py-1.5 text-xs font-medium"
                 style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
               >
@@ -297,7 +332,7 @@ export default function ListViewClient({ today }: { today: string }) {
           {/* Next week */}
           <button
             onClick={() => setWeekOffset((w) => w + 1)}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Next week"
           >
@@ -308,13 +343,15 @@ export default function ListViewClient({ today }: { today: string }) {
 
       {/* List content */}
       <div className="mx-auto w-full max-w-3xl px-3 py-4 sm:px-6 sm:py-6">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-16">
+        {loading && !showLoading ? (
+          <div className="py-16" aria-hidden />
+        ) : loading ? (
+          <div className="flex flex-col items-center justify-center py-16" role="status" aria-label="Loading events">
             <div
               className="h-6 w-6 animate-spin rounded-full border-2"
               style={{ borderColor: "var(--color-paper-3)", borderTopColor: "var(--color-accent)" }}
             />
-            <p className="mt-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading events...</p>
+            <p className="mt-3 text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading events…</p>
           </div>
         ) : totalEvents === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -324,7 +361,7 @@ export default function ListViewClient({ today }: { today: string }) {
             </p>
             <Link
               href="/calendar/day"
-              className="mt-3 rounded-lg px-4 py-2 text-xs font-medium transition-opacity hover:opacity-90"
+              className="mt-3 rounded-lg px-4 py-2 text-xs font-medium transition-opacity [@media(hover:hover)]:hover:opacity-90"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
             >
               Go to Day view to add events
@@ -343,8 +380,8 @@ export default function ListViewClient({ today }: { today: string }) {
               const isTomorrow = day === addDays(today, 1);
               const isYesterday = day === addDays(today, -1);
 
-              // Prayer times for this day (if available and same as fetched day)
-              const dayPrayerTimes = prayerTimes && day === weekStart ? prayerTimes : null;
+              // Prayer times for THIS day — absent only when its fetch failed.
+              const dayPrayerTimes = prayerTimesByDay[day] ?? null;
 
               return (
                 <div key={day}>
@@ -385,7 +422,7 @@ export default function ListViewClient({ today }: { today: string }) {
 
                   {/* Events for this day */}
                   <div className="ml-2 border-l-2 pl-4 space-y-2" style={{ borderColor: "var(--color-paper-3)" }}>
-                    {/* Prayer times row (only on the first day if available) */}
+                    {/* Prayer times row — per-day, only for days with events */}
                     {dayPrayerTimes && (
                       <div
                         className="flex flex-wrap gap-1 rounded-lg border px-2 py-1.5"
@@ -420,7 +457,7 @@ export default function ListViewClient({ today }: { today: string }) {
                         <Link
                           key={event.id}
                           href={`/calendar/day?date=${day}`}
-                          className="flex items-start gap-3 rounded-xl border p-3 transition-colors hover:bg-[var(--color-paper-2)]"
+                          className="flex items-start gap-3 rounded-xl border p-3 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                           style={{
                             borderColor: "var(--color-paper-3)",
                             borderLeft: `3px solid ${eventColor}`,
@@ -460,7 +497,7 @@ export default function ListViewClient({ today }: { today: string }) {
                                 <span className="inline-flex max-w-full flex-wrap items-center gap-1" aria-label={`Hangout with ${event.hangoutWith}`}>
                                   {event.hangoutWith.split(",").map((name, index) => (
                                     <span key={`${name}-${index}`} className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 14%, transparent)", color: "var(--color-warmth)" }}>
-                                      {index > 0 && ", "}with {name.trim()}
+                                      {index > 0 && ", "}{index === 0 ? "with " : ""}{name.trim()}
                                     </span>
                                   ))}
                                 </span>

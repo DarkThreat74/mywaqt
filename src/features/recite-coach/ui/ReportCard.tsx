@@ -64,7 +64,7 @@ function SpanPitch({ frames, t0, t1 }: { frames: PitchFrame[]; t0: number; t1: n
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ display: "block" }}>
         <polyline
           points={v.map((f) => `${x(f.t).toFixed(1)},${y(f.hz).toFixed(1)}`).join(" ")}
-          fill="none" stroke="#4ade80" strokeWidth="1.5" strokeLinejoin="round"
+          fill="none" stroke="var(--color-success)" strokeWidth="1.5" strokeLinejoin="round"
         />
       </svg>
       <div className="mt-0.5 flex justify-between text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
@@ -123,7 +123,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
       <div className="rounded-2xl border p-5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "#0E1116" }}>
         <p className="text-[11px] uppercase tracking-widest" style={{ color: "var(--color-ink-muted)" }}>{band}</p>
         <div className="mt-1 flex items-end justify-between">
-          <p className="font-serif text-4xl tabular-nums" style={{ color: "#e7e9ec" }}>
+          <p className="font-serif text-4xl tabular-nums" style={{ color: "var(--color-paper)" }}>
             {report.score}<span className="text-base" style={{ color: "var(--color-ink-muted)" }}>/1000</span>
           </p>
           <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -131,7 +131,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
           </p>
         </div>
         <div className="relative mt-3 h-1.5 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
-          <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700" style={{ width: `${report.score / 10}%`, background: "linear-gradient(90deg,#4ade80,#fbbf24)" }} />
+          <div className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-700" style={{ width: `${report.score / 10}%`, backgroundColor: "var(--color-accent)" }} />
           {STAGE_TICKS.map((t) => (
             <div key={t} className="absolute inset-y-0 w-px" style={{ left: `${t / 10}%`, backgroundColor: "rgba(255,255,255,0.25)" }} />
           ))}
@@ -178,7 +178,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
                               className="rounded px-0.5 transition-colors"
                               style={{
                                 fontFamily: "inherit", fontSize: "inherit",
-                                color: bad ? "#f87171" : "var(--color-ink)",
+                                color: bad ? "var(--color-error)" : "var(--color-ink)",
                                 backgroundColor: isSel ? "color-mix(in oklab, var(--color-accent) 20%, transparent)" : "transparent",
                                 textDecoration: bad ? "underline dotted" : "none",
                               }}
@@ -199,7 +199,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
                               className="rounded px-1.5 py-0.5 text-[11px] tabular-nums"
                               style={{
                                 fontFamily: "var(--font-sans)",
-                                color: bad ? "#f87171" : "var(--color-ink-muted)",
+                                color: bad ? "var(--color-error)" : "var(--color-ink-muted)",
                                 backgroundColor: sel === w ? "color-mix(in oklab, var(--color-accent) 20%, transparent)" : "var(--color-paper-2)",
                                 margin: "0 2px",
                               }}
@@ -214,7 +214,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
                   {gIssues.length > 0 && (
                     <ul className="mt-2 space-y-1" dir="ltr">
                       {gIssues.map((it, i) => (
-                        <li key={i} className="flex items-center gap-2 text-[11px]" style={{ color: "#f87171" }}>
+                        <li key={i} className="flex items-center gap-2 text-[11px]" style={{ color: "var(--color-error)" }}>
                           <span aria-hidden>⚑</span>
                           word {it.word} — {KIND_LABEL[it.kind] ?? it.kind}
                         </li>
@@ -252,7 +252,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
                     const short = m.haraka != null && m.haraka < minH(m.cls);
                     return (
                       <span key={i} className="rounded px-1.5 py-0.5 text-[10px] tabular-nums"
-                        style={{ backgroundColor: short ? "#f8717122" : "var(--color-paper-3)", color: short ? "#f87171" : "var(--color-ink-muted)" }}
+                        style={{ backgroundColor: short ? "color-mix(in oklab, var(--color-error) 13%, transparent)" : "var(--color-paper-3)", color: short ? "var(--color-error)" : "var(--color-ink-muted)" }}
                         title={`${clsName(m.cls)} · ${m.ms.toFixed(0)}ms`}>
                         {clsName(m.cls)} {m.haraka != null ? `${m.haraka.toFixed(1)}ḥ` : `${m.ms.toFixed(0)}ms`}{short ? " short" : ""}
                       </span>
@@ -266,13 +266,13 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
                   )}
                   {v && (
                     <span className="rounded px-1.5 py-0.5 text-[10px]"
-                      style={{ backgroundColor: verdictBad(v) ? "#f8717122" : "#4ade8022", color: verdictBad(v) ? "#f87171" : "#4ade80" }}>
+                      style={{ backgroundColor: verdictBad(v) ? "color-mix(in oklab, var(--color-error) 13%, transparent)" : "color-mix(in oklab, var(--color-success) 13%, transparent)", color: verdictBad(v) ? "var(--color-error)" : "var(--color-success)" }}>
                       {v.state ?? "heard"}{v.gop != null ? ` · gop ${v.gop.toFixed(2)}` : ""}{v.slip ? " · slip" : ""}
                       {v.vowelErrors?.length ? ` · ${v.vowelErrors.length} vowel` : ""}
                     </span>
                   )}
                   {issues.map((it, i) => (
-                    <span key={i} className="rounded px-1.5 py-0.5 text-[10px]" style={{ backgroundColor: "#f8717122", color: "#f87171" }}>
+                    <span key={i} className="rounded px-1.5 py-0.5 text-[10px]" style={{ backgroundColor: "color-mix(in oklab, var(--color-error) 13%, transparent)", color: "var(--color-error)" }}>
                       {KIND_LABEL[it.kind] ?? it.kind}
                     </span>
                   ))}
@@ -324,7 +324,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
                 {cmp.divergences.map((d, i) => (
                   <li key={i} className="flex justify-between text-xs" style={{ color: "var(--color-ink-muted)" }}>
                     <span>at {d.tSec.toFixed(1)}s for {d.durSec.toFixed(1)}s</span>
-                    <span style={{ color: d.centsOff < 0 ? "#f87171" : "var(--color-accent)" }}>
+                    <span style={{ color: d.centsOff < 0 ? "var(--color-error)" : "var(--color-accent)" }}>
                       {d.centsOff > 0 ? "+" : ""}{Math.round(d.centsOff)}¢ {d.centsOff > 0 ? "higher" : "lower"}
                     </span>
                   </li>
@@ -371,7 +371,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
                 className="h-full rounded-full"
                 style={{
                   width: `${a.value}%`,
-                  backgroundColor: a.value >= 75 ? "#4ade80" : a.value >= 45 ? "var(--color-accent)" : "#f87171",
+                  backgroundColor: "var(--color-accent)",
                 }}
               />
             </div>
@@ -396,7 +396,7 @@ export default function ReportCard({ report, deep, ladder, recT0, cmp, frames, v
                 <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                   {r.stage}
                   {r.delta != null && r.delta !== 0 && (
-                    <span style={{ color: r.delta > 0 ? "#4ade80" : "#f87171" }}>
+                    <span style={{ color: "var(--color-ink-soft)" }}>
                       {" "}{r.delta > 0 ? "+" : ""}{r.delta.toFixed(0)}
                     </span>
                   )}

@@ -14,8 +14,10 @@ export function AdminOverview({
   stats: AdminStats | null;
   onUsersClick: () => void;
 }) {
-  const userCount = stats?.users ?? 0;
-  const talkCount = stats?.talks ?? 0;
+  // "—" = not loaded/failed; 0 is a real measurement. Rendering 0 for
+  // missing data lied that the platform had no users.
+  const userCount = stats ? stats.users : "—";
+  const talkCount = stats ? stats.talks : "—";
 
   return (
     <div className="flex flex-col gap-5">

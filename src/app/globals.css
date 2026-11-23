@@ -37,6 +37,25 @@
   --color-success: oklch(0.55 0.12 145);
   --color-focus: oklch(0.45 0.09 195);
 
+  /* Exercise tier badges — categorical hues, white text, shared across
+     workout surfaces via src/lib/workout/tiers.ts */
+  --color-tier-s: oklch(0.48 0.13 55);
+  --color-tier-a: oklch(0.38 0.09 130);
+  --color-tier-b: oklch(0.33 0.01 60);
+  --color-tier-c: oklch(0.52 0.01 60);
+  --color-tier-d: oklch(0.42 0.04 45);
+  --color-tier-f: oklch(0.40 0.01 60);
+  --color-tier-m: oklch(0.43 0.05 160);
+  --color-tier-v: oklch(0.45 0.05 75);
+
+  /* Prayer identity hues — one per salah (timeline nodes, dots, breakdowns).
+     Warm-earth register, no violet/tech-blue. */
+  --color-prayer-fajr: oklch(0.42 0.11 235);
+  --color-prayer-dhuhr: oklch(0.52 0.13 55);
+  --color-prayer-asr: oklch(0.48 0.10 330);
+  --color-prayer-maghrib: oklch(0.47 0.14 20);
+  --color-prayer-isha: oklch(0.44 0.09 210);
+
   /* Fonts — Spectral for body/editorial, Amiri for Arabic */
   --font-sans: var(--font-spectral), Georgia, serif;
   --font-mono: var(--font-geist-mono);
@@ -61,6 +80,11 @@
     --color-error: #a43d2c;
     --color-success: #3c7d5a;
     --color-focus: #146b70;
+    --color-prayer-fajr: #2e4f7a;
+    --color-prayer-dhuhr: #8a5a1f;
+    --color-prayer-asr: #7a4a63;
+    --color-prayer-maghrib: #8a4230;
+    --color-prayer-isha: #2f5d6e;
   }
   :root[data-theme="dark"] {
     --color-ink: #eee7dc;
@@ -117,6 +141,11 @@
   --color-accent-faint: oklch(0.28 0.02 195);
   --color-warmth: oklch(0.68 0.08 45);
   --color-warmth-faint: oklch(0.28 0.02 45);
+  --color-prayer-fajr: oklch(0.70 0.09 235);
+  --color-prayer-dhuhr: oklch(0.74 0.11 55);
+  --color-prayer-asr: oklch(0.72 0.08 330);
+  --color-prayer-maghrib: oklch(0.70 0.12 20);
+  --color-prayer-isha: oklch(0.68 0.08 210);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -132,6 +161,11 @@
     --color-accent-faint: oklch(0.28 0.02 195);
     --color-warmth: oklch(0.68 0.08 45);
     --color-warmth-faint: oklch(0.28 0.02 45);
+    --color-prayer-fajr: oklch(0.70 0.09 235);
+    --color-prayer-dhuhr: oklch(0.74 0.11 55);
+    --color-prayer-asr: oklch(0.72 0.08 330);
+    --color-prayer-maghrib: oklch(0.70 0.12 20);
+    --color-prayer-isha: oklch(0.68 0.08 210);
   }
 }
 
@@ -199,11 +233,19 @@ label:has(button) {
   color: var(--color-ink);
 }
 
-/* Prevent iOS input zoom — inputs must be >= 16px font */
+/* Prevent iOS input zoom — inputs must be >= 16px font.
+   !important beats text-sm/text-xs utility classes on touch viewports. */
 input,
 select,
 textarea {
   font-size: 16px;
+}
+@media (max-width: 639px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 @media (min-width: 640px) {
   input,
@@ -401,6 +443,10 @@ a,
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(1.3); }
+}
+.waqt-node-pulse { animation: pulse 2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .waqt-node-pulse, .waqt-bell-ring { animation: none !important; }
 }
 
 /* ── Quran challenge answer feedback ── */

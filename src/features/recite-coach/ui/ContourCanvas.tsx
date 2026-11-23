@@ -27,6 +27,10 @@ export default function ContourCanvas({ getFrames, active, reference }: { getFra
     if (!ctx) return;
     let raf = 0;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Canvas can't read var() — resolve the tokens once at mount.
+    const css = getComputedStyle(document.documentElement);
+    const GOLD = css.getPropertyValue("--color-warmth").trim() || "#a95f35";
+    const GREEN = css.getPropertyValue("--color-success").trim() || "#3c7d5a";
 
     function draw() {
       raf = requestAnimationFrame(draw);
@@ -55,7 +59,8 @@ export default function ContourCanvas({ getFrames, active, reference }: { getFra
         const rMed = refMed.current;
         ctx.beginPath();
         ctx.lineWidth = 1.5;
-        ctx.strokeStyle = "rgba(251,191,36,0.55)";
+        ctx.strokeStyle = GOLD;
+        ctx.globalAlpha = 0.55;
         let started = false;
         for (const f of rf) {
           if (!f.voiced) { started = false; continue; }
@@ -66,6 +71,7 @@ export default function ContourCanvas({ getFrames, active, reference }: { getFra
           if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
         }
         ctx.stroke();
+        ctx.globalAlpha = 1;
       }
 
       const frames = getFrames();
@@ -78,7 +84,8 @@ export default function ContourCanvas({ getFrames, active, reference }: { getFra
       // as one line instead of stuttering. Longer gaps stay a real break.
       ctx.beginPath();
       ctx.lineWidth = 2;
-      ctx.strokeStyle = "rgba(74,222,128,0.85)";
+      ctx.strokeStyle = GREEN;
+      ctx.globalAlpha = 0.85;
       let started = false;
       let lx = 0, ly = 0;
       let gapStartT = -1;
@@ -107,12 +114,13 @@ export default function ContourCanvas({ getFrames, active, reference }: { getFra
         lastVoiced = { x, y };
       }
       ctx.stroke();
+      ctx.globalAlpha = 1;
 
       // leading dot on the newest voiced frame
       const last = [...frames].reverse().find((f) => f.voiced);
       if (last) {
         const y = yOf(last.hz, h);
-        ctx.fillStyle = "#fbbf24";
+        ctx.fillStyle = GOLD;
         ctx.beginPath(); ctx.arc(x0 - 1, y, 3.5, 0, Math.PI * 2); ctx.fill();
       }
     }

@@ -103,6 +103,8 @@ export function atlasMuscleKey(muscleLabel: string, group: string): string | nul
 }
 
 // Fatigue (0=fresh … 1=fully unrecovered) → warm-neutral to deep red ramp.
+// THE recovery ramp — body meshes sample the continuous lerp, list rows and
+// legend swatches use the same function so they can never drift apart.
 export function fatigueColor(f: number): string {
   const c = Math.max(0, Math.min(1, f));
   // #EDE5D3 (fresh paper) → #8E3419 (deep red). Two-stop lerp via mid tone.
@@ -111,3 +113,15 @@ export function fatigueColor(f: number): string {
   const rgb = c < 0.5 ? lerp([0xED, 0xE5, 0xD3], mid, c * 2) : lerp(mid, [0x8E, 0x34, 0x19], (c - 0.5) * 2);
   return `#${rgb.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
+
+// Named bands over the same ramp — labels and swatch colors always agree.
+export const RECOVERY_STATES = [
+  { label: "fresh", max: 0.15, swatchF: 0.07 },
+  { label: "recovering", max: 0.45, swatchF: 0.3 },
+  { label: "tired", max: 0.75, swatchF: 0.6 },
+  { label: "overdue", max: 1.01, swatchF: 0.9 },
+] as const;
+export const recoveryStateIndex = (f: number): number =>
+  Math.max(0, RECOVERY_STATES.findIndex((s) => f < s.max));
+export const recoveryStateColor = (i: number): string =>
+  fatigueColor(RECOVERY_STATES[Math.min(i, RECOVERY_STATES.length - 1)].swatchF);

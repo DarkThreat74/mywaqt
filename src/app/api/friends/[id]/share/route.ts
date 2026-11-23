@@ -1,12 +1,27 @@
 import { createHash, randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { isValidUUID } from "@/lib/validation";
 import { SITE_DOMAIN } from "@/lib/site-config";
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
+
+// Share status for the friend sheet — lets the owner see (and revoke) a live
+// link. Returns only share metadata: tokens are hashed, so the URL itself is
+// unrecoverable after creation, and no friend fields ever leave this route.
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { id } = await params;
+  if (!isValidUUID(id)) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const [share] = await db.select({ createdAt: schema.friendProfileShares.createdAt })
+    .from(schema.friendProfileShares)
+    .where(and(eq(schema.friendProfileShares.friendId, id), eq(schema.friendProfileShares.userId, session.userId), isNull(schema.friendProfileShares.revokedAt)))
+    .orderBy(desc(schema.friendProfileShares.createdAt)).limit(1);
+  return NextResponse.json({ active: !!share, createdAt: share?.createdAt ?? null });
+}
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSessionFromRequest(request);

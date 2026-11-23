@@ -6,6 +6,7 @@ import {
   Target,
   BookOpen,
   CheckCircle2,
+  X,
 } from "lucide-react";
 import type { Goal, Homework, Class, Habit, HabitLog, Chore } from "@/lib/db/schema";
 import { getOfflineDB } from "@/lib/offline/db";
@@ -73,6 +74,7 @@ export default function GoalsPageClient({
   initialHabits,
   initialHabitLogs,
   initialChores,
+  loadFailed = false,
 }: {
   initialGoals: Goal[];
   initialHomework: Homework[];
@@ -80,6 +82,8 @@ export default function GoalsPageClient({
   initialHabits: Habit[];
   initialHabitLogs: HabitLog[];
   initialChores: Chore[];
+  /** Server-side fetch failed — the empty lists below are missing data, not real empties. */
+  loadFailed?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     if (typeof window !== "undefined") {
@@ -89,7 +93,11 @@ export default function GoalsPageClient({
     return "today";
   });
   const [goalHorizon, setGoalHorizon] = useState<GoalHorizon>(() => {
-    if (typeof window !== "undefined" && window.location.hash.slice(1) === "habits") return "habits";
+    if (typeof window !== "undefined") {
+      if (window.location.hash.slice(1) === "habits") return "habits";
+      const h = new URLSearchParams(window.location.search).get("h");
+      if (h && GOAL_HORIZONS.some((x) => x.key === h)) return h as GoalHorizon;
+    }
     return "week";
   });
   const [goals, setGoals] = useState<Goal[]>(initialGoals);
@@ -99,6 +107,9 @@ export default function GoalsPageClient({
   const [habitLogs, setHabitLogs] = useState<HabitLog[]>(initialHabitLogs);
   const [chores, setChores] = useState<Chore[]>(initialChores);
   const [mountNow] = useState(() => Date.now());
+  // Server fetch partially failed — banner stays up until a successful
+  // refresh proves the lists are whole again (or the user dismisses it).
+  const [loadBanner, setLoadBanner] = useState(loadFailed);
   // Ambient nudge on the Habits tab chip (chores live under Habits) — a chore
   // ≥80% through its interval, never done, or due on a scheduled weekday today.
   const choresDue = chores.some((c) => {
@@ -120,12 +131,16 @@ export default function GoalsPageClient({
 
   // ── Update URL hash when tab changes ──
   useEffect(() => {
-    if (activeTab === "today") {
-      window.history.replaceState(null, "", window.location.pathname);
-    } else {
-      window.history.replaceState(null, "", `${window.location.pathname}#${activeTab}`);
-    }
-  }, [activeTab]);
+    const params = new URLSearchParams(window.location.search);
+    // The goal horizon lives in ?h= so a deep-link survives share/reload.
+    if (activeTab === "goals" && goalHorizon !== "week") params.set("h", goalHorizon);
+    else params.delete("h");
+    const qs = params.toString();
+    window.history.replaceState(
+      null, "",
+      `${window.location.pathname}${qs ? `?${qs}` : ""}${activeTab === "today" ? "" : `#${activeTab}`}`,
+    );
+  }, [activeTab, goalHorizon]);
 
   // ── Sync tab from URL on back/forward navigation ──
   useEffect(() => {
@@ -168,6 +183,7 @@ export default function GoalsPageClient({
             kind: h.kind, plannedDate: h.plannedDate, plannedStartTime: h.plannedStartTime,
             plannedEndTime: h.plannedEndTime, estimatedMinutes: h.estimatedMinutes,
             plannedEventId: h.plannedEventId,
+            seriesId: h.seriesId,
             subtasks: (h as { subtasks?: { id: string; title: string; done: boolean }[] }).subtasks,
             completedAt: h.completedAt ? h.completedAt.toISOString() : null,
             _cachedAt: Date.now(),
@@ -268,6 +284,9 @@ export default function GoalsPageClient({
       if (habitsRes.ok) { const d = await habitsRes.json(); if (Array.isArray(d)) { setHabits(d); syncHabitsToCache(d); } }
       if (logsRes.ok) { const d = await logsRes.json(); if (Array.isArray(d)) { setHabitLogs(d); syncHabitLogsToCache(d); } }
       if (choresRes.ok) { const d = await choresRes.json(); if (Array.isArray(d)) setChores(d); }
+      if (goalsRes.ok && hwRes.ok && clsRes.ok && habitsRes.ok && logsRes.ok && choresRes.ok) {
+        setLoadBanner(false);
+      }
     } catch {
       // offline — cached data still showing
     }
@@ -308,8 +327,9 @@ export default function GoalsPageClient({
         className="sticky top-0 z-30 border-b lg:top-0"
         style={{
           borderColor: "var(--color-paper-3)",
-          backgroundColor: "color-mix(in oklab, var(--color-paper) 95%, transparent)",
-          backdropFilter: "blur(8px)",
+          // Flat + opaque — glassmorphism over scrolling content was flagged
+          // in the craft audit (blur + translucency reads as slop here).
+          backgroundColor: "var(--color-paper)",
           paddingTop: "env(safe-area-inset-top)",
         }}
       >
@@ -382,6 +402,34 @@ export default function GoalsPageClient({
 
       {/* ── Tab content ── */}
       <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-8">
+        {loadBanner && (
+          <div
+            className="mb-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5"
+            role="alert"
+            style={{ borderColor: "var(--color-warmth)", backgroundColor: "var(--color-warmth-faint)", color: "var(--color-ink)" }}
+          >
+            <p className="text-sm">
+              Some of your planner data didn&apos;t load — the lists below may be incomplete.
+            </p>
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                onClick={() => { lastRefreshAt = 0; void refreshAll(); }}
+                className="rounded-lg px-3 py-1.5 text-xs font-semibold"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+              >
+                Retry
+              </button>
+              <button
+                onClick={() => setLoadBanner(false)}
+                className="rounded-lg px-2 py-1.5 text-xs font-medium"
+                style={{ color: "var(--color-ink-muted)" }}
+                aria-label="Dismiss"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
         {activeTab === "today" && (
           <TodayTab goals={goals} setGoals={setGoals} homework={homework} classes={classes} habits={habits} habitLogs={habitLogs} setHabitLogs={setHabitLogs} onNavigate={(t) => {
             // "goals:all_time" deep-links the Goals tab at the all-time horizon

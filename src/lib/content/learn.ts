@@ -18,6 +18,8 @@ export type Hadith = {
   arabic: string;
   english: string;
   source: string;
+  /** translator attribution — shown as "tr. X" when known */
+  translator?: string;
   grade?: string;
 };
 
@@ -25,7 +27,6 @@ export type LearnSection = {
   id: string;
   title: string;
   subtitle: string;
-  icon: string; // lucide icon name
   content: LearnBlock[];
 };
 
@@ -43,7 +44,6 @@ export const learnSections: LearnSection[] = [
     id: "virtues-of-salah",
     title: "Virtues of Salah",
     subtitle: "Why the five daily prayers are the foundation of your day",
-    icon: "Sparkles",
     content: [
       {
         type: "paragraph",
@@ -102,7 +102,6 @@ export const learnSections: LearnSection[] = [
     id: "virtues-of-each-prayer",
     title: "Virtues of Each Prayer",
     subtitle: "Every prayer carries its own unique reward",
-    icon: "Sun",
     content: [
       {
         type: "heading",
@@ -308,7 +307,6 @@ export const learnSections: LearnSection[] = [
     id: "how-to-pray",
     title: "How to Pray",
     subtitle: "The steps of salah, from intention to salam",
-    icon: "BookOpen",
     content: [
       {
         type: "heading",
@@ -335,7 +333,7 @@ export const learnSections: LearnSection[] = [
           "Stand facing the qibla. Make your intention in your heart for the specific prayer.",
           "Raise your hands to your ears and say: Allahu Akbar (the opening takbir).",
           "Place your right hand over your left on your chest.",
-          "Recite the opening supplication: Subhanaka Allahumma wa bihamdika...",
+          "Recite the opening supplication: Subhanaka Allahumma wa bihamdika…",
           "Recite Ta'awwudh: A'udhu billahi min ash-shaytan ir-rajim",
           "Recite Tasmiyah: Bismillah ir-Rahman ir-Rahim",
           "Recite Surah Al-Fatihah (the Opening Chapter of the Quran)",
@@ -346,8 +344,8 @@ export const learnSections: LearnSection[] = [
           "Rise from sujud saying Allahu Akbar. Sit briefly.",
           "Prostrate again (second sujud) saying Allahu Akbar. Say: Subhana Rabbiyal A'la (three times).",
           "Rise to standing for the next rakat, saying Allahu Akbar.",
-          "After the second rakat, sit for the tashahhud: At-tahiyyatu lillahi was-salawatu wat-tayyibat...",
-          "In the final rakat, after tashahhud, recite the salawat: Allahumma salli ala Muhammad...",
+          "After the second rakat, sit for the tashahhud: At-tahiyyatu lillahi was-salawatu wat-tayyibat…",
+          "In the final rakat, after tashahhud, recite the salawat: Allahumma salli ala Muhammad…",
           "Turn your head to the right and say: As-salamu alaykum wa rahmatullah.",
           "Turn your head to the left and say: As-salamu alaykum wa rahmatullah.",
         ],
@@ -466,7 +464,6 @@ export const learnSections: LearnSection[] = [
     id: "witr-prayer",
     title: "Witr Prayer",
     subtitle: "The odd-numbered night prayer that closes your day",
-    icon: "Moon",
     content: [
       {
         type: "paragraph",
@@ -555,7 +552,7 @@ export const learnSections: LearnSection[] = [
           "Pray the first two rakats as you would any normal prayer (standing, recitation, ruku, sujud).",
           "In the third rakat, after reciting Al-Fatihah and a surah:",
           "Say Allahu Akbar and raise your hands (Hanafi method — before ruku).",
-          "Recite the Qunoot dua: Allahumma ihdini feeman hadayt...",
+          "Recite the Qunoot dua: Allahumma ihdini feeman hadayt…",
           "Bow for ruku and complete the rakat as normal.",
           "Sit for the final tashahhud and give salam to both sides.",
         ],
@@ -591,7 +588,6 @@ export const learnSections: LearnSection[] = [
     id: "sunnah-prayers",
     title: "Sunnah Prayers",
     subtitle: "The voluntary prayers the Prophet ﷺ never left",
-    icon: "Star",
     content: [
       {
         type: "paragraph",
@@ -644,7 +640,6 @@ export const learnSections: LearnSection[] = [
     id: "wudu-and-ghusl",
     title: "Wudu & Ghusl",
     subtitle: "Ritual purification — the prerequisites for valid prayer",
-    icon: "Droplets",
     content: [
       {
         type: "heading",
@@ -782,7 +777,6 @@ export const learnSections: LearnSection[] = [
     id: "prayer-times-significance",
     title: "Prayer Times & Their Significance",
     subtitle: "When each prayer begins and ends, and why the timing matters",
-    icon: "Clock",
     content: [
       {
         type: "paragraph",
@@ -845,7 +839,6 @@ export const learnSections: LearnSection[] = [
     id: "khushu",
     title: "Khushu — Focus in Prayer",
     subtitle: "How to pray with a calm, attentive heart",
-    icon: "Heart",
     content: [
       {
         type: "paragraph",
@@ -931,7 +924,6 @@ export const learnSections: LearnSection[] = [
     id: "common-mistakes",
     title: "Common Mistakes in Salah",
     subtitle: "Errors that affect validity or reduce reward — and how to fix them",
-    icon: "AlertCircle",
     content: [
       {
         type: "paragraph",
@@ -1012,7 +1004,6 @@ export const learnSections: LearnSection[] = [
     id: "sujud-as-sahw",
     title: "Sujud as-Sahw",
     subtitle: "Forgetfulness prostrations — what to do when you add or skip something",
-    icon: "RefreshCw",
     content: [
       {
         type: "paragraph",
@@ -1101,7 +1092,6 @@ export const learnSections: LearnSection[] = [
     id: "prayer-in-congregation",
     title: "Prayer in Congregation (Jama'ah)",
     subtitle: "How to pray behind an Imam and the etiquette of group prayer",
-    icon: "Users",
     content: [
       {
         type: "paragraph",
@@ -1209,7 +1199,6 @@ export const learnSections: LearnSection[] = [
     id: "sajdah-tilawah",
     title: "Sajdah-e-Tilawah",
     subtitle: "Prostration required when reciting or hearing certain Quran verses",
-    icon: "BookOpen",
     content: [
       {
         type: "paragraph",
@@ -1301,7 +1290,6 @@ export const learnSections: LearnSection[] = [
     id: "qadaa-missed-prayers",
     title: "Qadaa — Making Up Missed Prayers",
     subtitle: "How to catch up on prayers you were unable to perform on time",
-    icon: "History",
     content: [
       {
         type: "paragraph",
@@ -1370,7 +1358,6 @@ export const learnSections: LearnSection[] = [
     id: "qasr-travel-prayer",
     title: "Qasr — The Traveler's Prayer",
     subtitle: "Shortening and combining prayers when you are on a journey",
-    icon: "Plane",
     content: [
       {
         type: "paragraph",

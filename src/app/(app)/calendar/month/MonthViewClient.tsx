@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Check, Cake } from "lucide-react";
 import { getOfflineDB } from "@/lib/offline/db";
+import { prayerStatusVisual } from "@/lib/prayer/statusDisplay";
 import { isBirthdayOn, turningAge } from "@/lib/birthdays/math";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 
@@ -136,6 +137,13 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
     return () => window.removeEventListener("resize", updateMaxEvents);
   }, []);
   const [loading, setLoading] = useState(true);
+  // Loading label waits 300ms — a fast fetch never flashes it (CRAFT G8).
+  const [showLoading, setShowLoading] = useState(false);
+  useEffect(() => {
+    if (!loading) return;
+    const t = window.setTimeout(() => setShowLoading(true), 300);
+    return () => window.clearTimeout(t);
+  }, [loading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -235,7 +243,8 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
 
         if (eventsRes.ok && !cancelled) {
           const events: CalendarEvent[] = await eventsRes.json().catch(() => []);
-          if (!Array.isArray(events)) return;
+          // Malformed payload — keep cached data and keep processing the rest.
+          if (Array.isArray(events)) {
           const grouped: Record<string, CalendarEvent[]> = {};
           for (const event of events) {
             const eventDate = eventDateKey(new Date(event.startAt));
@@ -274,11 +283,12 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
               };
             }));
           } catch { /* non-critical */ }
+          }
         }
 
         if (logRes?.ok && !cancelled) {
           const logs: PrayerLogEntry[] = await logRes.json().catch(() => []);
-          if (!Array.isArray(logs)) return;
+          if (Array.isArray(logs)) {
           const grouped: Record<string, PrayerLogEntry[]> = {};
           for (const log of logs) {
             if (!grouped[log.date]) grouped[log.date] = [];
@@ -305,6 +315,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
               _cachedAt: Date.now(),
             })));
           } catch { /* non-critical */ }
+          }
         }
 
         // ── Fetch homework for calendar dots ──
@@ -395,7 +406,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 overflow-x-hidden px-4 py-3 sm:px-6 sm:py-4">
           <button
             onClick={() => goTo(prevYear, prevMonth)}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Previous month"
           >
@@ -406,7 +417,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
             {/* Month/year picker — tap the title to jump anywhere */}
             <button
               onClick={() => { setPickerYear(year); setPickerOpen((o) => !o); }}
-              className="rounded-md px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
+              className="rounded-md px-2 py-1 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
               aria-label="Jump to month"
               aria-expanded={pickerOpen}
             >
@@ -422,7 +433,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
                 <div className="mb-2 flex items-center justify-between">
                   <button
                     onClick={() => setPickerYear((y) => y - 1)}
-                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-2)]"
+                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                     style={{ color: "var(--color-ink-soft)" }}
                     aria-label="Previous year"
                   >
@@ -431,7 +442,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
                   <span className="text-sm font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{pickerYear}</span>
                   <button
                     onClick={() => setPickerYear((y) => y + 1)}
-                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-paper-2)]"
+                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                     style={{ color: "var(--color-ink-soft)" }}
                     aria-label="Next year"
                   >
@@ -443,7 +454,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
                     <button
                       key={name}
                       onClick={() => goTo(pickerYear, i + 1)}
-                      className="rounded-md px-1 py-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                      className="rounded-md px-1 py-2 text-xs font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                       style={{
                         color: i + 1 === month && pickerYear === year ? "var(--color-paper)" : "var(--color-ink-soft)",
                         backgroundColor: i + 1 === month && pickerYear === year ? "var(--color-ink)" : "transparent",
@@ -462,13 +473,14 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
             >
               <Link
                 href="/calendar/day"
-                className="min-h-11 rounded-l-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                className="min-h-11 rounded-l-lg px-3 py-1.5 text-xs font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-ink-soft)" }}
               >
                 Day
               </Link>
               <Link
                 href={`/calendar/month?year=${year}&month=${month}`}
+                aria-current="page"
                 className="min-h-11 px-3 py-1.5 text-xs font-medium"
                 style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
               >
@@ -476,7 +488,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
               </Link>
               <Link
                 href="/calendar/list"
-                className="min-h-11 rounded-r-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                className="min-h-11 rounded-r-lg px-3 py-1.5 text-xs font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-ink-soft)" }}
               >
                 List
@@ -486,7 +498,7 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
 
           <button
             onClick={() => goTo(nextYear, nextMonth)}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Next month"
           >
@@ -523,14 +535,22 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
             const blockEvents = dayEvents.filter((e) => e.type !== "reminder");
             const reminderEvents = dayEvents.filter((e) => e.type === "reminder");
             const dayLogs = cell.dateStr ? prayerLogsByDate[cell.dateStr] || [] : [];
-            const prayedCount = dayLogs.filter((l) => l.status === "prayed" || l.status === "assumed_prayed" || l.status === "excused").length;
-            const allPrayed = prayedCount === 5;
+            // Assumed is counted toward "marked" but never renders as a solid
+            // confirmation — the day check stays hollow when it's included.
+            const confirmedCount = dayLogs.filter((l) => prayerStatusVisual(l.status) === "confirmed").length;
+            const assumedCount = dayLogs.filter((l) => prayerStatusVisual(l.status) === "assumed").length;
+            const excusedCount = dayLogs.filter((l) => prayerStatusVisual(l.status) === "excused").length;
+            const markedCount = confirmedCount + assumedCount + excusedCount;
+            const allPrayed = markedCount === 5;
+            const anyAssumed = assumedCount > 0;
 
             return (
               <Link
-                key={i}
+                key={cell.dateStr}
                 href={`/calendar/day?date=${cell.dateStr}`}
-                className="relative flex min-h-[70px] flex-col rounded-lg border p-1 text-xs transition-colors hover:bg-[var(--color-paper-2)] sm:min-h-[100px] sm:p-1.5 lg:min-h-[120px]"
+                aria-label={`${monthNames[month - 1]} ${cell.day}, ${year}${isToday ? ", today" : ""} — ${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}${markedCount > 0 ? `, ${markedCount} of 5 prayers marked${anyAssumed ? " (some assumed)" : ""}` : ""}`}
+                aria-current={isToday ? "date" : undefined}
+                className="relative flex min-h-[70px] flex-col rounded-lg border p-1 text-xs transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)] sm:min-h-[100px] sm:p-1.5 lg:min-h-[120px]"
                 style={{
                   borderColor: isToday ? "var(--color-accent)" : "var(--color-paper-3)",
                   backgroundColor: isToday ? "var(--color-accent-faint)" : done ? "var(--color-paper-2)" : "var(--color-paper)",
@@ -580,7 +600,13 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
                     )}
                   </span>
                   {allPrayed && (
-                    <Check className="h-3 w-3" style={{ color: "var(--color-success)" }} />
+                    <span title={anyAssumed ? "All 5 marked — includes auto-assumed prayers" : "All 5 prayers marked"}>
+                      <Check
+                        className="h-3 w-3"
+                        style={{ color: anyAssumed ? "var(--color-ink-muted)" : "var(--color-success)" }}
+                        aria-label={anyAssumed ? "All prayers marked, some assumed" : "All prayers marked"}
+                      />
+                    </span>
                   )}
                 </span>
 
@@ -671,31 +697,14 @@ export default function MonthViewClient({ year: initialYear, month: initialMonth
 
                 </div>
 
-                {/* X overlay for done days — nice diagonal X */}
-                {done && (
-                  <div
-                    className="pointer-events-none absolute inset-0 flex items-center justify-center"
-                    aria-hidden="true"
-                  >
-                    <svg
-                      viewBox="0 0 40 40"
-                      className="h-full w-full"
-                      preserveAspectRatio="xMidYMid meet"
-                      style={{ opacity: 0.15 }}
-                    >
-                      <line x1="8" y1="8" x2="32" y2="32" stroke="var(--color-ink-muted)" strokeWidth="1.5" strokeLinecap="round" />
-                      <line x1="32" y1="8" x2="8" y2="32" stroke="var(--color-ink-muted)" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
-                  </div>
-                )}
               </Link>
             );
           })}
         </div>
 
-        {loading && (
-          <p className="mt-4 text-sm" style={{ color: "var(--color-ink-muted)" }}>
-            Loading events...
+        {loading && showLoading && (
+          <p className="mt-4 text-sm" role="status" style={{ color: "var(--color-ink-muted)" }}>
+            Loading events…
           </p>
         )}
 

@@ -13,51 +13,13 @@ interface DhikrSequence {
   sourceCitation: string;
 }
 
-// Default post-prayer adhkar — universally authenticated from
-// Sahih al-Bukhari 844 / Sahih Muslim 597 (Abu Hurayrah RA).
-// Used as a fallback when the dhikr_sequences table is empty.
-const DEFAULT_SEQUENCES: DhikrSequence[] = [
-  {
-    id: "default_subhanallah",
-    phraseArabic: "سُبْحَانَ اللَّهِ",
-    phraseTransliteration: "SubhanAllah",
-    targetCount: 33,
-    sequenceOrder: 0,
-    sourceCitation: "Sahih Muslim 597 — Abu Hurayrah (RA)",
-  },
-  {
-    id: "default_alhamdulillah",
-    phraseArabic: "الْحَمْدُ لِلَّهِ",
-    phraseTransliteration: "Alhamdulillah",
-    targetCount: 33,
-    sequenceOrder: 1,
-    sourceCitation: "Sahih Muslim 597 — Abu Hurayrah (RA)",
-  },
-  {
-    id: "default_allahuakbar",
-    phraseArabic: "اللَّهُ أَكْبَرُ",
-    phraseTransliteration: "Allahu Akbar",
-    targetCount: 34,
-    sequenceOrder: 2,
-    sourceCitation: "Sahih Muslim 597 — Abu Hurayrah (RA)",
-  },
-  {
-    id: "default_tahlil",
-    phraseArabic: "لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ",
-    phraseTransliteration: "La ilaha illa Allah, wahdahu la sharika lah, lahul-mulku wa lahul-hamdu, wa Huwa ala kulli shayin qadeer",
-    targetCount: 1,
-    sequenceOrder: 3,
-    sourceCitation: "Sahih al-Bukhari 844 / Sahih Muslim 597 — Abu Hurayrah (RA)",
-  },
-];
-
 export default function DhikrCounterClient() {
   // ── Restore dhikr session from localStorage so navigating away and back
   //    doesn't lose the current count/position ──
-  // Render instantly on the authenticated defaults — the effect below swaps
-  // in the mirrored/server list instead of gating the UI behind a spinner.
-  const [sequences, setSequences] = useState<DhikrSequence[]>(DEFAULT_SEQUENCES);
-  const [loading, setLoading] = useState(false);
+  // Content tables are empty-until-seeded (AGENTS.md §9): no hardcoded
+  // fallback adhkar — an empty table renders a graceful empty state.
+  const [sequences, setSequences] = useState<DhikrSequence[]>([]);
+  const [loading, setLoading] = useState(true);
   const [savedIndex, setSavedIndex] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("waqt:dhikr-session");
@@ -130,14 +92,10 @@ export default function DhikrCounterClient() {
           if (data?.sequences?.length > 0) {
             setSequences(data.sequences);
             try { localStorage.setItem("dhikr:sequences", JSON.stringify(data.sequences)); } catch {}
-          } else {
-            setSequences(DEFAULT_SEQUENCES);
           }
-        } else {
-          setSequences(DEFAULT_SEQUENCES);
         }
       } catch {
-        if (!cancelled) setSequences(DEFAULT_SEQUENCES);
+        // fetch failed — mirrored list (or empty state) stands
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -178,18 +136,12 @@ export default function DhikrCounterClient() {
     });
     setPulseKey((k) => k + 1);
 
-    // Light haptic on each tap
+    // Light haptic on each tap — hapticImpact already drives navigator.vibrate
     void hapticImpact("light");
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-      try { navigator.vibrate(12); } catch { /* no-op */ }
-    }
 
     if (hitTarget) {
       setCompletedSequences((prev) => new Set(prev).add(currentIndex));
       void hapticNotification("success");
-      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        try { navigator.vibrate([40, 20, 60]); } catch { /* no-op */ }
-      }
 
       // Auto-advance after a brief pause — tracked so manual navigation or
       // unmount can cancel it
@@ -249,6 +201,21 @@ export default function DhikrCounterClient() {
     );
   }
 
+  // ── Empty state — the dhikr_sequences table is seeded-curated; when it
+  //    has no rows we say so instead of inventing content (AGENTS.md §9) ──
+  if (sequences.length === 0) {
+    return (
+      <div className="mx-auto max-w-md py-8 sm:py-12">
+        <div className="rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+          <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>No sequences seeded yet</h1>
+          <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+            Dhikr sequences are curated by hand and haven&rsquo;t been added yet. Check back soon.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // ── All complete ──
   if (allComplete) {
     return (
@@ -294,14 +261,17 @@ export default function DhikrCounterClient() {
             <ChevronLeft className="h-5 w-5" />
           </button>
 
-          {/* The entire tap area is the counter — huge, centered, with a progress ring */}
+          {/* Tap area wrapper — the counter button plus overlaid controls.
+              Controls are siblings of the button, never nested inside it. */}
+          <div className="relative flex-1">
           <button
             onClick={handleTap}
             disabled={isComplete}
-            className="relative flex flex-1 flex-col items-center justify-center overflow-y-auto rounded-3xl border transition-colors active:scale-[0.99] disabled:cursor-default"
+            className="flex w-full flex-col items-center justify-end overflow-y-auto rounded-3xl border transition-colors active:scale-[0.99] disabled:cursor-default"
             style={{
               minHeight: "min(60vh, 440px)",
               maxHeight: "min(75dvh, 560px)",
+              paddingBottom: "clamp(3rem, 12%, 5rem)",
               backgroundColor: isComplete
                 ? "color-mix(in oklab, var(--color-success) 6%, var(--color-paper))"
                 : "var(--color-paper)",
@@ -311,30 +281,12 @@ export default function DhikrCounterClient() {
             }}
             aria-label={`Count dhikr (${count} of ${current?.targetCount ?? 0})`}
           >
-        {/* ── Top bar: sequence indicator + overlay toggle ── */}
-        <div className="absolute left-0 right-0 top-0 flex items-center justify-between px-4 py-3">
-          <span className="text-[11px] font-medium tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-            {currentIndex + 1} / {sequences.length}
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowOverlay(!showOverlay); }}
-            className="rounded-lg p-1.5 transition-colors"
-            style={{ color: "var(--color-ink-muted)" }}
-            aria-label="Show controls"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="12" cy="12" r="1" />
-              <circle cx="19" cy="12" r="1" />
-              <circle cx="5" cy="12" r="1" />
-            </svg>
-          </button>
-        </div>
-
         {/* ── Arabic phrase ── */}
         {current && (
           <div className="mb-8 min-w-0 max-w-full px-6 text-center">
             <p
-              className="max-w-full break-words text-2xl leading-snug sm:text-3xl"
+              lang="ar"
+              className="max-w-full break-words text-2xl leading-[1.8] sm:text-3xl"
               style={{ color: "var(--color-ink)", fontFamily: "var(--font-amiri, serif)", direction: "rtl", overflowWrap: "break-word" }}
             >
               {current.phraseArabic}
@@ -379,7 +331,7 @@ export default function DhikrCounterClient() {
             <span
               key={pulseKey}
               ref={countRef}
-              className="text-6xl font-bold tabular-nums sm:text-7xl"
+              className="dhikr-motion text-6xl font-bold tabular-nums sm:text-7xl"
               style={{
                 color: isComplete ? "var(--color-success)" : "var(--color-ink)",
                 animation: pulseKey > 0 ? "dhikr-pulse 0.25s ease-out" : undefined,
@@ -408,8 +360,30 @@ export default function DhikrCounterClient() {
           )}
         </div>
 
+          </button>
+
+        {/* ── Top bar: sequence indicator + overlay toggle (sibling of the
+            tap button — interactive content can't nest inside a button) ── */}
+        <div className="pointer-events-none absolute left-0 right-0 top-0 flex items-center justify-between px-4 py-3">
+          <span className="text-[11px] font-medium tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+            {currentIndex + 1} / {sequences.length}
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowOverlay(!showOverlay); }}
+            className="pointer-events-auto rounded-lg p-1.5 transition-colors"
+            style={{ color: "var(--color-ink-muted)", minHeight: 32, minWidth: 32 }}
+            aria-label="Show controls"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="1" />
+              <circle cx="19" cy="12" r="1" />
+              <circle cx="5" cy="12" r="1" />
+            </svg>
+          </button>
+        </div>
+
         {/* ── Sequence progress dots ── */}
-        <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5">
+        <div className="pointer-events-none absolute bottom-4 left-0 right-0 flex justify-center gap-1.5">
           {sequences.map((seq, i) => (
             <div
               key={seq.id}
@@ -430,7 +404,7 @@ export default function DhikrCounterClient() {
         {pulseKey > 0 && !isComplete && (
           <span
             key={`ripple-${pulseKey}`}
-            className="pointer-events-none absolute left-1/2 top-1/2 rounded-full"
+            className="dhikr-motion pointer-events-none absolute left-1/2 top-1/2 rounded-full"
             style={{
               width: "min(55vw, 200px)",
               height: "min(55vw, 200px)",
@@ -440,7 +414,7 @@ export default function DhikrCounterClient() {
             }}
           />
         )}
-          </button>
+          </div>
 
           {/* Next button */}
           <button
@@ -522,6 +496,7 @@ export default function DhikrCounterClient() {
                     onClick={() => { goToSequence(i); setShowOverlay(false); }}
                     className="rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors"
                     style={{
+                      minHeight: 32,
                       borderColor: i === currentIndex ? "var(--color-accent)" : "var(--color-paper-3)",
                       color: i === currentIndex ? "var(--color-accent)" : completedSequences.has(i) ? "var(--color-success)" : "var(--color-ink-muted)",
                       backgroundColor: i === currentIndex ? "color-mix(in oklab, var(--color-accent) 8%, transparent)" : "transparent",
@@ -553,6 +528,9 @@ export default function DhikrCounterClient() {
         @keyframes dhikr-ripple {
           0% { opacity: 0.6; transform: translate(-50%, -50%) scale(0.85); }
           100% { opacity: 0; transform: translate(-50%, -50%) scale(1.15); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .dhikr-motion { animation: none !important; }
         }
       `}</style>
       </div>

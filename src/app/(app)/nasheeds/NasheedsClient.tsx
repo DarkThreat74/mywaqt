@@ -5,15 +5,21 @@ import Link from "next/link";
 import { Search, X, Music4, Volume2 } from "lucide-react";
 import { NASHEEDS } from "@/lib/nasheeds";
 
+// Strip Arabic diacritics + tatweel so voweled text matches an
+// unvoweled query (and vice versa).
+const stripArabicMarks = (s: string) =>
+  s.replace(/[ؐ-ًؚ-ٰٟـ]/g, "");
+
 export default function NasheedsClient() {
   const [query, setQuery] = useState("");
 
   const trimmed = query.trim().toLowerCase();
+  const trimmedAr = stripArabicMarks(query.trim());
   const filtered = trimmed
     ? NASHEEDS.filter((n) =>
         n.title.toLowerCase().includes(trimmed) ||
         (n.artist ?? "").toLowerCase().includes(trimmed) ||
-        n.arabic.includes(query.trim())
+        stripArabicMarks(n.arabic).includes(trimmedAr)
       )
     : NASHEEDS;
 
@@ -87,7 +93,10 @@ export default function NasheedsClient() {
                   style={{ color: "var(--color-ink-muted)" }}
                 >
                   {n.artist ?? "Traditional"} ·{" "}
-                  {n.verses.filter((v) => !v.music).flatMap((v) => v.lines).length} lines
+                  {(() => {
+                    const count = n.verses.filter((v) => !v.music).flatMap((v) => v.lines).length;
+                    return `${count} ${count === 1 ? "line" : "lines"}`;
+                  })()}
                   {n.audio && (
                     <Volume2
                       className="h-3 w-3"
@@ -99,7 +108,7 @@ export default function NasheedsClient() {
               </div>
 
               <p
-                className="shrink-0 text-xl leading-[1.5] tracking-wide sm:text-2xl"
+                className="shrink-0 text-xl leading-[1.5] sm:text-2xl"
                 style={{
                   color: "var(--color-ink)",
                   fontFamily: "var(--font-arabic, var(--font-amiri, serif))",

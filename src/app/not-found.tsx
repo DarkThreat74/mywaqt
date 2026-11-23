@@ -36,19 +36,36 @@ export default function NotFound() {
       >
         The page you&apos;re looking for doesn&apos;t exist or may have moved.
       </p>
-      <Link
-        href="/"
-        className="rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
-        style={{
-          backgroundColor: "var(--color-ink)",
-          color: "var(--color-paper)",
-          minHeight: 44,
-          display: "flex",
-          alignItems: "center",
-        }}
-      >
-        Go home
-      </Link>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        {/* /calendar/day routes signed-in users back into the app; for
+            signed-out visitors the (app) layout redirects through login. */}
+        <Link
+          href="/calendar/day"
+          className="rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
+          style={{
+            backgroundColor: "var(--color-ink)",
+            color: "var(--color-paper)",
+            minHeight: 44,
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          Open the app
+        </Link>
+        <Link
+          href="/"
+          className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+          style={{
+            borderColor: "var(--color-paper-3)",
+            color: "var(--color-ink-soft)",
+            minHeight: 44,
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          Go home
+        </Link>
+      </div>
     </div>
   );
 }

@@ -24,6 +24,8 @@ export interface PlayerTrack {
   folderId: string | null;
   folderName?: string | null;
   folderImageUrl?: string | null;
+  /** Server-synced resume position (sec) — used when no local progress exists. */
+  resumePosition?: number | null;
 }
 
 interface Bookmark {
@@ -203,8 +205,44 @@ export default function AdvancedAudioPlayer({
   // starts paused. If isPlaying was true (user was listening), resume
   // playback on the new track automatically.
   const wasPlayingRef = useRef(false);
+  const prevTrackIdRef = useRef(track.id);
+  const latestTimeRef = useRef(0); // mirrors the newest currentTime — survives the <audio> remount
+  // ─── Save playback position (throttled) ───
+  // Saves to localStorage for instant resume + server for cross-device sync.
+  // Defined before the track-change effect: the effect calls it to persist
+  // the outgoing track's position.
+  const persistProgress = useCallback((time: number, id: string) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
+      saved[id] = { time, updatedAt: Date.now() };
+      // Keep only last 50 entries
+      const ids = Object.keys(saved);
+      if (ids.length > 50) {
+        const sorted = ids.sort((a, b) => saved[b].updatedAt - saved[a].updatedAt);
+        for (const oldId of sorted.slice(50)) delete saved[oldId];
+      }
+      localStorage.setItem(PROGRESS_KEY, JSON.stringify(saved));
+    } catch { /* non-critical */ }
+    // Sync to server (best-effort, non-blocking)
+    try {
+      fetch("/api/talks/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ talkId: id, position: Math.floor(time) }),
+      }).catch(() => {});
+    } catch { /* non-critical */ }
+  }, []);
+  const saveProgress = useMemo(() => throttle(persistProgress, 5000), [persistProgress]);
+
   useEffect(() => {
     wasPlayingRef.current = isPlaying;
+    // Save the OUTGOING track's position before anything resets — switching
+    // tracks used to clobber up to 5s of unsaved progress (save throttle).
+    if (prevTrackIdRef.current !== track.id) {
+      persistProgress(latestTimeRef.current, prevTrackIdRef.current);
+      latestTimeRef.current = 0;
+      prevTrackIdRef.current = track.id;
+    }
     // Defer setState to avoid cascading renders (react-hooks/set-state-in-effect)
     Promise.resolve().then(() => {
       setCurrentTime(0);
@@ -298,6 +336,14 @@ export default function AdvancedAudioPlayer({
         if (saved[track.id] && saved[track.id].time > 5 && saved[track.id].time < (audio.duration - 5)) {
           audio.currentTime = saved[track.id].time;
           Promise.resolve().then(() => setCurrentTime(saved[track.id].time));
+        } else if (
+          typeof track.resumePosition === "number" &&
+          track.resumePosition > 5 &&
+          (!audio.duration || track.resumePosition < audio.duration - 5)
+        ) {
+          // No local progress — fall back to the server-synced position.
+          audio.currentTime = track.resumePosition;
+          Promise.resolve().then(() => setCurrentTime(track.resumePosition!));
         }
       } catch { /* non-critical */ }
     };
@@ -309,32 +355,7 @@ export default function AdvancedAudioPlayer({
     };
     audio.addEventListener("loadedmetadata", onMeta);
     return () => audio.removeEventListener("loadedmetadata", onMeta);
-  }, [track.id, updatePositionState]);
-
-  // ─── Save playback position (throttled) ───
-  // Saves to localStorage for instant resume + server for cross-device sync
-  const persistProgress = useCallback((time: number, id: string) => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
-      saved[id] = { time, updatedAt: Date.now() };
-      // Keep only last 50 entries
-      const ids = Object.keys(saved);
-      if (ids.length > 50) {
-        const sorted = ids.sort((a, b) => saved[b].updatedAt - saved[a].updatedAt);
-        for (const oldId of sorted.slice(50)) delete saved[oldId];
-      }
-      localStorage.setItem(PROGRESS_KEY, JSON.stringify(saved));
-    } catch { /* non-critical */ }
-    // Sync to server (best-effort, non-blocking)
-    try {
-      fetch("/api/talks/progress", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ talkId: id, position: Math.floor(time) }),
-      }).catch(() => {});
-    } catch { /* non-critical */ }
-  }, []);
-  const saveProgress = useMemo(() => throttle(persistProgress, 5000), [persistProgress]);
+  }, [track.id, track.resumePosition, updatePositionState]);
 
   const [shuffledQueue, setShuffledQueue] = useState<PlayerTrack[]>([]);
   useEffect(() => {
@@ -907,9 +928,10 @@ export default function AdvancedAudioPlayer({
         playsInline
         {...{ "x-webkit-airplay": "allow" }}
         onPlay={() => { setIsPlaying(true); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing"; }}
-        onPause={() => { setIsPlaying(false); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused"; persistProgress(audioRef.current?.currentTime || 0, track.id); }}
+        onPause={() => { setIsPlaying(false); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused"; const t = audioRef.current?.currentTime || 0; latestTimeRef.current = t; persistProgress(t, track.id); }}
         onTimeUpdate={(e) => {
           const t = e.currentTarget.currentTime;
+          latestTimeRef.current = t;
           setCurrentTime(t);
           saveProgress(t, track.id);
           checkSleepTimer();
@@ -922,7 +944,7 @@ export default function AdvancedAudioPlayer({
           updatePositionState();
         }}
         onLoadedMetadata={(e) => { setDuration(e.currentTarget.duration); setIsLoading(false); updatePositionState(); }}
-        onSeeked={(e) => { setCurrentTime(e.currentTarget.currentTime); updatePositionState(); }}
+        onSeeked={(e) => { latestTimeRef.current = e.currentTarget.currentTime; setCurrentTime(e.currentTarget.currentTime); updatePositionState(); }}
         onRateChange={() => updatePositionState()}
         onWaiting={() => setIsBuffering(true)}
         onPlaying={() => setIsBuffering(false)}
@@ -989,7 +1011,7 @@ export default function AdvancedAudioPlayer({
             <div className="overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]" style={{ maxHeight: "calc(92dvh - 2rem)" }}>
               {/* ─── Track info ─── */}
               <div className="mb-5 mt-3 text-center">
-                <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-2xl" style={{ background: "linear-gradient(135deg, var(--color-ink) 0%, color-mix(in oklab, var(--color-ink) 80%, var(--color-accent)) 100%)", boxShadow: "0 12px 32px -12px color-mix(in oklab, var(--color-ink) 50%, transparent)" }}>
+                <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-2xl" style={{ backgroundColor: "var(--color-ink)", boxShadow: "0 12px 32px -12px color-mix(in oklab, var(--color-ink) 50%, transparent)" }}>
                   {isBuffering ? (
                     <RefreshCw className="h-8 w-8 animate-spin" style={{ color: "var(--color-paper)" }} />
                   ) : isPlaying ? (

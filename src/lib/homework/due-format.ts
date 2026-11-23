@@ -103,6 +103,11 @@ export function formatDueBadge(
 
   // Today
   if (days === 0) {
+    // Due date is today but the clock time already passed — it's late,
+    // not "TODAY". Labeling it today hid the failure signal on the card.
+    if (timeStr && deadlinePassed(dueDate, dueTime)) {
+      return { label: `OVERDUE · ${timeStr}`, urgency: "overdue", days };
+    }
     if (timeStr) {
       return { label: `TODAY · ${timeStr}`, urgency: "today", days };
     }

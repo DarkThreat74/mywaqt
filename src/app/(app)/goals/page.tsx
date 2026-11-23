@@ -20,12 +20,14 @@ export default async function GoalsPage() {
   // Fetch all data for the unified goals page in parallel.
   // Each query is individually try-caught so a single Neon cold-start
   // or connection hiccup degrades gracefully instead of crashing the
-  // entire Server Component render (React error #441).
-  const safeQuery = async <T,>(p: Promise<T[]>): Promise<T[]> => {
-    try { return await p; } catch { return []; }
+  // entire Server Component render (React error #441). A failed query
+  // is tracked — returning [] silently would render a fake "no goals
+  // yet" empty state that is indistinguishable from a fresh account.
+  const safeQuery = async <T,>(p: Promise<T[]>): Promise<{ rows: T[]; ok: boolean }> => {
+    try { return { rows: await p, ok: true }; } catch { return { rows: [], ok: false }; }
   };
 
-  const [goals, homework, classes, habits, habitLogs, subtasks, chores] = await Promise.all([
+  const results = await Promise.all([
     safeQuery(db.select().from(schema.goals).where(eq(schema.goals.userId, session.userId)).orderBy(schema.goals.sortOrder, schema.goals.createdAt).limit(500)),
     safeQuery(db.select().from(schema.homeworks).where(eq(schema.homeworks.userId, session.userId)).orderBy(schema.homeworks.dueDate).limit(500)),
     safeQuery(db.select().from(schema.classes).where(eq(schema.classes.userId, session.userId)).orderBy(schema.classes.sortOrder, schema.classes.createdAt).limit(200)),
@@ -34,6 +36,16 @@ export default async function GoalsPage() {
     safeQuery(db.select().from(schema.homeworkSubtasks).where(eq(schema.homeworkSubtasks.userId, session.userId)).orderBy(asc(schema.homeworkSubtasks.sortOrder), asc(schema.homeworkSubtasks.createdAt)).limit(2000)),
     safeQuery(db.select().from(schema.chores).where(eq(schema.chores.userId, session.userId)).orderBy(schema.chores.sortOrder, schema.chores.createdAt).limit(200)),
   ]);
+
+  // Index individually — Promise.all's tuple types keep each row set's own type.
+  const goals = results[0].rows;
+  const homework = results[1].rows;
+  const classes = results[2].rows;
+  const habits = results[3].rows;
+  const habitLogs = results[4].rows;
+  const subtasks = results[5].rows;
+  const chores = results[6].rows;
+  const loadFailed = results.some((r) => !r.ok);
 
   // Attach checklist steps to their homework (one grouped pass, no N+1)
   const subtasksByHw = new Map<string, typeof subtasks>();
@@ -53,6 +65,7 @@ export default async function GoalsPage() {
       initialHabits={habits as Habit[]}
       initialHabitLogs={habitLogs as HabitLog[]}
       initialChores={chores as Chore[]}
+      loadFailed={loadFailed}
     />
   );
 }

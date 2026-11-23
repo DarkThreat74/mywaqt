@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Handshake, Swords, Timer, Trophy } from "lucide-react";
 import { MatchSurrender } from "@/components/match-surrender";
 import {
@@ -47,6 +47,7 @@ export default function MatchView({
   corpus: { verses: Verse[]; idx: CorpusIndex };
   onExit: () => void;
 }) {
+  const router = useRouter();
   const [st, setSt] = useState<MatchState | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
@@ -72,6 +73,15 @@ export default function MatchView({
       setSt(s);
     } catch { /* keep polling — transient blips are fine */ }
   }, [matchId]);
+
+  // First-load timeout: offline, the interval retries forever while the
+  // screen reads "Loading match…" — give up and offer a retry instead.
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    if (st || err) return;
+    const t = setTimeout(() => setStalled(true), 12000);
+    return () => clearTimeout(t);
+  }, [st, err]);
 
   useEffect(() => {
     let live = true;
@@ -195,16 +205,35 @@ export default function MatchView({
     ? SURAHS.filter((s) => (s.name + " " + s.english).toLowerCase().includes(query.trim().toLowerCase()))
     : SURAHS;
 
-  /* ── Render ── */
-  // Wrong page — a Mutashabih invite that landed here hands off. Below all
-  // hooks so the throw can't short-circuit hook order.
-  if (st?.game === "mutashabih") redirect(`/mutashabihat?match=${matchId}`);
+  // Wrong page — a Mutashabih invite that landed here hands off. Effect,
+  // not mid-render redirect: navigate after commit.
+  const wrongGame = st?.game === "mutashabih";
+  useEffect(() => {
+    if (wrongGame) router.replace(`/mutashabihat?match=${matchId}`);
+  }, [wrongGame, matchId, router]);
 
+  /* ── Render ── */
+  if (wrongGame) return null;
   if (err || !st) {
     return (
       <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 py-16 text-center">
-        <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>{err ?? "Loading match…"}</p>
-        <button onClick={onExit} className="mt-4 text-sm font-medium" style={{ color: "var(--color-accent)" }}>Back to solo</button>
+        <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
+          {err ?? (stalled
+            ? (typeof navigator !== "undefined" && !navigator.onLine
+                ? "You're offline — the match loads when you're back."
+                : "The match isn't answering — check your connection.")
+            : "Loading match…")}
+        </p>
+        {stalled && !err && (
+          <button
+            onClick={() => { setStalled(false); void poll(); }}
+            className="mt-4 rounded-xl border px-4 py-2 text-sm font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+          >
+            Try again
+          </button>
+        )}
+        <button onClick={onExit} className="mt-4 block w-full text-sm font-medium" style={{ color: "var(--color-accent)" }}>Back to solo</button>
       </div>
     );
   }
@@ -234,8 +263,8 @@ export default function MatchView({
             <div className="mt-6 flex justify-center gap-3">
               <button
                 onClick={() => void respond(true)}
-                className="rounded-xl px-5 py-2.5 text-sm font-semibold text-white"
-                style={{ backgroundColor: "var(--color-accent)" }}
+                className="rounded-xl px-5 py-2.5 text-sm font-semibold"
+                style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
               >
                 Accept
               </button>
@@ -308,7 +337,7 @@ export default function MatchView({
                 : <Swords className="h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />}
           </p>
           <h2 className="mt-3 text-xl font-semibold" style={{ color: "var(--color-ink)" }}>
-            {meWon ? "You win!" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
+            {meWon ? "You take it" : draw ? "A draw — honorable match" : `${st.opponentName} takes it`}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>{st.myWins} — {st.oppWins} over {st.roundsPlayed} round{st.roundsPlayed === 1 ? "" : "s"}</p>
           {st.endReason === "abandoned" && (
@@ -352,8 +381,8 @@ export default function MatchView({
         const drawR = result.won === null;
         return (
           <div className="mt-6 rounded-2xl border p-6 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
-            <p className="text-lg font-semibold" style={{ color: won ? "var(--color-accent)" : drawR ? "var(--color-ink-muted)" : "#dc2626" }}>
-              {won ? "Your round!" : drawR ? "No one got it" : `${st.opponentName} got there first`}
+            <p className="text-lg font-semibold" style={{ color: won ? "var(--color-accent)" : drawR ? "var(--color-ink-muted)" : "var(--color-error)" }}>
+              {won ? "Your round" : drawR ? "No one got it" : `${st.opponentName} got there first`}
             </p>
             <p className="mt-2 text-sm tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
               you {result.meMs !== null ? `${(result.meMs / 1000).toFixed(1)}s ${result.meCorrect ? "✓" : "✗"}` : "—"} · {st.opponentName} {result.oppMs !== null ? `${(result.oppMs / 1000).toFixed(1)}s ${result.oppCorrect ? "✓" : "✗"}` : "—"}
@@ -367,7 +396,7 @@ export default function MatchView({
 
       {/* Waiting — opponent hasn't readied, or round starting */}
       {st.status === "active" && !result && st.round && !verse && (
-        <div className="mt-6 animate-pulse rounded-2xl border p-8 text-center" style={{ borderColor: "var(--color-paper-3)" }}>
+        <div className="mt-6 rounded-2xl border p-8 text-center motion-safe:animate-pulse" style={{ borderColor: "var(--color-paper-3)" }}>
           <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
             {st.round.started
               ? `Round ${st.round.n} — get ready…`
@@ -384,7 +413,7 @@ export default function MatchView({
             style={{
               borderColor: picked === null
                 ? "var(--color-paper-3)"
-                : picked === verse.s ? "var(--color-accent)" : "#dc2626",
+                : picked === verse.s ? "var(--color-accent)" : "var(--color-error)",
               borderWidth: picked !== null ? 2 : 1,
               backgroundColor: picked !== null && picked === verse.s
                 ? "color-mix(in oklab, var(--color-accent) 5%, var(--color-paper))"
@@ -408,7 +437,7 @@ export default function MatchView({
 
           {/* Answered → waiting on opponent */}
           {picked !== null ? (
-            <div className="mt-4 animate-pulse rounded-xl border p-4 text-center text-sm" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
+            <div className="mt-4 rounded-xl border p-4 text-center text-sm motion-safe:animate-pulse" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}>
               <Timer className="mr-1 inline h-3.5 w-3.5" /> Waiting for {st.opponentName}&rsquo;s answer…
             </div>
           ) : optCount <= 6 ? (
@@ -417,7 +446,7 @@ export default function MatchView({
                 <button
                   key={o.n}
                   onClick={() => guess(o.n)}
-                  className="rounded-xl border px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
+                  className="rounded-xl border px-4 py-3 text-left transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)] active:bg-[var(--color-paper-3)]"
                   style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
                 >
                   <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{o.n}. {o.name}</span>
@@ -444,7 +473,7 @@ export default function MatchView({
                   {filtered.map((o) => (
                     <button key={o.n} role="option" aria-selected={false}
                       onClick={() => { setListOpen(false); guess(o.n); }}
-                      className="flex w-full items-baseline justify-between px-4 py-2.5 text-left transition-colors hover:bg-[var(--color-paper-2)]">
+                      className="flex w-full items-baseline justify-between px-4 py-2.5 text-left transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]">
                       <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{o.n}. {o.name}</span>
                       <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>{o.english}</span>
                     </button>

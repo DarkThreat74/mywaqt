@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Feather } from "lucide-react";
 
@@ -27,16 +27,17 @@ export default function MessagesClient() {
   });
   const [netErr, setNetErr] = useState(false);
 
+  const load = useCallback(() =>
+    fetch("/api/messages", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d: { conversations: Convo[] }) => {
+        setConvos(d.conversations);
+        setNetErr(false);
+        try { localStorage.setItem(SEED_KEY, JSON.stringify(d.conversations)); } catch {}
+      })
+      .catch(() => setNetErr(true)), []);
+
   useEffect(() => {
-    const load = () =>
-      fetch("/api/messages", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : Promise.reject()))
-        .then((d: { conversations: Convo[] }) => {
-          setConvos(d.conversations);
-          setNetErr(false);
-          try { localStorage.setItem(SEED_KEY, JSON.stringify(d.conversations)); } catch {}
-        })
-        .catch(() => setNetErr(true));
     void load();
     // 15s, not 8s — new-message badges already arrive via the 30s inbox
     // poll + push; this list doesn't need faster freshness.
@@ -46,7 +47,7 @@ export default function MessagesClient() {
     window.addEventListener("pageshow", onFocus);
     document.addEventListener("visibilitychange", onFocus);
     return () => { clearInterval(t); window.removeEventListener("focus", onFocus); window.removeEventListener("pageshow", onFocus); document.removeEventListener("visibilitychange", onFocus); };
-  }, []);
+  }, [load]);
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
@@ -63,8 +64,11 @@ export default function MessagesClient() {
       </header>
 
       {netErr && convos !== null && convos.length > 0 && (
-        <p className="mb-4 text-center text-xs italic" style={{ color: "var(--color-ink-muted)" }}>
-          You&rsquo;re offline — showing your last conversations.
+        <p role="status" className="mb-4 rounded-lg border px-3 py-2 text-center text-xs italic" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+          You&rsquo;re offline — showing your last conversations. New messages won&rsquo;t arrive until you&rsquo;re back.{" "}
+          <button onClick={() => void load()} className="font-medium underline underline-offset-2" style={{ color: "var(--color-accent)" }}>
+            Try again
+          </button>
         </p>
       )}
       {convos === null ? (
@@ -75,6 +79,11 @@ export default function MessagesClient() {
             <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
               Messages need a connection the first time.
             </p>
+            <button onClick={() => void load()}
+              className="mt-3 rounded-lg border px-3.5 py-2 text-xs font-medium"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)" }}>
+              Try again
+            </button>
           </div>
         ) : (
           <p className="py-16 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>

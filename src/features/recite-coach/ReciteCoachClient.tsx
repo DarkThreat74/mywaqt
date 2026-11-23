@@ -127,6 +127,18 @@ export default function ReciteCoachClient() {
   const frames = useCallback(() => framesRef.current(), []);
   const listening = !!stream;
 
+  // Live resources must die with the component — a mounted-out MediaStream
+  // keeps the mic indicator on and the device held after navigation.
+  const streamRef = useRef<PitchStream | null>(null);
+  useEffect(() => { streamRef.current = stream; }, [stream]);
+  useEffect(() => () => {
+    streamRef.current?.stop();
+    playRef.current?.stop();
+    previewRef.current?.pause();
+    if (spinRef.current) clearInterval(spinRef.current);
+    void playCtxRef.current?.close().catch(() => {});
+  }, []);
+
   useEffect(() => {
     void listRefs().then(setRefs).catch(() => {});
     const refreshCached = () => void getCachedAudioKeys().then(setClipCached).catch(() => {});
@@ -170,8 +182,6 @@ export default function ReciteCoachClient() {
     }, 90);
     return () => clearInterval(id);
   }, [stream]);
-
-  // Tab-to-begin lives below `toggle` — see the keydown effect after it.
 
   // ---------------------------------------------------------------- ayah
 
@@ -386,8 +396,16 @@ export default function ReciteCoachClient() {
       setKind(k);
       setStream(s);
       if (k === "practice") startMonitor();
-    } catch {
-      setErr("Microphone unavailable — check permission.");
+    } catch (e) {
+      const name = e instanceof DOMException ? e.name : "";
+      setErr(
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "Microphone blocked — allow it in the browser's site settings, then try again."
+          : name === "NotFoundError" || name === "OverconstrainedError"
+            ? "No microphone found on this device."
+            : name === "NotReadableError" || name === "AbortError"
+              ? "The microphone is busy in another app — close it and try again."
+              : "Couldn't start listening — check the microphone and try again.");
     }
   }
 
@@ -425,7 +443,10 @@ export default function ReciteCoachClient() {
       : refName || "Free read";
     setReportLabel(label);
 
-    if (!(hist.length && hist[hist.length - 1].t - hist[0].t >= 3)) return;
+    if (!(hist.length && hist[hist.length - 1].t - hist[0].t >= 3)) {
+      setErr("That take was under 3 seconds — too short to grade. Recite a full phrase and it counts.");
+      return;
+    }
     const rep = analyze(hist);
     setReport(rep);
     setTakeFrames(hist);
@@ -459,21 +480,14 @@ export default function ReciteCoachClient() {
     } catch { /* storage is best-effort */ }
   }
 
-  // Tab begins/ends the take — declared after toggle so the handler binds the
-  // current closure, not a stale one.
+  // Escape closes the clip picker. (Tab used to begin/end takes in assess —
+  // it trapped keyboard navigation; the record button handles Enter/Space.)
   useEffect(() => {
-    if (tab !== "assess") return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Tab" || report || spinning) return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA")) return;
-      e.preventDefault();
-      void toggle();
-    };
+    if (!pickerOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPickerOpen(false); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, report, spinning, stream, ayah]);
+  }, [pickerOpen]);
 
   // ------------------------------------------------------------------ ui
 
@@ -489,11 +503,11 @@ export default function ReciteCoachClient() {
       style={{ borderColor: "var(--color-paper-3)", backgroundColor: "#0E1116" }}
     >
       <ContourCanvas getFrames={frames} active={listening} reference={kind === "practice" ? refFrames : null} />
-      <div className="absolute left-3 top-3 rounded-full px-3 py-1 text-[11px] tabular-nums" style={{ backgroundColor: "rgba(255,255,255,0.06)", color: "#9fb0c0" }}>
+      <div className="absolute left-3 top-3 rounded-full px-3 py-1 text-[11px] tabular-nums" style={{ backgroundColor: "rgba(255,255,255,0.06)", color: "color-mix(in oklab, var(--color-paper) 62%, transparent)" }}>
         {readout ? `${hzToNote(readout.hz)} · ${Math.round(readout.hz)} Hz` : listening ? "listening…" : refName && kind === "practice" ? `ref: ${refName}` : "—"}
       </div>
       {liveRange && (
-        <div className="absolute bottom-3 left-3 rounded-full px-3 py-1 text-[10px] tabular-nums" style={{ backgroundColor: "rgba(255,255,255,0.06)", color: "#9fb0c0" }}>
+        <div className="absolute bottom-3 left-3 rounded-full px-3 py-1 text-[10px] tabular-nums" style={{ backgroundColor: "rgba(255,255,255,0.06)", color: "color-mix(in oklab, var(--color-paper) 62%, transparent)" }}>
           span {hzToNote(liveRange[0])}–{hzToNote(liveRange[1])}
         </div>
       )}
@@ -502,7 +516,7 @@ export default function ReciteCoachClient() {
           <button
             onClick={togglePlay}
             className="flex h-7 w-7 items-center justify-center rounded-full"
-            style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "#fbbf24" }}
+            style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--color-warmth)" }}
             aria-label={playing ? "Pause reference" : "Play reference"}
           >
             {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
@@ -519,13 +533,13 @@ export default function ReciteCoachClient() {
         className="relative flex h-16 w-16 items-center justify-center rounded-full transition-transform active:scale-90"
         style={
           listening
-            ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)", boxShadow: "0 0 0 6px rgba(74,222,128,0.15)" }
+            ? { backgroundColor: "var(--color-accent)", color: "var(--color-paper)", boxShadow: "0 0 0 6px color-mix(in oklab, var(--color-success) 15%, transparent)" }
             : { border: "1px solid var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink-soft)" }
         }
         aria-label={listening ? "Stop and grade" : "Start reciting"}
       >
         {listening && (
-          <span className="absolute inset-0 animate-ping rounded-full" style={{ backgroundColor: "rgba(74,222,128,0.15)" }} />
+          <span className="absolute inset-0 rounded-full motion-safe:animate-ping" style={{ backgroundColor: "color-mix(in oklab, var(--color-success) 15%, transparent)" }} />
         )}
         {listening ? <Square className="h-5 w-5" /> : <Mic className="h-6 w-6" />}
       </button>
@@ -548,7 +562,7 @@ export default function ReciteCoachClient() {
         </p>
       )}
       {mismatch && (
-        <div className="mx-5 mt-3 rounded-xl border px-4 py-3 text-xs" style={{ borderColor: "#f87171", color: "#f87171" }}>
+        <div className="mx-5 mt-3 rounded-xl border px-4 py-3 text-xs" style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }}>
           That doesn&apos;t sound like the displayed āyah — most words didn&apos;t match. Check you read the right passage; this report is kept for reference only.
         </div>
       )}
@@ -593,7 +607,7 @@ export default function ReciteCoachClient() {
         ))}
       </div>
 
-      {err && <p className="mx-4 mt-2 text-xs" style={{ color: "#f87171" }}>{err}</p>}
+      {err && <p className="mx-4 mt-2 text-xs" role="alert" style={{ color: "var(--color-error)" }}>{err}</p>}
 
       {/* ── STATS ── */}
       {tab === "stats" && (
@@ -641,7 +655,7 @@ export default function ReciteCoachClient() {
                           <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>{AXIS_LABELS[r.key] ?? r.key}</p>
                           <div className="flex items-center gap-2 text-[10px] tabular-nums">
                             {r.delta != null && r.delta !== 0 && (
-                              <span style={{ color: r.delta > 0 ? "#4ade80" : "#f87171" }}>
+                              <span style={{ color: "var(--color-ink-soft)" }}>
                                 {r.delta > 0 ? "+" : ""}{Math.round(r.delta)}
                               </span>
                             )}
@@ -717,7 +731,7 @@ export default function ReciteCoachClient() {
                       setRefVol(v);
                       if (gainRef.current) gainRef.current.gain.value = v;
                     }}
-                    className="w-16 accent-[#fbbf24]"
+                    className="w-16 accent-[var(--color-warmth)]"
                     aria-label="Reference volume"
                   />
                   <button
@@ -739,7 +753,7 @@ export default function ReciteCoachClient() {
                     type="checkbox"
                     checked={monitor}
                     onChange={(e) => setMonitor(e.target.checked)}
-                    className="accent-[#4ade80]"
+                    className="accent-[var(--color-accent)]"
                   />
                   Play the reference aloud while I record
                   <span style={{ opacity: 0.7 }}>(headphones — speakers bleed into the take)</span>
@@ -832,7 +846,7 @@ export default function ReciteCoachClient() {
 
               {recordButton(undefined, listening
                 ? "recite to the end — tap to grade"
-                : ayah ? "press Tab or tap to begin" : "pick an āyah first")}
+                : ayah ? "tap to begin" : "pick an āyah first")}
             </>
           )}
         </div>
@@ -846,6 +860,9 @@ export default function ReciteCoachClient() {
           onClick={() => setPickerOpen(false)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Pick a reference"
             className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-t-2xl border-t p-4 sm:rounded-2xl sm:border"
             style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
             onClick={(e) => e.stopPropagation()}
@@ -854,7 +871,7 @@ export default function ReciteCoachClient() {
               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>
                 <Music2 className="mr-1 inline h-3.5 w-3.5" /> Pick a reference
               </p>
-              <button onClick={() => setPickerOpen(false)} aria-label="Close" style={{ color: "var(--color-ink-muted)" }}>
+              <button autoFocus onClick={() => setPickerOpen(false)} aria-label="Close" style={{ color: "var(--color-ink-muted)" }}>
                 <X className="h-4 w-4" />
               </button>
             </div>

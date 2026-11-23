@@ -178,15 +178,15 @@ export default function MutashabihClient() {
               <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Shared with AyaTrace</p>
             </div>
           </div>
-          <span className="text-lg font-bold tabular-nums" style={{ color: "var(--color-accent)" }}>{rating?.rating ?? 0}</span>
+          <span className="text-lg font-bold tabular-nums" style={{ color: "var(--color-accent)" }}>{rating ? rating.rating : "—"}</span>
         </div>
         <div className="mt-4 space-y-3">
-          {MODES.map((m, i) => (
+          {MODES.map((m) => (
             <button
               key={m.id}
               onClick={() => { setMode(m.id); nextRound(m.id); }}
-              className="waqt-fade-up flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-4 text-left transition-colors hover:border-[var(--color-accent)]"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animationDelay: `${i * 60}ms` }}
+              className="flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-4 text-left transition-colors [@media(hover:hover)]:hover:border-[var(--color-accent)]"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
             >
               <span className="min-w-0">
                 <span className="block text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{m.en}</span>
@@ -227,7 +227,7 @@ export default function MutashabihClient() {
               <span
                 key={deltaFlash.key}
                 className="waqt-answer-pop absolute -top-4 right-0 text-[10px] font-bold"
-                style={{ color: deltaFlash.v >= 0 ? "var(--color-accent)" : "#dc2626" }}
+                style={{ color: deltaFlash.v >= 0 ? "var(--color-accent)" : "var(--color-error)" }}
               >
                 {deltaFlash.v >= 0 ? `+${deltaFlash.v}` : deltaFlash.v}
               </span>
@@ -240,8 +240,8 @@ export default function MutashabihClient() {
       <div
         className={`mt-6 rounded-2xl border p-5 text-center transition-colors ${verdict === "wrong" ? "waqt-answer-shake" : ""}`}
         style={{
-          borderColor: verdict === "correct" ? "var(--color-success)" : verdict === "wrong" ? "var(--color-error, #dc2626)" : "var(--color-paper-3)",
-          backgroundColor: verdict === "correct" ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : verdict === "wrong" ? "color-mix(in oklab, #dc2626 6%, var(--color-paper))" : "var(--color-paper)",
+          borderColor: verdict === "correct" ? "var(--color-success)" : verdict === "wrong" ? "var(--color-error)" : "var(--color-paper-3)",
+          backgroundColor: verdict === "correct" ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : verdict === "wrong" ? "color-mix(in oklab, var(--color-error) 6%, var(--color-paper))" : "var(--color-paper)",
         }}
       >
         <p className="text-[10px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--color-ink-muted)" }}>
@@ -256,7 +256,7 @@ export default function MutashabihClient() {
           {mode === "ending" && `Which continuation belongs to ${surahName(target.s)}?`}
         </p>
         {done && verdict && (
-          <p className="waqt-answer-pop mt-3 text-sm font-semibold" style={{ color: verdict === "correct" ? "var(--color-success)" : "#dc2626" }}>
+          <p className="waqt-answer-pop mt-3 text-sm font-semibold" style={{ color: verdict === "correct" ? "var(--color-success)" : "var(--color-error)" }}>
             {verdict === "correct" ? "Correct" : "Wrong"}
             {mode === "count" && verdict === "wrong" && ` — it appears ${n} times`}
             {mode === "ending" && verdict === "wrong" && ` — in ${surahName(target.s)} it continues …${tailOf(target)}`}
@@ -309,7 +309,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto w-full max-w-lg px-4 lg:max-w-none lg:px-10 pb-10 pt-2">
       <div className="flex items-center justify-between">
-        <Link href="/quran" className="inline-flex items-center gap-1 rounded-lg py-2 pr-2 text-xs font-medium hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }}>
+        <Link href="/quran" className="inline-flex items-center gap-1 rounded-lg py-2 pr-2 text-xs font-medium [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink-muted)" }}>
           <ChevronLeft className="h-3.5 w-3.5" /> AyaTrace
         </Link>
       </div>
@@ -333,7 +333,7 @@ export function CountOptions({ n, onPick }: { n: number; onPick: (c: number) => 
     <div className="grid grid-cols-4 gap-2">
       {opts.map((c) => (
         <button key={c} onClick={() => onPick(c)}
-          className="rounded-xl border py-4 text-xl font-bold tabular-nums transition-colors hover:border-[var(--color-accent)]"
+          className="rounded-xl border py-4 text-xl font-bold tabular-nums transition-colors [@media(hover:hover)]:hover:border-[var(--color-accent)]"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}>
           {c}
         </button>
@@ -379,7 +379,7 @@ export function EndingOptions({ fam, onPick }: { fam: Family; onPick: (t: string
     <div className="space-y-2">
       {opts.map((t) => (
         <button key={t} onClick={() => onPick(t)}
-          className="w-full rounded-xl border px-4 py-3 text-right text-lg leading-loose transition-colors hover:border-[var(--color-accent)]"
+          className="w-full rounded-xl border px-4 py-3 text-right text-lg leading-loose transition-colors [@media(hover:hover)]:hover:border-[var(--color-accent)]"
           dir="rtl"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", fontFamily: "var(--font-arabic)" }}>
           …{t}
@@ -392,7 +392,7 @@ export function EndingOptions({ fam, onPick }: { fam: Family; onPick: (t: string
 function NextButton({ onNext }: { onNext: () => void }) {
   return (
     <button onClick={onNext}
-      className="mt-2 w-full rounded-xl py-3 text-sm font-semibold transition-opacity hover:opacity-90"
+      className="mt-2 w-full rounded-xl py-3 text-sm font-semibold transition-opacity [@media(hover:hover)]:hover:opacity-90"
       style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
       Next fragment →
     </button>
@@ -491,7 +491,7 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
     <div className="mt-4 rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
       <button
         onClick={toggle}
-        className="flex w-full items-center justify-between rounded-2xl px-5 py-4 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+        className="flex w-full items-center justify-between rounded-2xl px-5 py-4 text-left transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
         aria-expanded={open}
       >
         <span className="flex items-center gap-2">
@@ -504,7 +504,7 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
       {open && (
         <div className="border-t px-5 py-4" style={{ borderColor: "var(--color-paper-3)" }}>
           {friends === null ? (
-            <p className="animate-pulse text-sm" style={{ color: "var(--color-ink-muted)" }}>Loading friends…</p>
+            <p className="text-sm motion-safe:animate-pulse" style={{ color: "var(--color-ink-muted)" }}>Loading friends…</p>
           ) : friends.length === 0 ? (
             <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
               No friends yet — add one in Prayer → Friends, then challenge them here.
@@ -533,13 +533,13 @@ function ChallengePanel({ onMatch }: { onMatch: (id: string) => void }) {
                 Ranked — same ladder as AyaTrace. Finish the whole match: winner +48, loser −6. Rank-adjacent opponents only.
               </p>
 
-              {err && <p className="mt-2 text-xs" style={{ color: "#dc2626" }}>{err}</p>}
+              {err && <p className="mt-2 text-xs" role="alert" style={{ color: "var(--color-error)" }}>{err}</p>}
 
               <button
                 onClick={send}
                 disabled={!friendId || busy}
-                className="mt-3 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
-                style={{ backgroundColor: "var(--color-accent)" }}
+                className="mt-3 w-full rounded-xl px-4 py-3 text-sm font-semibold transition-opacity enabled:[@media(hover:hover)]:hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
               >
                 {busy ? "Sending challenge…" : "Send challenge"}
               </button>

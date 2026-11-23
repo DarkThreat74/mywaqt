@@ -7,8 +7,9 @@ import dynamic from "next/dynamic";
 const MuscleBody = dynamic(() => import("@/components/workout/MuscleBody"), { ssr: false });
 const XRayVisualizer = dynamic(() => import("@/components/workout/XRayVisualizer"), { ssr: false });
 import MuscleBody2D from "@/components/workout/MuscleBody2D";
-import { bucketOf, type BodyBucket } from "@/lib/workout/muscleBodyMap";
+import { bucketOf, RECOVERY_STATES, recoveryStateIndex, recoveryStateColor, type BodyBucket } from "@/lib/workout/muscleBodyMap";
 import { muscleInfo } from "@/lib/workout/muscleAnatomy";
+import { meteredConnection } from "@/lib/net";
 
 interface MuscleStat {
   muscle: string;
@@ -35,22 +36,24 @@ const BUCKET_INFO_KEY: Record<BodyBucket, string> = {
   calves: "gastroc", abs: "abs", obliques: "obliques", neck: "neck",
 };
 
-const STATE_LABEL = ["fresh", "recovering", "tired", "overdue"] as const;
-const stateOf = (f: number) => (f < 0.15 ? 0 : f < 0.45 ? 1 : f < 0.75 ? 2 : 3);
-const STATE_COLOR = ["#7fbf6b", "#d4a843", "#c96b45", "#8e3419"];
+const stateOf = recoveryStateIndex;
 
 export default function MusclesPage() {
   const [stats, setStats] = useState<MuscleStat[] | null>(null);
+  const [loadErr, setLoadErr] = useState(false);
   const [sel, setSel] = useState<{ bucket: BodyBucket; label: string } | null>(null);
   const [use3D, setUse3D] = useState(true);
+  const [allow3D, setAllow3D] = useState(false); // metered-connection opt-in for the ~2.5MB GLB
   const [xray, setXray] = useState(false);
 
-  useEffect(() => {
+  const loadStats = () => {
     fetch("/api/workout/progress")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => setStats(j?.muscles ?? []))
-      .catch(() => setStats([]));
-  }, []);
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
+      .then((j) => { setLoadErr(false); setStats(j?.muscles ?? []); })
+      .catch(() => setLoadErr(true));
+  };
+  // Defer to a microtask so no setState fires synchronously inside the effect.
+  useEffect(() => { Promise.resolve().then(loadStats); }, []);
 
   // bucket → worst unrecovered fraction across its member muscles
   const fatigue = useMemo(() => {
@@ -98,24 +101,59 @@ export default function MusclesPage() {
         {use3D ? "Drag to rotate · tap a muscle · double-tap to reset · redder = less recovered" : "Tap a muscle · redder = less recovered"}
       </p>
 
-      <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", height: "min(52dvh, 460px)", background: "linear-gradient(180deg,#f6f1e6,#efe7d6)" }}>
-        {use3D ? (
+      <div className="relative mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--color-paper-3)", height: "min(52dvh, 460px)", background: "linear-gradient(180deg,#f6f1e6,#efe7d6)" }}>
+        {use3D && meteredConnection() && !allow3D ? (
+          <div className="grid h-full place-items-center p-6 text-center">
+            <div>
+              <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>The 3D body downloads ~2.5 MB — you&apos;re on a metered connection.</p>
+              <div className="mt-3 flex justify-center gap-2">
+                <button type="button" onClick={() => setAllow3D(true)}
+                  className="rounded-lg px-3 py-2 text-xs font-semibold"
+                  style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>Load it anyway</button>
+                <button type="button" onClick={() => setUse3D(false)}
+                  className="rounded-lg border px-3 py-2 text-xs"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Use simple view</button>
+              </div>
+            </div>
+          </div>
+        ) : use3D ? (
           <MuscleBody sex="male" fatigue={fatigue} keyFatigue={keyFatigue} selectedBucket={sel?.bucket ?? null}
             onFallback={() => setUse3D(false)}
             onSelect={(bucket, label) => setSel({ bucket, label })} />
         ) : (
           <MuscleBody2D fatigue={fatigue} selectedBucket={sel?.bucket ?? null} onSelect={(bucket, label) => setSel({ bucket, label })} />
         )}
+        {stats === null && !loadErr && (
+          <p className="absolute inset-x-0 bottom-2 text-center text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Loading recovery data…</p>
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        {STATE_LABEL.map((s, i) => (
-          <span key={s} className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-            <i className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: STATE_COLOR[i] }} />{s}
+        {RECOVERY_STATES.map((s, i) => (
+          <span key={s.label} className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+            <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: recoveryStateColor(i) }} />{s.label}
           </span>
         ))}
       </div>
 
+      {loadErr ? (
+        <div className="mt-4 rounded-xl border px-4 py-4 text-center" style={{ borderColor: "var(--color-warmth)" }}>
+          <p className="text-xs" style={{ color: "var(--color-warmth)" }}>Recovery data could not be loaded — check your connection.</p>
+          <button type="button" onClick={loadStats}
+            className="mt-2 rounded-lg border px-3 py-1.5 text-xs font-medium"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Try again</button>
+        </div>
+      ) : stats === null ? (
+        <div className="mt-4 space-y-1.5" aria-hidden="true">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-10 animate-pulse rounded-xl" style={{ background: "var(--color-paper-2)" }} />
+          ))}
+        </div>
+      ) : stats.length === 0 ? (
+        <p className="mt-4 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
+          No workouts logged yet — every muscle starts fresh. Finish a session to start tracking.
+        </p>
+      ) : (
       <div className="mt-4 space-y-1.5">
         {rows.map(({ bucket, f }) => {
           const st = stateOf(f);
@@ -127,7 +165,7 @@ export default function MusclesPage() {
               style={{ borderColor: "var(--color-paper-3)", background: "var(--color-paper)" }}>
               <span className="w-24 shrink-0 text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{BUCKET_LABEL[bucket]}</span>
               <span className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: "var(--color-paper-2)" }}>
-                <span className="block h-full rounded-full" style={{ width: `${Math.round(f * 100)}%`, background: STATE_COLOR[st] }} />
+                <span className="block h-full rounded-full" style={{ width: `${Math.round(f * 100)}%`, background: recoveryStateColor(st) }} />
               </span>
               <span className="w-14 shrink-0 text-right text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                 {Math.round(sets)} sets
@@ -136,6 +174,7 @@ export default function MusclesPage() {
           );
         })}
       </div>
+      )}
 
       {sel && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setSel(null)}>
@@ -145,7 +184,7 @@ export default function MusclesPage() {
               <div>
                 <h2 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{sel.label}</h2>
                 <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  {selRow ? `${STATE_LABEL[stateOf(selRow.f)]} · ${Math.round(selRow.f * 100)}% unrecovered` : "No recent data"}
+                  {selRow ? `${RECOVERY_STATES[stateOf(selRow.f)]?.label ?? "—"} · ${Math.round(selRow.f * 100)}% unrecovered` : "No recent data"}
                 </p>
               </div>
               <button type="button" onClick={() => setSel(null)} className="text-lg" style={{ color: "var(--color-ink-muted)" }}>✕</button>

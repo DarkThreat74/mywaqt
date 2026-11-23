@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Sirat — Halal places near you",
@@ -14,6 +13,9 @@ export const metadata: Metadata = {
   },
 };
 
+// Sirat's own "← Waqt" button (public/myapps/sirat/index.html) breaks out of
+// the iframe via top.location — no wrapper back link here, two back buttons
+// stacked in the same corner was the bug.
 export default function SiratPage() {
   return (
     <div className="fixed inset-0" style={{ backgroundColor: "var(--color-paper)" }}>
@@ -23,18 +25,6 @@ export default function SiratPage() {
         className="h-full w-full border-0"
         allow="geolocation"
       />
-      <Link
-        href="/"
-        aria-label="Back to Waqt home"
-        className="absolute left-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full text-[11px] opacity-40 transition-opacity hover:opacity-90"
-        style={{
-          backgroundColor: "var(--color-paper)",
-          color: "var(--color-ink)",
-          border: "1px solid var(--color-paper-3)",
-        }}
-      >
-        &larr;
-      </Link>
     </div>
   );
 }

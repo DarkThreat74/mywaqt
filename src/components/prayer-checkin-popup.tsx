@@ -18,6 +18,11 @@ interface PrayerCheckinPopup {
   timings: PrayerTimings;
   onClose: () => void;
   onCheckedIn: (result: { status: string; wentToMasjid: boolean | null; date: string }) => void;
+  /** Fired the instant the user confirms — before the fetch resolves. The
+      parent paints the check-in immediately; on failure onOptimisticRevert
+      restores what was there. */
+  onOptimistic?: (result: { status: string; wentToMasjid: boolean | null; date: string }) => void;
+  onOptimisticRevert?: (previousStatus: string | null, date: string) => void;
   existingStatus?: string;
 }
 
@@ -30,6 +35,8 @@ export default function PrayerCheckinPopup({
   timings,
   onClose,
   onCheckedIn,
+  onOptimistic,
+  onOptimisticRevert,
   existingStatus,
 }: PrayerCheckinPopup) {
   const { play } = useUISFX();
@@ -192,6 +199,10 @@ export default function PrayerCheckinPopup({
   async function checkIn(wentToMasjid: boolean | null, late = isLateLog) {
     setLoading(true);
     setError(null);
+    // Optimistic — the tap lands instantly (check-in is sacred UI). The
+    // parent marks the prayer now; a failed write reverts + announces.
+    const previousStatus = existingStatus ?? null;
+    onOptimistic?.({ status: "prayed", wentToMasjid, date: logDate });
     try {
       const res = await fetch("/api/prayer-log/checkin", {
         method: "POST",
@@ -248,12 +259,14 @@ export default function PrayerCheckinPopup({
           onCheckedIn({ status: "excused", wentToMasjid: null, date: logDate });
           return;
         }
+        onOptimisticRevert?.(previousStatus, logDate);
         setError(data.error || "Failed to check in.");
         play("error");
         void hapticNotification("error");
         setLoading(false);
       }
     } catch {
+      onOptimisticRevert?.(previousStatus, logDate);
       setError("Network error.");
       play("error");
       void hapticNotification("error");

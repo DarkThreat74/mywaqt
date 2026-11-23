@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { getSessionFromRequest } from "@/lib/auth/session";
 import { getClientIp, checkRateLimit } from "@/lib/rateLimit";
@@ -54,12 +54,23 @@ async function friendAlreadyLinked(userId: string, friendId: string, excludeId?:
   return rows.some((r) => r.id !== excludeId);
 }
 
-/** Claim the single "me" slot: clears is_self on every other row first. */
-async function claimSelfSlot(userId: string) {
+/**
+ * Claim the single "me" slot atomically. neon-http has no db.transaction, so
+ * instead of clear-then-write (two statements, race-prone) this is ONE
+ * statement: every row's is_self is set to whether it is the new holder.
+ * Concurrent claims last-writer-wins cleanly — the invariant "at most one
+ * self" can never be broken mid-flight.
+ * Belt-and-braces: a partial unique index `ON birthdays (user_id) WHERE
+ * is_self` would make the DB enforce this too — needs a manual migration.
+ */
+async function claimSelfSlot(userId: string, newSelfId: string) {
   await db
     .update(schema.birthdays)
-    .set({ isSelf: false, updatedAt: new Date() })
-    .where(and(eq(schema.birthdays.userId, userId), eq(schema.birthdays.isSelf, true)));
+    .set({
+      isSelf: sql<boolean>`(${schema.birthdays.id} = ${newSelfId}::uuid)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.birthdays.userId, userId));
 }
 
 function validateFields(body: BDayBody, partial: boolean) {
@@ -158,7 +169,6 @@ export async function POST(request: NextRequest) {
     if (friendId && await friendAlreadyLinked(session.userId, friendId)) {
       return NextResponse.json({ error: "That person is already linked to another birthday." }, { status: 409 });
     }
-    if (body.isSelf === true) await claimSelfSlot(session.userId);
 
     const [row] = await db
       .insert(schema.birthdays)
@@ -172,10 +182,18 @@ export async function POST(request: NextRequest) {
         remindDays: (out.remindDays as number[]) ?? [0, 1],
         categoryId: await ownedCategoryId(session.userId, body.categoryId),
         friendId,
-        isSelf: body.isSelf === true,
+        // Insert non-self first, then flip the whole column atomically —
+        // a single statement is the only way to keep "one self" race-free
+        // without transactions.
+        isSelf: false,
       })
       .onConflictDoNothing({ target: schema.birthdays.id })
       .returning();
+
+    if (row && body.isSelf === true) {
+      await claimSelfSlot(session.userId, row.id);
+      row.isSelf = true;
+    }
 
     // Retried offline replay — row exists; return it instead of 500ing.
     if (!row && validClientId) {
@@ -273,7 +291,8 @@ export async function PATCH(request: NextRequest) {
 
     // Claim the me-slot only after every validation has passed, right before
     // the write — a rejected patch must not strip the existing "me" row.
-    if (out.isSelf === true) await claimSelfSlot(session.userId);
+    // One statement flips the whole column atomically (see claimSelfSlot).
+    if (out.isSelf === true) await claimSelfSlot(session.userId, body.id);
 
     const [row] = await db
       .update(schema.birthdays)

@@ -2,15 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Star, LayoutGrid } from "lucide-react";
+import { ArrowLeft, LayoutGrid } from "lucide-react";
 import { useHiddenTabs, refreshNavPrefs } from "@/lib/nav-prefs";
 import { ALL_APPS, CATEGORIES, APP_BY_KEY, type AppDef } from "@/lib/app-registry";
 
 /**
  * The store — its own app, not a drawer tab. Featured card up top, then
- * category shelves of rows: icon, name, one-liner, rating, and a single
- * action per app — "Add to My apps" or "Open" (with "Hide" underneath).
+ * category shelves of rows: icon, name, one-liner, and a single
+ * action per app — "Add to My apps" or "Open" (with "Remove" underneath).
  */
 
 // Ask the SW to keep the app on-device so it opens offline.
@@ -44,13 +43,14 @@ function IconTile({ app, size = 52 }: { app: AppDef; size?: number }) {
 
 export default function StoreClient() {
   const hiddenTabs = useHiddenTabs();
-  const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function setInstalled(key: string, installed: boolean) {
     const app = APP_BY_KEY.get(key);
     if (!app || busy) return;
     setBusy(key);
+    setError(null);
     try {
       const next = new Set(hiddenTabs);
       if (installed) next.delete(key); else next.add(key);
@@ -62,7 +62,11 @@ export default function StoreClient() {
       if (r.ok) {
         refreshNavPrefs();
         if (installed) precacheRoute(app.href); else evictRoute(app.href);
+      } else {
+        setError("Could not update My apps — try again.");
       }
+    } catch {
+      setError("You're offline — this change needs a connection.");
     } finally {
       setBusy(null);
     }
@@ -74,10 +78,10 @@ export default function StoreClient() {
     <div className="min-h-dvh" style={{ backgroundColor: "var(--color-paper)" }}>
       {/* Header */}
       <div
-        className="sticky top-0 z-20 border-b backdrop-blur-md"
+        className="sticky top-0 z-20 border-b"
         style={{
           borderColor: "var(--color-paper-3)",
-          backgroundColor: "color-mix(in oklab, var(--color-paper) 82%, transparent)",
+          backgroundColor: "var(--color-paper)",
           paddingTop: "env(safe-area-inset-top)",
         }}
       >
@@ -105,6 +109,12 @@ export default function StoreClient() {
       </div>
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-24 sm:px-6">
+        {error && (
+          <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }} role="alert">
+            {error}
+          </p>
+        )}
+
         {/* Featured */}
         <div
           className="mt-5 flex items-center gap-4 overflow-hidden rounded-3xl border p-5"
@@ -157,28 +167,24 @@ export default function StoreClient() {
                       <p className="truncate text-xs" style={{ color: "var(--color-ink-muted)" }}>
                         {app.description}
                       </p>
-                      <p className="mt-0.5 flex items-center gap-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
-                        <Star className="h-2.5 w-2.5" fill="currentColor" style={{ color: "var(--color-accent)" }} />
-                        {app.rating} · {app.installs} installs
-                      </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-center gap-1">
                       {installed ? (
                         <>
-                          <button
-                            onClick={() => router.push(app.href)}
+                          <Link
+                            href={app.href}
                             className="rounded-full px-4 py-1.5 text-xs font-bold transition-opacity hover:opacity-80"
                             style={{ backgroundColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
                           >
                             Open
-                          </button>
+                          </Link>
                           <button
                             onClick={() => void setInstalled(key, false)}
                             disabled={busy === key}
                             className="text-[10px] font-medium transition-opacity hover:opacity-70 disabled:opacity-40"
                             style={{ color: "var(--color-ink-muted)" }}
                           >
-                            Hide
+                            Remove
                           </button>
                         </>
                       ) : (
@@ -200,7 +206,7 @@ export default function StoreClient() {
         ))}
 
         <p className="mt-10 text-center text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-          Adding an app pins it to My apps and saves it on this device for offline use.
+          Adding an app pins it to My apps.
         </p>
       </div>
     </div>

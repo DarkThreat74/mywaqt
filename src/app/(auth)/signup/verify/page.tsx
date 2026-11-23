@@ -11,6 +11,8 @@ import { Check, AlertTriangle } from "lucide-react";
 function VerifyInner() {
   const searchParams = useSearchParams();
   const [state, setState] = useState<"working" | "done" | "error">("working");
+  // Distinguish failure kinds — every failure used to claim "Link expired".
+  const [kind, setKind] = useState<"missing" | "invalid" | "conflict" | "server" | "network">("invalid");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,6 +22,7 @@ function VerifyInner() {
       if (!token) {
         if (!cancelled) {
           setError("This confirmation link is missing its token.");
+          setKind("missing");
           setState("error");
         }
         return;
@@ -39,17 +42,26 @@ function VerifyInner() {
         } else {
           const data = await res.json().catch(() => ({}));
           setError(data.error || "This confirmation link is invalid or has expired.");
+          setKind(res.status === 409 ? "conflict" : res.status >= 500 ? "server" : "invalid");
           setState("error");
         }
       } catch {
         if (!cancelled) {
           setError("Connection failed. Check your connection and try the link again.");
+          setKind("network");
           setState("error");
         }
       }
     })();
     return () => { cancelled = true; };
   }, [searchParams]);
+
+  const errorHeading =
+    kind === "network" ? "Connection problem"
+    : kind === "conflict" ? "Already registered"
+    : kind === "server" ? "Something went wrong"
+    : kind === "missing" ? "Incomplete link"
+    : "Link invalid or expired";
 
   return (
     <div className="flex flex-col items-center gap-4 py-8 text-center">
@@ -89,16 +101,35 @@ function VerifyInner() {
             <AlertTriangle className="h-6 w-6" style={{ color: "var(--color-warmth)" }} />
           </div>
           <h1 className="text-xl font-semibold" style={{ color: "var(--color-ink)" }}>
-            Link expired
+            {errorHeading}
           </h1>
-          <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>{error}</p>
-          <Link
-            href="/signup"
-            className="mt-2 rounded-lg px-4 py-2.5 text-sm font-medium"
-            style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
-          >
-            Sign up again
-          </Link>
+          <p role="alert" className="text-sm" style={{ color: "var(--color-ink-muted)" }}>{error}</p>
+          {kind === "conflict" ? (
+            <Link
+              href="/login"
+              className="mt-2 rounded-lg px-4 py-2.5 text-sm font-medium"
+              style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+            >
+              Sign in
+            </Link>
+          ) : kind === "network" || kind === "server" ? (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-2 rounded-lg px-4 py-2.5 text-sm font-medium"
+              style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+            >
+              Try again
+            </button>
+          ) : (
+            <Link
+              href="/signup"
+              className="mt-2 rounded-lg px-4 py-2.5 text-sm font-medium"
+              style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}
+            >
+              Sign up again
+            </Link>
+          )}
         </>
       )}
     </div>

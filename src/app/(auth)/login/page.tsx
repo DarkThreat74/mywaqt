@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { getHashedFingerprint } from "@/lib/auth/fingerprint";
 import { useUISFX } from "@/components/uisfx-provider";
 
@@ -19,6 +19,36 @@ export default function LoginForm() {
   // device in the trusted-devices list (never an auth factor).
   const [fingerprintHash, setFingerprintHash] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Field-level errors (aria-linked) + caps-lock hint + offline gate.
+  const [emailErr, setEmailErr] = useState<string | null>(null);
+  const [passwordErr, setPasswordErr] = useState<string | null>(null);
+  const [capsLock, setCapsLock] = useState(false);
+  const [online, setOnline] = useState(true);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const forgotEmailRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
+  function checkCapsLock(e: React.KeyboardEvent) {
+    setCapsLock(e.getModifierState?.("CapsLock") ?? false);
+  }
+
+  function validateEmailValue(v: string): string | null {
+    if (!v.trim()) return "Email is required.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())) return "Enter a valid email address.";
+    return null;
+  }
 
   // Time-trap timestamp — set on mount so bots that submit instantly are caught.
   // -1 = not mounted yet (treated as valid to avoid false positives).
@@ -40,10 +70,23 @@ export default function LoginForm() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setPending(true);
 
     const form = e.currentTarget as HTMLFormElement;
     const formData = new FormData(form);
+
+    // Client-side validation — field errors are aria-linked to inputs.
+    const emailVal = String(formData.get("email") || "");
+    const passwordVal = String(formData.get("password") || "");
+    const eErr = validateEmailValue(emailVal);
+    const pErr = !passwordVal ? "Password is required." : null;
+    setEmailErr(eErr);
+    setPasswordErr(pErr);
+    if (eErr || pErr) {
+      (eErr ? emailRef : passwordRef).current?.focus();
+      return;
+    }
+
+    setPending(true);
 
     // AbortController timeout — prevents the button from getting stuck if server is slow
     const controller = new AbortController();
@@ -105,6 +148,14 @@ export default function LoginForm() {
     const form = e.currentTarget as HTMLFormElement;
     const formData = new FormData(form);
     const email = String(formData.get("email") || "").trim().toLowerCase();
+
+    const fErr = validateEmailValue(email);
+    setEmailErr(fErr);
+    if (fErr) {
+      forgotEmailRef.current?.focus();
+      setPending(false);
+      return;
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -190,26 +241,41 @@ export default function LoginForm() {
             autoComplete="email"
             required
             autoFocus
+            ref={forgotEmailRef}
+            aria-invalid={!!emailErr}
+            aria-describedby={emailErr ? "email-error" : undefined}
+            onBlur={(e) => setEmailErr(e.target.value ? validateEmailValue(e.target.value) : null)}
             className="rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
             style={{
-              borderColor: "var(--color-paper-3)",
+              borderColor: emailErr ? "var(--color-error)" : "var(--color-paper-3)",
               backgroundColor: "var(--color-paper)",
               color: "var(--color-ink)",
             }}
           />
+          {emailErr && (
+            <p id="email-error" role="alert" className="text-xs" style={{ color: "var(--color-error)" }}>
+              {emailErr}
+            </p>
+          )}
         </div>
 
-        {error && <p className="text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
+        {!online && (
+          <p role="status" className="text-sm" style={{ color: "var(--color-warmth)" }}>
+            You appear to be offline — reconnect to send the reset link.
+          </p>
+        )}
+        {error && <p role="alert" className="text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
 
         <button
           type="submit"
-          disabled={pending}
-          className="rounded-lg px-4 py-2.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+          disabled={pending || !online}
+          className="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
           style={{
             backgroundColor: "var(--color-ink)",
             color: "var(--color-paper)",
           }}
         >
+          {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
           {pending ? "Sending..." : "Send reset link"}
         </button>
 
@@ -252,13 +318,23 @@ export default function LoginForm() {
           autoComplete="email"
           required
           autoFocus
+          ref={emailRef}
+          aria-invalid={!!emailErr}
+          aria-describedby={emailErr ? "email-error" : undefined}
+          onChange={() => { if (emailErr) setEmailErr(null); }}
+          onBlur={(e) => setEmailErr(e.target.value ? validateEmailValue(e.target.value) : null)}
           className="rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
           style={{
-            borderColor: "var(--color-paper-3)",
+            borderColor: emailErr ? "var(--color-error)" : "var(--color-paper-3)",
             backgroundColor: "var(--color-paper)",
             color: "var(--color-ink)",
           }}
         />
+        {emailErr && (
+          <p id="email-error" role="alert" className="text-xs" style={{ color: "var(--color-error)" }}>
+            {emailErr}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -272,9 +348,15 @@ export default function LoginForm() {
             type={showPassword ? "text" : "password"}
             autoComplete="current-password"
             required
+            ref={passwordRef}
+            aria-invalid={!!passwordErr}
+            aria-describedby={[passwordErr ? "password-error" : "", capsLock ? "password-capslock" : ""].filter(Boolean).join(" ") || undefined}
+            onChange={() => { if (passwordErr) setPasswordErr(null); }}
+            onKeyDown={checkCapsLock}
+            onKeyUp={checkCapsLock}
             className="w-full rounded-lg border px-3 py-2.5 pr-10 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
             style={{
-              borderColor: "var(--color-paper-3)",
+              borderColor: passwordErr ? "var(--color-error)" : "var(--color-paper-3)",
               backgroundColor: "var(--color-paper)",
               color: "var(--color-ink)",
             }}
@@ -285,24 +367,40 @@ export default function LoginForm() {
             className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-opacity hover:opacity-70"
             style={{ color: "var(--color-ink-muted)" }}
             aria-label={showPassword ? "Hide password" : "Show password"}
-            tabIndex={-1}
+            aria-pressed={showPassword}
           >
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
+        {passwordErr && (
+          <p id="password-error" role="alert" className="text-xs" style={{ color: "var(--color-error)" }}>
+            {passwordErr}
+          </p>
+        )}
+        {capsLock && (
+          <p id="password-capslock" role="status" className="text-xs" style={{ color: "var(--color-warmth)" }}>
+            Caps Lock is on.
+          </p>
+        )}
       </div>
 
-      {error && <p className="text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
+      {!online && (
+        <p role="status" className="text-sm" style={{ color: "var(--color-warmth)" }}>
+          You appear to be offline — reconnect to sign in.
+        </p>
+      )}
+      {error && <p role="alert" className="text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
 
       <button
         type="submit"
-        disabled={pending}
+        disabled={pending || !online}
         className="flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
         style={{
           backgroundColor: "var(--color-ink)",
           color: "var(--color-paper)",
         }}
       >
+        {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
         {pending ? "Logging in..." : "Log in"}
       </button>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   LogOut,
@@ -20,6 +20,11 @@ import { applyAdminTheme, readAdminTheme, restoreAppTheme } from "@/lib/admin-th
 
 export type AdminTab = "overview" | "users" | "talks" | "recite" | "feedback" | "settings";
 
+export interface AdminStats {
+  users: number;
+  talks: number;
+}
+
 interface NavItem {
   key: AdminTab;
   label: string;
@@ -36,34 +41,84 @@ const NAV_ITEMS: NavItem[] = [
   { key: "settings", label: "Settings", icon: SettingsIcon, description: "Platform configuration" },
 ];
 
+const isTab = (v: string | null): v is AdminTab => NAV_ITEMS.some((n) => n.key === v);
+
 export function AdminShell({
   children,
 }: {
-  children: (ctx: { tab: AdminTab; setTab: (t: AdminTab) => void }) => React.ReactNode;
+  children: (ctx: { tab: AdminTab; setTab: (t: AdminTab) => void; stats: AdminStats | null }) => React.ReactNode;
 }) {
-  const [tab, setTab] = useState<AdminTab>("overview");
-  const [authChecked, setAuthChecked] = useState(false);
+  const [tab, setTabState] = useState<AdminTab>("overview");
+  const [authState, setAuthState] = useState<"checking" | "ok" | "error">("checking");
+  const [stats, setStats] = useState<AdminStats | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
+  // Tab state lives in the URL (?tab=) so a refresh or shared link lands on
+  // the same section. history.replaceState keeps it out of the router —
+  // these aren't real routes, just UI state made addressable.
+  const setTab = useCallback((t: AdminTab) => {
+    setTabState(t);
+    window.history.replaceState(null, "", `/admin?tab=${t}`);
+  }, []);
   useEffect(() => {
-    fetch("/api/admin/stats")
-      .then((r) => {
+    const read = () => {
+      const q = new URLSearchParams(window.location.search).get("tab");
+      if (isTab(q)) setTabState(q);
+    };
+    read();
+    window.addEventListener("popstate", read);
+    return () => window.removeEventListener("popstate", read);
+  }, []);
+
+  // Single auth+stats fetch — the page used to fire an identical request in
+  // parallel (StrictMode doubled it again). 10s cap: a hung connection used
+  // to leave "Verifying access…" spinning forever. Only 401/403 redirects to
+  // login; network/server failures get a retry, not a fake sign-out.
+  const check = useCallback(() => {
+    setAuthState("checking");
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    fetch("/api/admin/stats", { signal: ctrl.signal })
+      .then(async (r) => {
         if (r.status === 401 || r.status === 403) {
           router.push("/admin/login");
-          return null;
+          return;
         }
-        return r.json().catch(() => null);
+        if (!r.ok) throw new Error(`stats ${r.status}`);
+        const data = await r.json(); // rejects on non-JSON — error state, not a hang
+        setStats(data);
+        setAuthState("ok");
       })
-      .then((data) => {
-        if (data) {
-          // stats are passed via props from the parent, but we need to
-          // confirm auth here. The parent reads stats from this fetch too.
-          setAuthChecked(true);
-        }
-      })
-      .catch(() => router.push("/admin/login"));
+      .catch(() => setAuthState("error"))
+      .finally(() => clearTimeout(timer));
   }, [router]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- initial auth check; same pattern as the rest of the codebase
+  useEffect(() => check(), [check]);
+
+  // "Exit to login" actually signs out — the old version just navigated and
+  // left the session cookie alive, so "logging out" did nothing.
+  const signOut = useCallback(() => {
+    void fetch("/api/auth/logout", { method: "POST", credentials: "include" })
+      .catch(() => {})
+      .finally(() => router.push("/admin/login"));
+  }, [router]);
+
+  // Mobile drawer = modal dialog: Escape closes, focus moves in on open and
+  // back to the menu button on close.
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const menuBtn = menuBtnRef.current;
+    drawerRef.current?.querySelector<HTMLElement>("button, a[href]")?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSidebarOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      menuBtn?.focus();
+    };
+  }, [sidebarOpen]);
 
   // Apply the admin theme while this portal is mounted — it stores its own
   // localStorage key (waqt:admin:theme) that nothing else reads. Re-apply on
@@ -87,7 +142,7 @@ export function AdminShell({
     };
   }, []);
 
-  if (!authChecked) {
+  if (authState === "checking") {
     return (
       <div
         className="flex min-h-dvh items-center justify-center"
@@ -109,6 +164,40 @@ export function AdminShell({
     );
   }
 
+  if (authState === "error") {
+    return (
+      <div
+        className="flex min-h-dvh items-center justify-center px-6"
+        style={{ backgroundColor: "var(--color-paper-2)" }}
+      >
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+            Couldn&apos;t verify access
+          </p>
+          <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            A network or server error — you weren&apos;t signed out.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={check}
+              className="rounded-lg px-4 py-2 text-sm font-medium"
+              style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => router.push("/admin/login")}
+              className="rounded-lg border px-4 py-2 text-sm font-medium"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+            >
+              Sign in again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const currentNav = NAV_ITEMS.find((n) => n.key === tab);
 
   return (
@@ -125,7 +214,7 @@ export function AdminShell({
         <SidebarContent
           tab={tab}
           onTabChange={(t) => setTab(t)}
-          onExit={() => router.push("/admin/login")}
+          onExit={signOut}
         />
       </aside>
 
@@ -160,6 +249,7 @@ export function AdminShell({
           </div>
         </div>
         <button
+          ref={menuBtnRef}
           onClick={() => setSidebarOpen(true)}
           className="flex items-center justify-center rounded-lg border transition-colors"
           style={{
@@ -174,7 +264,7 @@ export function AdminShell({
         </button>
       </header>
 
-      {/* ── Mobile sidebar ── */}
+      {/* ── Mobile sidebar (modal dialog) ── */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-50 lg:hidden"
@@ -185,6 +275,10 @@ export function AdminShell({
           onClick={() => setSidebarOpen(false)}
         >
           <div
+            ref={drawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Admin sections"
             className="absolute left-0 top-0 bottom-0 flex w-72 flex-col border-r"
             style={{
               borderColor: "var(--color-paper-3)",
@@ -214,7 +308,7 @@ export function AdminShell({
                 setTab(t);
                 setSidebarOpen(false);
               }}
-              onExit={() => router.push("/admin/login")}
+              onExit={signOut}
             />
           </div>
         </div>
@@ -239,7 +333,7 @@ export function AdminShell({
             </p>
           </div>
 
-          <div className="max-w-5xl">{children({ tab, setTab })}</div>
+          <div className="max-w-5xl">{children({ tab, setTab, stats })}</div>
         </main>
       </div>
 
@@ -294,7 +388,7 @@ function SidebarContent({
         </div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 px-3">
+      <nav className="flex flex-1 flex-col gap-1 px-3" aria-label="Admin sections">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active = tab === item.key;
@@ -302,6 +396,7 @@ function SidebarContent({
             <button
               key={item.key}
               onClick={() => onTabChange(item.key)}
+              aria-current={active ? "page" : undefined}
               className="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors"
               style={{
                 color: active ? "var(--color-ink)" : "var(--color-ink-muted)",
@@ -325,7 +420,7 @@ function SidebarContent({
           style={{ color: "var(--color-ink-muted)" }}
         >
           <LogOut className="h-4 w-4" />
-          Exit to login
+          Sign out
         </button>
       </div>
     </>

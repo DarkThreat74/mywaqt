@@ -297,14 +297,15 @@ export function GuideGate({ onPass }: { onPass: () => void }) {
                 <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
                   {qi + 1}. {q.question}
                 </p>
-                <div className="mt-2.5 space-y-1.5">
+                <div className="mt-2.5 space-y-1.5" role="radiogroup" aria-label={q.question}>
                   {q.options.map((opt, oi) => {
                     const sel = picked[qi] === oi;
                     return (
                       <button
                         key={oi}
                         onClick={() => setPicked((p) => p.map((v, i) => (i === qi ? oi : v)))}
-                        aria-pressed={sel}
+                        role="radio"
+                        aria-checked={sel}
                         className="flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-xs transition-colors"
                         style={{
                           borderColor: sel ? "var(--color-accent)" : "var(--color-paper-3)",
@@ -376,6 +377,18 @@ export function GuideGate({ onPass }: { onPass: () => void }) {
             </>
           )}
         </div>
+      )}
+
+      {/* Escape hatch — the gate encourages reading, it must never strand a
+          user in a fail→re-read loop with no way out. */}
+      {!(phase === "result" && score >= PASS_MARK) && (
+        <button
+          onClick={onPass}
+          className="mx-auto mt-5 text-xs font-medium transition-opacity hover:opacity-60"
+          style={{ color: "var(--color-ink-muted)" }}
+        >
+          Skip for now
+        </button>
       )}
     </div>
   );

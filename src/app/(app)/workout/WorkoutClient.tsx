@@ -9,11 +9,10 @@ import { SCIENCE } from "@/lib/workout/science";
 import { getOfflineDB } from "@/lib/offline/db";
 import { syncPendingWorkouts } from "@/lib/workout/sync";
 import { recommendLoadKg } from "@/lib/workout/recommend";
+import { tierColor } from "@/lib/workout/tiers";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface WDay { id: string; weekday: number | null; name: string; exercises: DayExercise[]; }
-
-const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c", D: "#6b4f3f", M: "#3f5d4e", V: "#6b5d3f" };
 
 // ── Auto-insights helpers (Phase 3) ──────────────────────────────────────
 const PLATE_SIZES = [25, 20, 15, 10, 5, 2.5, 1.25];
@@ -77,6 +76,7 @@ export default function WorkoutClient() {
   };
 
   const [actionDay, setActionDay] = useState<WDay | null>(null);
+  const [confirmDeleteDay, setConfirmDeleteDay] = useState(false);
   const router = useRouter();
   const [muscles, setMuscles] = useState<Array<{ muscle: string; effSetsWeek: number; directSetsWeek?: number; indirectSetsWeek?: number; landmark: [number, number]; slopePct: number; status: string; freshness: number; advice?: string | null }>>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
@@ -86,6 +86,7 @@ export default function WorkoutClient() {
     completedExercises?: Array<{ slug: string; setCount: number; recommendedWeightKg: number; pr?: boolean }>;
   }>>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [historyShown, setHistoryShown] = useState(10);
   const [dayName, setDayName] = useState("");
   const [groupFilter, setGroupFilter] = useState<string>("all");
   const [headFilter, setHeadFilter] = useState<string>("all");
@@ -173,10 +174,9 @@ export default function WorkoutClient() {
           };
         });
       setHistory([...serverHistory, ...localEntries]
-        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
-        .slice(0, 10));
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()));
     } catch {
-      setHistory(serverHistory.slice(0, 10));
+      setHistory(serverHistory);
     }
   }
   useEffect(() => { Promise.resolve().then(() => { void load(); setNow(Date.now()); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only
@@ -330,7 +330,7 @@ export default function WorkoutClient() {
             <div>
               <h2 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{view.name}</h2>
               <div className="mt-1 flex items-center gap-2">
-                {view.tier && <span className="rounded px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: TIER_COLORS[view.tier], color: "#fff" }}>{view.tier}-tier</span>}
+                {view.tier && <span className="rounded px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: tierColor(view.tier), color: "#fff" }}>{view.tier}-tier</span>}
                 <span className="text-[10px] capitalize" style={{ color: "var(--color-ink-muted)" }}>{view.muscle.replace(/_/g, " ")} · {view.equip}</span>
               </div>
             </div>
@@ -479,7 +479,7 @@ export default function WorkoutClient() {
           {["all", "S", "A", "B", "C", "D", "F"].map((t) => (
             <button key={t} type="button" onClick={() => setTierFilter(t)}
               className="rounded-full border px-2.5 py-1 text-[10px] font-bold"
-              style={{ borderColor: tierFilter === t ? "var(--color-ink)" : "var(--color-paper-3)", color: t === "all" ? (tierFilter === t ? "var(--color-ink)" : "var(--color-ink-muted)") : TIER_COLORS[t] }}>
+              style={{ borderColor: tierFilter === t ? "var(--color-ink)" : "var(--color-paper-3)", color: t === "all" ? (tierFilter === t ? "var(--color-ink)" : "var(--color-ink-muted)") : tierColor(t) }}>
               {t === "all" ? "All" : t}
             </button>
           ))}
@@ -521,32 +521,32 @@ export default function WorkoutClient() {
 
         <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
           {(pickerAll ? filtered : filtered.slice(0, 120)).map((x) => (
-            <div key={x.slug} role="button" tabIndex={0} onClick={() => setView(x)} onKeyDown={(e) => e.key === "Enter" && setView(x)}
-              className="cursor-pointer rounded-lg border p-2 transition-colors hover:bg-[var(--color-paper-2)]" style={{ borderColor: "var(--color-paper-3)" }}>
-              <div className="flex items-center gap-2.5">
+            <div key={x.slug}
+              className="flex items-center gap-2.5 rounded-lg border p-2 transition-colors hover:bg-[var(--color-paper-2)]" style={{ borderColor: "var(--color-paper-3)" }}>
+              <button type="button" onClick={() => setView(x)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
                 <ExerciseMedia
                   slug={x.slug} pattern={x.pattern}
                   className="h-10 w-10 shrink-0 items-center justify-center rounded-lg"
                   style={{ backgroundColor: "var(--color-paper-2)" }}
                 />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
                     <span className="truncate text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{x.name}</span>
                     {x.tier && (
-                      <span className="shrink-0 rounded px-1 py-0.5 text-[8px] font-bold" style={{ backgroundColor: TIER_COLORS[x.tier], color: "#fff" }}>
+                      <span className="shrink-0 rounded px-1 py-0.5 text-[8px] font-bold" style={{ backgroundColor: tierColor(x.tier), color: "#fff" }}>
                         {x.tier}
                       </span>
                     )}
-                  </div>
-                  <p className="mt-0.5 truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{x.cue}</p>
-                </div>
-                <button type="button" onClick={(e) => { e.stopPropagation(); addExercise(x); }}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold"
-                  style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
-                  aria-label={`Add ${x.name}`}>
-                  +
-                </button>
-              </div>
+                  </span>
+                  <span className="mt-0.5 block truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{x.cue}</span>
+                </span>
+              </button>
+              <button type="button" onClick={() => addExercise(x)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                aria-label={`Add ${x.name}`}>
+                +
+              </button>
             </div>
           ))}
           {catalog === null && (
@@ -606,7 +606,7 @@ export default function WorkoutClient() {
           {insights.benchTrend != null && (
             <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
               <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Bench trend</p>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: insights.benchTrend >= 0 ? "var(--color-success)" : "var(--color-error)" }}>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: insights.benchTrend < 0 ? "var(--color-warmth)" : "var(--color-ink)" }}>
                 {insights.benchTrend >= 0 ? "+" : ""}{insights.benchTrend}%
               </p>
               <p className="text-[9px]" style={{ color: "var(--color-ink-faint)" }}>estimated max, all-time</p>
@@ -647,7 +647,7 @@ export default function WorkoutClient() {
 
       <div className="mt-6 space-y-2">
         {days.map((d) => (
-          <button key={d.id} type="button" onClick={() => setActionDay(d)}
+          <button key={d.id} type="button" onClick={() => { setActionDay(d); setConfirmDeleteDay(false); }}
             className="flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)]"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))" }}>
             <div className="min-w-0">
@@ -726,7 +726,7 @@ export default function WorkoutClient() {
                   </div>
                   <div>
                     <p style={{ color: "var(--color-ink-muted)" }}>Muscles needing attention</p>
-                    <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: over.length ? "var(--color-error)" : under.length ? "var(--color-warmth)" : "var(--color-success)" }}>{under.length + over.length}</p>
+                    <p className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: under.length + over.length > 0 ? "var(--color-warmth)" : "var(--color-ink)" }}>{under.length + over.length}</p>
                   </div>
                 </div>
                 <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -792,7 +792,7 @@ export default function WorkoutClient() {
                   {bmi && <span>BMI <b style={{ color: "var(--color-ink)" }}>{bmi.toFixed(1)}</b></span>}
                   {tonnage > 0 && <span>volume <b style={{ color: "var(--color-ink)" }}>{dispTon(tonnage)}</b></span>}
                   {tonWeek > 0 && (
-                    <span>this week <b style={{ color: weekDelta !== null && weekDelta < 0 ? "var(--color-error)" : "var(--color-success)" }}>{dispTon(tonWeek)}{weekDelta !== null ? ` (${weekDelta > 0 ? "+" : ""}${weekDelta}%)` : ""}</b></span>
+                    <span>this week <b style={{ color: weekDelta !== null && weekDelta < 0 ? "var(--color-warmth)" : "var(--color-ink)" }}>{dispTon(tonWeek)}{weekDelta !== null ? ` (${weekDelta > 0 ? "+" : ""}${weekDelta}%)` : ""}</b></span>
                   )}
                   {progress.length > 0 && <span>PRs <b style={{ color: "var(--color-ink)" }}>{progress.filter((p) => (p.bestE1 || 0) > 0).length}</b></span>}
                 </div>
@@ -802,7 +802,7 @@ export default function WorkoutClient() {
                       <div key={l.name} className="flex items-center gap-2">
                         <span className="w-14 text-[10px]" style={{ color: "var(--color-ink)" }}>{l.name}</span>
                         <div className="h-1.5 flex-1 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }}>
-                          <div className="h-1.5 rounded-full" style={{ width: `${Math.min((l.ratio / 2.5) * 100, 100)}%`, backgroundColor: l.level === "advanced" ? "var(--color-success)" : l.level === "intermediate" ? "var(--color-accent)" : "var(--color-warmth)" }} />
+                          <div className="h-1.5 rounded-full" style={{ width: `${Math.min((l.ratio / 2.5) * 100, 100)}%`, backgroundColor: "var(--color-accent)" }} />
                         </div>
                         <span className="w-20 text-right text-[9px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
                           {l.ratio.toFixed(2)}×bw · {l.level}
@@ -828,20 +828,17 @@ export default function WorkoutClient() {
           <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>
             Muscle workload this week
           </p>
-          <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            Each row answers: how much work did this muscle get, and is it rested? <b>9/10–20</b> means 9 hard sets done, with 10–20 as a starting target. Direct = the main target; indirect = it helped.
-          </p>
           <div className="mt-2 space-y-1.5">
             {muscles.filter((m) => m.effSetsWeek > 0).map((m) => {
-              const color = m.status === "over" ? "var(--color-error)" : m.status === "growing" ? "var(--color-success)" : m.status === "maintaining" ? "var(--color-accent)" : "var(--color-warmth)";
+              const color = m.status === "over" ? "var(--color-warmth)" : "var(--color-ink-muted)";
               return (
                 <div key={m.muscle} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1">
                   <span className="min-w-0 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{m.muscle.replace(/_/g, " ")}</span>
                   <span className="shrink-0 text-right text-[9px]" style={{ color: color }}>
                     {m.effSetsWeek} effective sets
                   </span>
-                  <p className="col-span-2 min-w-0 text-[9px] tabular-nums" title="Recovered — enough rest to train again"
-                    style={{ color: m.freshness >= 90 ? "var(--color-success)" : m.freshness >= 50 ? "var(--color-warmth)" : "var(--color-error)" }}>
+                  <p className="col-span-2 min-w-0 text-[9px] tabular-nums"
+                    style={{ color: m.freshness < 50 ? "var(--color-warmth)" : "var(--color-ink-muted)" }}>
                     {m.freshness}% recovered
                   </p>
                   {m.advice && (
@@ -880,7 +877,7 @@ export default function WorkoutClient() {
                   <span className="min-w-0 truncate text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{ex.name}</span>
                   <span className="flex shrink-0 items-center gap-1.5 text-[10px]">
                     {p.gainPct != null && (
-                      <span style={{ color: p.gainPct >= 0 ? "var(--color-success)" : "var(--color-error)" }}>
+                      <span style={{ color: p.gainPct < 0 ? "var(--color-warmth)" : "var(--color-ink)" }}>
                         {p.gainPct >= 0 ? "▲" : "▼"}{Math.abs(p.gainPct)}%
                       </span>
                     )}
@@ -942,7 +939,7 @@ export default function WorkoutClient() {
                       </span>
                     ))}
                     {forecast?.status === "forecast" && forecast.monthlyE1rmChangePct != null && (
-                      <span style={{ color: "var(--color-success)" }}>
+                      <span style={{ color: "var(--color-ink-muted)" }}>
                         {forecast.monthlyE1rmChangePct >= 0 ? "+" : ""}{forecast.monthlyE1rmChangePct}% per month trend · {confidenceLabel(forecast.confidence)}
                       </span>
                     )}
@@ -977,7 +974,7 @@ export default function WorkoutClient() {
               No sessions yet — finish your first workout and it lands here.
             </p>
           )}
-          {history.map((s) => {
+          {history.slice(0, historyShown).map((s) => {
             const exs = s.completedExercises ?? [];
             const totalSets = exs.reduce((a, x) => a + x.setCount, 0);
             const prs = exs.filter((x) => x.pr).length;
@@ -1049,6 +1046,13 @@ export default function WorkoutClient() {
               </div>
             );
           })}
+          {history.length > historyShown && (
+            <button type="button" onClick={() => setHistoryShown((n) => n + 20)}
+              className="w-full rounded-lg border py-2 text-[11px] font-medium"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
+              Show more — {history.length - historyShown} older sessions
+            </button>
+          )}
         </div>
       )}
 
@@ -1061,7 +1065,7 @@ export default function WorkoutClient() {
 
       {actionDay && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setActionDay(null)}>
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => { setActionDay(null); setConfirmDeleteDay(false); }}>
           <div className="w-full max-w-xs rounded-t-2xl sm:rounded-2xl border p-4 pt-3"
             style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
             onClick={(e) => e.stopPropagation()}>
@@ -1081,15 +1085,31 @@ export default function WorkoutClient() {
                 <span>✎ Edit profile</span>
                 <span className="text-[10px] font-normal" style={{ color: "var(--color-ink-muted)" }}>name & exercises</span>
               </button>
-              <button type="button" onClick={async () => {
-                await fetch(`/api/workout/days?id=${actionDay.id}`, { method: "DELETE" }).catch(() => {});
-                setActionDay(null); await load();
-              }}
-                className="flex w-full items-center justify-between rounded-xl border px-4 py-2.5 text-[12px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ borderColor: "var(--color-error)", color: "var(--color-error)", opacity: 0.8 }}>
-                <span>Delete profile</span>
-                <span className="text-[9px] opacity-70">removes the routine</span>
-              </button>
+              {confirmDeleteDay ? (
+                <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--color-error)" }}>
+                  <p className="text-center text-[12px]" style={{ color: "var(--color-ink)" }}>
+                    Delete “{actionDay.name}”? Logged workouts stay in history; the routine is gone.
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => setConfirmDeleteDay(false)}
+                      className="flex-1 rounded-xl border px-3 py-2.5 text-sm"
+                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Keep it</button>
+                    <button type="button" onClick={async () => {
+                      await fetch(`/api/workout/days?id=${actionDay.id}`, { method: "DELETE" }).catch(() => {});
+                      setConfirmDeleteDay(false); setActionDay(null); await load();
+                    }}
+                      className="flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold"
+                      style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}>Delete profile</button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setConfirmDeleteDay(true)}
+                  className="flex w-full items-center justify-between rounded-xl border px-4 py-2.5 text-[12px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-error)", color: "var(--color-error)", opacity: 0.8 }}>
+                  <span>Delete profile</span>
+                  <span className="text-[9px] opacity-70">removes the routine</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

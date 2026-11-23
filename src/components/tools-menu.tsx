@@ -71,6 +71,8 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const editingRef = useRef(editing);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const itemId = (it: LayoutItem) => it.type === "app" ? `a:${it.key}` : `f:${it.id}`;
 
@@ -156,27 +158,50 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
 
   // App-store open: the tapped icon expands to fill the screen while the
   // (already-prefetched) route mounts underneath — covers the navigation gap
-  // instead of staring at the drawer closing into a blank beat.
+  // instead of staring at the drawer closing into a blank beat. Tiles are
+  // real <Link>s now — this runs on click and the browser navigates, so
+  // ctrl/cmd+click (new tab) and context menus work like the web should.
   const [launch, setLaunch] = useState<{ key: string; x: number; y: number; s: number } | null>(null);
   const launchEl = useRef<HTMLDivElement | null>(null);
 
   function openApp(e: React.MouseEvent, app: { key: string; href: string }) {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setFolderOpen(null);
+    // Modified clicks (new tab/window) skip the launch overlay — the browser
+    // is handling a different navigation surface.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { setOpen(false); return; }
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setOpen(false);
     setLaunch({ key: app.key, x: r.left, y: r.top, s: r.width });
     router.prefetch(app.href);
-    setTimeout(() => router.push(app.href), 300);
     setTimeout(() => setLaunch(null), 950);
   }
 
   function tileClick(e: React.MouseEvent, item: LayoutItem) {
-    if (suppressClick.current) { suppressClick.current = false; return; }
+    if (suppressClick.current) { suppressClick.current = false; e.preventDefault(); return; }
     // Folders open in edit mode too — that's where the rename input lives.
     if (item.type === "folder") { setFolderOpen(item.id); return; }
-    if (editing) return;
+    // In edit mode a tap must not navigate — jiggling tiles are for moving,
+    // hiding and foldering, not opening.
+    if (editing) { e.preventDefault(); return; }
     const app = APP_BY_KEY.get(item.key);
     if (app) openApp(e, app);
+  }
+
+  // Keyboard reorder — the drag engine is pointer-only, so in edit mode the
+  // arrow keys move a focused tile one slot. Same commit path as a drop.
+  function onTileKeyDown(e: React.KeyboardEvent, item: LayoutItem) {
+    if (!editing) return;
+    const dir = e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1
+      : e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : 0;
+    if (!dir) return;
+    e.preventDefault();
+    const from = items.indexOf(item);
+    const to = from + dir;
+    if (from === -1 || to < 0 || to >= items.length) return;
+    const next = [...items];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    commit(next);
   }
 
   function iconTile(appKey: string | "store", size: number) {
@@ -233,11 +258,31 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
     return () => window.removeEventListener("pagehide", onHide);
   }, []);
 
+  // Escape closes; Tab is trapped inside the drawer (aria-modal contract);
+  // on open focus moves to the close button, on close it returns to the
+  // trigger so keyboard users don't lose their place.
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") dismiss(); };
+    const prev = document.activeElement as HTMLElement | null;
+    const trigger = triggerRef.current;
+    dialogRef.current?.querySelector<HTMLElement>('[aria-label="Close apps"]')?.focus();
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { dismiss(); return; }
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      const f = dialogRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input, [tabindex]:not([tabindex="-1"])'
+      );
+      if (f.length === 0) { e.preventDefault(); return; }
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && !dialogRef.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      (prev && document.contains(prev) ? prev : trigger)?.focus();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -399,6 +444,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
       {/* Trigger button — variant controls appearance */}
       {variant === "sidebar" ? (
         <button
+          ref={triggerRef}
           onClick={() => setOpen(true)}
           className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-soft)" }}
@@ -408,6 +454,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
         </button>
       ) : (
         <button
+          ref={triggerRef}
           onClick={() => setOpen(true)}
           className="flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-soft)", minHeight: 44, minWidth: 44 }}
@@ -431,6 +478,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
             role="dialog"
             aria-modal="true"
             aria-label="My apps"
+            ref={dialogRef}
             className="absolute inset-0 flex flex-col overflow-hidden"
             style={{
               backgroundColor: "var(--color-paper)",
@@ -501,6 +549,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                         key={item.id}
                         type="button"
                         onPointerDown={(e) => onTilePointerDown(e, item)}
+                        onKeyDown={(e) => onTileKeyDown(e, item)}
                         onClick={(e) => tileClick(e, item)}
                         className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted && !pressed ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
                         style={{
@@ -545,11 +594,15 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                   }
                   const app = APP_BY_KEY.get(item.key);
                   if (!app) return null;
+                  // Real link, not router.push — ctrl/cmd+click, long-press
+                  // "open in new tab" and AT link semantics all work.
                   return (
-                    <button
+                    <Link
                       key={item.key}
-                      type="button"
+                      href={app.href}
+                      prefetch={false}
                       onPointerDown={(e) => onTilePointerDown(e, item)}
+                      onKeyDown={(e) => onTileKeyDown(e, item)}
                       onClick={(e) => tileClick(e, item)}
                       className={`flex flex-col items-center gap-1.5 transition-transform duration-150 ${editing && !lifted && !pressed ? "drawer-jiggle" : ""} ${lifted ? "opacity-30" : ""}`}
                       style={{
@@ -579,7 +632,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                       <span className="max-w-full truncate text-[11px] font-medium" style={{ color: "var(--color-ink-soft)" }}>
                         {app.label}
                       </span>
-                    </button>
+                    </Link>
                   );
                 })}
               </div>
@@ -660,11 +713,13 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                     const app = APP_BY_KEY.get(k);
                     if (!app) return null;
                     return (
-                      <button
+                      <Link
                         key={k}
-                        type="button"
+                        href={app.href}
+                        prefetch={false}
                         onClick={(e) => {
                           if (editing) {
+                            e.preventDefault();
                             // ×-style pull-out: remove from folder → grid end.
                             commit(items.map((i) => i.type === "folder" && i.id === openFolder.id ? { ...i, keys: i.keys.filter((x: string) => x !== k) } : i).concat({ type: "app", key: k }));
                           } else {
@@ -681,7 +736,7 @@ export default function ToolsMenu({ variant = "icon" }: { variant?: "icon" | "si
                             <X className="h-2.5 w-2.5" />
                           </span>
                         )}
-                      </button>
+                      </Link>
                     );
                   })}
                 </div>

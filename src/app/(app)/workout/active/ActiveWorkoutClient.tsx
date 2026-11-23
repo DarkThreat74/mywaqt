@@ -10,6 +10,7 @@ import { SCIENCE } from "@/lib/workout/science";
 import { estimateE1, EQUIP_NOTES, VARIATIONS, HANDED } from "@/lib/workout/ratios";
 import { getOfflineDB, type LocalWorkoutSession, type LocalWorkoutSet } from "@/lib/offline/db";
 import { syncPendingWorkouts } from "@/lib/workout/sync";
+import { tierColor } from "@/lib/workout/tiers";
 
 interface DayExercise { slug: string; name: string; sets: number; reps: string; supersetGroup?: number | null; }
 interface SetRow { weight: string; reps: number | null; rir?: number | null; setType?: "warmup" | "working" | "failure"; variation?: string | null; side?: "left" | "right" | "both" | null; loggedAt?: string; done: boolean; }
@@ -19,7 +20,7 @@ type HandMode = "both" | "one";
 // Catalog-dependent helpers live inside ActiveInner — the ~2,000-entry
 // exercise bank is lazy-loaded so this route's initial chunk stays light.
 
-const TIER_COLORS: Record<string, string> = { S: "#b45309", A: "#365314", B: "#44403c", C: "#78716c", D: "#6b4f3f", M: "#3f5d4e", V: "#6b5d3f" };
+// Tier colors come from src/lib/workout/tiers.ts — one source, token-backed.
 
 function fmt(s: number) {
   const m = Math.floor(s / 60), sec = s % 60;
@@ -132,7 +133,11 @@ function ActiveInner() {
       const d = dayId
         ? days.find((x: { id: string }) => x.id === dayId)
         : days.find((x: { weekday: number }) => x.weekday === new Date().getDay());
-      if (!d || cancelled) return;
+      if (cancelled) return;
+      if (!d) {
+        if (dayId) setSessionError("That workout day could not be found — it may have been deleted or renamed.");
+        return;
+      }
       setDayName(d.name);
       setAvailableExercises(d.exercises || []);
       // Start/resume session. The local draft is only written once we know
@@ -519,6 +524,13 @@ function ActiveInner() {
     }).catch(() => {});
   }, []);
   const [view, setView] = useState<Exercise | null>(null);
+  // Never two overlays deep — opening the detail sheet from the picker swaps
+  // it for the picker, and closing restores it.
+  const [reopenPicker, setReopenPicker] = useState(false);
+  const closeView = () => {
+    setView(null);
+    if (reopenPicker) { setReopenPicker(false); setExercisePickerOpen(true); }
+  };
   const [openRir, setOpenRir] = useState<string | null>(null);
   const [leaveAsk, setLeaveAsk] = useState(false);
   const [finishAsk, setFinishAsk] = useState(false);
@@ -816,7 +828,8 @@ function ActiveInner() {
     <div className="mx-auto w-full px-4 py-6 pb-24">
       {sessionError && (
         <div className="mb-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }}>
-          {sessionError}
+          {sessionError}{" "}
+          <Link href="/workout" className="font-semibold underline">Back to workouts</Link>
         </div>
       )}
       {finishError && (
@@ -824,8 +837,8 @@ function ActiveInner() {
           {finishError}
         </div>
       )}
-      <div className="sticky top-2 z-30 rounded-2xl border p-3 shadow-sm backdrop-blur"
-        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "color-mix(in oklab, var(--color-paper) 92%, transparent)" }}>
+      <div className="sticky top-2 z-30 rounded-2xl border p-3 shadow-sm"
+        style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
           <div className="min-w-0 w-full sm:w-auto sm:flex-1">
             <h1 className="text-lg font-semibold leading-tight" style={{ color: "var(--color-ink)" }}>{dayName || "Workout"}</h1>
@@ -872,10 +885,6 @@ function ActiveInner() {
             style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: sessionId ? 1 : 0.45 }}>
             Finish
           </button>
-          <button type="button" onClick={() => setLeaveAsk(true)} className="rounded-full border px-2 py-1 text-[10px]"
-            style={{ borderColor: "var(--color-error)", color: "var(--color-error)" }} title="Leave — deletes this session">
-            ✕
-          </button>
         </div>
       </div>
       </div>
@@ -885,7 +894,11 @@ function ActiveInner() {
           <div className="w-full max-w-sm rounded-t-2xl border p-4 sm:rounded-2xl"
             style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
             onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Today&apos;s training context</p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Today&apos;s training context</p>
+              <button type="button" onClick={() => setReadinessOpen(false)} aria-label="Close"
+                className="text-lg leading-none" style={{ color: "var(--color-ink-muted)" }}>✕</button>
+            </div>
             <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
               Pre-filled from your recent training — soreness reflects today&apos;s muscles. Adjust if today feels different, then save.
             </p>
@@ -915,12 +928,14 @@ function ActiveInner() {
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", opacity: readinessSaving ? 0.6 : 1 }}>
               {readinessSaving ? "Saving…" : "Save context"}
             </button>
+            <button type="button" onClick={() => setReadinessOpen(false)}
+              className="mt-2 w-full py-1.5 text-center text-[11px]"
+              style={{ color: "var(--color-ink-muted)" }}>
+              Skip for now
+            </button>
           </div>
         </div>
       )}
-      <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-        {totalDone}/{totalPlanned} sets logged
-      </p>
       <div className="mt-2 flex gap-1" aria-label={`${totalDone} of ${totalPlanned} sets complete`}>
         {Array.from({ length: Math.max(totalPlanned, 1) }, (_, index) => (
           <span key={index} className="h-1 flex-1 rounded-full"
@@ -958,7 +973,7 @@ function ActiveInner() {
               {xi === activeExerciseIndex && (
                 <div className="flex items-center gap-2 border-b px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.16em]"
                   style={{ borderColor: "color-mix(in oklab, var(--color-accent) 25%, transparent)", color: "var(--color-accent)" }}>
-                  <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ backgroundColor: "var(--color-accent)" }} />
+                  <span className="h-1.5 w-1.5 rounded-full motion-safe:animate-pulse" style={{ backgroundColor: "var(--color-accent)" }} />
                   Next movement
                 </div>
               )}
@@ -994,7 +1009,7 @@ function ActiveInner() {
                     </span>
                     <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>{displayName}</span>
                     {ex?.tier && (
-                      <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[ex.tier], color: "#fff" }}>
+                      <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: tierColor(ex.tier), color: "#fff" }}>
                         {ex.tier}
                       </span>
                     )}
@@ -1129,7 +1144,7 @@ function ActiveInner() {
                   const row = rows[rowIndex] || { weight: "", reps: null, done: false, setType: "working" as const, variation: oneHand ? `hand:${side}` : "hand:both" };
                   const prev = prevSets[x.slug]?.[logicalIndex];
                   return (
-                    <div key={rowIndex} className="flex items-center gap-2 rounded-lg px-1 py-0.5 transition-colors"
+                    <div key={`${x.slug}:${rowIndex}`} className="flex items-center gap-2 rounded-lg px-1 py-0.5 transition-colors"
                       style={{
                         backgroundColor: row.done ? "color-mix(in oklab, var(--color-success) 12%, transparent)" : oneHand ? "color-mix(in oklab, var(--color-accent) 4%, transparent)" : "transparent",
                         ...(oneHand ? {
@@ -1249,6 +1264,12 @@ function ActiveInner() {
         </button>
       )}
 
+      <button type="button" onClick={() => setLeaveAsk(true)}
+        className="mx-auto mt-6 block px-4 py-2 text-[11px]"
+        style={{ color: "var(--color-ink-muted)" }}>
+        Leave workout — deletes this session
+      </button>
+
       {exercisePickerOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => { setExercisePickerOpen(false); setSwapSlug(null); }}>
@@ -1333,24 +1354,26 @@ function ActiveInner() {
                       {visible.map((exercise) => {
                         const full = exBySlug.get(exercise.slug);
                         return (
-                          <div key={exercise.slug} role="button" tabIndex={0}
-                            onClick={() => { if (full) setView(full); }}
-                            onKeyDown={(e) => { if (e.key === "Enter" && full) setView(full); }}
+                          <div key={exercise.slug}
                             className="flex items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left"
-                            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", cursor: full ? "pointer" : "default" }}>
-                            <ExerciseMedia slug={exercise.slug} pattern={full?.pattern ?? ""} showToggle={false}
-                              className="h-11 w-11 shrink-0 items-center justify-center rounded-lg"
-                              style={{ backgroundColor: "var(--color-paper-2)" }} />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-xs font-medium">{exercise.name}</span>
-                              {(exercise.muscle || exercise.equip) && (
-                                <span className="block truncate text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
-                                  {[exercise.muscle, exercise.equip].filter(Boolean).join(" · ").replace(/_/g, " ")}
-                                </span>
-                              )}
-                            </span>
+                            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                            <button type="button" disabled={!full}
+                              onClick={() => { if (full) { setView(full); setExercisePickerOpen(false); setReopenPicker(true); } }}
+                              className="flex min-w-0 flex-1 items-center gap-2.5 text-left disabled:cursor-default">
+                              <ExerciseMedia slug={exercise.slug} pattern={full?.pattern ?? ""} showToggle={false}
+                                className="h-11 w-11 shrink-0 items-center justify-center rounded-lg"
+                                style={{ backgroundColor: "var(--color-paper-2)" }} />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-xs font-medium">{exercise.name}</span>
+                                {(exercise.muscle || exercise.equip) && (
+                                  <span className="block truncate text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
+                                    {[exercise.muscle, exercise.equip].filter(Boolean).join(" · ").replace(/_/g, " ")}
+                                  </span>
+                                )}
+                              </span>
+                            </button>
                             <button type="button" aria-label={`Add ${exercise.name}`}
-                              onClick={(e) => { e.stopPropagation(); pickExercise({ slug: exercise.slug, name: exercise.name, sets: exercise.sets, reps: exercise.reps, supersetGroup: null }); }}
+                              onClick={() => pickExercise({ slug: exercise.slug, name: exercise.name, sets: exercise.sets, reps: exercise.reps, supersetGroup: null })}
                               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border"
                               style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
                               <Plus className="h-4 w-4" />
@@ -1440,14 +1463,14 @@ function ActiveInner() {
       {view && (() => {
         const sci = SCIENCE[view.slug];
         return (
-          <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
-            style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setView(null)}>
+          <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true"
+            style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={closeView}>
             <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-2xl sm:rounded-2xl border p-5"
               style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
               onClick={(e) => e.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <h2 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>{view.name}</h2>
-                <button type="button" onClick={() => setView(null)} className="text-lg" style={{ color: "var(--color-ink-muted)" }}>✕</button>
+                <button type="button" onClick={closeView} className="text-lg" style={{ color: "var(--color-ink-muted)" }}>✕</button>
               </div>
               <ExerciseMedia slug={view.slug} pattern={view.pattern}
                 className="mt-4 aspect-square w-full rounded-xl"

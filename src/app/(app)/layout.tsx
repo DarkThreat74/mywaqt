@@ -22,6 +22,7 @@ import GlobalReciteToast from "@/features/quran-tester/GlobalReciteToast";
 import { isFeedbackEnabled } from "@/lib/app-settings";
 import OfflineDot from "@/components/offline-dot";
 import NavLink from "@/components/nav-link";
+import RouteFocus from "@/components/route-focus";
 import { AudioPlayerProvider } from "@/components/audio-player-context";
 import GlobalAudioPlayer from "@/components/global-audio-player";
 import LogoutButton from "@/components/logout-button";
@@ -216,7 +217,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {/* Bottom padding lives in globals.css (main#main-content) — it adds
             nav + safe-area + player-bar height; a Tailwind pb-* here loses to
             that ID selector anyway. */}
-        <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden">
+        {/* tabIndex={-1} lets the skip link and RouteFocus move keyboard
+            focus here — a <main> isn't focusable without it. */}
+        <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 overflow-x-hidden outline-none">
           <BiometricGate>{children}</BiometricGate>
         </main>
         <WorkoutPill />
@@ -239,6 +242,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* Service worker + notification scheduler + deep links + fun fact popup */}
       <ServiceWorkerRegister />
+      <RouteFocus />
       <GlobalReciteToast />
       <UserStamp userId={session.userId} />
       <ThemeGuard />
@@ -282,6 +286,7 @@ function NavItem({ label, href, icon: Icon, alert }: { label: string; href: stri
       href={href}
       className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
       style={{ color: "var(--color-ink-soft)" }}
+      activeStyle={{ color: "var(--color-ink)", backgroundColor: "var(--color-paper-2)" }}
     >
       <span className="relative">
         <Icon className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
@@ -304,6 +309,7 @@ function MobileNavItem({ label, href, icon: Icon, alert }: { label: string; href
       href={href}
       className="flex min-w-0 flex-1 flex-col items-center gap-1 py-3 text-[11px] font-medium"
       style={{ color: "var(--color-ink-muted)", minHeight: 44 }}
+      activeStyle={{ color: "var(--color-accent)" }}
     >
       <span className="relative">
         <Icon className="h-5 w-5" />

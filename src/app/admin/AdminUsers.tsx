@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { RefreshCw, ChevronRight, ArrowLeft, Mail, Calendar, UserCircle, Activity, Trash2 } from "lucide-react";
+import { RefreshCw, ChevronRight, ArrowLeft, Mail, Calendar, UserCircle, Activity, Trash2, Search } from "lucide-react";
 
 interface AdminUser {
   id: string;
@@ -43,6 +43,7 @@ export function AdminUsers({ onSelect }: { onSelect: (user: AdminUser) => void }
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/users")
@@ -91,9 +92,43 @@ export function AdminUsers({ onSelect }: { onSelect: (user: AdminUser) => void }
     );
   }
 
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? users.filter((u) =>
+        u.email.toLowerCase().includes(q) ||
+        (u.firstName ?? "").toLowerCase().includes(q) ||
+        (u.displayName ?? "").toLowerCase().includes(q))
+    : users;
+
   return (
     <div className="flex flex-col gap-2">
-      {users.map((user) => (
+      {/* Client-side search — the list arrives in one payload, filtering
+          costs nothing and beats scrolling an unordered dump. */}
+      <div className="relative mb-1">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+          style={{ color: "var(--color-ink-muted)" }}
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by name or email"
+          aria-label="Search users"
+          className="w-full rounded-xl border py-2.5 pl-9 pr-3 text-base outline-none"
+          style={{
+            borderColor: "var(--color-paper-3)",
+            backgroundColor: "var(--color-paper)",
+            color: "var(--color-ink)",
+          }}
+        />
+      </div>
+      {filtered.length === 0 && (
+        <p className="py-8 text-center text-sm" style={{ color: "var(--color-ink-muted)" }}>
+          No users match &ldquo;{query.trim()}&rdquo;.
+        </p>
+      )}
+      {filtered.map((user) => (
         <button
           key={user.id}
           onClick={() => onSelect(user)}

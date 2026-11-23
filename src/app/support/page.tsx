@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { SUPPORT_EMAIL, SITE_URL } from "@/lib/site-config";
 import LegalLayout from "@/components/legal-layout";
 
@@ -70,11 +71,11 @@ export default function SupportPage() {
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">Delete Your Account</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          You can delete your account at any time from Settings &rarr; Account
-          &rarr; Delete Account. See our{" "}
-          <a href="/data-deletion" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+          You can delete your account at any time from Settings &rarr; Advanced
+          &rarr; Delete my account. See our{" "}
+          <Link href="/data-deletion" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
             Data Deletion guide
-          </a>{" "}
+          </Link>{" "}
           for full details on what is deleted and what is retained.
         </p>
       </section>
@@ -83,17 +84,17 @@ export default function SupportPage() {
         <h2 className="mb-2 text-lg font-semibold">Privacy & Terms</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           See our{" "}
-          <a href="/privacy" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+          <Link href="/privacy" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
             Privacy Policy
-          </a>
+          </Link>
           ,{" "}
-          <a href="/cookies" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+          <Link href="/cookies" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
             Cookie Policy
-          </a>
+          </Link>
           , and{" "}
-          <a href="/terms" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+          <Link href="/terms" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
             Terms of Service
-          </a>
+          </Link>
           .
         </p>
       </section>

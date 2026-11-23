@@ -112,15 +112,21 @@ const NAMES: DivineName[] = [
   { number: 99, arabic: "الصَّبُورُ", transliteration: "As-Saboor", meaning: "The Patient" },
 ];
 
+// Strip Arabic diacritics + tatweel so voweled text matches an
+// unvoweled query (and vice versa).
+const stripArabicMarks = (s: string) =>
+  s.replace(/[ؐ-ًؚ-ٰٟـ]/g, ""); // covers U+0610-061A, U+064B-065F, U+0670, U+0640
+
 export default function NamesClient() {
   const [query, setQuery] = useState("");
 
   const trimmed = query.trim().toLowerCase();
+  const trimmedAr = stripArabicMarks(query.trim());
   const filtered = trimmed
     ? NAMES.filter((n) =>
         n.transliteration.toLowerCase().includes(trimmed) ||
         n.meaning.toLowerCase().includes(trimmed) ||
-        n.arabic.includes(query.trim())
+        stripArabicMarks(n.arabic).includes(trimmedAr)
       )
     : NAMES;
 
@@ -233,7 +239,7 @@ export default function NamesClient() {
 
               {/* Arabic — the visual anchor, always largest on the line */}
               <p
-                className="shrink-0 text-2xl leading-[1.5] tracking-wide sm:text-[1.7rem]"
+                className="shrink-0 text-2xl leading-[1.5] sm:text-[1.7rem]"
                 style={{
                   color: "var(--color-ink)",
                   fontFamily: "var(--font-arabic, var(--font-amiri, serif))",

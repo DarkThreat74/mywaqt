@@ -218,7 +218,7 @@ export default function MarketingPage() {
           <div className="max-w-2xl">
             <div className="waqt-fade-up" style={{ animationDelay: "0.05s" }}>
               <p
-                className="mb-8 text-xs font-medium uppercase tracking-[0.2em]"
+                className="mb-8 text-xs font-medium uppercase tracking-[0.1em]"
                 style={{ color: "var(--color-accent)" }}
               >
                 Prayer-centered life tracker
@@ -278,19 +278,6 @@ export default function MarketingPage() {
           </div>
         </div>
 
-        {/* Scroll indicator — animated bounce */}
-        <div className="waqt-fade-up" style={{ animationDelay: "0.55s" }}>
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2">
-            <div
-              className="h-12 w-px"
-              style={{
-                backgroundColor: "var(--color-ink-muted)",
-                opacity: 0.3,
-                animation: "waqt-scroll-pulse 2s ease-in-out infinite",
-              }}
-            />
-          </div>
-        </div>
       </section>
 
       {/* ── Features section — what Waqt actually has right now ── */}
@@ -304,7 +291,7 @@ export default function MarketingPage() {
         <div className="mx-auto max-w-5xl">
           <div className="waqt-fade-up mb-16 flex items-center gap-4">
             <p
-              className="text-xs font-medium uppercase tracking-[0.2em]"
+              className="text-xs font-medium uppercase tracking-[0.1em]"
               style={{ color: "var(--color-ink-muted)" }}
             >
               What&apos;s inside
@@ -323,6 +310,12 @@ export default function MarketingPage() {
           </div>
 
           <div className="waqt-fade-up grid gap-x-12 gap-y-16 sm:grid-cols-2 lg:grid-cols-3" style={{ animationDelay: "0.1s" }}>
+            <h3
+              className="sm:col-span-2 lg:col-span-3 text-xs font-semibold uppercase tracking-[0.1em]"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Prayer & accountability
+            </h3>
             <Feature
               title="Prayer-anchored calendar"
               body="Day, month, and list views with the five daily prayers as fixed background bands. Events, tasks, and reminders sit on top. Overlaps stack side-by-side — nothing blocks."
@@ -344,6 +337,20 @@ export default function MarketingPage() {
               body="Share your six-character prayer code. Send and accept friend requests, see your streaks side-by-side, and hold each other accountable through companionship."
             />
             <Feature
+              title="Prayer time notifications"
+              body="Get a notification when each prayer window opens, and a reminder 15 minutes before your scheduled events. Asr is automatically adjusted for your calculation method."
+            />
+            <Feature
+              title="Salah Shield"
+              body="Optional accountability lock: while a prayer window is open and unmarked, the app holds until you check in. No snoozing your way out — marking it prayed is the only key."
+            />
+            <h3
+              className="sm:col-span-2 lg:col-span-3 text-xs font-semibold uppercase tracking-[0.1em] mt-4"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Your day, planned
+            </h3>
+            <Feature
               title="Homework & classes"
               body="Track assignments by class with due dates, times, priority, and type. Overdue and due-today items surface on the Today tab so nothing slips past you."
             />
@@ -357,31 +364,29 @@ export default function MarketingPage() {
             />
             <Feature
               title="Public calendar sharing"
-              body="Generate a shareable link with a named URL. Anyone can see your prayer schedule without an account — perfect for family and study groups."
-            />
-            <Feature
-              title="Works fully offline"
-              body="Open the app, add events, log prayers, adjust qadaa — all without internet. Edits queue locally and sync automatically the moment you reconnect."
-            />
-            <Feature
-              title="Prayer time notifications"
-              body="Get a notification when each prayer window opens, and a reminder 15 minutes before your scheduled events. Asr is automatically adjusted for your calculation method."
-            />
-            <Feature
-              title="Trusted device login"
-              body="Sign in instantly on your own phone or laptop — no password needed. Your device is remembered with a fingerprint, and you can revoke access anytime."
-            />
-            <Feature
-              title="365-day fact bank"
-              body="A human-curated Islamic fact, glossary term, and Arabic citation for every day of the year. No AI-generated rulings — just vetted content from authentic sources."
+              body="Generate a shareable link with a named URL. Anyone can see your prayer schedule without an account — useful for family and study groups."
             />
             <Feature
               title="Calendar list view"
               body="See your upcoming events across multiple days in a single scrollable list with dates, time slots, and color tags. Filter what's in progress from what's ended."
             />
             <Feature
+              title="Works fully offline"
+              body="Open the app, add events, log prayers, adjust qadaa — all without internet. Edits queue locally and sync automatically the moment you reconnect."
+            />
+            <h3
+              className="sm:col-span-2 lg:col-span-3 text-xs font-semibold uppercase tracking-[0.1em] mt-4"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Deen library
+            </h3>
+            <Feature
+              title="365-day fact bank"
+              body="A human-curated Islamic fact, glossary term, and Arabic citation for every day of the year. No AI-generated rulings — just vetted content from authentic sources."
+            />
+            <Feature
               title="Dhikr counter"
-              body="A beautiful tap-based tasbih counter with curated dhikr sequences from authenticated sources. Vibration feedback on each count, auto-advances through the sequence, and tracks your progress."
+              body="A tap-based tasbih counter with curated dhikr sequences from authenticated sources. Vibration feedback on each count, auto-advances through the sequence, and tracks your progress."
             />
             <Feature
               title="Hijri calendar"
@@ -397,57 +402,35 @@ export default function MarketingPage() {
             />
             <Feature
               title="99 Names of Allah"
-              body="Browse all 99 beautiful names of Allah (Asma ul Husna) with Arabic script, transliteration, and English meanings. Search by name or meaning."
+              body="Browse all 99 names of Allah (Asma ul Husna) with Arabic script, transliteration, and English meanings. Search by name or meaning."
             />
             <Feature
               title="Talks library"
               body="Browse curated lectures and khutbahs from trusted speakers. External links only — no self-hosted audio. Filter by category and listen on the original platform."
             />
+            <h3
+              className="sm:col-span-2 lg:col-span-3 text-xs font-semibold uppercase tracking-[0.1em] mt-4"
+              style={{ color: "var(--color-ink-muted)" }}
+            >
+              Your account
+            </h3>
             <Feature
-              title="Bot-proof signup"
-              body="A claw-machine mini-game verifies you're human — no boring checkbox, no privacy-invading tracking. Falls back automatically if the challenge doesn't load."
+              title="Trusted device login"
+              body="Sign in on your own phone or laptop — no password needed. Your device is remembered with a fingerprint, and you can revoke access anytime."
+            />
+            <Feature
+              title="Human-check signup"
+              body="A claw-machine mini-game verifies you're human — no privacy-invading tracking. Falls back automatically if the challenge doesn't load."
             />
             <Feature
               title="Your data stays yours"
               body="Prayer logs, goals, and study sessions are sealed to your account — cached pages and API responses are stamped per-user and wiped on logout, so nothing leaks to anyone else who touches your device. No ads, no tracking, ever."
             />
-            <Feature
-              title="Salah Shield"
-              body="Optional accountability lock: while a prayer window is open and unmarked, the app holds until you check in. No snoozing your way out — marking it prayed is the only key."
-            />
           </div>
         </div>
       </section>
 
-      {/* ── Quote band — full width, Arabic + translation ── */}
-      <section className="px-6 py-24 sm:px-10 sm:py-32 lg:px-16">
-        <div className="mx-auto max-w-4xl text-center">
-          <div className="waqt-scale-in" style={{ animationDelay: "0.05s" }}>
-            <p
-              className="mb-8 text-4xl font-semibold leading-tight sm:text-5xl lg:text-6xl"
-              style={{ color: "var(--color-ink)", fontFamily: "var(--font-amiri)" }}
-              dir="rtl"
-            >
-              حي على الصلاة
-            </p>
-          </div>
-          <div className="waqt-fade-up" style={{ animationDelay: "0.15s" }}>
-            <p
-              className="text-2xl font-semibold leading-tight tracking-tight sm:text-3xl lg:text-4xl"
-              style={{ color: "var(--color-ink-soft)" }}
-            >
-              &ldquo;Come to prayer.&rdquo;
-            </p>
-          </div>
-          <div className="waqt-fade-up" style={{ animationDelay: "0.25s" }}>
-            <p className="mt-6 text-sm" style={{ color: "var(--color-ink-muted)" }}>
-              — The call to prayer, heard five times daily
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Second quote — about prayer being timed ── */}
+      {/* ── Quote band — prayer being timed ── */}
       <section
         className="border-y px-6 py-24 sm:px-10 sm:py-32 lg:px-16"
         style={{
@@ -477,6 +460,39 @@ export default function MarketingPage() {
             <p className="mt-6 text-sm" style={{ color: "var(--color-ink-muted)" }}>
               — Quran, An-Nisa 4:103
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FAQ — matches the FAQPage structured data above ── */}
+      <section
+        className="border-t px-6 py-24 sm:px-10 sm:py-32 lg:px-16"
+        style={{ borderColor: "var(--color-paper-3)" }}
+      >
+        <div className="mx-auto max-w-2xl">
+          <h2
+            className="text-xs font-medium uppercase tracking-[0.1em]"
+            style={{ color: "var(--color-ink-muted)" }}
+          >
+            Common questions
+          </h2>
+          <div className="mt-10 flex flex-col gap-10">
+            <Faq
+              q="What is Waqt?"
+              a="Waqt is a prayer-centered life tracker — a calendar where the five daily prayers are fixed anchors and everything else (events, tasks, reminders) is scheduled around them. It combines prayer accountability check-ins with everyday planning."
+            />
+            <Faq
+              q="Is Waqt free?"
+              a="Yes. Prayer tracking is free forever — accountability is never gated behind a paywall."
+            />
+            <Faq
+              q="Does Waqt work offline?"
+              a="Yes. You can open the app, add events, log prayers, and adjust qadaa without internet. Changes queue locally and sync automatically when you reconnect."
+            />
+            <Faq
+              q="Does Waqt show iqamah times for local masjids?"
+              a="Yes. The masjid finder shows nearby masjids with iqamah and Jumu'ah times, sourced from mosque websites, community submissions, and public registries."
+            />
           </div>
         </div>
       </section>
@@ -565,6 +581,25 @@ export default function MarketingPage() {
           </nav>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function Faq({ q, a }: { q: string; a: string }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <h3
+        className="text-base font-semibold tracking-tight"
+        style={{ color: "var(--color-ink)" }}
+      >
+        {q}
+      </h3>
+      <p
+        className="text-sm leading-relaxed"
+        style={{ color: "var(--color-ink-soft)" }}
+      >
+        {a}
+      </p>
     </div>
   );
 }

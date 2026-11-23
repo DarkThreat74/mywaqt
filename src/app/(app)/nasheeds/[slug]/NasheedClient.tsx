@@ -397,7 +397,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
       {/* ── Title block ── */}
       <div className="mb-2">
         <h1
-          className="text-4xl leading-[1.4] tracking-wide sm:text-[2.6rem]"
+          className="text-4xl leading-[1.4] sm:text-[2.6rem]"
           lang="ar"
           dir="rtl"
           style={{
@@ -440,11 +440,29 @@ export default function NasheedClient({ slug }: { slug: string }) {
           <div
             ref={railRef}
             onClick={seekRail}
+            onKeyDown={(e) => {
+              const a = audioRef.current ?? audio();
+              if (!a || !duration) return;
+              const step = 5;
+              let t: number | null = null;
+              if (e.key === "ArrowRight" || e.key === "ArrowUp") t = Math.min(duration, a.currentTime + step);
+              else if (e.key === "ArrowLeft" || e.key === "ArrowDown") t = Math.max(0, a.currentTime - step);
+              else if (e.key === "Home") t = 0;
+              else if (e.key === "End") t = duration;
+              if (t !== null) {
+                e.preventDefault();
+                a.currentTime = t;
+                setNow(t);
+              }
+            }}
             role="slider"
+            tabIndex={0}
             aria-label="Seek"
+            aria-orientation="horizontal"
             aria-valuemin={0}
             aria-valuemax={Math.round(duration)}
             aria-valuenow={Math.round(now)}
+            aria-valuetext={`${fmt(now)} of ${duration ? fmt(duration) : "unknown"}`}
             className="group relative h-6 flex-1 cursor-pointer"
           >
             <div
@@ -477,7 +495,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
       )}
       {loadError && (
         <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-          Couldn&rsquo;t load the audio — check your connection once and it will be saved for offline use.
+          Couldn&rsquo;t load the audio — check your connection and try again. Once it plays, it&rsquo;s kept for offline listening.
         </p>
       )}
 
@@ -513,6 +531,8 @@ export default function NasheedClient({ slug }: { slug: string }) {
                 />
                 {mark}
                 <span
+                  lang="ar"
+                  dir="rtl"
                   className="text-[0.7rem]"
                   style={{
                     color: "var(--color-ink-muted)",
@@ -544,7 +564,8 @@ export default function NasheedClient({ slug }: { slug: string }) {
                 <div className="mb-3 flex items-center justify-center gap-2.5">
                   {mark}
                   <p
-                    className="text-[0.65rem] font-semibold uppercase tracking-[0.22em]"
+                    lang="ar"
+                    className="text-[0.8rem] font-semibold"
                     style={{ color: "var(--color-accent)" }}
                   >
                     اللازمة
@@ -572,6 +593,7 @@ export default function NasheedClient({ slug }: { slug: string }) {
                 <span className="h-px w-10" style={{ backgroundColor: "var(--color-paper-3)" }} />
                 {mark}
                 <span
+                  lang="ar"
                   className="text-xs tabular-nums"
                   style={{
                     color: "var(--color-ink-muted)",

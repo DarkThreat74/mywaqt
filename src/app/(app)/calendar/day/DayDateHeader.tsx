@@ -83,6 +83,7 @@ export default function DayDateHeader({ date, onNavigate }: { date: string; onNa
     >
       <Link
         href={`/calendar/day?date=${date}`}
+        aria-current="page"
         className="rounded-l-lg px-3 py-1.5 text-xs font-medium"
         style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
       >
@@ -90,14 +91,14 @@ export default function DayDateHeader({ date, onNavigate }: { date: string; onNa
       </Link>
       <Link
         href={`/calendar/month?year=${dateObj.getFullYear()}&month=${dateObj.getMonth() + 1}`}
-        className="px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+        className="px-3 py-1.5 text-xs font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
         style={{ color: "var(--color-ink-soft)" }}
       >
         Month
       </Link>
       <Link
         href="/calendar/list"
-        className="rounded-r-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+        className="rounded-r-lg px-3 py-1.5 text-xs font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
         style={{ color: "var(--color-ink-soft)" }}
       >
         List
@@ -112,7 +113,7 @@ export default function DayDateHeader({ date, onNavigate }: { date: string; onNa
         {onNavigate ? (
           <button
             onClick={() => onNavigate(prevStr)}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Previous day"
           >
@@ -121,7 +122,7 @@ export default function DayDateHeader({ date, onNavigate }: { date: string; onNa
         ) : (
           <Link
             href={`/calendar/day?date=${prevStr}`}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Previous day"
           >
@@ -134,7 +135,12 @@ export default function DayDateHeader({ date, onNavigate }: { date: string; onNa
           <div className="w-full text-center sm:w-auto">
             {/* Render stable fallback during SSR, real value after mount */}
             <h1 className="flex items-center justify-center gap-1.5 text-sm font-semibold tracking-tight sm:text-lg" style={{ color: "var(--color-ink)" }}>
-              <span className="truncate">{formattedDate || `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`}</span>
+              {formattedDate ? (
+                <span className="truncate">{formattedDate}</span>
+              ) : (
+                // Neutral skeleton — never flash a different date format pre-hydration
+                <span className="inline-block h-[1em] w-40 rounded" style={{ backgroundColor: "var(--color-paper-2)" }} aria-hidden="true" />
+              )}
               {isToday && (
                 <span
                   className="shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold"
@@ -172,7 +178,7 @@ export default function DayDateHeader({ date, onNavigate }: { date: string; onNa
         {onNavigate ? (
           <button
             onClick={() => onNavigate(nextStr)}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Next day"
           >
@@ -181,7 +187,7 @@ export default function DayDateHeader({ date, onNavigate }: { date: string; onNa
         ) : (
           <Link
             href={`/calendar/day?date=${nextStr}`}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--color-paper-2)]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink-soft)" }}
             aria-label="Next day"
           >

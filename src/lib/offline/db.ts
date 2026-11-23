@@ -110,6 +110,7 @@ export interface CachedHomework {
   plannedEndTime?: string | null;
   estimatedMinutes?: number | null;
   plannedEventId?: string | null;
+  seriesId?: string | null;
   subtasks?: Array<{ id: string; title: string; done: boolean }>;
   notified3dAt?: string | null;
   notified1dAt?: string | null;

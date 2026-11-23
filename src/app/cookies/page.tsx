@@ -15,7 +15,7 @@ export default function CookiePolicyPage() {
   return (
     <LegalLayout title="Cookie Policy" updatedAt="September 2025">
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">1. What Are Cookies</h2>
+        <h2 className="mb-2 text-lg font-semibold">1. What cookies are</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Cookies are small text files stored in your browser. Waqt uses cookies
           and browser storage (local storage, IndexedDB) to keep you logged in
@@ -24,7 +24,7 @@ export default function CookiePolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">2. The Cookies We Use</h2>
+        <h2 className="mb-2 text-lg font-semibold">2. The cookies we use</h2>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
@@ -36,22 +36,22 @@ export default function CookiePolicyPage() {
             </thead>
             <tbody>
               <tr style={{ borderBottom: "1px solid var(--color-paper-3)" }}>
-                <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}>waqt-session</td>
+                <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}><code className="rounded px-1" style={{ backgroundColor: "var(--color-paper-2)" }}>waqt-session</code></td>
                 <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}>Keeps you logged in (JWT session token)</td>
                 <td className="py-2" style={{ color: "var(--color-ink-soft)" }}>30 days</td>
               </tr>
               <tr style={{ borderBottom: "1px solid var(--color-paper-3)" }}>
-                <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}>waqt:theme</td>
+                <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}><code className="rounded px-1" style={{ backgroundColor: "var(--color-paper-2)" }}>waqt:theme</code></td>
                 <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}>Remembers your light/dark theme choice</td>
                 <td className="py-2" style={{ color: "var(--color-ink-soft)" }}>Until cleared</td>
               </tr>
               <tr style={{ borderBottom: "1px solid var(--color-paper-3)" }}>
-                <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}>waqt:sound</td>
+                <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}><code className="rounded px-1" style={{ backgroundColor: "var(--color-paper-2)" }}>waqt:sound</code></td>
                 <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}>Remembers your UI sound preference</td>
                 <td className="py-2" style={{ color: "var(--color-ink-soft)" }}>Until cleared</td>
               </tr>
               <tr style={{ borderBottom: "1px solid var(--color-paper-3)" }}>
-                <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}>waqt:push-endpoint</td>
+                <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}><code className="rounded px-1" style={{ backgroundColor: "var(--color-paper-2)" }}>waqt:push-endpoint</code></td>
                 <td className="py-2 pr-4" style={{ color: "var(--color-ink-soft)" }}>Avoids re-registering push notifications on every load</td>
                 <td className="py-2" style={{ color: "var(--color-ink-soft)" }}>Until cleared</td>
               </tr>
@@ -67,7 +67,7 @@ export default function CookiePolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">3. Local Storage & IndexedDB</h2>
+        <h2 className="mb-2 text-lg font-semibold">3. Local storage & IndexedDB</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Waqt stores your cached calendar events, prayer logs, prayer times, and
           homework in your browser&apos;s local storage and IndexedDB. This enables
@@ -78,7 +78,7 @@ export default function CookiePolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">4. No Tracking Cookies</h2>
+        <h2 className="mb-2 text-lg font-semibold">4. No tracking cookies</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Waqt does not use Google Analytics, Meta Pixel, or any third-party
           tracking or advertising cookies. We do not sell your data or share it
@@ -87,7 +87,7 @@ export default function CookiePolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">5. Managing Cookies</h2>
+        <h2 className="mb-2 text-lg font-semibold">5. Managing cookies</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           You can clear cookies and local storage from your browser settings at
           any time. Clearing the session cookie will log you out. Clearing
@@ -99,7 +99,7 @@ export default function CookiePolicyPage() {
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">6. Contact</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          Questions about cookies? Email {SUPPORT_EMAIL}.
+          Questions about cookies? Email <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium underline" style={{ color: "var(--color-accent)" }}>{SUPPORT_EMAIL}</a>.
         </p>
       </section>
     </LegalLayout>

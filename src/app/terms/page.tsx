@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { SUPPORT_EMAIL, SITE_URL } from "@/lib/site-config";
 import LegalLayout from "@/components/legal-layout";
 
@@ -11,11 +12,13 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-static";
 
+const linkStyle = { color: "var(--color-accent)" } as const;
+
 export default function TermsPage() {
   return (
     <LegalLayout title="Terms of Service" updatedAt="September 2025">
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">1. What Waqt Is</h2>
+        <h2 className="mb-2 text-lg font-semibold">1. What Waqt is</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Waqt is a prayer-centered life tracker. The five daily prayers are fixed
           anchors; the app helps you schedule your life around them and maintain
@@ -24,7 +27,7 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">2. Prayer Accountability Is Free</h2>
+        <h2 className="mb-2 text-lg font-semibold">2. Prayer accountability is free</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           The check-in system, qadaa tracker, and prayer timeline are free forever.
           We never gate prayer accountability behind a paywall. Subscriptions pay
@@ -33,7 +36,7 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">3. Religious Content</h2>
+        <h2 className="mb-2 text-lg font-semibold">3. Religious content</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           All religious content (dhikr sequences, talks) is human-curated from
           vetted sources. Waqt does not generate religious content using AI.
@@ -41,7 +44,7 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">4. Assumed Prayed Policy</h2>
+        <h2 className="mb-2 text-lg font-semibold">4. Assumed prayed policy</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Unmarked prayers auto-resolve as assumed-prayed at day&apos;s end. We never
           assume the worst on missing data. No silent penalty, no ledger charge. A
@@ -51,16 +54,16 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">5. Your Data</h2>
+        <h2 className="mb-2 text-lg font-semibold">5. Your data</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          You own your data. You can export or delete it at any time. See our
-          <a href="/privacy" className="font-medium underline" style={{ color: "var(--color-accent)" }}> Privacy Policy </a>
+          You own your data. You can export or delete it at any time. See our{" "}
+          <Link href="/privacy" className="font-medium underline" style={linkStyle}>Privacy Policy</Link>{" "}
           for details.
         </p>
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">7. No Warranty</h2>
+        <h2 className="mb-2 text-lg font-semibold">6. No warranty</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Waqt is provided as-is without warranty. Prayer time calculations are
           based on the AlAdhan API and may vary from your local mosque times.
@@ -69,7 +72,7 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">8. Acceptable Use</h2>
+        <h2 className="mb-2 text-lg font-semibold">7. Acceptable use</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           You agree not to misuse the service, attempt to access another user&apos;s
           data without permission, abuse the prayer-friends system to harass
@@ -79,20 +82,20 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">9. Account Termination</h2>
+        <h2 className="mb-2 text-lg font-semibold">8. Account termination</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           You can delete your account at any time from Settings. We may terminate
           accounts that violate these terms or that remain inactive for over 24
           months. See our{" "}
-          <a href="/data-deletion" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
-            Data Deletion guide
-          </a>{" "}
+          <Link href="/data-deletion" className="font-medium underline" style={linkStyle}>
+            data deletion guide
+          </Link>{" "}
           for what happens when you delete your account.
         </p>
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">10. Limitation of Liability</h2>
+        <h2 className="mb-2 text-lg font-semibold">9. Limitation of liability</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Waqt is a personal productivity tool, not a religious authority. Prayer
           times, qadaa calculations, and Hijri dates are computed using
@@ -102,7 +105,7 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">11. Changes to These Terms</h2>
+        <h2 className="mb-2 text-lg font-semibold">10. Changes to these terms</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           We may update these terms as the app evolves. Material changes will be
           announced in-app at least 7 days before they take effect. Continued use
@@ -111,9 +114,13 @@ export default function TermsPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">12. Contact</h2>
+        <h2 className="mb-2 text-lg font-semibold">11. Contact</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          Questions? Email {SUPPORT_EMAIL}.
+          Questions? Email{" "}
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium underline" style={linkStyle}>
+            {SUPPORT_EMAIL}
+          </a>
+          .
         </p>
       </section>
     </LegalLayout>

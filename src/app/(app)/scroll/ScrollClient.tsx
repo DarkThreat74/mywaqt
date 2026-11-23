@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ArrowLeft, Clock, Flame, Layers, Smartphone } from "lucide-react";
 import { shieldNativeAvailable, getScrollStats, pushScrollStats, type ScrollDayStats } from "@/lib/salah-shield-native";
 
@@ -21,18 +21,19 @@ const name = (pkg: string) => APP_NAMES[pkg] ?? pkg.split(".").pop() ?? pkg;
 const fmtSec = (s: number) => s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`;
 const fmtT = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
+// Neutral banding — the number is the fact; the label just names the range.
 function stage(total: number) {
-  return total < 30 ? { t: "fresh", c: "#7fbf6b" } : total < 100 ? { t: "deep in it", c: "#d4a843" } : { t: "brain rot", c: "#c96b45" };
+  return total < 30 ? "under 30" : total <= 100 ? "30–100" : "over 100";
 }
 
 type ServerDay = { date: string; total: number; apps: Record<string, number> | null; sec: Record<string, number> | null; hours: Record<string, number> | null; sessions: { p: string; t: number; c: number; d: number }[] | null };
 
 export default function ScrollClient() {
-  const router = useRouter();
   const [native, setNative] = useState<boolean | null>(null);
   const [today, setToday] = useState<ScrollDayStats | null>(null);
   const [localHist, setLocalHist] = useState<Record<string, ScrollDayStats>>({});
   const [serverDays, setServerDays] = useState<ServerDay[]>([]);
+  const [stamp, setStamp] = useState<Date | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -45,6 +46,7 @@ export default function ScrollClient() {
       if (!live || !s) return;
       setToday(s.today);
       setLocalHist(s.history);
+      setStamp(new Date());
       void pushScrollStats();
     };
     void refresh();
@@ -78,7 +80,6 @@ export default function ScrollClient() {
   const longest = sessions.reduce<{ p: string; t: number; c: number; d: number } | null>(
     (m, s) => (m === null || s.c > m.c) ? s : m, null);
   const avgSess = sessions.length ? Math.round(sessions.reduce((s, x) => s + x.c, 0) / sessions.length) : 0;
-  const st = stage(today?.total ?? 0);
 
   const hourAvg = useMemo(() => {
     const sums: Record<number, number[]> = {};
@@ -102,16 +103,6 @@ export default function ScrollClient() {
   const allTime = days.reduce((s, d) => s + d.total, 0);
   const week = days.slice(0, 7);
   const weekTotal = week.reduce((s, d) => s + d.total, 0);
-  const streak = useMemo(() => {
-    let n = 0;
-    const seen = new Set(days.filter((d) => d.total > 0).map((d) => d.date));
-    const d = new Date();
-    for (;;) {
-      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      if (seen.has(k)) { n++; d.setDate(d.getDate() - 1); } else break;
-    }
-    return n;
-  }, [days]);
   const maxDay = Math.max(1, ...days.slice(0, 30).map((d) => d.total));
 
   if (native === false) {
@@ -129,9 +120,9 @@ export default function ScrollClient() {
   return (
     <div className="mx-auto w-full max-w-md px-4 pb-24 pt-4" style={{ color: "var(--color-ink)" }}>
       <div className="flex items-center gap-3">
-        <button onClick={() => router.back()} className="rounded-full p-2" style={{ color: "var(--color-ink-muted)" }} aria-label="Back">
+        <Link href="/settings/misc?tab=guard" className="rounded-full p-2" style={{ color: "var(--color-ink-muted)" }} aria-label="Back to settings">
           <ArrowLeft className="h-5 w-5" />
-        </button>
+        </Link>
         <div>
           <h1 className="text-lg font-semibold">Scrolls</h1>
           <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Short-form habits, counted on this phone</p>
@@ -139,19 +130,22 @@ export default function ScrollClient() {
       </div>
 
       {/* Hero */}
-      <div className="mt-4 rounded-3xl border p-5" style={{ borderColor: "var(--color-paper-3)", background: "linear-gradient(160deg, var(--color-paper-2), var(--color-paper))" }}>
+      <div className="mt-4 rounded-3xl border p-5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
         <div className="flex items-baseline justify-between">
-          <p className="text-5xl font-semibold tabular-nums" style={{ color: st.c }}>{today?.total ?? 0}</p>
-          <p className="text-xs font-medium" style={{ color: st.c }}>{st.t}</p>
+          <p className="text-5xl font-semibold tabular-nums">{today ? today.total : "—"}</p>
+          {today && <p className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>{stage(today.total)}</p>}
         </div>
         <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-          scrolls today{totalSec > 0 ? ` · ${fmtSec(totalSec)} in feeds` : ""}{streak > 1 ? ` · ${streak}-day streak` : ""}
+          {today
+            ? <>scrolls today{totalSec > 0 ? ` · ${fmtSec(totalSec)} in feeds` : ""}</>
+            : "counting…"}
+          {stamp ? ` · as of ${stamp.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""}
         </p>
         <div className="mt-4 grid grid-cols-3 gap-2 text-center">
           {[
-            { v: String(sessions.length), l: "sessions" },
-            { v: String(avgSess), l: "avg / session" },
-            { v: String(weekTotal), l: "this week" },
+            { v: today ? String(sessions.length) : "—", l: "sessions" },
+            { v: today ? String(avgSess) : "—", l: "avg / session" },
+            { v: days.length ? String(weekTotal) : "—", l: "this week" },
           ].map((x) => (
             <div key={x.l} className="rounded-xl border py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
               <p className="text-base font-semibold tabular-nums">{x.v}</p>
@@ -163,7 +157,8 @@ export default function ScrollClient() {
 
       {/* Time of day */}
       <Section icon={<Clock className="h-4 w-4" />} title="When you scroll" sub={peakHour >= 0 && Math.max(...hourAvg) > 0 ? `peak around ${fmtT(peakHour * 60)}` : undefined}>
-        <div className="flex h-20 items-end gap-[3px]">
+        <div className="flex h-20 items-end gap-[3px]" role="img"
+          aria-label={Math.max(...hourAvg) > 0 ? `Average scrolls by hour of day; peak around ${fmtT(peakHour * 60)}` : "No hourly data yet"}>
           {hourAvg.map((v, h) => {
             const todayV = today?.hours?.[String(h)] ?? 0;
             const max = Math.max(1, ...hourAvg);
@@ -202,7 +197,7 @@ export default function ScrollClient() {
 
       {/* Sessions */}
       {longest && (
-        <Section icon={<Flame className="h-4 w-4" />} title="Longest streak" sub="today">
+        <Section icon={<Flame className="h-4 w-4" />} title="Longest session" sub="today">
           <p className="text-sm"><b className="tabular-nums">{longest.c}</b> scrolls in one sitting — {name(longest.p)}, started {fmtT(longest.t)}{longest.d > 5 ? `, ~${fmtSec(longest.d)}` : ""}</p>
         </Section>
       )}

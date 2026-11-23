@@ -53,32 +53,59 @@ function CustomSelect({
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
+    return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
+
+  // Keyboard nav — listbox semantics: arrows move the active option,
+  // Enter/Space selects, Escape closes. Without this the dropdown was
+  // pointer-only.
+  function onTriggerKey(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) {
+        setOpen(true);
+        setActiveIdx(Math.max(0, options.findIndex((o) => o.value === value)));
+      } else {
+        setActiveIdx((i) => {
+          const next = e.key === "ArrowDown" ? i + 1 : i - 1;
+          return (next + options.length) % options.length;
+        });
+      }
+    } else if ((e.key === "Enter" || e.key === " ") && open && activeIdx >= 0) {
+      e.preventDefault();
+      onChange(options[activeIdx].value);
+      setOpen(false);
+    } else if (e.key === "Escape" && open) {
+      e.preventDefault();
+      setOpen(false);
+    } else if (e.key === "Home" && open) {
+      e.preventDefault();
+      setActiveIdx(0);
+    } else if (e.key === "End" && open) {
+      e.preventDefault();
+      setActiveIdx(options.length - 1);
+    }
+  }
 
   const current = options.find((o) => o.value === value);
   return (
     <div className="relative" ref={ref}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => { setOpen((o) => !o); setActiveIdx(Math.max(0, options.findIndex((o) => o.value === value))); }}
+        onKeyDown={onTriggerKey}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
+        aria-activedescendant={open && activeIdx >= 0 ? `cs-opt-${activeIdx}` : undefined}
         className={`flex w-full items-center justify-between gap-2 rounded-lg border text-sm outline-none transition-colors ${compact ? "px-2.5 py-1.5 text-xs" : "px-3 py-2"}`}
         style={{
           borderColor: open ? "var(--color-accent)" : "var(--color-paper-3)",
@@ -99,16 +126,21 @@ function CustomSelect({
           className={`absolute z-30 mt-1 max-h-64 min-w-full overflow-y-auto rounded-xl border py-1 shadow-lg ${align === "right" ? "right-0" : "left-0"}`}
           style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)", width: "max-content", minWidth: "100%" }}
         >
-          {options.map((o) => (
-            <li key={o.value}>
+          {options.map((o, i) => (
+            <li key={o.value} id={`cs-opt-${i}`} role="presentation">
               {o.dividerAbove && <div className="my-1 border-t" style={{ borderColor: "var(--color-paper-3)" }} />}
               <button
                 type="button"
                 role="option"
                 aria-selected={o.value === value}
+                tabIndex={-1}
+                onMouseEnter={() => setActiveIdx(i)}
                 onClick={() => { onChange(o.value); setOpen(false); }}
                 className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--color-paper-2)]"
-                style={{ color: "var(--color-ink)" }}
+                style={{
+                  color: "var(--color-ink)",
+                  backgroundColor: i === activeIdx ? "var(--color-paper-2)" : undefined,
+                }}
               >
                 {o.label}
                 {o.value === value && <Check className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />}
@@ -134,6 +166,9 @@ export default function BirthdaysClient() {
   const [categories, setCategories] = useState<BirthdayCategory[]>(seed?.categories ?? []);
   const [friends, setFriends] = useState<Array<{ id: string; name: string; groupLabel?: string | null; hasPhoto?: boolean; updatedAt?: string | null }>>([]);
   const [loaded, setLoaded] = useState(!!seed);
+  // Initial fetch failed — without this, a dead network renders the exact
+  // same "No birthdays yet" empty state as a fresh account (the P5 lie).
+  const [loadError, setLoadError] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -168,13 +203,41 @@ export default function BirthdaysClient() {
     } catch { /* private mode */ }
   }, [sort, catFilter]);
 
+  // Armed deletes (category ×2-tap, row "Delete?") disarm when the user taps
+  // anywhere else — an armed button with no cancel path was a permanent trap.
+  useEffect(() => {
+    if (!armDeleteCatId && !confirmDeleteId) return;
+    function onDown(e: MouseEvent) {
+      if (!(e.target as HTMLElement).closest("[data-arm-keep]")) {
+        setArmDeleteCatId(null);
+        setConfirmDeleteId(null);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [armDeleteCatId, confirmDeleteId]);
+
   const catMap = useMemo(() => {
     const m = new Map<string, BirthdayCategory>();
     for (const c of categories) m.set(c.id, c);
     return m;
   }, [categories]);
 
-  useEffect(() => {
+  // Friends already claimed by another birthday row — linking one here would
+  // steal the link silently, so those chips render disabled instead.
+  const linkedFriendIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const b of birthdays) if (b.friendId && b.id !== editingId) s.add(b.friendId);
+    return s;
+  }, [birthdays, editingId]);
+  // The "me" slot is single — flagging a second row as self silently strips
+  // it from the first. Surface that trade before it happens.
+  const existingSelf = useMemo(
+    () => birthdays.find((b) => b.isSelf && b.id !== editingId),
+    [birthdays, editingId],
+  );
+
+  const loadBirthdays = () => {
     fetch("/api/birthdays")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => {
@@ -182,11 +245,14 @@ export default function BirthdaysClient() {
         const c = d.categories ?? [];
         setBirthdays(b);
         setCategories(c);
+        setLoadError(false);
         try { localStorage.setItem("birthdays:list", JSON.stringify({ birthdays: b, categories: c })); } catch {}
       })
-      .catch(() => null)
+      .catch(() => setLoadError(true))
       .finally(() => setLoaded(true));
-  }, []);
+  };
+
+  useEffect(loadBirthdays, []);
 
   useEffect(() => {
     fetch("/api/friends", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
@@ -396,7 +462,9 @@ export default function BirthdaysClient() {
   }
 
   const next = sorted[0];
-  const now = new Date();
+  // Computed once — new Date() in render drifts across re-renders and makes
+  // SSR/client hydration disagree around midnight.
+  const [now] = useState(() => new Date());
   const thisMonthCount = birthdays.filter((b) => b.birthMonth === now.getMonth() + 1).length;
   // Earliest/latest is a global ordering. Keeping the old time-window
   // sections made the sort look broken because each section reordered itself
@@ -510,7 +578,13 @@ export default function BirthdaysClient() {
         );
       })()}
 
-      {error && <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }}>{error}</p>}
+      {error && <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }} role="alert">{error}</p>}
+      {loadError && birthdays.length > 0 && (
+        <p className="mt-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs" role="status" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}>
+          Couldn&apos;t refresh — the list below may be out of date.
+          <button onClick={loadBirthdays} className="shrink-0 font-semibold" style={{ color: "var(--color-ink)" }}>Retry</button>
+        </p>
+      )}
 
       {/* Add / edit form */}
       {(adding || editingId) && (
@@ -562,6 +636,7 @@ export default function BirthdaysClient() {
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <button
                   type="button"
+                  aria-pressed={form.isSelf}
                   onClick={() => setForm({ ...form, isSelf: !form.isSelf, friendId: form.isSelf ? form.friendId : null })}
                   className="rounded-full border px-2.5 py-1.5 text-[11px] font-medium"
                   style={{ borderColor: form.isSelf ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.isSelf ? "var(--color-accent-faint)" : "transparent", color: form.isSelf ? "var(--color-accent)" : "var(--color-ink-soft)" }}
@@ -570,18 +645,29 @@ export default function BirthdaysClient() {
                 </button>
                 {friends.length === 0 ? (
                   <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Add a person in Friends first.</span>
-                ) : [...friends].sort((a, b) => `${a.groupLabel || "Other"}:${a.name}`.localeCompare(`${b.groupLabel || "Other"}:${b.name}`)).map((friend) => (
-                  <button
-                    key={friend.id}
-                    type="button"
-                    onClick={() => setForm({ ...form, friendId: form.friendId === friend.id ? null : friend.id, name: friend.name, isSelf: false })}
-                    className="rounded-full border px-2.5 py-1.5 text-[11px] font-medium"
-                    style={{ borderColor: form.friendId === friend.id ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.friendId === friend.id ? "var(--color-accent-faint)" : "transparent", color: form.friendId === friend.id ? "var(--color-accent)" : "var(--color-ink-soft)" }}
-                  >
-                    {friend.name}
-                  </button>
-                ))}
+                ) : [...friends].sort((a, b) => `${a.groupLabel || "Other"}:${a.name}`.localeCompare(`${b.groupLabel || "Other"}:${b.name}`)).map((friend) => {
+                  const linked = linkedFriendIds.has(friend.id);
+                  return (
+                    <button
+                      key={friend.id}
+                      type="button"
+                      disabled={linked}
+                      aria-pressed={form.friendId === friend.id}
+                      title={linked ? "Already linked to another birthday" : undefined}
+                      onClick={() => setForm({ ...form, friendId: form.friendId === friend.id ? null : friend.id, name: friend.name, isSelf: false })}
+                      className="rounded-full border px-2.5 py-1.5 text-[11px] font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{ borderColor: form.friendId === friend.id ? "var(--color-accent)" : "var(--color-paper-3)", backgroundColor: form.friendId === friend.id ? "var(--color-accent-faint)" : "transparent", color: form.friendId === friend.id ? "var(--color-accent)" : "var(--color-ink-soft)" }}
+                    >
+                      {friend.name}
+                    </button>
+                  );
+                })}
               </div>
+              {form.isSelf && existingSelf && (
+                <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--color-warmth)" }} role="alert">
+                  This will take the &ldquo;me&rdquo; label off {existingSelf.name}&rsquo;s birthday — only one can have it.
+                </p>
+              )}
             </div>}
             </div>
             <div className="block">
@@ -597,10 +683,10 @@ export default function BirthdaysClient() {
               <label className="block">
                 <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Day</span>
                 <input
-                  type="number"
-                  min={1}
-                  max={DAYS_IN_MONTH[form.month - 1]}
+                  type="text"
                   inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={2}
                   value={form.day}
                   onChange={(e) => setForm({ ...form, day: e.target.value })}
                   placeholder="14"
@@ -611,10 +697,10 @@ export default function BirthdaysClient() {
               <label className="block">
                 <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Year — optional</span>
                 <input
-                  type="number"
-                  min={1900}
-                  max={new Date().getFullYear()}
+                  type="text"
                   inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={4}
                   value={form.year}
                   onChange={(e) => setForm({ ...form, year: e.target.value })}
                   placeholder="2001"
@@ -634,7 +720,7 @@ export default function BirthdaysClient() {
               {categories.map((c) => {
                 const on = form.categoryId === c.id;
                 return (
-                  <span key={c.id} className="inline-flex items-center">
+                  <span key={c.id} className="inline-flex items-center" data-arm-keep={armDeleteCatId === c.id ? true : undefined}>
                     <button
                       type="button"
                       onClick={() => setForm({ ...form, categoryId: on ? null : c.id })}
@@ -811,6 +897,23 @@ export default function BirthdaysClient() {
         <div className="flex justify-center py-16">
           <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--color-ink-muted)" }} />
         </div>
+      ) : loadError && birthdays.length === 0 ? (
+        <div className="flex flex-col items-center py-16 text-center" role="alert">
+          <Cake className="mb-3 h-8 w-8" style={{ color: "var(--color-ink-muted)", opacity: 0.4 }} />
+          <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+            Couldn&apos;t load your birthdays.
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            Check your connection — anything saved here syncs when you&apos;re back online.
+          </p>
+          <button
+            onClick={() => { setLoaded(false); loadBirthdays(); }}
+            className="mt-4 rounded-lg px-4 py-2 text-sm font-semibold"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
+          >
+            Retry
+          </button>
+        </div>
       ) : birthdays.length === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
           <Cake className="mb-3 h-8 w-8" style={{ color: "var(--color-ink-muted)", opacity: 0.4 }} />
@@ -934,6 +1037,9 @@ export default function BirthdaysClient() {
                           {MONTHS[b.birthMonth - 1]} {b.birthDay}{b.birthYear ? `, ${b.birthYear}` : ""}
                         </p>
                         <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                          {/* AUDIT FLAG: zodiac on a prayer-centered app is
+                              questionable domain-fit — pending a product-owner
+                              call on removal. Left in place until confirmed. */}
                           {zodiac(b.birthMonth, b.birthDay)}
                           <span className="hidden sm:inline"> · reminds {reminds}</span>
                         </p>
@@ -948,7 +1054,7 @@ export default function BirthdaysClient() {
                               : { backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }
                         }
                       >
-                        {d === 0 ? "today!" : `in ${d}d`}
+                        {d === 0 ? "today" : `in ${d}d`}
                       </span>
                       <button
                         onClick={() => startEdit(b)}
@@ -960,6 +1066,7 @@ export default function BirthdaysClient() {
                       </button>
                       {confirmDeleteId === b.id ? (
                         <button
+                          data-arm-keep
                           onClick={() => void remove(b.id)}
                           className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold"
                           style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}

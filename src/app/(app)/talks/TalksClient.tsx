@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { ExternalLink, Folder, ChevronLeft, ChevronRight, Play, Clock, Headphones, Download, Search, X, Mic2, Check, Loader2, History, Circle } from "lucide-react";
+import { ExternalLink, Folder, ChevronLeft, ChevronRight, Play, Clock, Headphones, Download, Search, X, Mic2, Check, Loader2, History, Circle, AlertCircle } from "lucide-react";
 import { audioCacheKey, backfillAudioCacheSizes, getCachedAudioKeys, removeAudioOffline, saveAudioOffline, useAudioPlayer } from "@/components/audio-player-context";
 import { getOfflineDB } from "@/lib/offline/db";
 import type { PlayerTrack } from "@/components/advanced-audio-player";
@@ -73,6 +73,9 @@ function talkToTrack(talk: Talk, folders: Folder[]): PlayerTrack {
     folderId: talk.folderId,
     folderName: folder?.name || null,
     folderImageUrl: folder?.imageUrl || null,
+    // Server-synced resume position — was fetched but never used; localStorage
+    // progress still wins when present (it's fresher mid-session).
+    resumePosition: talk.progress?.position ?? null,
   };
 }
 
@@ -122,6 +125,11 @@ export default function TalksClient() {
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [failedIds, setFailedIds] = useState<Set<string>>(new Set()); // per-item failed state — one talk's failure isn't a library error
+  const [dlProgress, setDlProgress] = useState<Record<string, { done: number; total: number }>>({});
+  const [evictNotice, setEvictNotice] = useState<string | null>(null);
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
+  const [showSpinner, setShowSpinner] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,6 +204,52 @@ export default function TalksClient() {
     return () => { cancelled = true; };
   }, []);
 
+  // Spinner delay — a 200ms fetch shouldn't flash a spinner at all.
+  useEffect(() => {
+    const t = setTimeout(() => setShowSpinner(true), 300);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Online/offline — offline is a STATE, not an error.
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+
+  // Real download progress + LRU eviction notices from the cache layer.
+  useEffect(() => {
+    const onProgress = (e: Event) => {
+      const d = (e as CustomEvent<{ talkId: string; done: number; total: number }>).detail;
+      if (!d?.talkId) return;
+      setDlProgress((prev) => ({ ...prev, [d.talkId]: { done: d.done, total: d.total } }));
+    };
+    const onEvicted = (e: Event) => {
+      const { evicted } = (e as CustomEvent<{ evicted: { talkId: string; title: string }[] }>).detail ?? {};
+      if (!evicted?.length) return;
+      // Re-check badges against reality — an evicted talk is not "Offline".
+      setDownloadedIds((prev) => {
+        const n = new Set(prev);
+        for (const x of evicted) n.delete(x.talkId);
+        return n;
+      });
+      for (const x of evicted) setOffline(x.talkId, false);
+      setEvictNotice(
+        evicted.length === 1
+          ? `"${evicted[0].title}" was removed from offline storage to free space.`
+          : `${evicted.length} downloaded talks were removed to free space.`,
+      );
+    };
+    window.addEventListener("waqt:audio-download-progress", onProgress);
+    window.addEventListener("waqt:audio-evicted", onEvicted);
+    return () => {
+      window.removeEventListener("waqt:audio-download-progress", onProgress);
+      window.removeEventListener("waqt:audio-evicted", onEvicted);
+    };
+  }, [setOffline]);
+
   const talksInFolder = useCallback((folderId: string | null) =>
     talks.filter((t) => t.folderId === folderId), [talks]);
 
@@ -250,12 +304,15 @@ export default function TalksClient() {
       setDownloadedIds((prev) => new Set(prev).add(talk.id));
       setOffline(talk.id, true);
       setDownloadError(null);
+      setFailedIds((prev) => { const n = new Set(prev); n.delete(talk.id); return n; });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "This talk couldn't be downloaded. Check your connection and available storage.";
       setDownloadError(msg);
+      setFailedIds((prev) => new Set(prev).add(talk.id));
     }
     finally {
       setDownloadingIds((prev) => { const n = new Set(prev); n.delete(talk.id); return n; });
+      setDlProgress((prev) => { const n = { ...prev }; delete n[talk.id]; return n; });
     }
   }, [downloadedIds, downloadingIds, setOffline]);
 
@@ -322,19 +379,37 @@ export default function TalksClient() {
     setRecent(loadRecent());
   }, []);
 
-  // ── Loading state ──
+  // ── Loading state (spinner held back 300ms — no flash on fast loads) ──
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-transparent" style={{ borderTopColor: "var(--color-accent)", borderRightColor: "var(--color-accent)" }} />
-          <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>Loading talks…</p>
-        </div>
+        {showSpinner && (
+          <div className="text-center">
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-transparent" style={{ borderTopColor: "var(--color-accent)", borderRightColor: "var(--color-accent)" }} />
+            <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>Loading talks…</p>
+          </div>
+        )}
       </div>
     );
   }
 
   if (error) {
+    // Offline is a state, not an error — no red styling, no alarm copy.
+    if (!online) {
+      return (
+        <div className="mx-auto max-w-2xl">
+          <EmptyState icon={Headphones} title="You're offline" subtitle="The talks library needs a connection the first time it loads. Downloaded talks still play from your offline copy.">
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 rounded-lg border px-3.5 py-2 text-xs font-medium"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+            >
+              Try again
+            </button>
+          </EmptyState>
+        </div>
+      );
+    }
     return (
       <div className="mx-auto max-w-2xl">
         <EmptyState icon={Headphones} title="Talks couldn't load" subtitle={error}>
@@ -428,7 +503,7 @@ export default function TalksClient() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search in this folder…"
-              className="w-full rounded-xl border py-2.5 pl-10 pr-9 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
+              className="w-full rounded-xl border py-2.5 pl-10 pr-9 text-base outline-none transition-colors focus:border-[var(--color-accent)]"
               style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
               aria-label="Search in folder"
             />
@@ -458,6 +533,8 @@ export default function TalksClient() {
                 onDownload={() => handleDownload(talk)}
                 onRemoveDownload={() => handleRemoveDownload(talk)}
                 onToggleComplete={() => handleToggleComplete(talk)}
+                progress={dlProgress[talk.id] ?? null}
+                downloadFailed={failedIds.has(talk.id)}
               />
             ))}
           </div>
@@ -482,7 +559,7 @@ export default function TalksClient() {
           className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl"
           style={{ color: "var(--color-ink)" }}
         >
-          Talks Library
+          Talks library
         </h1>
         <p
           className="text-sm leading-relaxed"
@@ -500,7 +577,7 @@ export default function TalksClient() {
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Search by title, speaker, or topic…"
-          className="w-full rounded-xl py-3.5 pl-11 pr-4 text-sm outline-none transition-colors focus:border-[var(--color-accent)]"
+          className="w-full rounded-xl py-3.5 pl-11 pr-4 text-base outline-none transition-colors focus:border-[var(--color-accent)]"
           style={{ border: "1px solid var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)", minHeight: 48 }}
           aria-label="Search talks"
         />
@@ -520,6 +597,19 @@ export default function TalksClient() {
           <FilterPill active={activeFilter === "all"} onClick={() => setActiveFilter("all")} label="All" />
           <FilterPill active={activeFilter === "folders"} onClick={() => setActiveFilter("folders")} label="Folders" />
           <FilterPill active={activeFilter === "downloaded"} onClick={() => setActiveFilter("downloaded")} label={`Downloaded${downloadedTalks.length > 0 ? ` (${downloadedTalks.length})` : ""}`} />
+        </div>
+      )}
+
+      {evictNotice && (
+        <div
+          role="status"
+          className="mb-5 flex items-start justify-between gap-3 rounded-xl border px-3.5 py-3 text-xs"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
+        >
+          <span>{evictNotice}</span>
+          <button onClick={() => setEvictNotice(null)} className="flex h-8 w-8 shrink-0 items-center justify-center" aria-label="Dismiss notice">
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -577,6 +667,8 @@ export default function TalksClient() {
                         onDownload={() => handleDownload(talk)}
                         onRemoveDownload={() => handleRemoveDownload(talk)}
                         onToggleComplete={() => handleToggleComplete(talk)}
+                        progress={dlProgress[talk.id] ?? null}
+                        downloadFailed={failedIds.has(talk.id)}
                       />
                     ))}
                   </div>
@@ -687,7 +779,7 @@ export default function TalksClient() {
             <section>
               {(showFolders || activeFilter === "downloaded") && (
                 <h2 className="mb-3 px-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                  {activeFilter === "downloaded" ? "Downloaded" : "All Talks"}
+                  {activeFilter === "downloaded" ? "Downloaded" : "All talks"}
                 </h2>
               )}
               {talksToShow.length === 0 ? (
@@ -704,6 +796,8 @@ export default function TalksClient() {
                       onDownload={() => handleDownload(talk)}
                       onRemoveDownload={() => handleRemoveDownload(talk)}
                       onToggleComplete={() => handleToggleComplete(talk)}
+                      progress={dlProgress[talk.id] ?? null}
+                      downloadFailed={failedIds.has(talk.id)}
                     />
                   ))}
                 </div>
@@ -749,7 +843,7 @@ function RecentSection({
     <section>
       <div className="mb-3 flex items-center gap-1.5 px-1">
         <History className="h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />
-        <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Continue Listening</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>Continue listening</h2>
       </div>
       <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
         {recent.map((entry) => (
@@ -837,6 +931,8 @@ function TalkCard({
   onDownload,
   onRemoveDownload,
   onToggleComplete,
+  progress,
+  downloadFailed,
 }: {
   talk: Talk;
   onPlay: () => void;
@@ -845,9 +941,12 @@ function TalkCard({
   onDownload: () => void;
   onRemoveDownload: () => void;
   onToggleComplete: () => void;
+  progress?: { done: number; total: number } | null;
+  downloadFailed?: boolean;
 }) {
   const isExternal = !talk.streamUrl && talk.externalUrl;
   const isCompleted = !!talk.progress?.completed;
+  const pct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : null;
 
   return (
     <div
@@ -859,7 +958,7 @@ function TalkCard({
         backgroundColor: isCompleted
           ? "color-mix(in oklab, var(--color-success) 3%, var(--color-paper))"
           : "var(--color-paper)",
-        minHeight: 60,
+        minHeight: 84, // was 60px — too cramped for a two-line meta + 44px play target
         opacity: isCompleted ? 0.7 : 1,
       }}
     >
@@ -932,28 +1031,56 @@ function TalkCard({
         </div>
       </div>
 
-      {/* Download button — small, top-right corner */}
+      {/* Download button — small, top-right corner. Failed downloads get a
+          per-item state (red retry), in-flight ones show real progress. */}
       {talk.streamUrl && !isExternal && (
         <button
           onClick={isOffline ? onRemoveDownload : onDownload}
           disabled={isDownloading}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-50"
+          className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-50"
           style={{
-            color: isOffline ? "var(--color-success)" : "var(--color-ink-muted)",
+            color: downloadFailed
+              ? "var(--color-error)"
+              : isOffline ? "var(--color-success)" : "var(--color-ink-muted)",
             backgroundColor: isOffline
               ? "color-mix(in oklab, var(--color-success) 10%, transparent)"
+              : downloadFailed
+              ? "color-mix(in oklab, var(--color-error) 10%, transparent)"
               : "transparent",
           }}
-          aria-label={isOffline ? "Remove offline copy" : "Download for offline use"}
+          aria-label={
+            downloadFailed
+              ? `Download failed for ${talk.title} — tap to retry`
+              : isOffline ? "Remove offline copy" : "Download for offline use"
+          }
         >
           {isDownloading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            pct !== null ? (
+              <span className="text-[9px] font-bold tabular-nums" style={{ color: "var(--color-accent)" }}>{pct}%</span>
+            ) : (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            )
+          ) : downloadFailed ? (
+            <AlertCircle className="h-3.5 w-3.5" />
           ) : isOffline ? (
             <Check className="h-3.5 w-3.5" />
           ) : (
             <Download className="h-3.5 w-3.5" />
           )}
         </button>
+      )}
+      {/* Real progress bar under the card while downloading */}
+      {isDownloading && pct !== null && (
+        <div
+          className="absolute inset-x-3 bottom-1 h-0.5 overflow-hidden rounded-full"
+          style={{ backgroundColor: "var(--color-paper-3)" }}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={pct}
+        >
+          <div className="h-full rounded-full transition-[width]" style={{ width: `${pct}%`, backgroundColor: "var(--color-accent)" }} />
+        </div>
       )}
     </div>
   );

@@ -5,9 +5,9 @@ import Link from "next/link";
 import { EXERCISES, MUSCLE_GROUP, GROUPS, exerciseFamilyKey, type Exercise } from "@/lib/workout/exercises";
 import { ExerciseMedia } from "@/lib/workout/diagrams";
 import { SCIENCE } from "@/lib/workout/science";
+import { tierColor } from "@/lib/workout/tiers";
 
 const TIERS = ["all", "S", "A", "B", "C", "D", "F"] as const;
-const TIER_COLORS: Record<string, string> = { S: "#d4a843", A: "#7fbf6b", B: "#5f9ea0", C: "#888888", D: "#b07a5f", M: "#6b9e8f", V: "#b08d4f" };
 
 export default function LibraryPage() {
   const [search, setSearch] = useState("");
@@ -98,26 +98,29 @@ export default function LibraryPage() {
       <div className="mt-3 space-y-1.5">
         {groups.map(([x, ...variants]) => (
           <div key={x.slug}>
-            <button type="button" onClick={() => setView(x)}
-              className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left hover:bg-[var(--color-paper-2)]"
+            <div className="flex items-center gap-2.5 rounded-lg border p-2 hover:bg-[var(--color-paper-2)]"
               style={{ borderColor: "var(--color-paper-3)" }}>
-              <ExerciseMedia slug={x.slug} pattern={x.pattern}
-                className="h-10 w-10 shrink-0 items-center justify-center rounded-lg"
-                style={{ backgroundColor: "var(--color-paper-2)" }} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{x.name}</p>
-                <p className="truncate text-[10px] capitalize" style={{ color: "var(--color-ink-muted)" }}>{x.muscle.replace(/_/g, " ")} · {x.equip}</p>
-              </div>
+              <button type="button" onClick={() => setView(x)}
+                className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+                <ExerciseMedia slug={x.slug} pattern={x.pattern}
+                  className="h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                  style={{ backgroundColor: "var(--color-paper-2)" }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium" style={{ color: "var(--color-ink)" }}>{x.name}</span>
+                  <span className="block truncate text-[10px] capitalize" style={{ color: "var(--color-ink-muted)" }}>{x.muscle.replace(/_/g, " ")} · {x.equip}</span>
+                </span>
+                {x.tier && <span className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: tierColor(x.tier), color: "#fff" }}>{x.tier}</span>}
+              </button>
               {variants.length > 0 && (
                 <button type="button"
-                  onClick={(e) => { e.stopPropagation(); setExpanded((s) => { const n = new Set(s); if (n.has(x.slug)) n.delete(x.slug); else n.add(x.slug); return n; }); }}
+                  onClick={() => setExpanded((s) => { const n = new Set(s); if (n.has(x.slug)) n.delete(x.slug); else n.add(x.slug); return n; })}
+                  aria-label={`${expanded.has(x.slug) ? "Hide" : "Show"} ${variants.length} variations of ${x.name}`}
                   className="shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-semibold"
                   style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}>
                   {expanded.has(x.slug) ? "−" : `+${variants.length}`}
                 </button>
               )}
-              {x.tier && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[x.tier], color: "#fff" }}>{x.tier}</span>}
-            </button>
+            </div>
             {expanded.has(x.slug) && variants.map((v) => (
               <button key={v.slug} type="button" onClick={() => setView(v)}
                 className="mt-1 flex w-full items-center gap-2.5 rounded-lg border border-dashed p-2 pl-6 text-left hover:bg-[var(--color-paper-2)]"
@@ -125,17 +128,25 @@ export default function LibraryPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[12px]" style={{ color: "var(--color-ink)" }}>{v.name}</p>
                 </div>
-                {v.tier && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: TIER_COLORS[v.tier], color: "#fff" }}>{v.tier}</span>}
+                {v.tier && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ backgroundColor: tierColor(v.tier), color: "#fff" }}>{v.tier}</span>}
               </button>
             ))}
           </div>
         ))}
+        {list.length === 0 && (
+          <p className="py-8 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
+            No exercises match {search ? `“${search}”` : "these filters"} —{" "}
+            <button type="button" className="underline" onClick={() => { setSearch(""); setTierFilter("all"); setGroupFilter("all"); setHeadFilter("all"); }}>
+              clear filters
+            </button>
+          </p>
+        )}
       </div>
       {!filtering && !showAll && allGroups.length > 60 && (
         <button type="button" onClick={() => setShowAll(true)}
           className="mt-3 w-full rounded-lg border py-2.5 text-xs font-medium"
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
-          Show all {allGroups.length} exercises
+          Show all {list.length} exercises
         </button>
       )}
       <p className="mt-6 text-center text-[10px]" style={{ color: "var(--color-ink-muted)" }}>

@@ -13,6 +13,21 @@ interface QiblaData {
   userLocation: { latitude: number; longitude: number };
 }
 
+/** Capacitor Android fused rotation-vector + WMM declination. When present,
+ *  browser orientation events must never be attached — mixing the two
+ *  heading streams flashes a wrong needle while native warms up. */
+type QiblaNative = {
+  start: (args: { latitude: number; longitude: number }) => Promise<void>;
+  stop: () => Promise<void>;
+  addListener: (event: string, cb: (data: { heading: number; declination?: number; sensorAccuracy?: number }) => void) => Promise<{ remove: () => Promise<void> }>;
+} | undefined;
+
+function getNativeSensor(): QiblaNative {
+  return (window as Window & {
+    Capacitor?: { Plugins?: { QiblaSensor?: NonNullable<QiblaNative> } };
+  }).Capacitor?.Plugins?.QiblaSensor;
+}
+
 /**
  * Qibla compass — v3 (rewrite).
  *
@@ -41,7 +56,9 @@ export default function QiblaCompassClient() {
   const [data, setData] = useState<QiblaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sensorState, setSensorState] = useState<"idle" | "live" | "relative-only" | "unavailable">("idle");
+  const [sensorState, setSensorState] = useState<"idle" | "live" | "relative-only" | "unavailable" | "denied">("idle");
+  const [accuracyLow, setAccuracyLow] = useState(false); // compass needs figure-8 calibration
+  const [stale, setStale] = useState(false); // live stream stopped delivering readings
   const [aligned, setAligned] = useState(false);
   const [headingDeg, setHeadingDeg] = useState<number | null>(null);
   // Signed delta from current heading to the Qibla: + = turn right, - = turn left
@@ -59,6 +76,8 @@ export default function QiblaCompassClient() {
   const cleanupRef = useRef<(() => void) | null>(null);
   const lastReadoutRef = useRef(-1);
   const hasDataRef = useRef(false);
+  const lastReadingRef = useRef(0); // timestamp of the last accepted reading — stale-needle detection
+  const reduceMotionRef = useRef(false);
 
   // ── Fetch Qibla data ──
   // The bearing is pure math — seed it instantly from the cached location so
@@ -135,12 +154,18 @@ export default function QiblaCompassClient() {
   const DEADZONE = 0.25;
 
   useEffect(() => {
+    reduceMotionRef.current =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
     const tick = () => {
       const filtered = filteredHeadingRef.current;
       if (filtered !== null) {
         const dh = angleDelta(currentHeadingRef.current, filtered);
         if (Math.abs(dh) > DEADZONE) {
-          currentHeadingRef.current = (currentHeadingRef.current + dh * RAF_ALPHA + 360) % 360;
+          // Reduced motion: snap to the heading instead of lerping every frame.
+          currentHeadingRef.current = reduceMotionRef.current
+            ? filtered
+            : (currentHeadingRef.current + dh * RAF_ALPHA + 360) % 360;
         }
         if (dialRef.current) {
           dialRef.current.style.transform = `rotate(${-currentHeadingRef.current}deg)`;
@@ -178,31 +203,38 @@ export default function QiblaCompassClient() {
 
     // Capacitor Android gets the fused rotation-vector sensor plus WMM-style
     // magnetic declination from native code. Do not mix that true-north stream
-    // with browser alpha events.
-    const native = (window as Window & {
-      Capacitor?: { Plugins?: { QiblaSensor?: {
-        start: (args: { latitude: number; longitude: number }) => Promise<void>;
-        stop: () => Promise<void>;
-        addListener: (event: string, cb: (data: { heading: number; declination?: number; sensorAccuracy?: number }) => void) => Promise<{ remove: () => Promise<void> }>;
-      } } };
-    }).Capacitor?.Plugins?.QiblaSensor;
+    // with browser alpha events — and don't attach browser listeners while
+    // we're merely waiting for `data`; that's the wrong-needle flash.
+    const native = getNativeSensor();
+    if (native && !data) return; // native will take over once the bearing lands
     if (native && data) {
       let removeListener: (() => void) | null = null;
+      let removeAccuracy: (() => void) | null = null;
       void native.addListener("heading", (reading) => {
+        lastReadingRef.current = Date.now();
         setSensorState(reading.sensorAccuracy === 0 ? "unavailable" : "live");
+        setAccuracyLow(reading.sensorAccuracy === 1); // Android SENSOR_STATUS_ACCURACY_LOW
         updateHeading(reading.heading);
       }).then((handle) => {
         removeListener = () => { void handle.remove(); };
+      }).catch(() => {});
+      // The "accuracy" channel was dead — wire it so calibration prompts surface.
+      void native.addListener("accuracy", (d) => {
+        setAccuracyLow((d.sensorAccuracy ?? 3) <= 1);
+      }).then((handle) => {
+        removeAccuracy = () => { void handle.remove(); };
       }).catch(() => {});
       void native.start({ latitude: data.userLocation.latitude, longitude: data.userLocation.longitude }).catch(() => setSensorState("unavailable"));
       cleanupRef.current = () => {
         void native.stop().catch(() => {});
         removeListener?.();
+        removeAccuracy?.();
       };
       return;
     }
 
     function updateHeading(raw: number) {
+      lastReadingRef.current = Date.now();
       const prev = filteredHeadingRef.current;
       if (prev === null) {
         filteredHeadingRef.current = raw;
@@ -219,12 +251,16 @@ export default function QiblaCompassClient() {
     // True-north sources only. Anything else is ignored — a relative reading
     // would corrupt the filter.
     const handler = (e: Event) => {
-      const ev = e as DeviceOrientationEvent & { webkitCompassHeading?: number };
+      const ev = e as DeviceOrientationEvent & { webkitCompassHeading?: number; webkitCompassAccuracy?: number };
       sawAnyEventRef.current = true;
 
       // iOS Safari: already true compass heading, clockwise from north.
       if (typeof ev.webkitCompassHeading === "number" && !Number.isNaN(ev.webkitCompassHeading)) {
         hasAbsoluteRef.current = true;
+        // iOS reports accuracy in degrees; <0 = unreliable, >20 needs calibrating.
+        if (typeof ev.webkitCompassAccuracy === "number") {
+          setAccuracyLow(ev.webkitCompassAccuracy < 0 || ev.webkitCompassAccuracy > 20);
+        }
         updateHeading((ev.webkitCompassHeading + screenAngle() + 360) % 360);
         return;
       }
@@ -254,6 +290,9 @@ export default function QiblaCompassClient() {
     // iOS doesn't fire deviceorientationabsolute — webkitCompassHeading arrives
     // on the plain event. On Android the plain event is relative and ignored.
     window.addEventListener("deviceorientation", handler);
+    // iOS fires this when the magnetometer needs the figure-8 — surface it.
+    const onNeedsCalibration = () => setAccuracyLow(true);
+    window.addEventListener("compassneedscalibration", onNeedsCalibration);
 
     // If sensors only ever deliver relative data (or nothing), tell the user.
     const stateTimer = setTimeout(() => {
@@ -265,11 +304,15 @@ export default function QiblaCompassClient() {
     }, 2500);
     const liveTimer = setInterval(() => {
       setSensorState(hasAbsoluteRef.current ? "live" : sawAnyEventRef.current ? "relative-only" : "unavailable");
+      // Stale-needle check: a "live" stream that stopped delivering readings
+      // must be labelled, not left silently frozen at the last heading.
+      if (hasAbsoluteRef.current) setStale(Date.now() - lastReadingRef.current > 3000);
     }, 2000);
 
     cleanupRef.current = () => {
       window.removeEventListener("deviceorientationabsolute", handler);
       window.removeEventListener("deviceorientation", handler);
+      window.removeEventListener("compassneedscalibration", onNeedsCalibration);
       clearTimeout(stateTimer);
       clearInterval(liveTimer);
     };
@@ -288,7 +331,8 @@ export default function QiblaCompassClient() {
       try {
         const result = await requestPermission.call(doe);
         if (result !== "granted") {
-          setSensorState("unavailable");
+          // A denial is not a missing sensor — say so and don't pretend.
+          setSensorState("denied");
           return;
         }
       } catch {
@@ -303,12 +347,16 @@ export default function QiblaCompassClient() {
   // (Android Chrome, desktop). iOS requires the button tap — it stays "idle"
   // until then, which is what shows the enable button.
   useEffect(() => {
+    // Native plugin present but bearing not fetched yet — defer entirely.
+    // Attaching browser listeners in the gap flashes a wrong needle before
+    // the true-north stream arrives.
+    if (getNativeSensor() && !data) return;
     const doe = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> };
     if (window.DeviceOrientationEvent && typeof doe.requestPermission !== "function") {
       startListening();
     }
     return () => { cleanupRef.current?.(); };
-  }, [startListening]);
+  }, [startListening, data]);
 
   // ── Loading ──
   if (loading) {
@@ -504,14 +552,41 @@ export default function QiblaCompassClient() {
           </p>
         )}
 
-        {(sensorState === "relative-only" || sensorState === "unavailable") && (
+        {/* Degraded live states — the dial is moving but must not LOOK fully
+            trustworthy: label low accuracy and a frozen stream. */}
+        {sensorState === "live" && stale && (
+          <div
+            className="mt-3 flex items-start gap-2.5 rounded-xl border px-4 py-3 text-left"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
+            <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Compass readings stalled — move the phone or reopen the page if the needle is frozen.
+            </p>
+          </div>
+        )}
+        {sensorState === "live" && !stale && accuracyLow && (
+          <div
+            className="mt-3 flex items-start gap-2.5 rounded-xl border px-4 py-3 text-left"
+            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
+            <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Compass accuracy is low — readings may be off. Wave the phone in a slow figure-8 to calibrate.
+            </p>
+          </div>
+        )}
+
+        {(sensorState === "relative-only" || sensorState === "unavailable" || sensorState === "denied") && (
           <div
             className="flex items-start gap-2.5 rounded-xl border px-4 py-3 text-left"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
           >
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
             <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              {sensorState === "relative-only"
+              {sensorState === "denied"
+                ? "Motion access was denied — enable it for this site in your browser settings to use the live compass. The bearing below still works."
+                : sensorState === "relative-only"
                 ? "This browser only provides relative orientation — it can't find true north. Use the bearing below with a physical compass."
                 : "No compass sensor detected. Use the bearing below with a physical compass."}
             </p>

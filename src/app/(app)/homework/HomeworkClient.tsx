@@ -61,6 +61,8 @@ export interface HomeworkItem {
   plannedEndTime: string | null;
   estimatedMinutes: number | null;
   plannedEventId: string | null;
+  /** Recurring-series membership — items created by the recurring wizard share this id. */
+  seriesId?: string | null;
   subtasks: HomeworkSubtask[];
   notified3dAt?: string | null;
   notified1dAt?: string | null;
@@ -144,8 +146,40 @@ export default function HomeworkClient({
       .then((rows) => { if (Array.isArray(rows) && rows.length > 0) setStudyHistory(mergeSessionHistory(rows)); })
       .catch(() => {});
   }, []);
-  const [sortBy, setSortBy] = useState<"soonest" | "latest" | "type">("soonest");
-  const [sortTypeKind, setSortTypeKind] = useState<HomeworkItem["kind"]>("homework");
+  // Sort state lives in the URL (?sort=&kind=) so a view is shareable and
+  // survives reload/back-nav like every other tab on this page.
+  const [sortBy, setSortBy] = useState<"soonest" | "latest" | "type">(() => {
+    if (typeof window !== "undefined") {
+      const s = new URLSearchParams(window.location.search).get("sort");
+      if (s === "latest" || s === "type" || s === "soonest") return s;
+    }
+    return "soonest";
+  });
+  const [sortTypeKind, setSortTypeKind] = useState<HomeworkItem["kind"]>(() => {
+    if (typeof window !== "undefined") {
+      const k = new URLSearchParams(window.location.search).get("kind");
+      if (k && (HOMEWORK_KINDS as readonly string[]).includes(k)) return k as HomeworkItem["kind"];
+    }
+    return "homework";
+  });
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (sortBy === "soonest") params.delete("sort"); else params.set("sort", sortBy);
+    if (sortBy === "type" && sortTypeKind !== "homework") params.set("kind", sortTypeKind);
+    else params.delete("kind");
+    const qs = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
+  }, [sortBy, sortTypeKind]);
+  // Initial-load failure — distinguish "nothing due" from "couldn't load".
+  const [loadError, setLoadError] = useState(false);
+  const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && !navigator.onLine);
+  useEffect(() => {
+    const on = () => setOffline(false);
+    const off = () => setOffline(true);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
 
   const [deleteClassConfirm, setDeleteClassConfirm] = useState<ClassItem | null>(null);
   const [editClass, setEditClass] = useState<ClassItem | null>(null);
@@ -228,6 +262,7 @@ export default function HomeworkClient({
         if (Array.isArray(data)) {
           setHomework(data);
           syncHomeworkToCache(data);
+          setLoadError(false);
         }
       }
     } catch {
@@ -268,6 +303,7 @@ export default function HomeworkClient({
               plannedEndTime: h.plannedEndTime ?? null,
               estimatedMinutes: h.estimatedMinutes ?? null,
               plannedEventId: h.plannedEventId ?? null,
+              seriesId: h.seriesId ?? null,
               subtasks: h.subtasks ?? [],
               notified3dAt: h.notified3dAt ?? null,
               notified1dAt: h.notified1dAt ?? null,
@@ -312,8 +348,12 @@ export default function HomeworkClient({
             syncClassesToCache(clsData);
           }
         }
+        if (hwRes.ok && clsRes.ok) setLoadError(false);
+        else if (!hwRes.ok && !clsRes.ok) setLoadError(true);
       } catch {
-        // Offline — cached data is already showing
+        // Fetch itself failed — distinguish "couldn't load" from "nothing due".
+        // If IndexedDB seeded data above, this just flags the staleness.
+        if (!cancelled) setLoadError(true);
       }
     })();
     return () => { cancelled = true; };
@@ -338,6 +378,25 @@ export default function HomeworkClient({
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refreshHomework]);
+
+  // Escape closes whichever hand-rolled dialog is open — these fixed-overlay
+  // modals bypass native <dialog> behavior, so the key has to be wired by hand.
+  const anyModalOpen = !!(deleteClassConfirm || showImport || editClass || deleteHwConfirm || completeConfirm || gradeFor || statsOpen);
+  useEffect(() => {
+    if (!anyModalOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      setDeleteClassConfirm(null);
+      setShowImport(false);
+      setEditClass(null);
+      setDeleteHwConfirm(null);
+      setCompleteConfirm(null);
+      setGradeFor(null);
+      setStatsOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [anyModalOpen]);
 
   function resetForm() {
     setTitle("");
@@ -659,10 +718,12 @@ export default function HomeworkClient({
     }
   }
 
-  // Called when user confirms completion in the modal
+  // Checkbox tap. Completion is fully reversible (tap again to un-complete),
+  // so it must be ONE tap — a confirm modal on a reversible action is a
+  // confirm-reflex. The modal only survives for graded kinds, where it asks
+  // for a real piece of data (the outcome), not a yes/no.
   function handleCompleteClick(hw: HomeworkItem) {
-    if (hw.status === "completed") {
-      // Already completed — just uncomplete without confirmation
+    if (hw.status === "completed" || !GRADED_KINDS.includes(hw.kind)) {
       handleToggleComplete(hw);
     } else {
       setCompleteConfirm(hw);
@@ -1091,6 +1152,15 @@ export default function HomeworkClient({
                 {KIND_LABELS[hw.kind]}
               </span>
             )}
+            {hw.seriesId && (
+              <span
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
+                title="Part of a recurring series — edits and deletes apply to this one only"
+              >
+                series
+              </span>
+            )}
             {GRADED_KINDS.includes(hw.kind) && hw.status === "completed" && (
               <button
                 onClick={(e) => { e.stopPropagation(); setGradeFor(hw); }}
@@ -1273,15 +1343,43 @@ export default function HomeworkClient({
 
       {statsOpen && <StudyStatsSheet onClose={() => setStatsOpen(false)} />}
 
+      {/* Connectivity staleness — only when there's data to be stale about;
+          total failure renders the error empty-state below. */}
+      {(offline || (loadError && homework.length > 0)) && (
+        <p
+          className="mb-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs"
+          role="status"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}
+        >
+          {offline
+            ? "You\u2019re offline — showing saved data. Changes will sync when you reconnect."
+            : "Couldn\u2019t refresh — the list below may be out of date."}
+          {!offline && loadError && (
+            <button
+              onClick={() => { setLoadError(false); void refreshHomework(); }}
+              className="shrink-0 font-semibold"
+              style={{ color: "var(--color-ink)" }}
+            >
+              Retry
+            </button>
+          )}
+        </p>
+      )}
+
       {/* ── Classes (collapsible dropdown so homework is the main focus) ── */}
       <div className="mb-4">
-        <button
-          onClick={() => setShowClasses(!showClasses)}
-          className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+        {/* Two sibling buttons — the old markup nested a role=button inside a
+            <button>, which is invalid HTML and breaks AT announcements. */}
+        <div
+          className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium"
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
         >
-          <span className="flex items-center gap-2">
-            <Layers className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
+          <button
+            onClick={() => setShowClasses(!showClasses)}
+            aria-expanded={showClasses}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left transition-colors"
+          >
+            <Layers className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-ink-muted)" }} />
             Classes
             {activeClasses.length > 0 && (
               <span
@@ -1302,24 +1400,20 @@ export default function HomeworkClient({
                 Filtered: {getClassInfo(filterClassId)?.name || ""}
               </span>
             )}
-          </span>
-          <span className="flex items-center gap-2">
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); setShowAddClass(!showAddClass); }}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setShowAddClass(!showAddClass); } }}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-3)]"
-              style={{ color: "var(--color-ink-muted)" }}
-            >
-              <Plus className="h-3 w-3" />
-              Add
-            </span>
             {showClasses
-              ? <ChevronDown className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
-              : <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />}
-          </span>
-        </button>
+              ? <ChevronDown className="ml-auto h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
+              : <ChevronRight className="ml-auto h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddClass(!showAddClass)}
+            className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-3)]"
+            style={{ color: "var(--color-ink-muted)" }}
+          >
+            <Plus className="h-3 w-3" />
+            Add
+          </button>
+        </div>
 
         {/* Classes list — compact rows with always-visible delete */}
         {showClasses && (
@@ -1846,12 +1940,37 @@ export default function HomeworkClient({
       {/* Homework list */}
       {visible.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <BookOpen className="mb-3 h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />
-          <p className="text-sm font-medium" style={{ color: "var(--color-ink-muted)" }}>
-            {filterClassId || filterPriority !== "all" || sortBy === "type"
-              ? "No homework matches your filters."
-              : "No homework yet. Tap \u201CAdd\u201D to create your first assignment."}
-          </p>
+          {loadError && homework.length === 0 ? (
+            <>
+              <AlertCircle className="mb-3 h-10 w-10" style={{ color: "var(--color-warmth)" }} />
+              <p className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>
+                Couldn&apos;t load your homework.
+              </p>
+              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                Check your connection — anything you add is saved offline and syncs later.
+              </p>
+              <button
+                onClick={() => { setLoadError(false); void refreshHomework(); }}
+                className="mt-4 rounded-lg px-4 py-2 text-sm font-semibold"
+                style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <>
+              <BookOpen className="mb-3 h-10 w-10" style={{ color: "var(--color-ink-muted)" }} />
+              <p className="text-sm font-medium" style={{ color: "var(--color-ink-muted)" }}>
+                {filterClassId || filterPriority !== "all" || sortBy === "type"
+                  ? "No homework matches your filters."
+                  : homework.length > 0
+                    // Items exist but every deadline passed or everything is
+                    // done — that's an accomplishment, not a fresh account.
+                    ? "All done — nothing left on the list."
+                    : "No homework yet. Tap \u201CAdd\u201D to create your first assignment."}
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -1876,8 +1995,11 @@ export default function HomeworkClient({
               </div>
             )
           ) : sortBy === "latest" ? (
-            // Latest sort: reverse section order (Later → dates → Tomorrow → Today → Overdue)
+            // Latest sort: date groups newest-first — but Overdue always
+            // leads. Late work buried at the bottom under "latest" ordering
+            // was invisible until it was too late.
             <>
+              {renderSection("Overdue", overdue)}
               {dateGroupedItems.map(([dateStr, items]) => (
                 <div key={dateStr} className="mb-5">
                   <div className="mb-2 flex items-center gap-2">
@@ -1898,7 +2020,6 @@ export default function HomeworkClient({
               ))}
               {renderSection("Tomorrow", tomorrow)}
               {renderSection("Today", today)}
-              {renderSection("Overdue", overdue)}
             </>
           ) : (
             // Soonest sort: normal order (Overdue → Today → Tomorrow → This Week → Later)
@@ -1921,6 +2042,9 @@ export default function HomeworkClient({
           onClick={() => setDeleteClassConfirm(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Delete ${deleteClassConfirm.name}`}
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-sm rounded-2xl border p-5"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
@@ -1937,6 +2061,7 @@ export default function HomeworkClient({
             <div className="flex gap-2">
               <button
                 onClick={() => setDeleteClassConfirm(null)}
+                autoFocus
                 className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
               >
@@ -2007,6 +2132,7 @@ export default function HomeworkClient({
             <div className="flex gap-2">
               <button
                 onClick={() => setShowImport(false)}
+                autoFocus
                 className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
               >
@@ -2087,6 +2213,7 @@ export default function HomeworkClient({
               <div className="flex gap-2">
                 <button
                   onClick={() => setEditClass(null)}
+                  autoFocus
                   className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium"
                   style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
                 >
@@ -2114,6 +2241,9 @@ export default function HomeworkClient({
           onClick={() => setDeleteHwConfirm(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Delete ${deleteHwConfirm.title}`}
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-sm rounded-2xl border p-5"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
@@ -2123,10 +2253,12 @@ export default function HomeworkClient({
             </h3>
             <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
               &ldquo;{deleteHwConfirm.title}&rdquo; will be permanently removed. This cannot be undone.
+              {deleteHwConfirm.seriesId && " It\u2019s one of a recurring series — only this one is deleted; the rest stay."}
             </p>
             <div className="flex gap-2">
               <button
                 onClick={() => setDeleteHwConfirm(null)}
+                autoFocus
                 className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
               >
@@ -2212,69 +2344,44 @@ export default function HomeworkClient({
                 )}
               </div>
 
-              {GRADED_KINDS.includes(completeConfirm.kind) ? (
-                <>
-                  {/* Assessments record an outcome — feeds the planner's
-                      estimate calibration. Skippable; editable later. */}
-                  <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                    Mark it done — how&apos;d it go?
-                  </p>
-                  <div className="mb-3 grid grid-cols-4 gap-1.5">
-                    {(["A", "B", "C", "fail"] as const).map((g) => (
-                      <button
-                        key={g}
-                        onClick={() => { handleToggleComplete(completeConfirm, g); setCompleteConfirm(null); }}
-                        className="rounded-lg border py-2.5 text-sm font-bold transition-colors hover:bg-[var(--color-paper-2)]"
-                        style={{
-                          borderColor: g === "fail" ? "var(--color-warmth)" : "var(--color-paper-3)",
-                          color: g === "fail" ? "var(--color-warmth)" : "var(--color-ink)",
-                          minHeight: 44,
-                        }}
-                      >
-                        {g === "fail" ? "Fail" : g}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setCompleteConfirm(null)}
-                      className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
-                    >
-                      Not yet
-                    </button>
-                    <button
-                      onClick={() => { handleToggleComplete(completeConfirm); setCompleteConfirm(null); }}
-                      className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90"
-                      style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)", minHeight: 44 }}
-                    >
-                      Done — skip grade
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-                    Mark it done? It moves to Done — you can undo it anytime.
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setCompleteConfirm(null)}
-                      className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
-                    >
-                      Not yet
-                    </button>
-                    <button
-                      onClick={() => { handleToggleComplete(completeConfirm); setCompleteConfirm(null); }}
-                      className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90"
-                      style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)", minHeight: 44 }}
-                    >
-                      Done
-                    </button>
-                  </div>
-                </>
-              )}
+              {/* Assessments record an outcome — feeds the planner's
+                  estimate calibration. Skippable; editable later. */}
+              <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                Mark it done — how&apos;d it go?
+              </p>
+              <div className="mb-3 grid grid-cols-4 gap-1.5">
+                {(["A", "B", "C", "fail"] as const).map((g) => (
+                  <button
+                    key={g}
+                    onClick={() => { handleToggleComplete(completeConfirm, g); setCompleteConfirm(null); }}
+                    className="rounded-lg border py-2.5 text-sm font-bold transition-colors hover:bg-[var(--color-paper-2)]"
+                    style={{
+                      borderColor: g === "fail" ? "var(--color-warmth)" : "var(--color-paper-3)",
+                      color: g === "fail" ? "var(--color-warmth)" : "var(--color-ink)",
+                      minHeight: 44,
+                    }}
+                  >
+                    {g === "fail" ? "Fail" : g}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCompleteConfirm(null)}
+                  autoFocus
+                  className="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", minHeight: 44 }}
+                >
+                  Not yet
+                </button>
+                <button
+                  onClick={() => { handleToggleComplete(completeConfirm); setCompleteConfirm(null); }}
+                  className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "var(--color-success)", color: "var(--color-paper)", minHeight: 44 }}
+                >
+                  Done — skip grade
+                </button>
+              </div>
             </div>
           </div>
         );
@@ -2301,6 +2408,7 @@ export default function HomeworkClient({
               </h3>
               <button
                 onClick={() => setGradeFor(null)}
+                autoFocus
                 className="min-h-11 min-w-11 -m-2 rounded-lg p-2 transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-ink-muted)" }}
                 aria-label="Close"

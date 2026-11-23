@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Download, Share2 } from "lucide-react";
 
 /**
@@ -21,10 +21,27 @@ export default function PhotoLightbox({
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const prev = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { onClose(); return; }
+      // Minimal focus trap — Tab cycles through the dialog's controls.
+      if (e.key !== "Tab" || !rootRef.current) return;
+      const els = rootRef.current.querySelectorAll<HTMLElement>("button, [href], [tabindex]:not([tabindex='-1'])");
+      if (!els.length) return;
+      const first = els[0], last = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      prev?.focus?.();
+    };
   }, [onClose]);
 
   async function toFile(): Promise<File | null> {
@@ -73,13 +90,16 @@ export default function PhotoLightbox({
 
   return (
     <div
+      ref={rootRef}
       className="fixed inset-0 z-[130] flex flex-col items-center justify-center"
       style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 92%, transparent)", animation: "drawer-app-in 0.18s ease-out" }}
       onClick={onClose}
       role="dialog"
+      aria-modal="true"
       aria-label="Photo viewer"
     >
       <button
+        ref={closeRef}
         onClick={onClose}
         className="absolute right-4 top-4 flex items-center justify-center rounded-full"
         style={{ color: "var(--color-paper)", minHeight: 44, minWidth: 44, paddingTop: "env(safe-area-inset-top)" }}
@@ -97,7 +117,6 @@ export default function PhotoLightbox({
           src={src}
           alt={alt}
           onClick={() => setZoomed((z) => !z)}
-          className="cursor-zoom-in transition-transform duration-200"
           style={{
             display: "block",
             width: zoomed ? "180vw" : "min(92vw, 70dvh)",
@@ -119,7 +138,7 @@ export default function PhotoLightbox({
           {busy ? "Saving…" : isMobile ? "Save to device" : "Download"}
         </button>
       </div>
-      {hint && <p className="mt-2 text-xs" style={{ color: "var(--color-paper)" }}>{hint}</p>}
+      {hint && <p role="status" className="mt-2 text-xs" style={{ color: "var(--color-paper)" }}>{hint}</p>}
     </div>
   );
 }

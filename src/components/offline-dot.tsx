@@ -59,6 +59,32 @@ export default function OfflineDot() {
     postForced(on);
   };
 
+  // Dialog a11y: focus it on open, Escape or backdrop click closes, focus
+  // returns to the dot. Kept as a styled <span role="dialog"> (not native
+  // <dialog>) to match the existing animation-free overlay pattern.
+  const dialogRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!pop) return;
+    const prev = document.activeElement as HTMLElement | null;
+    const root = dialogRef.current;
+    (root?.querySelector<HTMLElement>("button") ?? root)?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); setPop(false); }
+      if (e.key === "Tab" && root) {
+        const f = root.querySelectorAll<HTMLElement>("button, a[href], [tabindex]");
+        if (f.length === 0) { e.preventDefault(); return; }
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      prev?.focus?.();
+    };
+  }, [pop]);
+
   const isOff = offline || forced;
   return (
     <span className="relative inline-flex items-center">
@@ -92,7 +118,11 @@ export default function OfflineDot() {
           <span className="fixed inset-0 z-[90]" onClick={() => setPop(false)} aria-hidden="true" />
           <span
             role="dialog"
-            className="fixed left-1/2 top-24 z-[91] w-64 -translate-x-1/2 rounded-xl border p-4 text-left shadow-xl"
+            aria-modal="true"
+            aria-label={forced ? "Go back online?" : offline ? "Offline" : "Switch to offline mode?"}
+            ref={dialogRef}
+            tabIndex={-1}
+            className="fixed left-1/2 top-24 z-[91] w-64 -translate-x-1/2 rounded-xl border p-4 text-left shadow-xl outline-none"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
           >
             {forced ? (

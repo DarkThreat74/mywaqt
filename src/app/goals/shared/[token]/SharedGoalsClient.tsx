@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Target,
   Check,
@@ -17,30 +17,42 @@ import { buildGoalTree, countCompleted, type GoalNode } from "@/lib/goals/tree";
 
 type View = "list" | "tree";
 
+// Goal types that can actually be marked done — mirrors COMPLETABLE in
+// GoalsTab. Rules/all-time are principles and milestones, not checkboxes.
+const COMPLETABLE_TYPES = new Set(["week", "month", "year", "bucket"]);
+
 export default function SharedGoalsClient({ token }: { token: string }) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [ownerName, setOwnerName] = useState("Someone");
   const [view, setView] = useState<View>("list");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // "gone" = link revoked/never existed (404). "error" = anything else —
+  // a network or server failure must not masquerade as a revoked link.
+  const [failKind, setFailKind] = useState<"gone" | "error" | null>(null);
 
   useEffect(() => {
     fetch(`/api/goals/shared?token=${token}`)
-      .then((r) => r.json().catch(() => ({})))
-      .then((data) => {
-        if (data.goals) {
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.goals) {
           setGoals(data.goals);
           setOwnerName(data.ownerName || "Someone");
         } else {
-          setError(data.error || "Failed to load goals");
+          setFailKind(r.status === 404 || r.status === 410 ? "gone" : "error");
         }
       })
-      .catch(() => setError("Network error"))
+      .catch(() => setFailKind("error"))
       .finally(() => setLoading(false));
   }, [token]);
 
   const tree = buildGoalTree(goals);
-  const { total, done } = countCompleted(tree);
+  // Only completable goals count toward the tally — rules and all-time
+  // milestones are never "done", so counting them makes progress look broken.
+  const completableTree = useMemo(
+    () => tree.filter((n) => COMPLETABLE_TYPES.has(n.goalType ?? "month")),
+    [tree],
+  );
+  const { total, done } = countCompleted(completableTree);
 
   if (loading) {
     return (
@@ -53,7 +65,7 @@ export default function SharedGoalsClient({ token }: { token: string }) {
     );
   }
 
-  if (error) {
+  if (failKind) {
     return (
       <div
         className="flex min-h-dvh flex-col items-center justify-center px-6 text-center"
@@ -68,11 +80,22 @@ export default function SharedGoalsClient({ token }: { token: string }) {
           <Target className="h-7 w-7" style={{ color: "var(--color-error)" }} />
         </div>
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
-          {error}
+          {failKind === "gone" ? "This share link is no longer active" : "Couldn\u2019t load these goals"}
         </h1>
         <p className="mt-1 text-sm" style={{ color: "var(--color-ink-muted)" }}>
-          This share link may have been revoked.
+          {failKind === "gone"
+            ? "It was revoked or never existed — ask for a fresh link."
+            : "Check your connection and try again."}
         </p>
+        {failKind === "error" && (
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-lg px-4 py-2 text-sm font-semibold"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+          >
+            Retry
+          </button>
+        )}
       </div>
     );
   }

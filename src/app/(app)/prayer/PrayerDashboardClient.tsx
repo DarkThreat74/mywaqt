@@ -15,6 +15,7 @@ import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import LifetimeView from "@/components/prayer/LifetimeView";
 import BalighSetup from "@/components/prayer/BalighSetup";
 import type { PrayerKey } from "@/lib/prayer/checkin";
+import { prayerStatusVisual, statusMeetsObligation, prayerStatusLabel } from "@/lib/prayer/statusDisplay";
 
 interface PerPrayerStats {
   prayer: string;
@@ -146,11 +147,11 @@ const PRAYER_LABELS: Record<string, string> = {
 };
 
 const PRAYER_COLORS: Record<string, string> = {
-  fajr: "#1e40af",
-  dhuhr: "#c2410c",
-  asr: "#7c3aed",
-  maghrib: "#be185d",
-  isha: "#0e7490",
+  fajr: "var(--color-prayer-fajr)",
+  dhuhr: "var(--color-prayer-dhuhr)",
+  asr: "var(--color-prayer-asr)",
+  maghrib: "var(--color-prayer-maghrib)",
+  isha: "var(--color-prayer-isha)",
 };
 
 const PRAYER_ORDER = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
@@ -294,8 +295,12 @@ export default function PrayerDashboard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ friendId, hiddenFromLeague: hidden }),
     }).catch(() => null);
-    if (res?.ok) invalidateApiCache("/api/prayer-friends");
-    else setFriends((prev) => prev.map((f) => (f.id === friendId ? { ...f, hiddenFromLeague: !hidden } : f)));
+    if (res?.ok) {
+      invalidateApiCache("/api/prayer-friends");
+    } else {
+      setFriends((prev) => prev.map((f) => (f.id === friendId ? { ...f, hiddenFromLeague: !hidden } : f)));
+      showNudgeToast("Couldn't update — try again.", false);
+    }
   }
 
   async function saveNickname(friendId: string) {
@@ -343,6 +348,14 @@ export default function PrayerDashboard() {
   const [todayLogs, setTodayLogs] = useState<TodayLog[]>([]);
   const [todaySunnahs, setTodaySunnahs] = useState<string[]>([]);
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimes | null>(null);
+  // Why prayer times are missing: location never set vs fetch failed.
+  const [timesError, setTimesError] = useState<"location" | "fetch" | null>(null);
+  // Times currently on screen came from IndexedDB, not the API — stamp them.
+  const [timesFromCache, setTimesFromCache] = useState<number | null>(null);
+  // One quiet banner when a refresh partially fails — never 13 toasts.
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [checkinError, setCheckinError] = useState<string | null>(null);
   const [madhab, setMadhab] = useState<string>("hanafi");
   const [sunnahError, setSunnahError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
@@ -398,14 +411,24 @@ export default function PrayerDashboard() {
       if (timesRes?.ok) {
         const data = await timesRes.json().catch(() => null);
         const safe = sanitizeTimings(data);
-        if (safe) setPrayerTimes(safe);
+        if (safe) {
+          setPrayerTimes(safe);
+          setTimesFromCache(null); // fresh — no staleness stamp needed
+        }
+        if (data && data.locationSet === false) setTimesError("location");
+        else if (!safe) setTimesError("fetch");
+        else setTimesError(null);
+      } else {
+        setTimesError("fetch");
       }
       if (analyticsRes?.ok) {
         const data = await analyticsRes.json().catch(() => null);
         if (data) setAnalytics(data);
       }
+      // One banner for the whole refresh — the critical trio decides.
+      setRefreshFailed([logsRes, timesRes, analyticsRes].some((r) => !r || !r.ok));
     } catch {
-      // ignore
+      setRefreshFailed(true);
     }
   }, [todayStr, statsRange, setTodayLogs]);
 
@@ -498,6 +521,7 @@ export default function PrayerDashboard() {
     if (!todayStr) return;
 
     let cancelled = false;
+    void refreshNonce; // retry trigger — bumping this reruns the load
 
     (async () => {
       // ── Step 1: Read from IndexedDB instantly (if cached) ──
@@ -545,6 +569,13 @@ export default function PrayerDashboard() {
         const safeCached = sanitizeTimings(cachedTimes);
         if (safeCached) {
           setPrayerTimes(safeCached);
+          // Remember when these were cached — the stamp stays until fresh
+          // times arrive from the API.
+          setTimesFromCache(
+            typeof (cachedTimes as { _cachedAt?: number } | null)?._cachedAt === "number"
+              ? (cachedTimes as { _cachedAt: number })._cachedAt
+              : Date.now(),
+          );
           hasAnyCached = true;
         }
 
@@ -700,7 +731,13 @@ export default function PrayerDashboard() {
           const data = await timesRes.json().catch(() => null);
           if (data) {
             const safe = sanitizeTimings(data);
-            if (safe) setPrayerTimes(safe);
+            if (safe) {
+              setPrayerTimes(safe);
+              setTimesFromCache(null);
+            }
+            if (data.locationSet === false) setTimesError("location");
+            else if (!safe) setTimesError("fetch");
+            else setTimesError(null);
             try {
               await getOfflineDB().prayerTimes.put({
                 date: todayStr,
@@ -717,14 +754,17 @@ export default function PrayerDashboard() {
             } catch { /* non-critical */ }
           }
         }
+        // One quiet banner when critical data couldn't refresh — the logs,
+        // times, and analytics calls are the ones the UI visibly depends on.
+        setRefreshFailed([logsRes, timesRes, analyticsRes].some((r) => !r || !r.ok));
       } catch {
-        // ignore — cached data is already showing
+        setRefreshFailed(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [todayStr, statsRange]);
+  }, [todayStr, statsRange, refreshNonce]);
 
   // Update current time every second for the countdown (shows seconds).
   // Pause while the tab is hidden — the whole dashboard re-renders each tick.
@@ -1212,10 +1252,15 @@ export default function PrayerDashboard() {
     }
   }
 
-  const isPrayed = (prayer: string) => {
-    const status = getPrayerStatus(prayer);
-    return status === "prayed" || status === "assumed_prayed";
+  const statusVisual = (prayer: string) => prayerStatusVisual(getPrayerStatus(prayer));
+  // prayed or assumed — the prayer is done with, never rendered as "Prayed"
+  // for an assumption (see the badge/node split below).
+  const isPrayedLike = (prayer: string) => {
+    const v = statusVisual(prayer);
+    return v === "confirmed" || v === "assumed";
   };
+  // Obligation met — prayed + assumed + excused. A hayd day reads 5/5, not 0/5.
+  const isSettled = (prayer: string) => statusMeetsObligation(getPrayerStatus(prayer));
 
   const sunnahDefinitions = getSunnahsForMadhab(madhab);
 
@@ -1239,8 +1284,8 @@ export default function PrayerDashboard() {
             style={{
               backgroundColor: nudgeToast.ok
                 ? "color-mix(in oklab, var(--color-success) 14%, transparent)"
-                : "color-mix(in oklab, #b42318 12%, transparent)",
-              color: nudgeToast.ok ? "var(--color-success)" : "#b42318",
+                : "color-mix(in oklab, var(--color-error) 12%, transparent)",
+              color: nudgeToast.ok ? "var(--color-success)" : "var(--color-error)",
             }}
           >
             {nudgeToast.ok ? <Bell className="h-3.5 w-3.5 waqt-bell-ring" /> : <span className="text-xs font-bold">!</span>}
@@ -1252,6 +1297,25 @@ export default function PrayerDashboard() {
       )}
 
       {/* Offline indicator lives in the header dot — no banner duplication */}
+
+      {/* One quiet line when a refresh partially failed — cached data stays
+          on screen, the banner names it. Never per-fetch toasts. */}
+      {refreshFailed && (
+        <div
+          role="status"
+          className="mb-4 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs"
+          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+        >
+          <span>Couldn&apos;t refresh — showing saved data.</span>
+          <button
+            onClick={() => { setRefreshFailed(false); setRefreshNonce((n) => n + 1); void fetchTodayData(); }}
+            className="shrink-0 font-medium underline underline-offset-2"
+            style={{ color: "var(--color-accent)" }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Hayd control — female accounts with tracking enabled only */}
       {gender === "female" && haydTracking && (
@@ -1339,9 +1403,14 @@ export default function PrayerDashboard() {
                 {prayerTimes && (
                   <div className="text-right">
                     <span className="text-2xl font-bold tabular-nums" style={{ color: "var(--color-accent)" }}>
-                      {PRAYER_ORDER.filter(isPrayed).length}
+                      {PRAYER_ORDER.filter(isSettled).length}
                     </span>
                     <span className="text-sm" style={{ color: "var(--color-ink-muted)" }}>/5</span>
+                    {timesFromCache !== null && (
+                      <p className="mt-0.5 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
+                        times as of {new Date(timesFromCache).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1365,7 +1434,7 @@ export default function PrayerDashboard() {
               if (starts.some((s) => !Number.isFinite(s))) return null;
               const mk = activeMakruh(nowMin, timings);
               const open = openPrayer(nowMin, timings);
-              const openUnmarked = open && !isPrayed(open) ? open : null;
+              const openUnmarked = open && !isSettled(open) ? open : null;
 
               let caption: string;
               let name: string;
@@ -1420,7 +1489,7 @@ export default function PrayerDashboard() {
                   style={{
                     borderColor: "var(--color-paper-3)",
                     backgroundColor: danger
-                      ? "color-mix(in oklab, var(--color-error) 7%, var(--color-paper))"
+                      ? "color-mix(in oklab, var(--color-warmth) 7%, var(--color-paper))"
                       : "color-mix(in oklab, var(--color-accent) 6%, var(--color-paper))",
                   }}
                 >
@@ -1434,7 +1503,7 @@ export default function PrayerDashboard() {
                   </div>
                   <div className="text-right">
                     <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{until}</p>
-                    <p className="text-lg font-bold tabular-nums sm:text-xl" style={{ color: danger ? "var(--color-error)" : "var(--color-accent)" }}>
+                    <p className="text-lg font-bold tabular-nums sm:text-xl" style={{ color: danger ? "var(--color-warmth)" : "var(--color-accent)" }}>
                       {hrs > 0 ? `${hrs}h ` : ""}{mins}m {secs}s
                     </p>
                   </div>
@@ -1482,7 +1551,7 @@ export default function PrayerDashboard() {
                               className="absolute top-0 h-full w-px"
                               style={{
                                 left: `${pct}%`,
-                                backgroundColor: isPrayed(p) ? PRAYER_COLORS[p] : "var(--color-paper-3)",
+                                backgroundColor: isPrayedLike(p) ? PRAYER_COLORS[p] : "var(--color-paper-3)",
                               }}
                             />
                           );
@@ -1502,8 +1571,11 @@ export default function PrayerDashboard() {
                 })()}
 
                 {PRAYER_ORDER.map((prayer, idx) => {
-                  const prayed = isPrayed(prayer);
-                  const excused = getPrayerStatus(prayer) === "excused";
+                  const visual = statusVisual(prayer);
+                  const prayed = visual === "confirmed";
+                  const assumed = visual === "assumed";
+                  const excused = visual === "excused";
+                  const settled = prayed || assumed || excused;
                   const color = PRAYER_COLORS[prayer];
                   const time = prayerTimes[prayer];
                   const isLast = idx === PRAYER_ORDER.length - 1;
@@ -1546,7 +1618,7 @@ export default function PrayerDashboard() {
                   const isIshaAfterMidnight = prayer === "isha" && currentMinutes < prayerMinutes;
                   const effectiveCurrent = isIshaAfterMidnight ? currentMinutes + 1440 : currentMinutes;
                   const inWindow = timeStarted && effectiveCurrent < windowEndMinutes;
-                  const isCurrent = inWindow && !prayed;
+                  const isCurrent = inWindow && !settled;
 
                   // Makruh tail: the countdown stops at the makruh window that
                   // cuts into this prayer window (sunrise for Fajr, sunset for
@@ -1574,16 +1646,23 @@ export default function PrayerDashboard() {
                         {/* Node — tap to log this prayer */}
                         <button
                           onClick={() => setCheckinPrayer(prayer)}
-                          aria-label={`Log ${prayerLabel(prayer)}`}
+                          aria-label={`${prayerLabel(prayer)} — ${
+                            prayed ? "prayed"
+                            : assumed ? "assumed prayed — tap to correct"
+                            : excused ? "excused"
+                            : `log ${prayerLabel(prayer)}`
+                          }`}
                           className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] active:scale-90 sm:h-10 sm:w-10"
                           style={{
-                            borderColor: prayed ? color : excused ? "var(--color-accent)" : isCurrent ? color : "var(--color-paper-3)",
-                            backgroundColor: prayed ? color : excused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : isCurrent ? "color-mix(in oklab, " + color + " 10%, transparent)" : "transparent",
-                            ...(isCurrent && !prayed && !excused ? { boxShadow: "0 0 0 3px color-mix(in oklab, " + color + " 25%, transparent)" } : {}),
+                            borderColor: prayed || assumed ? color : excused ? "var(--color-accent)" : isCurrent ? color : "var(--color-paper-3)",
+                            backgroundColor: prayed ? color : assumed ? "transparent" : excused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : isCurrent ? "color-mix(in oklab, " + color + " 10%, transparent)" : "transparent",
+                            ...(isCurrent ? { boxShadow: "0 0 0 3px color-mix(in oklab, " + color + " 25%, transparent)" } : {}),
                           }}
                         >
                           {prayed ? (
                             <Check className="h-4 w-4 sm:h-5 sm:w-5" style={{ color: "var(--color-paper)" }} />
+                          ) : assumed ? (
+                            <Check className="h-4 w-4 sm:h-5 sm:w-5" style={{ color }} />
                           ) : excused ? (
                             <span className="text-[10px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>
                           ) : (
@@ -1591,14 +1670,12 @@ export default function PrayerDashboard() {
                               {prayer.charAt(0).toUpperCase()}
                             </span>
                           )}
-                          {/* Pulsing dot — only when in the active window */}
+                          {/* Pulsing dot — only when in the active window;
+                              .waqt-node-pulse honours prefers-reduced-motion */}
                           {isCurrent && (
                             <span
-                              className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full"
-                              style={{
-                                backgroundColor: color,
-                                animation: "pulse 2s ease-in-out infinite",
-                              }}
+                              className="waqt-node-pulse absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full"
+                              style={{ backgroundColor: color }}
                             />
                           )}
                         </button>
@@ -1634,6 +1711,15 @@ export default function PrayerDashboard() {
                                 >
                                   Prayed
                                 </span>
+                              ) : assumed ? (
+                                /* Hollow badge — the system assumed this one;
+                                   never let it read as a confirmed "Prayed". */
+                                <span
+                                  className="rounded-full border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
+                                  style={{ borderColor: color, color: color }}
+                                >
+                                  Assumed
+                                </span>
                               ) : excused ? (
                                 <span
                                   className="rounded-full px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
@@ -1662,7 +1748,7 @@ export default function PrayerDashboard() {
                                     color: "var(--color-ink-muted)",
                                   }}
                                 >
-                                  Missed
+                                  Unmarked
                                 </span>
                               ) : (
                                 <span
@@ -1684,12 +1770,12 @@ export default function PrayerDashboard() {
                               <span className="mx-1" style={{ color: "var(--color-paper-3)" }}>—</span>
                               <span>{windowEndLabel}</span>
                               {inWindow && inMakruhTail && mkBound && (
-                                <span className="ml-1.5 inline-flex items-center gap-1 font-medium" style={{ color: "var(--color-error)" }}>
+                                <span className="ml-1.5 inline-flex items-center gap-1 font-medium" style={{ color: "var(--color-warmth)" }}>
                                   <Ban className="h-3 w-3" />
                                   makruh until {formatMinutesToTime(mkBound.end)}
                                 </span>
                               )}
-                              {inWindow && !inMakruhTail && (() => {
+                              {inWindow && !inMakruhTail && !settled && (() => {
                                 // effectiveCurrent is fractional minutes —
                                 // work in whole seconds so nothing decimals.
                                 const totalSec = Math.max(0, Math.floor((countdownEnd - effectiveCurrent) * 60));
@@ -1700,7 +1786,7 @@ export default function PrayerDashboard() {
                                   ? `${mins}m ${secs}s left`
                                   : `${hrs > 0 ? `${hrs}h ` : ""}${mins}m left`;
                                 return (
-                                  <span className="ml-1.5" style={{ color: prayed ? "var(--color-ink-muted)" : "var(--color-warmth)" }}>
+                                  <span className="ml-1.5" style={{ color: "var(--color-warmth)" }}>
                                     {label}{mkBound ? " until makruh" : ""}
                                   </span>
                                 );
@@ -1710,7 +1796,7 @@ export default function PrayerDashboard() {
                         </div>
 
                         {/* Window progress bar — only show when in the active window */}
-                        {inWindow && !prayed && (
+                        {inWindow && !settled && (
                           <div className="mt-1.5 mb-0.5">
                             <div
                               className="h-1 w-full overflow-hidden rounded-full"
@@ -1736,15 +1822,13 @@ export default function PrayerDashboard() {
                                 {beforeSunnahs.map((s) => {
                                   const sunnahPrayed = todaySunnahs.includes(s.key);
                                   const windowPassed = effectiveCurrent >= windowEndMinutes;
-                                  // Grey out when window passed (allow un-logging if already prayed)
-                                  // Duha is exempt from lock — it can be logged late
-                                  const disabled = sunnahPrayed
-                                    ? false // allow un-logging
-                                    : !timeStarted || windowPassed;
+                                  // Server allows backfill — a passed window
+                                  // mutes the pill, it doesn't lock it.
+                                  const disabled = !timeStarted;
                                   const reason = !timeStarted
                                     ? `${prayerLabel(prayer)} hasn't started yet`
                                     : windowPassed
-                                      ? `${prayerLabel(prayer)} window has ended`
+                                      ? `${prayerLabel(prayer)} window has ended — logging late`
                                       : "";
                                   return (
                                     <SunnahPill
@@ -1754,6 +1838,7 @@ export default function PrayerDashboard() {
                                       onToggle={() => handleToggleSunnah(s.key)}
                                       disabled={disabled}
                                       disabledReason={reason}
+                                      late={windowPassed}
                                     />
                                   );
                                 })}
@@ -1765,13 +1850,11 @@ export default function PrayerDashboard() {
                                 {afterSunnahs.map((s) => {
                                   const sunnahPrayed = todaySunnahs.includes(s.key);
                                   const windowPassed = effectiveCurrent >= windowEndMinutes;
-                                  const disabled = sunnahPrayed
-                                    ? false
-                                    : !prayed || windowPassed;
-                                  const reason = !prayed
+                                  const disabled = !(prayed || assumed);
+                                  const reason = !(prayed || assumed)
                                     ? `Log ${prayerLabel(prayer)} as prayed first`
                                     : windowPassed
-                                      ? `${prayerLabel(prayer)} window has ended`
+                                      ? `${prayerLabel(prayer)} window has ended — logging late`
                                       : "";
                                   return (
                                     <SunnahPill
@@ -1781,6 +1864,7 @@ export default function PrayerDashboard() {
                                       onToggle={() => handleToggleSunnah(s.key)}
                                       disabled={disabled}
                                       disabledReason={reason}
+                                      late={windowPassed}
                                     />
                                   );
                                 })}
@@ -1793,22 +1877,21 @@ export default function PrayerDashboard() {
                                   const sunnahPrayed = todaySunnahs.includes(s.key);
                                   let standaloneDisabled = false;
                                   let standaloneReason = "";
+                                  let standaloneLate = false;
 
                                   if (s.key === "witr") {
                                     // Witr requires Isha to be prayed
-                                    // Witr locks at Fajr (Isha window ends when Fajr starts)
+                                    // Witr's window ends at Fajr — the server
+                                    // allows backfill, so it mutes, not locks.
                                     const [fh, fm] = prayerTimes.fajr.split(" ")[0].split(":").map(Number);
                                     const fajrMin = fh * 60 + fm;
                                     const [ih, im] = prayerTimes.isha.split(" ")[0].split(":").map(Number);
                                     const ishaMin = ih * 60 + im;
-                                    // Witr is locked when Fajr starts AND current time is before Isha
-                                    // (after Isha, we're in the next night's Witr window)
-                                    const witrLocked = currentMinutes >= fajrMin && currentMinutes < ishaMin;
-                                    standaloneDisabled = sunnahPrayed
-                                      ? false // allow un-logging
-                                      : !isPrayed("isha") || witrLocked;
-                                    standaloneReason = witrLocked
-                                      ? "Witr window has ended — Fajr has started"
+                                    const witrLate = currentMinutes >= fajrMin && currentMinutes < ishaMin;
+                                    standaloneDisabled = !isPrayedLike("isha");
+                                    standaloneLate = witrLate;
+                                    standaloneReason = witrLate
+                                      ? "Witr window has ended — logging late"
                                       : "Log Isha as prayed first";
                                   } else if (s.key === "duha") {
                                     // Duha: only disabled before Fajr starts
@@ -1817,6 +1900,7 @@ export default function PrayerDashboard() {
                                     const dhuhrMin = dh * 60 + dm;
                                     const afterDhuhr = currentMinutes >= dhuhrMin;
                                     standaloneDisabled = !timeStarted; // only disabled before Fajr starts
+                                    standaloneLate = afterDhuhr;
                                     standaloneReason = afterDhuhr
                                       ? "Duha time has passed — logging late"
                                       : `${prayerLabel(prayer)} hasn't started yet`;
@@ -1833,6 +1917,7 @@ export default function PrayerDashboard() {
                                       onToggle={() => handleToggleSunnah(s.key)}
                                       disabled={standaloneDisabled}
                                       disabledReason={standaloneReason}
+                                      late={standaloneLate}
                                     />
                                   );
                                 })}
@@ -1847,15 +1932,41 @@ export default function PrayerDashboard() {
               </div>
             ) : (
               <div className="px-4 py-8 text-center">
-                <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                  Prayer times not loaded. Sync in Settings.
-                </p>
+                {loading ? (
+                  <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading prayer times…</p>
+                ) : timesError === "location" ? (
+                  <>
+                    <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
+                      Prayer times need your location.
+                    </p>
+                    <Link
+                      href="/settings"
+                      className="mt-2 inline-block rounded-lg border px-3 py-1.5 text-xs font-medium"
+                      style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+                    >
+                      Set location in Settings
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
+                      Couldn&apos;t load prayer times.
+                    </p>
+                    <button
+                      onClick={() => { setRefreshNonce((n) => n + 1); void fetchTodayData(); }}
+                      className="mt-2 rounded-lg border px-3 py-1.5 text-xs font-medium"
+                      style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+                    >
+                      Try again
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
-            {sunnahError && (
+            {(sunnahError || checkinError) && (
               <div className="border-t px-4 py-2 text-xs" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-warmth)" }}>
-                {sunnahError}
+                {sunnahError ?? checkinError}
               </div>
             )}
           </div>
@@ -1895,7 +2006,7 @@ export default function PrayerDashboard() {
                         rank={rank}
                         name="You"
                         isMe
-                        streak={myStreak}
+                        streak={analytics ? myStreak : null}
                         weekSunnah={myScore.sunnah}
                         todayLogs={todayLogs}
                         todaySunnahs={todaySunnahs}
@@ -1914,7 +2025,7 @@ export default function PrayerDashboard() {
                       rank={rank}
                       name={friend.shownName || friend.firstName || friend.displayName || "Friend"}
                       isMe={false}
-                      streak={friend.streak ?? 0}
+                      streak={friend.streak}
                       sharedStreak={friend.sharedStreak?.streak ?? 0}
                       weekSunnah={friend.weekSunnah ?? 0}
                       todayLogs={friend.todayLogs}
@@ -1958,29 +2069,29 @@ export default function PrayerDashboard() {
             <StatCard
               icon={<Flame className="h-4 w-4" />}
               label="Current Streak"
-              value={`${myStreak}`}
+              value={analytics ? `${myStreak}` : "—"}
               sub="days"
               color="var(--color-warmth)"
             />
             <StatCard
               icon={<Trophy className="h-4 w-4" />}
               label="Best Streak"
-              value={`${analytics?.bestStreak || 0}`}
+              value={analytics ? `${analytics.bestStreak}` : "—"}
               sub="days"
               color="var(--color-accent)"
             />
             <StatCard
               icon={<Check className="h-4 w-4" />}
               label="Complete Days"
-              value={`${myComplete}`}
+              value={analytics ? `${myComplete}` : "—"}
               sub="all 5 prayed"
               color="var(--color-success)"
             />
             <StatCard
               icon={<MapPin className="h-4 w-4" />}
               label="Masjid Rate"
-              value={`${myMasjidPct}%`}
-              sub={`${analytics?.totalMasjid || 0} times`}
+              value={analytics ? `${myMasjidPct}%` : "—"}
+              sub={analytics ? `${analytics.totalMasjid} times` : "times"}
               color="var(--color-ink-soft)"
             />
           </div>
@@ -1990,21 +2101,21 @@ export default function PrayerDashboard() {
             <StatCard
               icon={<Calendar className="h-4 w-4" />}
               label="This Week"
-              value={`${myWeekPrayed}`}
+              value={analytics ? `${myWeekPrayed}` : "—"}
               sub="prayers"
               color="var(--color-accent)"
             />
             <StatCard
               icon={<TrendingUp className="h-4 w-4" />}
               label="Avg / Day"
-              value={`${analytics?.avgPrayersPerDay || 0}`}
+              value={analytics ? `${analytics.avgPrayersPerDay}` : "—"}
               sub={`of 5`}
               color="var(--color-ink-soft)"
             />
             <StatCard
               icon={<Check className="h-4 w-4" />}
               label="Total Prayed"
-              value={`${analytics?.totalPrayedAllTime || 0}`}
+              value={analytics ? `${analytics.totalPrayedAllTime}` : "—"}
               sub="all-time"
               color="var(--color-success)"
             />
@@ -2092,7 +2203,7 @@ export default function PrayerDashboard() {
                         <div className="absolute inset-0 flex">
                           <div className="h-full" style={{ width: "33%", backgroundColor: "color-mix(in oklab, var(--color-success) 25%, transparent)" }} />
                           <div className="h-full" style={{ width: "34%", backgroundColor: "color-mix(in oklab, var(--color-warmth) 25%, transparent)" }} />
-                          <div className="h-full" style={{ width: "33%", backgroundColor: "color-mix(in oklab, var(--color-error) 20%, transparent)" }} />
+                          <div className="h-full" style={{ width: "33%", backgroundColor: "color-mix(in oklab, var(--color-warmth) 30%, transparent)" }} />
                         </div>
                         {/* Goal line at 33% (end of ideal zone) */}
                         <div
@@ -2126,7 +2237,7 @@ export default function PrayerDashboard() {
                       <div className="mt-1 flex justify-between text-[9px]" style={{ color: "var(--color-ink-muted)" }}>
                         <span style={{ color: "var(--color-success)" }}>Ideal</span>
                         <span style={{ color: "var(--color-warmth)" }}>Acceptable</span>
-                        <span style={{ color: "var(--color-error)" }}>Makruh</span>
+                        <span style={{ color: "var(--color-warmth)" }}>Makruh</span>
                       </div>
                     </div>
                   </div>
@@ -2154,7 +2265,7 @@ export default function PrayerDashboard() {
                     <div key={dow.dayIndex} className="flex items-center gap-3">
                       <span
                         className="w-8 shrink-0 text-xs font-medium tabular-nums"
-                        style={{ color: isBest ? "var(--color-success)" : isWorst ? "var(--color-error)" : "var(--color-ink-soft)" }}
+                        style={{ color: isBest ? "var(--color-success)" : isWorst ? "var(--color-warmth)" : "var(--color-ink-soft)" }}
                       >
                         {dow.day}
                       </span>
@@ -2163,7 +2274,7 @@ export default function PrayerDashboard() {
                           className="h-full rounded-full transition-[width] duration-500 ease-out"
                           style={{
                             width: `${barWidth}%`,
-                            backgroundColor: isBest ? "var(--color-success)" : isWorst ? "var(--color-error)" : "var(--color-accent)",
+                            backgroundColor: isBest ? "var(--color-success)" : isWorst ? "var(--color-warmth)" : "var(--color-accent)",
                           }}
                         />
                       </div>
@@ -2269,7 +2380,7 @@ export default function PrayerDashboard() {
                   ] as const).map((p) => (
                     <div key={p.key} className="flex flex-col items-center rounded-lg border py-2" style={{ borderColor: "var(--color-paper-3)" }}>
                       <span className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>{p.label}</span>
-                      <span className="text-base font-bold tabular-nums" style={{ color: p.val > 0 ? "var(--color-warmth)" : "var(--color-success)" }}>
+                      <span className="text-base font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>
                         {p.val}
                       </span>
                     </div>
@@ -2278,7 +2389,7 @@ export default function PrayerDashboard() {
 
                 <div className="mb-3 flex items-baseline justify-between border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
                   <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Total owed</span>
-                  <span className="text-xl font-bold tabular-nums" style={{ color: "var(--color-warmth)" }}>
+                  <span className="text-xl font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>
                     {qadaa.fajrOwed + qadaa.dhuhrOwed + qadaa.asrOwed + qadaa.maghribOwed + qadaa.ishaOwed}
                   </span>
                 </div>
@@ -2552,7 +2663,9 @@ export default function PrayerDashboard() {
                         </div>
                       </div>
                       {r.relation === "accepted" ? (
-                        <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Friends ✓</span>
+                        <span className="flex items-center gap-1 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                          <Check className="h-3 w-3" style={{ color: "var(--color-success)" }} /> Friends
+                        </span>
                       ) : r.relation === "pending" ? (
                         <span className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>Pending</span>
                       ) : (
@@ -2962,12 +3075,12 @@ export default function PrayerDashboard() {
                                 <div className="min-w-0 flex-1">
                                   <div className="truncate text-sm font-semibold" style={{ color: "var(--color-ink)" }}>You</div>
                                   <div className="truncate text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-                                    {myWeekPrayed} this week · {myComplete} complete days
+                                    {analytics ? `${myWeekPrayed} this week · ${myComplete} complete days` : "—"}
                                   </div>
                                 </div>
                                 <div className="text-right">
                                   <div className="flex items-center gap-1 text-lg font-bold tabular-nums" style={{ color: "var(--color-accent)" }}>
-                                    <Flame className="h-4 w-4" /> {myStreak}
+                                    <Flame className="h-4 w-4" /> {analytics ? myStreak : "—"}
                                   </div>
                                   <div className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>day streak</div>
                                 </div>
@@ -3046,6 +3159,28 @@ export default function PrayerDashboard() {
           timings={prayerTimes}
           existingStatus={todayLogs.find((l) => l.prayerName === checkinPrayer)?.status}
           onClose={() => setCheckinPrayer(null)}
+          onOptimistic={(result) => {
+            if (result.date === todayStr) {
+              setTodayLogs((prev) => [
+                ...prev.filter((l) => l.prayerName !== checkinPrayer),
+                { prayerName: checkinPrayer, status: result.status },
+              ]);
+            }
+          }}
+          onOptimisticRevert={(previousStatus, date) => {
+            if (date === todayStr) {
+              setTodayLogs((prev) =>
+                previousStatus === null
+                  ? prev.filter((l) => l.prayerName !== checkinPrayer)
+                  : [
+                      ...prev.filter((l) => l.prayerName !== checkinPrayer),
+                      { prayerName: checkinPrayer, status: previousStatus },
+                    ],
+              );
+            }
+            setCheckinError("Couldn't save the check-in — reverted.");
+            setTimeout(() => setCheckinError(null), 5000);
+          }}
           onCheckedIn={(result) => {
             // Post-midnight Isha logs to yesterday's row — don't paint it as
             // today's; the popup reports the resolved `date`.
@@ -3098,7 +3233,7 @@ function ComparisonRow({
 }: {
   name: string;
   isMe: boolean;
-  streak: number;
+  streak: number | null;
   sharedStreak?: number;
   weekSunnah?: number;
   rank?: number;
@@ -3115,9 +3250,10 @@ function ComparisonRow({
   onCheckIn?: (prayer: PrayerKey) => void;
 }) {
   const sunnahDefs = getSunnahsForMadhab(madhab);
+  // Obligation met counts prayed + assumed + excused — a hayd day is 5/5.
   const prayedCount = PRAYER_ORDER.filter((p) => {
     const log = todayLogs.find((l) => l.prayerName === p);
-    return log?.status === "prayed" || log?.status === "assumed_prayed";
+    return statusMeetsObligation(log?.status);
   }).length;
 
   return (
@@ -3137,7 +3273,7 @@ function ComparisonRow({
         </div>
         <div className="flex items-center gap-1 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
           <Flame className="h-3 w-3" style={{ color: "var(--color-warmth)" }} />
-          <span className="tabular-nums">{streak}d</span>
+          <span className="tabular-nums">{streak === null ? "—" : `${streak}d`}</span>
           {sharedStreak > 0 && (
             <span className="flex items-center gap-0.5 tabular-nums" style={{ color: "var(--color-warmth)" }} title={`${sharedStreak}-day shared streak`}>
               <Handshake className="h-3 w-3" />{sharedStreak}
@@ -3201,7 +3337,9 @@ function ComparisonRow({
           return nextPending ? (
             <button
               onClick={() => onCheckIn(nextPending)}
-              className="rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-colors"
+              disabled={!prayerTimes}
+              title={prayerTimes ? undefined : "Prayer times not loaded"}
+              className="rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
               style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
             >
               Log
@@ -3229,12 +3367,15 @@ function SunnahPill({
   onToggle,
   disabled = false,
   disabledReason = "",
+  late = false,
 }: {
   sunnah: SunnahDefinition;
   prayed: boolean;
   onToggle: () => void;
   disabled?: boolean;
   disabledReason?: string;
+  /** Window ended — still loggable (server allows backfill), just muted. */
+  late?: boolean;
 }) {
   const cat = SUNNAH_CATEGORY_STYLES[sunnah.category] || SUNNAH_CATEGORY_STYLES.nafl;
 
@@ -3245,11 +3386,13 @@ function SunnahPill({
       className="flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 sm:text-[11px]"
       style={{
         borderColor: prayed ? cat.border : "var(--color-paper-3)",
+        borderStyle: late && !prayed ? "dashed" : "solid",
         color: prayed ? cat.text : "var(--color-ink-muted)",
         backgroundColor: prayed ? cat.bg : "transparent",
         minHeight: 44,
+        opacity: late && !prayed ? 0.6 : 1,
       }}
-      title={disabled ? disabledReason : `${cat.label} — ${sunnah.label}`}
+      title={disabled ? disabledReason : late ? `${cat.label} — ${sunnah.label} (logging late)` : `${cat.label} — ${sunnah.label}`}
     >
       {prayed ? (
         <Check className="h-3 w-3 shrink-0" />
@@ -3380,14 +3523,19 @@ function PrayerDots({
     <>
       {PRAYER_ORDER.map((prayer, idx) => {
         const log = todayLogs.find((l) => l.prayerName === prayer);
-        const prayed = log?.status === "prayed" || log?.status === "assumed_prayed";
-        const excused = log?.status === "excused";
+        const visual = prayerStatusVisual(log?.status);
+        const prayed = visual === "confirmed";
+        const assumed = visual === "assumed";
+        const excused = visual === "excused";
         const isCurrent = idx === currentPrayerIdx;
         const color = PRAYER_COLORS[prayer];
+        // Spoken state for AT — "Assumed"/"Excused"/"Unmarked" come from the
+        // shared label; confirmed and pending get plain words.
+        const statusText = prayerStatusLabel(visual) ?? (prayed ? "prayed" : "unmarked");
         // Only the salah whose window is open RIGHT NOW is nudgeable — the
         // server enforces the same rule against the friend's local clock.
         const remindable =
-          isCurrent && !isMe && todayVisible && !prayed && !excused && (!log || log.status === "pending") && !!onRemind;
+          isCurrent && !isMe && todayVisible && !prayed && !assumed && !excused && (!log || log.status === "pending") && !!onRemind;
         const lastRemind = remindedAt[prayer] ? Date.parse(remindedAt[prayer]) : 0;
         const cdLeftMs = lastRemind && now ? REMIND_COOLDOWN_MS - (now - lastRemind) : 0;
         const cooling = cdLeftMs > 0;
@@ -3395,12 +3543,15 @@ function PrayerDots({
         const pending = reminding?.has(prayer) ?? false;
 
         const dotStyle = {
-          borderColor: prayed ? color : excused ? "var(--color-accent)" : isCurrent ? color : "var(--color-paper-3)",
+          borderColor: prayed || assumed ? color : excused ? "var(--color-accent)" : isCurrent ? color : "var(--color-paper-3)",
           backgroundColor: prayed ? color : excused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : "transparent",
-          ...(isCurrent && !prayed && !excused ? { boxShadow: `0 0 0 2px color-mix(in oklab, ${color} 30%, transparent)` } : {}),
+          ...(isCurrent && !prayed && !assumed && !excused ? { boxShadow: `0 0 0 2px color-mix(in oklab, ${color} 30%, transparent)` } : {}),
         };
         const dotInner = prayed ? (
           <Check className={iconSize} style={{ color: "var(--color-paper)" }} />
+        ) : assumed ? (
+          /* Hollow check — the system assumed, the user didn't confirm */
+          <Check className={iconSize} style={{ color }} />
         ) : excused ? (
           <span className="text-[10px] font-bold" style={{ color: "var(--color-accent)" }} title="Excused">E</span>
         ) : wasReminded ? (
@@ -3430,13 +3581,18 @@ function PrayerDots({
                 onClick={() => onCheckIn(prayer)}
                 className={`flex ${dotSize} items-center justify-center rounded-full border-2 transition-colors hover:bg-[var(--color-paper-2)] active:scale-90`}
                 style={dotStyle}
-                aria-label={`Log ${dotLabel(prayer, timezone)}`}
+                aria-label={`${dotLabel(prayer, timezone)} — ${prayed || excused ? statusText : assumed ? `${statusText} — tap to correct` : `log ${dotLabel(prayer, timezone)}`}`}
                 title={`Log ${dotLabel(prayer, timezone)}`}
               >
                 {dotInner}
               </button>
             ) : (
-              <div className={`flex ${dotSize} items-center justify-center rounded-full border-2 transition-colors`} style={dotStyle}>
+              <div
+                className={`flex ${dotSize} items-center justify-center rounded-full border-2 transition-colors`}
+                style={dotStyle}
+                role="img"
+                aria-label={`${dotLabel(prayer, timezone)} — ${statusText}`}
+              >
                 {dotInner}
               </div>
             )}

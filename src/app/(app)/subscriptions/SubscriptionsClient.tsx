@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CreditCard,
@@ -51,7 +50,7 @@ interface FormState {
   color: string;
 }
 
-const EMPTY_FORM: FormState = {
+const emptyForm = (): FormState => ({
   company: "",
   plan: "",
   amount: "",
@@ -60,7 +59,7 @@ const EMPTY_FORM: FormState = {
   startDate: new Date().toLocaleDateString("en-CA"),
   remindDays: "3",
   color: SUB_COLORS[0],
-};
+});
 
 interface Enriched extends Subscription {
   next: Date;
@@ -85,7 +84,7 @@ interface ExpFormState {
   photoUrl: string | null;
 }
 
-const EMPTY_EXP_FORM: ExpFormState = {
+const emptyExpForm = (): ExpFormState => ({
   tag: "gas",
   amount: "",
   quantity: "",
@@ -95,7 +94,14 @@ const EMPTY_EXP_FORM: ExpFormState = {
   photoB64: null,
   photoMime: null,
   photoUrl: null,
-};
+});
+
+// Readable text color for user-picked fill colors.
+function onColor(hex: string) {
+  const n = parseInt(hex.slice(1), 16);
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return lum > 0.6 ? "#1a1815" : "#ffffff";
+}
 
 function tagMeta(id: string) {
   return TAGS.find((t) => t.id === id) ?? { id, label: id.charAt(0).toUpperCase() + id.slice(1), icon: Receipt, unit: null, qtyLabel: null, placeLabel: "Place (optional)", detailLabel: null, photo: false };
@@ -122,17 +128,16 @@ export default function SubscriptionsClient() {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [form, setForm] = useState<FormState>(emptyForm);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [moneyTab, setMoneyTab] = useState<MoneyTab>("subs");
-  const [titleOpen, setTitleOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [logKind, setLogKind] = useState<"sub" | string>("sub");
   const [newTagName, setNewTagName] = useState("");
-  const [expForm, setExpForm] = useState<ExpFormState>(EMPTY_EXP_FORM);
+  const [expForm, setExpForm] = useState<ExpFormState>(emptyExpForm);
   const [expenses, setExpenses] = useState<ExpenseLite[]>(seed.expenses ?? []);
   const [expBusy, setExpBusy] = useState(false);
   const [expError, setExpError] = useState<string | null>(null);
@@ -176,7 +181,7 @@ export default function SubscriptionsClient() {
     setLogOpen(true);
     setLogKind("sub");
     setNewTagName("");
-    setExpForm(EMPTY_EXP_FORM);
+    setExpForm(emptyExpForm());
     setExpError(null);
   };
 
@@ -212,7 +217,7 @@ export default function SubscriptionsClient() {
       const data = await res.json().catch(() => ({}));
       if (res.ok && (data.expense || data.offline)) {
         setLogOpen(false);
-        setExpForm(EMPTY_EXP_FORM);
+        setExpForm(emptyExpForm());
         setMoneyTab(tag);
         window.dispatchEvent(new Event("waqt:expense-logged"));
       } else {
@@ -246,12 +251,26 @@ export default function SubscriptionsClient() {
     [active],
   );
 
+  // Totals grouped by currency — never summed across currencies.
   const totals = useMemo(() => {
-    const monthly = active.reduce((sum, s) => sum + monthlyCents(s.amountCents, s.cycle), 0);
-    const spent = subs.reduce((sum, s) => sum + paymentsElapsed(s.startDate, s.cycle) * s.amountCents, 0);
-    const cur = subs[0]?.currency ?? "USD";
-    return { monthly, yearly: monthly * 12, spent, cur };
+    const byCur = new Map<string, { cur: string; monthly: number; yearly: number; spent: number }>();
+    const get = (cur: string) => {
+      let e = byCur.get(cur);
+      if (!e) { e = { cur, monthly: 0, yearly: 0, spent: 0 }; byCur.set(cur, e); }
+      return e;
+    };
+    for (const s of active) get(s.currency).monthly += monthlyCents(s.amountCents, s.cycle);
+    for (const s of subs) get(s.currency).spent += paymentsElapsed(s.startDate, s.cycle) * s.amountCents;
+    for (const e of byCur.values()) e.yearly = e.monthly * 12;
+    return { byCurrency: [...byCur.values()] };
   }, [active, subs]);
+
+  // Expense totals by currency, for the "everything" figure.
+  const expByCur = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of expenses) m.set(e.currency ?? "USD", (m.get(e.currency ?? "USD") ?? 0) + e.amountCents);
+    return m;
+  }, [expenses]);
 
   // "All" feed — every dollar actually paid, chronological. Subscription
   // payments are generated from start dates/cycles (cancelled subs stop at
@@ -286,16 +305,16 @@ export default function SubscriptionsClient() {
       });
     }
     items.sort((a, b) => b.date.localeCompare(a.date));
-    const groups = new Map<string, { label: string; items: Item[]; total: number }>();
+    const groups = new Map<string, { label: string; items: Item[]; totals: Map<string, number> }>();
     for (const it of items) {
       const mk = it.date.slice(0, 7);
       const g = groups.get(mk) ?? {
         label: new Date(it.date + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }),
         items: [],
-        total: 0,
+        totals: new Map<string, number>(),
       };
       g.items.push(it);
-      g.total += it.amountCents;
+      g.totals.set(it.currency, (g.totals.get(it.currency) ?? 0) + it.amountCents);
       groups.set(mk, g);
     }
     return [...groups.values()];
@@ -393,7 +412,7 @@ export default function SubscriptionsClient() {
             ? prev.map((s) => (s.id === editingId ? { ...s, ...applied, id: editingId } : s))
             : [...prev, applied],
         );
-        setForm(EMPTY_FORM);
+        setForm(emptyForm());
         setAdding(false);
         setEditingId(null);
       } else {
@@ -423,9 +442,11 @@ export default function SubscriptionsClient() {
           ),
         );
         if (cancelled) setEditingId(null);
+      } else {
+        setError("Could not update the subscription — try again.");
       }
     } catch {
-      // keep state
+      setError("Network error — subscription not updated.");
     }
   }
 
@@ -433,61 +454,34 @@ export default function SubscriptionsClient() {
     try {
       const res = await fetch(`/api/subscriptions?id=${id}`, { method: "DELETE" });
       // Offline deletes come back 202 — still apply optimistically
-      if (res.ok || res.status === 202) setSubs((prev) => prev.filter((s) => s.id !== id));
+      if (res.ok || res.status === 202) {
+        setSubs((prev) => prev.filter((s) => s.id !== id));
+      } else {
+        setError("Could not delete — try again.");
+      }
     } catch {
-      // keep state
+      setError("Network error — not deleted.");
     } finally {
       setConfirmDeleteId(null);
     }
+  }
+
+  // The Log sheet can hold a half-filled expense — don't let a stray
+  // backdrop tap throw it away silently.
+  function tryCloseLog() {
+    const dirty = !!(expForm.amount || expForm.quantity || expForm.place || expForm.detail || expForm.photoB64 || (logKind === "new-tag" && newTagName.trim()));
+    if (dirty && !window.confirm("Discard this entry?")) return;
+    setLogOpen(false);
   }
 
   const dueSoon = (s: Enriched) => s.inDays <= s.remindDaysBefore;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
-      {/* Header — the title itself is the tab index: click it to jump anywhere. */}
-      <div className="relative">
-        <button
-          onClick={() => setTitleOpen((v) => !v)}
-          aria-expanded={titleOpen}
-          className="flex items-center gap-2"
-        >
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
-            Money
-          </h1>
-          <ChevronDown
-            className={`h-5 w-5 transition-transform ${titleOpen ? "rotate-180" : ""}`}
-            style={{ color: "var(--color-ink-muted)" }}
-          />
-        </button>
-        {titleOpen && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setTitleOpen(false)} />
-            <div
-              className="absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border p-1.5 shadow-lg"
-              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
-              role="menu"
-            >
-              {[{ id: "subs", label: "Subscriptions", icon: CreditCard }, ...tagTabs, { id: "all", label: "Everything", icon: Receipt }].map((t) => {
-                const Icon = t.icon;
-                const on = moneyTab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    role="menuitem"
-                    onClick={() => { setMoneyTab(t.id); setTitleOpen(false); }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--color-paper-2)]"
-                    style={{ color: on ? "var(--color-accent)" : "var(--color-ink)" }}
-                  >
-                    <Icon className="h-4 w-4" style={{ color: on ? "var(--color-accent)" : "var(--color-ink-muted)" }} />
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
+      {/* Header */}
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl" style={{ color: "var(--color-ink)" }}>
+        Money
+      </h1>
 
       {/* Money section picker — a dropdown instead of a sideways-scrolling
           tab strip (the per-tag row duplicated the Log modal's selector).
@@ -544,35 +538,41 @@ export default function SubscriptionsClient() {
             </div>
           </div>
 
-          {/* Stats band — editorial figures, not cards */}
+          {/* Stats band — editorial figures, not cards. One cluster per
+              currency; monthly/yearly are projections from billing cycles,
+              spent is modeled from elapsed payments. */}
           {subs.length > 0 && (
             <div className="mt-3 flex flex-wrap items-baseline gap-x-8 gap-y-3 border-b pb-5" style={{ borderColor: "var(--color-paper-3)" }}>
-              <div>
-                <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--color-ink)" }}>
-                  {formatMoney(totals.monthly, totals.cur)}
-                </p>
-                <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-                  per month
-                </p>
-              </div>
-              <div>
-                <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
-                  {formatMoney(totals.yearly, totals.cur)}
-                </p>
-                <p className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-                  per year
-                </p>
-              </div>
-              <div>
-                <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--color-warmth)" }}>
-                  {formatMoney(totals.spent, totals.cur)}
-                </p>
-                <p className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-                  spent so far
-                </p>
-              </div>
+              {totals.byCurrency.map((t) => (
+                <div key={t.cur} className="flex flex-wrap items-baseline gap-x-8 gap-y-3">
+                  <div>
+                    <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--color-ink)" }}>
+                      {formatMoney(t.monthly, t.cur)}
+                    </p>
+                    <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                      projected / month{totals.byCurrency.length > 1 ? ` · ${t.cur}` : ""}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
+                      {formatMoney(t.yearly, t.cur)}
+                    </p>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                      projected / year
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--color-warmth)" }}>
+                      {formatMoney(t.spent, t.cur)}
+                    </p>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                      spent so far
+                    </p>
+                  </div>
+                </div>
+              ))}
               <p className="ml-auto text-xs" style={{ color: "var(--color-ink-muted)" }}>
-                {subs.length} active
+                {active.length} active
               </p>
             </div>
           )}
@@ -592,7 +592,7 @@ export default function SubscriptionsClient() {
             </p>
             <button
               type="button"
-              onClick={() => { setAdding(false); setEditingId(null); setForm(EMPTY_FORM); setError(null); }}
+              onClick={() => { setAdding(false); setEditingId(null); setForm(emptyForm()); setError(null); }}
               className="rounded-md p-1 transition-colors hover:bg-[var(--color-paper-3)]"
               style={{ color: "var(--color-ink-muted)" }}
               aria-label="Close form"
@@ -741,7 +741,7 @@ export default function SubscriptionsClient() {
             </button>
             <button
               type="button"
-              onClick={() => { setAdding(false); setEditingId(null); setForm(EMPTY_FORM); setError(null); }}
+              onClick={() => { setAdding(false); setEditingId(null); setForm(emptyForm()); setError(null); }}
               className="rounded-full px-4 py-2.5 text-sm font-medium"
               style={{ color: "var(--color-ink-muted)" }}
             >
@@ -839,10 +839,10 @@ export default function SubscriptionsClient() {
               {confirmDeleteId === s.id ? (
                 <button
                   onClick={() => void remove(s.id)}
-                  className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold"
+                  className="max-w-40 shrink-0 truncate rounded-md px-2 py-1 text-[11px] font-semibold"
                   style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
                 >
-                  Delete?
+                  Delete {s.company}?
                 </button>
               ) : (
                 <button
@@ -918,7 +918,7 @@ export default function SubscriptionsClient() {
                         <div
                           key={s.id}
                           className="truncate rounded px-1 text-[9px] font-medium leading-4"
-                          style={{ backgroundColor: s.color, color: "var(--color-paper)" }}
+                          style={{ backgroundColor: s.color, color: onColor(s.color) }}
                           title={`${s.company}${s.plan ? ` ${s.plan}` : ""} — ${formatMoney(s.amountCents, s.currency)}`}
                         >
                           {s.company}
@@ -1001,10 +1001,10 @@ export default function SubscriptionsClient() {
                   {confirmDeleteId === s.id ? (
                     <button
                       onClick={() => void remove(s.id)}
-                      className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold"
+                      className="max-w-40 shrink-0 truncate rounded-md px-2 py-1 text-[11px] font-semibold"
                       style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
                     >
-                      Delete?
+                      Delete {s.company}?
                     </button>
                   ) : (
                     <button
@@ -1033,14 +1033,16 @@ export default function SubscriptionsClient() {
       {moneyTab === "all" && (
         <div className="mt-4">
           <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 border-b pb-5" style={{ borderColor: "var(--color-paper-3)" }}>
-            <div>
-              <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--color-ink)" }}>
-                {formatMoney(totals.spent + expenses.reduce((s, e) => s + e.amountCents, 0), totals.cur)}
-              </p>
-              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
-                spent so far — everything
-              </p>
-            </div>
+            {[...new Set([...totals.byCurrency.map((t) => t.cur), ...expByCur.keys()])].map((cur) => (
+              <div key={cur}>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--color-ink)" }}>
+                  {formatMoney((totals.byCurrency.find((t) => t.cur === cur)?.spent ?? 0) + (expByCur.get(cur) ?? 0), cur)}
+                </p>
+                <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--color-ink-muted)" }}>
+                  spent so far — everything{totals.byCurrency.length + expByCur.size > 1 ? ` · ${cur}` : ""}
+                </p>
+              </div>
+            ))}
           </div>
           {allFeed.length === 0 ? (
             <p className="py-16 text-center text-sm" style={{ color: "var(--color-ink-muted)" }}>
@@ -1054,7 +1056,7 @@ export default function SubscriptionsClient() {
                     {g.label}
                   </p>
                   <p className="text-xs tabular-nums" style={{ color: "var(--color-ink-soft)" }}>
-                    {formatMoney(g.total, totals.cur)}
+                    {[...g.totals.entries()].map(([cur, v]) => formatMoney(v, cur)).join(" + ")}
                   </p>
                 </div>
                 <div className="mt-1 flex flex-col">
@@ -1085,7 +1087,7 @@ export default function SubscriptionsClient() {
         <div
           className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center"
           style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
-          onClick={() => setLogOpen(false)}
+          onClick={tryCloseLog}
         >
           <div
             className="w-full max-w-md rounded-t-2xl border p-5 sm:rounded-2xl"
@@ -1097,7 +1099,7 @@ export default function SubscriptionsClient() {
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Log</p>
               <button
-                onClick={() => setLogOpen(false)}
+                onClick={tryCloseLog}
                 className="rounded-md p-1 transition-colors hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-ink-muted)" }}
                 aria-label="Close"
@@ -1115,7 +1117,7 @@ export default function SubscriptionsClient() {
                 onChange={(e) => {
                   const v = e.target.value;
                   setLogKind(v);
-                  setExpForm({ ...EMPTY_EXP_FORM, tag: v === "new-tag" ? "other" : v });
+                  setExpForm({ ...emptyExpForm(), tag: v === "new-tag" ? "other" : v });
                 }}
                 className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none"
                 style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)", color: "var(--color-ink)" }}
@@ -1157,7 +1159,7 @@ export default function SubscriptionsClient() {
                     setMoneyTab("subs");
                     setAdding(true);
                     setEditingId(null);
-                    setForm(EMPTY_FORM);
+                    setForm(emptyForm());
                     setError(null);
                   }}
                   className="mt-3 w-full rounded-full px-6 py-2.5 text-sm font-medium transition-opacity hover:opacity-90"

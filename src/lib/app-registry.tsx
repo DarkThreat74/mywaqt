@@ -13,8 +13,6 @@ export interface AppDef {
   label: string;
   arabic?: string;
   description: string;
-  rating: string;
-  installs: string;
   art: () => React.ReactElement;
   ranked?: boolean;
 }
@@ -268,26 +266,26 @@ export function ReciteCoachArt() {
 }
 
 export const ALL_APPS: AppDef[] = [
-  { key: "/qibla", href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba, live compass", rating: "4.9", installs: "18K", art: QiblaArt },
-  { key: "/dhikr", href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter with sequences", rating: "4.8", installs: "24K", art: DhikrArt },
-  { key: "/masjids", href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah times", rating: "4.7", installs: "9K", art: MasjidArt },
-  { key: "/myapps/sirat/index.html", href: "/myapps/sirat/index.html", label: "Sirat", arabic: "سير", description: "Offline-first halal places, masjids and things to do", rating: "New", installs: "Private", art: SiratArt },
+  { key: "/qibla", href: "/qibla", label: "Qibla", arabic: "قبلة", description: "Direction to the Kaaba, live compass", art: QiblaArt },
+  { key: "/dhikr", href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter with sequences", art: DhikrArt },
+  { key: "/masjids", href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah times", art: MasjidArt },
+  { key: "/myapps/sirat/index.html", href: "/myapps/sirat/index.html", label: "Sirat", arabic: "سير", description: "Offline-first halal places, masjids and things to do", art: SiratArt },
 
-  { key: "/quran", href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah from a verse", rating: "4.9", installs: "15K", art: QuranArt, ranked: true },
-  { key: "/quran-tester", href: "/quran-tester", label: "Quran Tester", arabic: "تلاوة", description: "Recite from memory — it follows and catches mistakes", rating: "5.0", installs: "1K", art: QuranTesterArt },
-  { key: "/recite", href: "/recite", label: "Recite Coach", arabic: "مقامات", description: "Recite beautifully — pitch, pace and tajwid graded on-device", rating: "4.9", installs: "1K", art: ReciteCoachArt },
-  { key: "/mutashabihat", href: "/mutashabihat", label: "Mutashabih", arabic: "متشابه", description: "Train on verses that look alike", rating: "4.8", installs: "7K", art: MutashabihArt, ranked: true },
-  { key: "/names", href: "/names", label: "99 Names", arabic: "أسماء الله", description: "Names of Allah, one a day", rating: "4.9", installs: "21K", art: NamesArt },
-  { key: "/study", href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & ambient sounds", rating: "4.8", installs: "14K", art: StudyArt },
-  { key: "/learn", href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge, step by step", rating: "4.6", installs: "6K", art: LearnArt },
-  { key: "/talks", href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs", rating: "4.8", installs: "12K", art: TalksArt },
-  { key: "/nasheeds", href: "/nasheeds", label: "Nasheeds", arabic: "أناشيد", description: "Nasheed lyrics to read and follow along", rating: "4.9", installs: "6K", art: NasheedArt },
-  { key: "/subscriptions", href: "/subscriptions", label: "Money", arabic: "مصاريف", description: "Subscriptions & spending log", rating: "4.7", installs: "8K", art: SubsArt },
-  { key: "/birthdays", href: "/birthdays", label: "Birthdays", arabic: "أعياد", description: "Never miss one again", rating: "4.8", installs: "10K", art: BirthdayArt },
-  { key: "messages", href: "/messages", label: "Messages", arabic: "رسائل", description: "Prayer-friend chats", rating: "4.8", installs: "13K", art: MessageArt },
-  { key: "/friends", href: "/friends", label: "Friends", arabic: "أصدقاء", description: "Your people, mapped — who, where, how close", rating: "4.9", installs: "8K", art: FriendsArt },
-  { key: "/workout", href: "/workout", label: "Workout", description: "Splits, tier-ranked exercises & live session tracking", rating: "4.9", installs: "2K", art: WorkoutArt },
-  { key: "/guide", href: "/guide", label: "Guide", arabic: "دليل", description: "How Waqt works", rating: "4.6", installs: "5K", art: GuideArt },
+  { key: "/quran", href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah from a verse", art: QuranArt, ranked: true },
+  { key: "/quran-tester", href: "/quran-tester", label: "Quran Tester", arabic: "تلاوة", description: "Recite from memory — it follows and catches mistakes", art: QuranTesterArt },
+  { key: "/recite", href: "/recite", label: "Recite Coach", arabic: "مقامات", description: "Recite beautifully — pitch, pace and tajwid graded on-device", art: ReciteCoachArt },
+  { key: "/mutashabihat", href: "/mutashabihat", label: "Mutashabih", arabic: "متشابه", description: "Train on verses that look alike", art: MutashabihArt, ranked: true },
+  { key: "/names", href: "/names", label: "99 Names", arabic: "أسماء الله", description: "Names of Allah, one a day", art: NamesArt },
+  { key: "/study", href: "/study", label: "Study", arabic: "دراسة", description: "Focus timer & ambient sounds", art: StudyArt },
+  { key: "/learn", href: "/learn", label: "Learn", arabic: "علم", description: "Prayer knowledge, step by step", art: LearnArt },
+  { key: "/talks", href: "/talks", label: "Talks", arabic: "دروس", description: "Lectures & khutbahs", art: TalksArt },
+  { key: "/nasheeds", href: "/nasheeds", label: "Nasheeds", arabic: "أناشيد", description: "Nasheed lyrics to read and follow along", art: NasheedArt },
+  { key: "/subscriptions", href: "/subscriptions", label: "Money", arabic: "مصاريف", description: "Subscriptions & spending log", art: SubsArt },
+  { key: "/birthdays", href: "/birthdays", label: "Birthdays", arabic: "أعياد", description: "Never miss one again", art: BirthdayArt },
+  { key: "messages", href: "/messages", label: "Messages", arabic: "رسائل", description: "Prayer-friend chats", art: MessageArt },
+  { key: "/friends", href: "/friends", label: "Friends", arabic: "أصدقاء", description: "Your people, mapped — who, where, how close", art: FriendsArt },
+  { key: "/workout", href: "/workout", label: "Workout", description: "Splits, tier-ranked exercises & live session tracking", art: WorkoutArt },
+  { key: "/guide", href: "/guide", label: "Guide", arabic: "دليل", description: "How Waqt works", art: GuideArt },
 ];
 
 export const APP_BY_KEY = new Map(ALL_APPS.map((a) => [a.key, a]));

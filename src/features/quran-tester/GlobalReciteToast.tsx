@@ -62,14 +62,14 @@ export default function GlobalReciteToast() {
     >
       <div
         className="flex items-start gap-2 rounded-2xl border px-3 py-2.5 shadow-lg"
-        style={{ borderColor: "#b34a3a", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
+        style={{ borderColor: "var(--color-error)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
       >
-        <p className="flex-1 break-words text-xs font-semibold leading-snug" style={{ color: "#b34a3a" }}>
+        <p className="flex-1 break-words text-xs font-semibold leading-snug" style={{ color: "var(--color-error)" }}>
           {error}
         </p>
         <button
           onClick={() => setError(null)}
-          className="flex items-center justify-center rounded-full p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+          className="flex items-center justify-center rounded-full p-1 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-muted)" }}
           aria-label="Dismiss error"
         >

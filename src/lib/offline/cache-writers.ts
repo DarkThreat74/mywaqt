@@ -333,6 +333,7 @@ interface HomeworkLike {
   plannedEndTime?: string | null;
   estimatedMinutes?: number | null;
   plannedEventId?: string | null;
+  seriesId?: string | null;
   subtasks?: Array<{ id: string; title: string; done: boolean }>;
   notified3dAt?: string | Date | null;
   notified1dAt?: string | Date | null;
@@ -357,6 +358,7 @@ function hwToCache(h: HomeworkLike) {
     plannedEndTime: h.plannedEndTime ?? null,
     estimatedMinutes: h.estimatedMinutes ?? null,
     plannedEventId: h.plannedEventId ?? null,
+    seriesId: h.seriesId ?? null,
     subtasks: h.subtasks ?? [],
     notified3dAt: h.notified3dAt ? String(h.notified3dAt) : null,
     notified1dAt: h.notified1dAt ? String(h.notified1dAt) : null,

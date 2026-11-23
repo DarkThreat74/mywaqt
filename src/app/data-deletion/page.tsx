@@ -15,7 +15,7 @@ export default function DataDeletionPage() {
   return (
     <LegalLayout title="Data Deletion" updatedAt="September 2025">
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">Delete Your Account In-App</h2>
+        <h2 className="mb-2 text-lg font-semibold">Delete your account in-app</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           The fastest way to delete your data is from within the app:
         </p>
@@ -28,7 +28,7 @@ export default function DataDeletionPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">What Gets Deleted</h2>
+        <h2 className="mb-2 text-lg font-semibold">What gets deleted</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Once the grace period ends, your account row is removed and every
           piece of data attached to it is deleted with it — nothing personal is retained:
@@ -49,7 +49,7 @@ export default function DataDeletionPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">Clear Your Browser Data</h2>
+        <h2 className="mb-2 text-lg font-semibold">Clear your browser data</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           After deleting your account, clear the local cache from your browser:
         </p>
@@ -61,21 +61,21 @@ export default function DataDeletionPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">Request Full Deletion by Email</h2>
+        <h2 className="mb-2 text-lg font-semibold">Request full deletion by email</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           If you cannot access the app (e.g., lost device, forgot password), you
-          can request account deletion by emailing {SUPPORT_EMAIL} from the
-          address associated with your account. Include the subject line
-          <em> Account Deletion Request</em>. We will verify your identity and
+          can request account deletion by emailing <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium underline" style={{ color: "var(--color-accent)" }}>{SUPPORT_EMAIL}</a> from the
+          address associated with your account. Include the subject line{" "}
+          <code className="rounded px-1" style={{ backgroundColor: "var(--color-paper-2)" }}>Account Deletion Request</code>. We will verify your identity and
           delete your account within 30 days.
         </p>
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">Data Export</h2>
+        <h2 className="mb-2 text-lg font-semibold">Data export</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Before deleting, you can request a full export of your data (prayer
-          logs, calendar events, goals, homework) by emailing {SUPPORT_EMAIL}.
+          logs, calendar events, goals, homework) by emailing <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium underline" style={{ color: "var(--color-accent)" }}>{SUPPORT_EMAIL}</a>.
           We will send you a JSON file within 30 days.
         </p>
       </section>

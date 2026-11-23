@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { SUPPORT_EMAIL, SITE_URL } from "@/lib/site-config";
 import LegalLayout from "@/components/legal-layout";
 
@@ -15,7 +16,7 @@ export default function PrivacyPolicyPage() {
   return (
     <LegalLayout title="Privacy Policy" updatedAt="September 2025">
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">1. What We Collect</h2>
+        <h2 className="mb-2 text-lg font-semibold">1. What we collect</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Waqt collects your email address, display name, and prayer location
           (latitude/longitude) to provide prayer time calculations and accountability
@@ -26,7 +27,7 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">2. How We Use Your Data</h2>
+        <h2 className="mb-2 text-lg font-semibold">2. How we use your data</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Your data is used solely to provide Waqt&apos;s features: prayer time
           calculation, check-in tracking, calendar scheduling, accountability with
@@ -48,17 +49,17 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">4. Data Retention & Deletion</h2>
+        <h2 className="mb-2 text-lg font-semibold">4. Data retention & deletion</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           You can delete your account at any time from Settings → Advanced.
           Deletion is scheduled with a 5-hour grace period you can cancel at any
           point; when it ends, your account and all associated data are
           permanently deleted.
-          You can request complete data export by contacting {SUPPORT_EMAIL}. See
+          You can request complete data export by contacting <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium underline" style={{ color: "var(--color-accent)" }}>{SUPPORT_EMAIL}</a>. See
           our{" "}
-          <a href="/data-deletion" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
-            Data Deletion guide
-          </a>{" "}
+          <Link href="/data-deletion" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+            data deletion guide
+          </Link>{" "}
           for step-by-step instructions.
         </p>
       </section>
@@ -74,7 +75,7 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">6. Religious Content</h2>
+        <h2 className="mb-2 text-lg font-semibold">6. Religious content</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           All religious content (dhikr sequences, talks) is
           human-curated from vetted sources. Waqt does not generate religious
@@ -83,38 +84,38 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">7. Cookies & Local Storage</h2>
+        <h2 className="mb-2 text-lg font-semibold">7. Cookies & local storage</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Waqt uses a single session cookie to keep you logged in. We also use
           browser local storage and IndexedDB to cache your data for offline use.
           See our{" "}
-          <a href="/cookies" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
-            Cookie Policy
-          </a>{" "}
+          <Link href="/cookies" className="font-medium underline" style={{ color: "var(--color-accent)" }}>
+            cookie policy
+          </Link>{" "}
           for details.
         </p>
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">8. Your Rights (GDPR & CCPA)</h2>
+        <h2 className="mb-2 text-lg font-semibold">8. Your rights (GDPR & CCPA</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           If you are in the EU, UK, or California, you have the right to access,
           correct, export, or delete your personal data. To exercise any of these
-          rights, email {SUPPORT_EMAIL}. We respond within 30 days.
+          rights, email <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium underline" style={{ color: "var(--color-accent)" }}>{SUPPORT_EMAIL}</a>. We respond within 30 days.
         </p>
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">9. Children&apos;s Privacy</h2>
+        <h2 className="mb-2 text-lg font-semibold">9. Children&apos;s privacy</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           Waqt is not directed to children under 13. We do not knowingly collect
           data from children under 13. If you believe a child has provided us
-          personal data, contact {SUPPORT_EMAIL} and we will delete it.
+          personal data, contact <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium underline" style={{ color: "var(--color-accent)" }}>{SUPPORT_EMAIL}</a> and we will delete it.
         </p>
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg font-semibold">10. Changes to This Policy</h2>
+        <h2 className="mb-2 text-lg font-semibold">10. Changes to this policy</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
           We may update this policy as the app evolves. Material changes will be
           announced in-app at least 7 days before they take effect.
@@ -124,7 +125,7 @@ export default function PrivacyPolicyPage() {
       <section className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">11. Contact</h2>
         <p className="text-sm leading-relaxed" style={{ color: "var(--color-ink-soft)" }}>
-          Questions about privacy? Email {SUPPORT_EMAIL}.
+          Questions about privacy? Email <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium underline" style={{ color: "var(--color-accent)" }}>{SUPPORT_EMAIL}</a>.
         </p>
       </section>
     </LegalLayout>

@@ -28,6 +28,10 @@ const PAGE_COUNT = 604;
 // Timestamps live at module scope so render-tree purity checks stay happy —
 // event handlers call this, not Date.now() inline.
 function nowMs() { return Date.now(); }
+/** Smooth scrolling respects the user's reduced-motion setting. */
+function prefersReducedMotion() {
+  return typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 let qtDingCtx: AudioContext | null = null;
 function ding(freq = 760, vol = 0.08, dur = 0.35) {
@@ -94,17 +98,17 @@ const MushafPageView = memo(function MushafPageView({
     const key = `${s}:${a}:${w}`;
     const ayahFlag = `${s}:${a}:0`;
     if (confirmed.has(key) || confirmed.has(ayahFlag))
-      return { ...bridge, backgroundColor: "color-mix(in oklab, #b34a3a 22%, transparent)", boxShadow: "inset 0 -2px 0 #b34a3a" } as const;
+      return { ...bridge, backgroundColor: "color-mix(in oklab, var(--color-error) 22%, transparent)", boxShadow: "inset 0 -2px 0 var(--color-error)" } as const;
     if (suspects.has(key) || suspects.has(ayahFlag))
-      return { ...bridge, backgroundColor: "color-mix(in oklab, #c9a227 25%, transparent)", boxShadow: "inset 0 -2px 0 #c9a227" } as const;
+      return { ...bridge, backgroundColor: "color-mix(in oklab, var(--color-warmth) 25%, transparent)", boxShadow: "inset 0 -2px 0 var(--color-warmth)" } as const;
     if (jump && jump.to.s === s && jump.to.a === a)
-      return { ...bridge, backgroundColor: "color-mix(in oklab, #d9762b 25%, transparent)", boxShadow: "inset 0 -2px 0 #d9762b" } as const;
+      return { ...bridge, backgroundColor: "color-mix(in oklab, var(--color-warmth) 25%, transparent)", boxShadow: "inset 0 -2px 0 var(--color-warmth)" } as const;
     if (diversions.has(`${s}:${a}`))
-      return { ...bridge, backgroundColor: "color-mix(in oklab, #c9a227 20%, transparent)" } as const;
+      return { ...bridge, backgroundColor: "color-mix(in oklab, var(--color-warmth) 20%, transparent)" } as const;
     if (jump && jump.expected.s === s && jump.expected.a === a)
       return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const;
     if (pin && pin.s === s && pin.a === a && w === pin.w)
-      return { ...bridge, boxShadow: "inset 0 -3px 0 #3b82f6" } as const;
+      return { ...bridge, boxShadow: "inset 0 -3px 0 var(--color-accent)" } as const;
     const dz = divZones.get(`${s}:${a}`);
     if (dz && w >= dz.w1 && w <= dz.w2)
       return { ...bridge, boxShadow: "inset 0 -2px 0 color-mix(in oklab, var(--color-accent) 65%, transparent)" } as const;
@@ -117,7 +121,7 @@ const MushafPageView = memo(function MushafPageView({
       <div className="flex h-full flex-col items-center justify-center gap-2">
         {failed ? (
           <>
-            <p className="text-xs" style={{ color: "#b34a3a" }}>Page failed to load.</p>
+            <p className="text-xs" style={{ color: "var(--color-error)" }}>Page failed to load.</p>
             <button onClick={() => onRetry(p)} className="rounded-full border px-4 py-1.5 text-xs font-semibold" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Retry</button>
           </>
         ) : <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading page…</p>}
@@ -141,7 +145,7 @@ const MushafPageView = memo(function MushafPageView({
         }
         const centered = sparse || endOfSurah;
         return (
-          <div key={li} className={`flex flex-1 flex-nowrap items-center overflow-hidden ${centered ? "justify-center" : "justify-between"} gap-x-1 lg:gap-x-3`}>
+          <div key={li} className={`flex flex-1 flex-nowrap items-center overflow-x-hidden ${centered ? "justify-center" : "justify-between"} gap-x-1 lg:gap-x-3`}>
             {(line.words ?? []).map((w, wi) => {
               const [s, a, wiN] = w.location.split(":").map(Number);
               const key = `${s}:${a}:${wiN}`;
@@ -150,21 +154,38 @@ const MushafPageView = memo(function MushafPageView({
               const heard = cursor?.s === s && cursor.a === a && cursor.w !== null && wiN <= cursor.w;
               const coveredAyah = covSnap.has(`${s}:${a}`);
               const hidden = memorize && !coveredAyah && !heard && !revealed.has(key);
+              // Tappable words (flags) are real buttons — keyboard + AT need
+              // an actual interactive element, not a span with a click.
+              const tappable = interactive && (isSuspect || isConfirmed || diversions.has(`${s}:${a}`));
+              const wordStyle: React.CSSProperties = {
+                ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
+                fontSize: "clamp(0.9rem, min(3.9vw, 6dvh), 2rem)",
+                lineHeight: 1.6, // Arabic diacritics clip below ~1.5
+                color: hidden ? "transparent" : "var(--color-ink)",
+                ...(hidden ? { backgroundColor: "color-mix(in oklab, var(--color-ink) 10%, transparent)" } : wordMark(s, a, wiN)),
+              };
+              if (tappable) {
+                return (
+                  <button
+                    key={wi}
+                    type="button"
+                    data-loc={w.location}
+                    onDoubleClick={(e) => { e.preventDefault(); onMarkManual(s, a, wiN); }}
+                    onClick={() => onWordTap(s, a, wiN)}
+                    className="shrink-0 cursor-pointer rounded px-px transition-colors duration-150"
+                    style={wordStyle}
+                  >
+                    {fontReady && w.qpcV2 ? w.qpcV2 : w.word}
+                  </button>
+                );
+              }
               return (
                 <span
                   key={wi}
                   data-loc={w.location}
                   onDoubleClick={interactive ? (e) => { e.preventDefault(); onMarkManual(s, a, wiN); } : undefined}
-                  onClick={interactive && (isSuspect || isConfirmed || diversions.has(`${s}:${a}`)) ? () => onWordTap(s, a, wiN) : undefined}
-                  onContextMenu={interactive ? (e) => e.preventDefault() : undefined}
-                  className={`shrink-0 select-none rounded px-px transition-colors duration-150${isSuspect || isConfirmed || diversions.has(`${s}:${a}`) ? " cursor-pointer" : ""}`}
-                  style={{
-                    ...(fontReady && w.qpcV2 ? { fontFamily: `QPC2-p${p}` } : { fontFamily: "var(--font-arabic, serif)" }),
-                    fontSize: "clamp(0.9rem, min(3.9vw, 6dvh), 2rem)",
-                    lineHeight: 1,
-                    color: hidden ? "transparent" : "var(--color-ink)",
-                    ...(hidden ? { backgroundColor: "color-mix(in oklab, var(--color-ink) 10%, transparent)" } : wordMark(s, a, wiN)),
-                  }}
+                  className="shrink-0 rounded px-px transition-colors duration-150"
+                  style={wordStyle}
                 >
                   {fontReady && w.qpcV2 ? w.qpcV2 : w.word}
                 </span>
@@ -289,6 +310,7 @@ export default function QuranTesterClient() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<"surah" | "juz">("surah");
   const [surahMeta, setSurahMeta] = useState<SurahMeta[] | null>(null);
+  const [surahMetaErr, setSurahMetaErr] = useState(false);
 
   // ── Recite Plan ──
   const [plan, setPlan] = useState<Plan | null>(() => loadPlan());
@@ -342,7 +364,7 @@ export default function QuranTesterClient() {
   const [snapping, setSnapping] = useState(false);
   const [turn, setTurn] = useState<0 | 1 | -1>(0);
   const turnTimer = useRef<ReturnType<typeof setTimeout>>(null);
-  const dragRef = useRef<{ x0: number; active: boolean }>({ x0: 0, active: false });
+  const dragRef = useRef<{ x0: number; y0: number; active: boolean; axis: "h" | "v" | null }>({ x0: 0, y0: 0, active: false, axis: null });
   const dragXRef = useRef(0);
 
   const pageRef = useRef(page);
@@ -366,6 +388,24 @@ export default function QuranTesterClient() {
       localStorage.setItem("qt:view-mode", viewMode);
     } catch {}
   }, [anchorMode, viewMode]);
+
+  // Escape dismisses the topmost open overlay — hand-rolled sheets with no
+  // keyboard path trap keyboard users. Checked in stacking order; only one
+  // overlay is ever meant to be open at a time.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (micHelp) setMicHelp(false);
+      else if (pickerOpen) setPickerOpen(false);
+      else if (verifyOpen) setVerifyOpen(false);
+      else if (reviewOpen) setReviewOpen(false);
+      else if (statsSheet) setStatsSheet(null);
+      else if (planOpen) setPlanOpen(false);
+      else if (setupOpen && !dl) setSetupOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [micHelp, pickerOpen, verifyOpen, reviewOpen, statsSheet, planOpen, setupOpen, dl]);
 
   /** Expected = the surah the engine actually locked onto. setExpected
    *  constrains searches to its passage, so it must NEVER be sent before
@@ -445,7 +485,7 @@ export default function QuranTesterClient() {
     };
     window.addEventListener("pagehide", onPageHide);
     loadBasmalaFont().then(() => setBsmlReady(true)).catch(() => {});
-    loadSurahMeta().then(setSurahMeta).catch(() => {});
+    fetchSurahMeta();
     // Look-alike index (shared with the Mutashabihat game) — one small JSON,
     // best-effort: tracking works without it, just less skeptically.
     loadMutashabihat().then((raw) => (Array.isArray(raw) ? raw : [])).then((fams: { instances?: { s: number; a: number }[] }[]) => {
@@ -543,7 +583,7 @@ export default function QuranTesterClient() {
     // Scope to the CURRENT page — the strip also renders the adjacent page
     // off-screen with identical data-loc spans.
     const sel = `[data-qt-cur] [data-loc="${loc.surah}:${loc.ayah}:1"]`;
-    document.querySelector(sel)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    document.querySelector(sel)?.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" });
     const t = setTimeout(() => document.querySelector(sel)?.scrollIntoView({ block: "center" }), 350); // retry after a page swap renders
     return () => clearTimeout(t);
   }, [loc, listen]);
@@ -798,15 +838,48 @@ export default function QuranTesterClient() {
   }
 
   const resumeAppliedRef = useRef(false);
+  const restoredPageRef = useRef<number | null>(null); // browse-restore, not user nav
   /** Open on the last-heard ayah's page once, pinning its last word.
    *  Runs when the ayah index lands, and again if the roaming server copy
    *  arrives later and turns out newer. Skips once the user has navigated. */
+  // Persist the browsed page — pure reading (no engine) must also never lose
+  // its place. Written on every page change, restored only when there's no
+  // recite-resume point to honor.
+  useEffect(() => {
+    try { localStorage.setItem("qt:last-page", String(page)); } catch {}
+  }, [page]);
+
+  // Keyboard page turns — the mushaf was gesture-only. ArrowLeft advances
+  // (mushaf pages turn right→left), ArrowRight goes back.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "ArrowLeft") commitTurn(-1);
+      else if (e.key === "ArrowRight") commitTurn(1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   function applyResumePos(ap: AyahPages | null) {
     if (resumeAppliedRef.current || !ap) return;
     const lp = loadLastPos();
-    if (!lp) return; // no local pos yet — the server copy may still arrive
+    if (!lp) {
+      // No recite position — fall back to the last browsed mushaf page. The
+      // restore is provisional: a newer server resume point may still land.
+      const bp = Number(localStorage.getItem("qt:last-page"));
+      if (bp >= 1 && bp <= PAGE_COUNT && pageRef.current === 1) {
+        restoredPageRef.current = bp;
+        setPage(bp);
+      }
+      return;
+    }
     const p = ap[lp.s]?.[lp.a];
-    if (typeof p !== "number" || p < 1 || pageRef.current !== 1) {
+    // pageRef !== 1 is fine when it's still sitting on the restored browse
+    // page — that wasn't a user navigation, so a resume point may replace it.
+    const onRestored = restoredPageRef.current !== null && pageRef.current === restoredPageRef.current;
+    if (typeof p !== "number" || p < 1 || (pageRef.current !== 1 && !onRestored)) {
       resumeAppliedRef.current = true;
       return;
     }
@@ -845,6 +918,13 @@ export default function QuranTesterClient() {
     } catch {
       return fallback;
     }
+  }
+
+  /** Surah metadata — retried explicitly; a silent catch used to leave the
+   *  picker on "Loading…" forever when the fetch failed. */
+  function fetchSurahMeta() {
+    setSurahMetaErr(false);
+    loadSurahMeta().then(setSurahMeta).catch(() => setSurahMetaErr(true));
   }
 
   function surahName(s: number) {
@@ -1065,7 +1145,7 @@ export default function QuranTesterClient() {
       preambleGraceRef.current = Date.now();
       if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
       candRef.current = null;
-      setStatus("Lost you — keep going, or tap the page to re-anchor");
+      setStatus("Lost you — keep reciting, it will re-lock");
     } else if (ev.type === "locateFailed") {
       if (candTimerRef.current) { clearTimeout(candTimerRef.current); candTimerRef.current = null; }
       candRef.current = null;
@@ -1216,7 +1296,9 @@ export default function QuranTesterClient() {
       // status line with raw event names ("lost", "relocated"…).
       const DBG_HANDLED = new Set(["lost", "relocated", "located", "idle", "completed", "locateFailed"]);
       const t = String(ev.text ?? (ev.event ? "" : (ev.message ?? "")) ?? "");
-      if (t && !DBG_HANDLED.has(String(ev.event))) setStatus(t.slice(0, 80));
+      // Raw engine transcript in the status line is a dev aid only — users
+      // see the real branches above, never decode internals.
+      if (process.env.NODE_ENV === "development" && t && !DBG_HANDLED.has(String(ev.event))) setStatus(t.slice(0, 80));
     } else if (ev.type === "word_progress") {
       holdingRef.current = false;
       const s = ev.surah as number, a = ev.ayah as number;
@@ -1601,14 +1683,24 @@ export default function QuranTesterClient() {
 
   // ── Page swipe (mushaf turns right→left: swipe left = next page) ──
   function onPointerDown(e: React.PointerEvent) {
-    dragRef.current = { x0: e.clientX, active: true };
+    dragRef.current = { x0: e.clientX, y0: e.clientY, active: true, axis: null };
     setSnapping(false);
+    // Capture so a finger drifting off the card mid-swipe still finishes the
+    // gesture — without it the pointerup lands elsewhere and the drag hangs.
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer already released */ }
   }
   function onPointerMove(e: React.PointerEvent) {
-    if (dragRef.current.active) {
-      dragXRef.current = e.clientX - dragRef.current.x0;
-      setDragX(dragXRef.current);
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.x0;
+    const dy = e.clientY - dragRef.current.y0;
+    // Axis-lock: once the gesture reads vertical it's a scroll attempt, not a
+    // page turn — release instead of dragging the page sideways a few px.
+    if (dragRef.current.axis === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+      dragRef.current.axis = Math.abs(dy) > Math.abs(dx) * 1.2 ? "v" : "h";
     }
+    if (dragRef.current.axis === "v") return;
+    dragXRef.current = dx;
+    setDragX(dx);
   }
   function onPointerUp() {
     if (!dragRef.current.active) return;
@@ -1770,7 +1862,7 @@ export default function QuranTesterClient() {
       <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-3 pt-2 sm:px-6">
         <Link
           href="/calendar/day"
-          className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+          className="flex items-center justify-center rounded-full transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-muted)", minHeight: 34, minWidth: 34 }}
           aria-label="Home"
         >
@@ -1806,15 +1898,15 @@ export default function QuranTesterClient() {
             className="relative flex items-center justify-center rounded-full font-bold transition-transform active:scale-95"
             style={{
               minHeight: 32, minWidth: 32,
-              backgroundColor: "color-mix(in oklab, #c9a227 18%, transparent)",
-              color: "#c9a227",
-              border: "1.5px solid color-mix(in oklab, #c9a227 45%, transparent)",
+              backgroundColor: "color-mix(in oklab, var(--color-warmth) 18%, transparent)",
+              color: "var(--color-warmth)",
+              border: "1.5px solid color-mix(in oklab, var(--color-warmth) 45%, transparent)",
               fontSize: 14,
             }}
             aria-label="Engine not downloaded — open setup"
           >
             !
-            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "#c9a227" }} />
+            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "var(--color-warmth)" }} />
           </button>
         )}
         {/* Jump bar removed — the surah/juz picker (rightmost chip) covers
@@ -1822,7 +1914,7 @@ export default function QuranTesterClient() {
         <div className="flex-1" />
         <button
           onClick={() => setReviewOpen(true)}
-          className="relative flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+          className="relative flex items-center justify-center rounded-full transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-muted)", minHeight: 34, minWidth: 34 }}
           aria-label="Review mistakes"
         >
@@ -1830,7 +1922,7 @@ export default function QuranTesterClient() {
           {confirmed.size > 0 && (
             <span
               className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold"
-              style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
+              style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
             >
               {confirmed.size}
             </span>
@@ -1838,16 +1930,17 @@ export default function QuranTesterClient() {
         </button>
         {!online && (
           <span
-            className="flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-semibold"
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+            className="flex items-center gap-1.5 px-1 text-[9px] font-semibold"
+            style={{ color: "var(--color-warmth)" }}
             title="Offline — recitation works fully; mistakes sync when you're back"
           >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-warmth)" }} aria-hidden />
             Offline
           </span>
         )}
         <button
           onClick={() => setPlanOpen(true)}
-          className="flex items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+          className="flex items-center justify-center rounded-full transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
           style={{ color: "var(--color-ink-muted)", minHeight: 34, minWidth: 34 }}
           aria-label="Settings"
         >
@@ -1856,10 +1949,9 @@ export default function QuranTesterClient() {
         <button
           onClick={() => {
             setPickerOpen(true);
-            if (!surahMeta)
-              loadSurahMeta().then(setSurahMeta).catch(() => {});
+            if (!surahMeta) fetchSurahMeta();
           }}
-          className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold tabular-nums transition-colors hover:bg-[var(--color-paper-2)]"
+          className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold tabular-nums transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
           style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
           aria-label="Open surah and juz picker"
         >
@@ -1872,7 +1964,7 @@ export default function QuranTesterClient() {
         <div className="mx-auto mt-1.5 flex w-full max-w-3xl items-center gap-2 px-3 sm:px-6">
           <button
             onClick={() => setPlanOpen(true)}
-            className="ml-auto flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors hover:bg-[var(--color-paper-2)]"
+            className="ml-auto flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
             aria-label="Goal settings"
           >
@@ -1903,11 +1995,11 @@ export default function QuranTesterClient() {
         <div className="fixed inset-x-3 top-16 z-40">
           <div
             className="w-full rounded-2xl border p-3 shadow-lg"
-            style={{ borderColor: "color-mix(in oklab, #d9762b 50%, transparent)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
+            style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 50%, transparent)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
           >
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold" style={{ color: "#d9762b" }}>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-warmth)" }}>
                   You moved to {surahName(jump.to.s)} {jump.to.s}:{jump.to.a}
                 </p>
                 <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
@@ -1948,7 +2040,7 @@ export default function QuranTesterClient() {
           <button
             onClick={() => setSetupOpen(true)}
             className="mt-2 flex w-full items-center gap-2.5 rounded-2xl border px-3.5 py-2 text-left transition-colors"
-            style={{ borderColor: "color-mix(in oklab, #c9a227 35%, transparent)", backgroundColor: "color-mix(in oklab, #c9a227 8%, transparent)" }}
+            style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 35%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 8%, transparent)" }}
           >
             <span className="min-w-0 flex-1">
               <span className="block text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
@@ -2001,32 +2093,53 @@ export default function QuranTesterClient() {
             )}
           </div>
         )}
-        {/* Resume chip — "continue from here" at the last heard word. */}
-        {!listening && lastPos && installed && (
+        {/* Resume chip — recite-resume when the engine's installed; without
+            it the same chip still returns the reader to their spot. Resume
+            must never be gated on the tester engine. */}
+        {!listening && lastPos && (
           <div
             className="mt-2 flex items-center gap-2.5 rounded-full border px-3.5 py-1.5"
             style={{ borderColor: "var(--color-accent-faint)", backgroundColor: "var(--color-paper-2)" }}
           >
             <button
-              onClick={() => void resumeFromHere()}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left transition-opacity hover:opacity-80"
+              onClick={() => {
+                if (installed) { void resumeFromHere(); return; }
+                // No engine — resume = jump the mushaf + pin the word.
+                goToAyah(lastPos.s, lastPos.a);
+                setPin({ s: lastPos.s, a: lastPos.a, w: Math.max(1, lastPos.w || 1) });
+              }}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left transition-opacity [@media(hover:hover)]:hover:opacity-80"
             >
               <Play className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent)" }} />
               <p className="truncate text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
-                Continue from {surahName(lastPos.s)} {lastPos.s}:{lastPos.a}
+                {installed ? "Continue from" : "Open at"} {surahName(lastPos.s)} {lastPos.s}:{lastPos.a}
               </p>
             </button>
             <button
               onClick={() => { saveLastPos(null); setLastPos(null); }}
-              className="shrink-0 rounded-full p-1 transition-opacity hover:opacity-70"
+              className="shrink-0 rounded-full p-1 transition-opacity [@media(hover:hover)]:hover:opacity-70"
               aria-label="Forget last position"
             >
               <X className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
             </button>
           </div>
         )}
-        {/* Engine errors surface via the global toast — inline text here
-            pushed the mushaf layout. */}
+        {/* Mic/engine errors — the mic-denied case opens the help sheet;
+            every other failure still needs a rendered home. */}
+        {micError && !micHelp && (
+          <div className="mt-2 flex items-center gap-2.5 rounded-full border px-3.5 py-1.5" role="alert"
+            style={{ borderColor: "color-mix(in oklab, var(--color-error) 45%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-error) 6%, transparent)" }}>
+            <p className="min-w-0 flex-1 truncate text-xs font-semibold" style={{ color: "var(--color-error)" }}>{micError}</p>
+            {micDenied && (
+              <button onClick={() => setMicHelp(true)} className="shrink-0 text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>
+                Fix
+              </button>
+            )}
+            <button onClick={() => setMicError(null)} className="shrink-0" aria-label="Dismiss">
+              <X className="h-3.5 w-3.5" style={{ color: "var(--color-ink-muted)" }} />
+            </button>
+          </div>
+        )}
 
         {/* Mushaf page — swipe. On desktop it becomes a centered portrait
             card at the real mushaf page ratio, with an inner double frame.
@@ -2058,14 +2171,13 @@ export default function QuranTesterClient() {
           </div>
         ) : (
         <div
-          className="qt-mushaf relative mt-2 min-h-0 flex-1 touch-manipulation select-none overflow-hidden rounded-lg border"
+          className="qt-mushaf relative mt-2 flex min-h-0 flex-1 flex-col touch-manipulation overflow-hidden rounded-lg border"
           style={{
             borderColor: "var(--color-paper-3)",
             backgroundColor: "var(--color-paper-2)",
             boxShadow: "inset 0 0 0 6px var(--color-paper-2), inset 0 0 0 7px var(--color-paper-3), inset 0 0 0 12px var(--color-paper-2)",
-            WebkitTouchCallout: "none",
+            // Long-press is allowed: verse text is selectable/copyable now.
           } as React.CSSProperties}
-          onContextMenu={(e) => e.preventDefault()}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -2077,7 +2189,7 @@ export default function QuranTesterClient() {
           }}
         >
           <div
-            className="relative h-full w-full"
+            className="relative min-h-0 w-full flex-1"
             onTransitionEnd={onStripTransitionEnd}
             style={{
               transform: turn !== 0 ? `translateX(${turn * 100}%)` : `translateX(${dragX}px)`,
@@ -2100,6 +2212,17 @@ export default function QuranTesterClient() {
               </div>
             )}
           </div>
+          {/* Visible page turns — the mushaf was swipe-only; buttons + arrow
+              keys make paging reachable without a gesture. */}
+          <div className="flex shrink-0 items-center justify-between border-t px-4 py-2.5" style={{ borderColor: "var(--color-paper-3)" }}>
+            <button type="button" onClick={() => commitTurn(1)} disabled={page <= 1 || turn !== 0} className="flex min-h-10 items-center gap-1 rounded-full border px-3 text-xs font-semibold disabled:opacity-40" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+              <ChevronLeft className="h-4 w-4" /> Previous
+            </button>
+            <span className="text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>Page {page} / {PAGE_COUNT}</span>
+            <button type="button" onClick={() => commitTurn(-1)} disabled={page >= PAGE_COUNT || turn !== 0} className="flex min-h-10 items-center gap-1 rounded-full border px-3 text-xs font-semibold disabled:opacity-40" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+              Next <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         )}
       </div>
@@ -2118,7 +2241,7 @@ export default function QuranTesterClient() {
             if (m === "hold" && loc) {
               anchorRef.current = { s: loc.surah, a: loc.ayah };
               setPin(pinWord(anchorRef.current));
-              setStatus(`Holding at ${surahName(loc.surah)} ${loc.surah}:${loc.ayah} — the blue underline is your pin`);
+              setStatus(`Holding at ${surahName(loc.surah)} ${loc.surah}:${loc.ayah} — the underlined word is your pin`);
             } else if (m === "follow") {
               setPin(null);
             }
@@ -2171,14 +2294,14 @@ export default function QuranTesterClient() {
             <div className="mt-3 flex gap-2">
               <button
                 onClick={() => void confirmMistake()}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold transition-opacity hover:opacity-80"
-                style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold transition-opacity [@media(hover:hover)]:hover:opacity-80"
+                style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
               >
                 <Check className="h-4 w-4" /> Mistake
               </button>
               <button
                 onClick={() => void dismissMistake()}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-full border px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-80"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full border px-4 py-2 text-sm font-semibold transition-opacity [@media(hover:hover)]:hover:opacity-80"
                 style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" }}
               >
                 <X className="h-4 w-4" /> Not a mistake
@@ -2197,6 +2320,7 @@ export default function QuranTesterClient() {
           onClick={() => setStatsSheet(null)}
         >
           <div
+            role="dialog" aria-modal="true" aria-label="Session stats"
             className="w-full max-w-sm rounded-t-3xl border p-6 sm:rounded-3xl"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
             onClick={(e) => e.stopPropagation()}
@@ -2210,7 +2334,7 @@ export default function QuranTesterClient() {
                   {statsSheet.ayahs}
                 </p>
                 <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
-                  ayah{statsSheet.ayahs === 1 ? "" : "s"} read
+                  āyah{statsSheet.ayahs === 1 ? "" : "s"} heard
                 </p>
               </div>
               <div>
@@ -2222,7 +2346,7 @@ export default function QuranTesterClient() {
                 </p>
               </div>
               <div>
-                <p className="text-3xl font-semibold tracking-tight tabular-nums" style={{ color: statsSheet.flags ? "#c9a227" : "var(--color-ink)" }}>
+                <p className="text-3xl font-semibold tracking-tight tabular-nums" style={{ color: statsSheet.flags ? "var(--color-warmth)" : "var(--color-ink)" }}>
                   {statsSheet.flags}
                 </p>
                 <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>
@@ -2234,7 +2358,7 @@ export default function QuranTesterClient() {
               {statsSheet.flags > 0 ? (
                 <button
                   onClick={() => { setStatsSheet(null); setVerifyOpen(true); }}
-                  className="flex-1 rounded-full px-4 py-2.5 text-sm font-bold transition-opacity hover:opacity-80"
+                  className="flex-1 rounded-full px-4 py-2.5 text-sm font-bold transition-opacity [@media(hover:hover)]:hover:opacity-80"
                   style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
                 >
                   Review flags
@@ -2242,7 +2366,7 @@ export default function QuranTesterClient() {
               ) : null}
               <button
                 onClick={() => setStatsSheet(null)}
-                className={`rounded-full px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-80 ${statsSheet.flags ? "border" : "flex-1"}`}
+                className={`rounded-full px-4 py-2.5 text-sm font-semibold transition-opacity [@media(hover:hover)]:hover:opacity-80 ${statsSheet.flags ? "border" : "flex-1"}`}
                 style={statsSheet.flags ? { borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)" } : { backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
               >
                 Done
@@ -2262,6 +2386,7 @@ export default function QuranTesterClient() {
           onClick={() => setVerifyOpen(false)}
         >
           <div
+            role="dialog" aria-modal="true" aria-label="Verify flags"
             className="max-h-[70dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border p-5"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
             onClick={(e) => e.stopPropagation()}
@@ -2295,19 +2420,19 @@ export default function QuranTesterClient() {
                         <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
                           {surahName(s)} {s}:{a} · {runLabel(run.items)}
                         </p>
-                        <p className="text-[11px]" style={{ color: "#c9a227" }}>{issueLabel(run.kind)}</p>
+                        <p className="text-[11px]" style={{ color: "var(--color-warmth)" }}>{issueLabel(run.kind)}</p>
                       </button>
                       <button
                         onClick={() => { for (const it of run.items) void confirmSpot({ s: it.s, a: it.a, w: it.w, kind: it.kind }); }}
-                        className="flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition-opacity hover:opacity-80"
-                        style={{ backgroundColor: "#b34a3a", color: "var(--color-paper)" }}
+                        className="flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition-opacity [@media(hover:hover)]:hover:opacity-80"
+                        style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
                         aria-label={`Confirm mistake at ${s}:${a} ${runLabel(run.items)}`}
                       >
                         <Check className="h-3 w-3" /> Confirm
                       </button>
                       <button
                         onClick={() => { for (const it of run.items) void dismissSpot({ s: it.s, a: it.a, w: it.w }); }}
-                        className="rounded-full p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                        className="rounded-full p-1.5 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                         style={{ color: "var(--color-ink-muted)" }}
                         aria-label={`Dismiss flag at ${s}:${a} ${runLabel(run.items)}`}
                       >
@@ -2318,15 +2443,8 @@ export default function QuranTesterClient() {
                 })}
               </div>
             )}
-            {suspects.size > 0 && (
-              <button
-                onClick={() => { for (const [key, kind] of [...suspects.entries()]) { const [s, a, w] = key.split(":").map(Number); void confirmSpot({ s, a, w, kind }); } }}
-                className="mt-4 w-full rounded-full border px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-80"
-                style={{ borderColor: "#b34a3a", color: "#b34a3a" }}
-              >
-                Confirm all
-              </button>
-            )}
+            {/* No "confirm all" — rubber-stamping engine guesses defeats the
+                point of verification. Each flag gets its own decision. */}
           </div>
         </div>
       )}
@@ -2339,6 +2457,7 @@ export default function QuranTesterClient() {
           onClick={() => !dl && setSetupOpen(false)}
         >
           <div
+            role="dialog" aria-modal="true" aria-label="Download the recitation engine"
             className="w-full max-w-sm rounded-3xl border p-6"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
             onClick={(e) => e.stopPropagation()}
@@ -2350,7 +2469,7 @@ export default function QuranTesterClient() {
               {!dl && (
                 <button
                   onClick={() => setSetupOpen(false)}
-                  className="rounded-full p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                  className="rounded-full p-1 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                   style={{ color: "var(--color-ink-muted)" }}
                   aria-label="Close"
                 >
@@ -2380,14 +2499,14 @@ export default function QuranTesterClient() {
             ) : (
               <button
                 onClick={() => void install()}
-                className="mt-5 flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold transition-opacity hover:opacity-80"
+                className="mt-5 flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold transition-opacity [@media(hover:hover)]:hover:opacity-80"
                 style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
               >
                 <Download className="h-4 w-4" /> Download engine
               </button>
             )}
             {dlError && (
-              <p className="mt-3 text-xs font-medium" style={{ color: "#b34a3a" }}>{dlError}</p>
+              <p className="mt-3 text-xs font-medium" style={{ color: "var(--color-error)" }}>{dlError}</p>
             )}
             <p className="mt-4 text-[10px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
               Automatic recitation feedback can be wrong — it never replaces a
@@ -2406,6 +2525,7 @@ export default function QuranTesterClient() {
           onClick={() => setPickerOpen(false)}
         >
           <div
+            role="dialog" aria-modal="true" aria-label="Surah and juz picker"
             className="flex max-h-[70dvh] w-full max-w-lg flex-col rounded-t-3xl border p-5"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
             onClick={(e) => e.stopPropagation()}
@@ -2438,7 +2558,7 @@ export default function QuranTesterClient() {
                     <button
                       key={s.s}
                       onClick={() => { setPage(s.page); setPickerOpen(false); }}
-                      className="flex w-full items-center gap-3 border-b px-2 py-2.5 text-left transition-colors last:border-b-0 hover:bg-[var(--color-paper-2)]"
+                      className="flex w-full items-center gap-3 border-b px-2 py-2.5 text-left transition-colors last:border-b-0 [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                       style={{ borderColor: "var(--color-paper-3)" }}
                     >
                       <span
@@ -2454,6 +2574,11 @@ export default function QuranTesterClient() {
                       <span className="text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>p. {s.page}</span>
                     </button>
                   ))
+                ) : surahMetaErr ? (
+                  <div className="py-8 text-center">
+                    <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Couldn&rsquo;t load the surah list.</p>
+                    <button onClick={fetchSurahMeta} className="mt-2 text-xs font-semibold" style={{ color: "var(--color-accent)" }}>Try again</button>
+                  </div>
                 ) : (
                   <p className="py-8 text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>Loading…</p>
                 )
@@ -2463,7 +2588,7 @@ export default function QuranTesterClient() {
                     <button
                       key={p}
                       onClick={() => { setPage(p); setPickerOpen(false); }}
-                      className="rounded-2xl border py-3 text-center transition-colors hover:bg-[var(--color-paper-2)]"
+                      className="rounded-2xl border py-3 text-center transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                       style={{ borderColor: "var(--color-paper-3)" }}
                     >
                       <span className="block text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{i + 1}</span>
@@ -2485,6 +2610,7 @@ export default function QuranTesterClient() {
           onClick={() => setMicHelp(false)}
         >
           <div
+            role="dialog" aria-modal="true" aria-label="Microphone access"
             className="w-full max-w-sm rounded-3xl border p-6"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
             onClick={(e) => e.stopPropagation()}
@@ -2492,13 +2618,13 @@ export default function QuranTesterClient() {
             <div className="flex items-start justify-between">
               <div
                 className="flex h-10 w-10 items-center justify-center rounded-full"
-                style={{ backgroundColor: "color-mix(in oklab, #b34a3a 12%, transparent)", color: "#b34a3a" }}
+                style={{ backgroundColor: "color-mix(in oklab, var(--color-error) 12%, transparent)", color: "var(--color-error)" }}
               >
                 <MicOff className="h-5 w-5" />
               </div>
               <button
                 onClick={() => setMicHelp(false)}
-                className="rounded-full p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                className="rounded-full p-1 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-ink-muted)" }}
                 aria-label="Close"
               >
@@ -2519,7 +2645,7 @@ export default function QuranTesterClient() {
             </ol>
             <button
               onClick={() => { setMicHelp(false); void startRecite(); }}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold transition-opacity hover:opacity-80"
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold transition-opacity [@media(hover:hover)]:hover:opacity-80"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
             >
               <Mic className="h-4 w-4" /> Try again
@@ -2536,6 +2662,7 @@ export default function QuranTesterClient() {
           onClick={() => setReviewOpen(false)}
         >
           <div
+            role="dialog" aria-modal="true" aria-label="Review mistakes"
             className="max-h-[70dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border p-5"
             style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.2s ease-out" }}
             onClick={(e) => e.stopPropagation()}
@@ -2564,13 +2691,13 @@ export default function QuranTesterClient() {
                       <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
                         {surahName(run.s)} {run.s}:{run.a} · {runLabel(run.items)}
                       </p>
-                      <p className="text-[11px]" style={{ color: run.kind === "peek" ? "var(--color-accent)" : "#b34a3a" }}>
+                      <p className="text-[11px]" style={{ color: run.kind === "peek" ? "var(--color-accent)" : "var(--color-error)" }}>
                         {run.kind === "peek" ? "peeked" : issueLabel(run.kind)}
                       </p>
                     </button>
                     <button
                       onClick={() => { for (const it of run.items) void deleteMistake(it.m); }}
-                      className="rounded-full p-2 transition-colors hover:bg-[var(--color-paper-2)]"
+                      className="rounded-full p-2 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                       style={{ color: "var(--color-ink-muted)" }}
                       aria-label="Remove"
                     >
@@ -2592,7 +2719,7 @@ export default function QuranTesterClient() {
                       setStorageInfo((v) => !v);
                       navigator.storage?.estimate?.().then((e) => setStorageBytes(e.usage ?? null)).catch(() => {});
                     }}
-                    className="rounded-full p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
+                    className="rounded-full p-1.5 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                     style={{ color: "var(--color-ink-muted)" }}
                     aria-label="Where is the engine stored?"
                   >
@@ -2600,8 +2727,8 @@ export default function QuranTesterClient() {
                   </button>
                   <button
                     onClick={() => { setReviewOpen(false); void remove(); }}
-                    className="rounded-full p-1.5 transition-colors hover:bg-[var(--color-paper-2)]"
-                    style={{ color: "#b34a3a" }}
+                    className="rounded-full p-1.5 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
+                    style={{ color: "var(--color-error)" }}
                     aria-label="Remove recitation engine"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -2670,9 +2797,9 @@ export default function QuranTesterClient() {
                 }}
                 className="flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90"
                 style={{
-                  borderColor: listen === "paused" ? "#c9a227" : "var(--color-paper-3)",
+                  borderColor: listen === "paused" ? "var(--color-warmth)" : "var(--color-paper-3)",
                   backgroundColor: "var(--color-paper)",
-                  color: listen === "paused" ? "#c9a227" : "var(--color-ink-soft)",
+                  color: listen === "paused" ? "var(--color-warmth)" : "var(--color-ink-soft)",
                 }}
                 aria-label={listen === "paused" ? "Resume reciting" : "Pause reciting"}
               >
@@ -2684,7 +2811,7 @@ export default function QuranTesterClient() {
             onClick={() => (listening ? void stopRecite() : micDenied ? setMicHelp(true) : void startRecite())}
             className="qt-mic-fab relative flex items-center justify-center rounded-full transition-transform active:scale-90"
             style={{
-              backgroundColor: listen === "listening" ? "var(--color-accent)" : listen === "paused" ? "#c9a227" : micDenied ? "#b34a3a" : "var(--color-ink)",
+              backgroundColor: listen === "listening" ? "var(--color-accent)" : listen === "paused" ? "var(--color-warmth)" : micDenied ? "var(--color-error)" : "var(--color-ink)",
               color: "var(--color-paper)",
               boxShadow: "0 6px 20px color-mix(in oklab, var(--color-ink) 28%, transparent)",
               border: "2.5px solid var(--color-paper)",
@@ -2692,10 +2819,10 @@ export default function QuranTesterClient() {
             aria-label={listening ? "Stop reciting" : "Start reciting"}
           >
             {listen === "warming" && (
-              <span className="absolute -inset-1 animate-ping rounded-full opacity-40" style={{ backgroundColor: "var(--color-ink)", animationDuration: "1.1s" }} />
+              <span className="absolute -inset-1 motion-safe:animate-ping rounded-full opacity-40" style={{ backgroundColor: "var(--color-ink)", animationDuration: "1.1s" }} />
             )}
             {listen === "listening" && (
-              <span className="absolute -inset-1 animate-ping rounded-full opacity-30" style={{ backgroundColor: "var(--color-accent)", animationDuration: "1.8s" }} />
+              <span className="absolute -inset-1 motion-safe:animate-ping rounded-full opacity-30" style={{ backgroundColor: "var(--color-accent)", animationDuration: "1.8s" }} />
             )}
             {listen === "listening" ? (
               <Square className="h-4.5 w-4.5" fill="currentColor" />
@@ -2766,6 +2893,7 @@ function PlanSheet({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
       <div
+        role="dialog" aria-modal="true" aria-label="Settings"
         className="w-full max-w-sm rounded-t-3xl border p-5 sm:rounded-3xl"
         style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", animation: "drawer-app-in 0.18s ease-out" }}
         onClick={(e) => e.stopPropagation()}
@@ -2981,7 +3109,7 @@ function ListenerView({
 
   // Keep the current ayah centered — same follow behavior as the mushaf.
   useEffect(() => {
-    curRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    curRef.current?.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" });
   }, [loc?.surah, loc?.ayah]);
 
   // Words for one ayah, pulled out of the already-loaded mushaf pages.
@@ -3006,7 +3134,7 @@ function ListenerView({
     if (i >= 0 && i < nums.length - 1) neighbors.push({ s: loc.surah, a: nums[i + 1], role: "next" });
   }
 
-  const aura = alert ? "#b34a3a" : "var(--color-accent)";
+  const aura = alert ? "var(--color-error)" : "var(--color-accent)";
 
   return (
     <div
@@ -3058,7 +3186,7 @@ function ListenerView({
             <span
               className="block h-[2px] w-2.5 rounded-full"
               style={{
-                backgroundColor: alert ? "#b34a3a" : "var(--color-ink-muted)",
+                backgroundColor: alert ? "var(--color-error)" : "var(--color-ink-muted)",
                 transform: alert ? "rotate(16deg)" : pleased ? "rotate(-8deg) translateY(-1px)" : "none",
                 opacity: alert || pleased ? 1 : 0.55,
                 transition: "transform 0.2s, background-color 0.3s, opacity 0.3s",
@@ -3067,7 +3195,7 @@ function ListenerView({
             <span
               className="block h-[2px] w-2.5 rounded-full"
               style={{
-                backgroundColor: alert ? "#b34a3a" : "var(--color-ink-muted)",
+                backgroundColor: alert ? "var(--color-error)" : "var(--color-ink-muted)",
                 transform: alert ? "rotate(-16deg)" : pleased ? "rotate(8deg) translateY(-1px)" : "none",
                 opacity: alert || pleased ? 1 : 0.55,
                 transition: "transform 0.2s, background-color 0.3s, opacity 0.3s",
@@ -3089,7 +3217,7 @@ function ListenerView({
                 key={i}
                 className="relative block h-2 w-2 rounded-full"
                 style={{
-                  backgroundColor: alert ? "#b34a3a" : "var(--color-ink)",
+                  backgroundColor: alert ? "var(--color-error)" : "var(--color-ink)",
                   transform: alert ? "scaleY(0.45)" : !listening ? "scaleY(0.5)" : "none",
                   animation: listening && !alert ? "qt-listener-blink 4.6s ease-in-out infinite" : "none",
                   animationDelay: `${i * 0.04}s`,
@@ -3122,7 +3250,7 @@ function ListenerView({
               style={{
                 width: alert ? 12 : 10 + level * 5,
                 height: alert ? 1.5 : Math.max(1.5, level * 9),
-                backgroundColor: alert ? "#b34a3a" : "var(--color-ink-muted)",
+                backgroundColor: alert ? "var(--color-error)" : "var(--color-ink-muted)",
                 transition: "height 0.15s ease-out, width 0.15s ease-out, background-color 0.3s",
               }}
             />
@@ -3130,7 +3258,7 @@ function ListenerView({
         </span>
       </div>
 
-      <p className="mt-2 shrink-0 text-center text-[10px] font-semibold" style={{ color: alert ? "#b34a3a" : pleased ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
+      <p className="mt-2 shrink-0 text-center text-[10px] font-semibold" style={{ color: alert ? "var(--color-error)" : pleased ? "var(--color-accent)" : "var(--color-ink-muted)" }}>
         {!listening ? "The listener is off — start the mic" : alert ? "Something flagged — check the notice" : pleased ? "Nice — corrected" : loc ? `Listening — ${surahName(loc.surah)} ${loc.surah}:${loc.ayah}` : "Listening — recite anything"}
       </p>
 
@@ -3173,8 +3301,8 @@ function ListenerView({
                       <span
                         key={w.location}
                         style={{
-                          color: flagged === "possible_omission" || flagged === "possible_substitution" ? "#b34a3a"
-                            : flagged ? "#c9a227"
+                          color: flagged === "possible_omission" || flagged === "possible_substitution" ? "var(--color-error)"
+                            : flagged ? "var(--color-warmth)"
                             : undefined,
                           backgroundColor: isWord ? "color-mix(in oklab, var(--color-accent) 22%, transparent)" : undefined,
                           borderRadius: isWord ? 6 : undefined,

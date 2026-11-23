@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { getOfflineDB, type LocalProgressPhoto } from "@/lib/offline/db";
@@ -46,6 +46,11 @@ export default function PhotosPage() {
   const [present, setPresent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Two-step delete: named confirm in the viewer, then an undo window —
+  // progress photos are sensitive and irreplaceable.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [undo, setUndo] = useState<LocalProgressPhoto | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -181,7 +186,33 @@ export default function PhotosPage() {
       saveTombstones(tombs);
       setPhotos((prev) => prev.filter((x) => x.id !== p.id));
       setViewing(null);
+      setConfirmDelete(false);
+      // Undo window — restores the local row and re-uploads best-effort.
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+      setUndo(p);
+      undoTimer.current = setTimeout(() => setUndo(null), 8000);
     } catch { /* noop */ }
+  };
+
+  const undoDelete = async () => {
+    const p = undo;
+    if (!p) return;
+    if (undoTimer.current) { clearTimeout(undoTimer.current); undoTimer.current = null; }
+    setUndo(null);
+    const tombs = photoTombstones();
+    tombs.delete(p.id);
+    saveTombstones(tombs);
+    const restored: LocalProgressPhoto = { ...p, syncState: "pending", updatedAt: new Date().toISOString() };
+    try {
+      const db = getOfflineDB();
+      await db.progressPhotos.put(restored);
+      setPhotos(await db.progressPhotos.orderBy("takenAt").reverse().toArray());
+      // Re-upload best-effort; the sync sweeper retries if this fails.
+      void fetch("/api/workout/photos", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: p.id, takenAt: p.takenAt, angle: p.angle, photoData: p.photoData, photoMime: p.photoMime, pose: p.pose, worldPose: p.worldPose, analysis: p.analysis }),
+      }).catch(() => null);
+    } catch { /* restore failed — tombstone removed is still correct */ }
   };
 
   const byDate = useMemo(() => {
@@ -229,7 +260,7 @@ export default function PhotosPage() {
             {saving ? (
               <div className="grid aspect-[3/4] place-items-center rounded-2xl text-xs" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}>Saving…</div>
             ) : (
-              <GuidedCamera angle={angle} targetPose={targetPose} targetWorldPose={priorWorldPose} personalTarget={!!(priorPose || priorWorldPose)} ghostImage={ghost} onCapture={(r) => void onCapture(r)} />
+              <GuidedCamera angle={angle} targetPose={targetPose} targetWorldPose={priorWorldPose} personalTarget={!!(priorPose || priorWorldPose)} ghostImage={ghost} onCapture={(r) => void onCapture(r)} onCancel={() => setStep(null)} />
             )}
           </div>
         </div>
@@ -256,7 +287,7 @@ export default function PhotosPage() {
                   <p className="text-[11px] font-medium" style={{ color: "var(--color-ink-muted)" }}>{date}</p>
                   <div className="mt-2 grid grid-cols-3 gap-2">
                     {items.map((p) => (
-                      <button key={p.id} type="button" onClick={() => setViewing(p)} className="relative overflow-hidden rounded-xl border"
+                      <button key={p.id} type="button" onClick={() => { setViewing(p); setConfirmDelete(false); }} className="relative overflow-hidden rounded-xl border"
                         style={{ borderColor: "var(--color-paper-3)", aspectRatio: "3/4" }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={p.photoData} alt={`${p.angle} progress photo`} className="h-full w-full object-cover" />
@@ -297,12 +328,32 @@ export default function PhotosPage() {
                   a.click();
                 }} className="rounded-lg border px-3 py-1.5 text-xs"
                   style={{ borderColor: "rgba(255,255,255,0.3)", color: "#e8ddc8" }}>Download</button>
-                <button type="button" onClick={() => void remove(viewing)}
-                  className="rounded-lg border px-3 py-1.5 text-xs"
-                  style={{ borderColor: "rgba(255,255,255,0.3)", color: "#e8ddc8" }}>Delete</button>
+                {confirmDelete ? (
+                  <span className="flex items-center gap-2">
+                    <span className="text-[10px]" style={{ color: "#e8ddc8" }}>Delete this photo?</span>
+                    <button type="button" onClick={() => void remove(viewing)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold"
+                      style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}>Delete photo</button>
+                    <button type="button" onClick={() => setConfirmDelete(false)}
+                      className="rounded-lg border px-3 py-1.5 text-xs"
+                      style={{ borderColor: "rgba(255,255,255,0.3)", color: "#e8ddc8" }}>Keep</button>
+                  </span>
+                ) : (
+                  <button type="button" onClick={() => setConfirmDelete(true)}
+                    className="rounded-lg border px-3 py-1.5 text-xs"
+                    style={{ borderColor: "rgba(255,255,255,0.3)", color: "#e8ddc8" }}>Delete</button>
+                )}
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {undo && (
+        <div role="status" className="fixed inset-x-4 bottom-6 z-50 mx-auto flex max-w-sm items-center justify-between rounded-xl border px-4 py-3"
+          style={{ backgroundColor: "var(--color-ink)", borderColor: "var(--color-paper-3)", color: "var(--color-paper)" }}>
+          <span className="text-xs">Photo deleted</span>
+          <button type="button" onClick={() => void undoDelete()} className="text-xs font-semibold underline">Undo</button>
         </div>
       )}
     </div>

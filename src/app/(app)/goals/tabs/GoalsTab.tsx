@@ -77,6 +77,9 @@ export default function GoalsTab({
   const [editSessionsTarget, setEditSessionsTarget] = useState("");
   const [editProgressTarget, setEditProgressTarget] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Cascade-delete confirm — deleting a goal also deletes its whole
+  // descendant tree. One silent tap was a blocker-level audit finding.
+  const [deleteTarget, setDeleteTarget] = useState<{ goal: Goal; count: number } | null>(null);
 
   // Session history for "N/target" on test-tagged goals — local now, server
   // merged in (cross-device).
@@ -262,7 +265,26 @@ export default function GoalsTab({
     [setGoals],
   );
 
+  // How many goals a delete would remove — the goal plus every descendant.
+  const deleteRequest = useCallback((id: string) => {
+    const goal = goals.find((g) => g.id === id);
+    if (!goal) return;
+    const toRemove = new Set<string>([id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const g of goals) {
+        if (g.parentId && toRemove.has(g.parentId) && !toRemove.has(g.id)) {
+          toRemove.add(g.id);
+          changed = true;
+        }
+      }
+    }
+    setDeleteTarget({ goal, count: toRemove.size });
+  }, [goals]);
+
   const deleteGoal = useCallback(async (id: string) => {
+    setDeleteTarget(null);
     try {
       const res = await fetch(`/api/goals?id=${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -470,11 +492,61 @@ export default function GoalsTab({
                   : 0
               }
               onUpdate={updateGoal}
-              onDelete={deleteGoal}
+              onDelete={deleteRequest}
               calEventId={calMap.get(goal.id) ?? null}
               onToggleCal={() => void toggleCal(goal)}
             />
           ))}
+        </div>
+      )}
+
+      {/* ── Delete confirm — names the goal and the size of its tree ── */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Delete ${deleteTarget.goal.title}`}
+          onKeyDown={(e) => { if (e.key === "Escape") setDeleteTarget(null); }}
+        >
+          <button
+            className="absolute inset-0"
+            style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 40%, transparent)" }}
+            onClick={() => setDeleteTarget(null)}
+            aria-label="Cancel"
+          />
+          <div
+            className="relative w-full max-w-xs rounded-t-2xl border-t p-4 sm:rounded-2xl sm:border"
+            style={{ backgroundColor: "var(--color-paper)", borderColor: "var(--color-paper-3)" }}
+          >
+            <p className="text-center text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+              Delete &ldquo;{deleteTarget.goal.title}&rdquo;?
+            </p>
+            <p className="mt-1 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+              {deleteTarget.count > 1
+                ? `This permanently removes ${deleteTarget.count} goals — the goal and everything under it.`
+                : "This goal will be permanently removed."}
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 rounded-xl border px-3 py-2.5 text-sm"
+                style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteGoal(deleteTarget.goal.id)}
+                className="flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold"
+                style={{ backgroundColor: "var(--color-error)", color: "var(--color-paper)" }}
+              >
+                {deleteTarget.count > 1 ? `Delete ${deleteTarget.count} goals` : "Delete"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

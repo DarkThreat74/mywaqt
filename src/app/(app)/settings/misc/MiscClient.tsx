@@ -25,7 +25,19 @@ interface MiscSettings {
 }
 
 export default function MiscClient() {
-  const [tab, setTab] = useState<Tab>("planner");
+  // Tab lives in the URL (?tab=guard) so /scroll's back link and refreshes
+  // land where the user left off.
+  const [tab, setTabState] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "planner";
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return TABS.some((x) => x.id === t) ? (t as Tab) : "planner";
+  });
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", t);
+    window.history.replaceState(null, "", url.toString());
+  };
   const [settings, setSettings] = useState<MiscSettings | null>(null);
   // Full prayer-settings payload — the Personal tab seeds from it.
   const [full, setFull] = useState<PrayerSettings | null>(null);
@@ -95,7 +107,7 @@ export default function MiscClient() {
         setMsg(d.error || "Couldn't save.");
       }
     } catch {
-      setMsg("Offline — will retry when you're back.");
+      setMsg("Offline — not saved. Try again when you're back.");
     } finally {
       setBusy(false);
     }
@@ -180,7 +192,7 @@ export default function MiscClient() {
               aria-label="Toggle free-time chips"
             >
               <span
-                className="absolute top-0.5 h-5 w-5 rounded-full transition-all"
+                className="absolute top-0.5 h-5 w-5 rounded-full transition-[left]"
                 style={{
                   backgroundColor: "var(--color-paper)",
                   left: settings?.studyShowGapChips === true ? "22px" : "2px",
@@ -515,7 +527,7 @@ function SalahGuardPanel() {
           style={{ backgroundColor: armed ? "var(--color-accent)" : "var(--color-paper-3)" }}
           aria-label="Toggle Salah Guard"
         >
-          <span className="absolute top-0.5 h-5 w-5 rounded-full transition-all" style={{ backgroundColor: "var(--color-paper)", left: armed ? "22px" : "2px" }} />
+          <span className="absolute top-0.5 h-5 w-5 rounded-full transition-[left]" style={{ backgroundColor: "var(--color-paper)", left: armed ? "22px" : "2px" }} />
         </button>
       </div>
 
@@ -623,7 +635,7 @@ function SalahGuardPanel() {
           style={{ backgroundColor: paused ? "var(--color-accent)" : "var(--color-paper-3)" }}
           aria-label="Pause Salah Guard for today"
         >
-          <span className="absolute top-0.5 h-5 w-5 rounded-full transition-all" style={{ backgroundColor: "var(--color-paper)", left: paused ? "22px" : "2px" }} />
+          <span className="absolute top-0.5 h-5 w-5 rounded-full transition-[left]" style={{ backgroundColor: "var(--color-paper)", left: paused ? "22px" : "2px" }} />
         </button>
       </div>
     </div>
@@ -687,7 +699,8 @@ function ScrollCounterPanel() {
   const totalSec = Object.values(today?.sec ?? {}).reduce((s, v) => s + v, 0);
   const fmtSec = (s: number) => s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`;
 
-  const stage = (today?.total ?? 0) < 30 ? { t: "fresh", c: "#7fbf6b" } : (today?.total ?? 0) < 100 ? { t: "deep in it", c: "#d4a843" } : { t: "brain rot", c: "#c96b45" };
+  // Neutral banding — numbers inform, they don't shame.
+  const stage = (today?.total ?? 0) < 30 ? "under 30" : (today?.total ?? 0) <= 100 ? "30–100" : "over 100";
 
   return (
     <div className="mt-6 flex flex-col gap-3">
@@ -721,20 +734,20 @@ function ScrollCounterPanel() {
           style={{ backgroundColor: on ? "var(--color-accent)" : "var(--color-paper-3)" }}
           aria-label="Toggle scroll counter"
         >
-          <span className="absolute top-0.5 h-5 w-5 rounded-full transition-all" style={{ backgroundColor: "var(--color-paper)", left: on ? "22px" : "2px" }} />
+          <span className="absolute top-0.5 h-5 w-5 rounded-full transition-[left]" style={{ backgroundColor: "var(--color-paper)", left: on ? "22px" : "2px" }} />
         </button>
       </div>
 
       {native && (
         <div className="rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
           <div className="flex items-baseline justify-between">
-            <p className="text-2xl font-semibold tabular-nums" style={{ color: stage.c }}>
-              {today?.total ?? 0}
+            <p className="text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
+              {today ? today.total : "—"}
             </p>
-            <p className="text-[11px]" style={{ color: stage.c }}>{stage.t}</p>
+            {today && <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{stage}</p>}
           </div>
           <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-            scrolls today{totalSec > 0 ? ` · ${fmtSec(totalSec)} in feed apps` : ""}
+            {today ? <>scrolls today{totalSec > 0 ? ` · ${fmtSec(totalSec)} in feed apps` : ""}</> : "counting…"}
           </p>
 
           {appRows.length > 0 && (

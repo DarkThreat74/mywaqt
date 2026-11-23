@@ -8,6 +8,7 @@ import { RANKS, MATCH_WIN_PTS, MATCH_LOSS_PTS } from "@/lib/quran-rank";
 import { invalidateApiCache } from "@/lib/sw-helpers";
 import PhotoLightbox from "@/components/photo-lightbox";
 import PhotoCropper from "@/components/photo-cropper";
+import { statusMeetsObligation } from "@/lib/prayer/statusDisplay";
 
 /** Rank medallion — tone deepens as you climb; Shaykh carries warmth + glow. */
 const BADGE_TONE: Record<string, { bg: string; ring: string; glow: boolean }> = {
@@ -87,10 +88,24 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
   const [lightbox, setLightbox] = useState(false);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [salah, setSalah] = useState<FriendSalah | null | undefined>(undefined);
+  const [salahFailed, setSalahFailed] = useState(false);
   const [confirmUnfriend, setConfirmUnfriend] = useState(false);
   const [unfriendBusy, setUnfriendBusy] = useState(false);
+  const [avatarErr, setAvatarErr] = useState<string | null>(null);
+  const [hideErr, setHideErr] = useState(false);
+  const [loadNonce, setLoadNonce] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const hasPRef = useRef(false);
+
+  const fetchSalah = (uid: string) => {
+    fetch("/api/prayer-friends")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("fail"))))
+      .then((rows: FriendSalah[]) => {
+        setSalah(rows.find((f) => f.id === uid) ?? null);
+        setSalahFailed(false);
+      })
+      .catch(() => setSalahFailed(true));
+  };
 
   async function toggleLeagueHide() {
     if (!userId || !salah) return;
@@ -101,8 +116,14 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ friendId: userId, hiddenFromLeague: next }),
     }).catch(() => null);
-    if (res?.ok) invalidateApiCache("/api/prayer-friends");
-    else setSalah((prev) => (prev ? { ...prev, hiddenFromLeague: !next } : prev));
+    if (res?.ok) {
+      invalidateApiCache("/api/prayer-friends");
+      setHideErr(false);
+    } else {
+      setSalah((prev) => (prev ? { ...prev, hiddenFromLeague: !next } : prev));
+      setHideErr(true);
+      setTimeout(() => setHideErr(false), 4000);
+    }
   }
 
   async function unfriend() {
@@ -130,6 +151,8 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
     const dataUrl = result.dataUrl;
     setCropFile(null);
     setAvatarBusy(true);
+    setAvatarErr(null);
+    const previous = p?.avatarUrl ?? null;
     try {
       setP((prev) => (prev ? { ...prev, avatarUrl: dataUrl } : prev)); // optimistic
       const res = await fetch("/api/profile", {
@@ -138,18 +161,20 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
         body: JSON.stringify({ avatar: dataUrl }),
       });
       if (!res.ok) throw new Error("upload");
-    } catch { /* non-critical — avatar unchanged visually until refresh */ }
+    } catch {
+      // Revert the optimistic photo and say so — silent failure is a lie.
+      setP((prev) => (prev ? { ...prev, avatarUrl: previous } : prev));
+      setAvatarErr("Couldn't save the photo — tap your avatar to try again.");
+    }
     finally { setAvatarBusy(false); }
   }
 
   useEffect(() => {
+    void loadNonce; // retry trigger — bumping this reruns the load
     if (userId) {
       // Friend profiles get the salah card too — the friends API already
       // computes exactly what they chose to share.
-      fetch("/api/prayer-friends")
-        .then((r) => (r.ok ? r.json() : []))
-        .then((rows: FriendSalah[]) => setSalah(rows.find((f) => f.id === userId) ?? null))
-        .catch(() => {});
+      void Promise.resolve().then(() => fetchSalah(userId));
     }
     // Own profile seeds from the local mirror so it renders fully offline;
     // friend profiles stay network-only (no caching someone else's data).
@@ -181,12 +206,21 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
         } else if (!hasPRef.current) setErr(true);
       })
       .catch(() => { if (!hasPRef.current) setErr(true); });
-  }, [userId]);
+  }, [userId, loadNonce]);
 
   if (err) {
     return (
       <div className="mx-auto w-full max-w-lg px-4 py-16 text-center">
-        <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>Couldn&rsquo;t load your profile.</p>
+        <p className="text-sm" style={{ color: "var(--color-ink-soft)" }}>
+          {userId ? "Couldn\u2019t load their profile." : "Couldn\u2019t load your profile."}
+        </p>
+        <button
+          onClick={() => { setErr(false); setLoadNonce((n) => n + 1); }}
+          className="mt-3 rounded-lg border px-4 py-2 text-xs font-medium"
+          style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", minHeight: 40 }}
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -281,6 +315,11 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
               </button>
             )}
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickAvatar} />
+            {avatarErr && (
+              <p role="status" className="mt-2 max-w-[16rem] text-center text-[11px]" style={{ color: "var(--color-warmth)" }}>
+                {avatarErr}
+              </p>
+            )}
           </div>
         )}
         <h1 className="mt-4 text-2xl font-semibold tracking-tight" style={{ color: "var(--color-ink)" }}>{p.name}</h1>
@@ -344,27 +383,32 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
                   <div className="flex items-center gap-2">
                     {["fajr", "dhuhr", "asr", "maghrib", "isha"].map((pr) => {
                       const log = salah.todayLogs.find((l) => l.prayerName === pr);
-                      const prayed = log?.status === "prayed" || log?.status === "assumed_prayed";
+                      const prayed = log?.status === "prayed";
+                      const assumed = log?.status === "assumed_prayed";
                       const excused = log?.status === "excused";
-                      const color = prayed ? "var(--color-success)" : excused ? "var(--color-accent)" : "var(--color-paper-3)";
+                      const name = pr.charAt(0).toUpperCase() + pr.slice(1);
+                      const stateLabel = prayed ? "prayed" : assumed ? "assumed prayed" : excused ? "excused" : "unmarked";
+                      const color = prayed || assumed ? "var(--color-success)" : excused ? "var(--color-accent)" : "var(--color-paper-3)";
                       return (
                         <div key={pr} className="flex flex-col items-center gap-0.5">
                           <span
                             className="flex h-7 w-7 items-center justify-center rounded-full border-2 text-[9px] font-bold uppercase"
+                            role="img"
+                            aria-label={`${name} — ${stateLabel}`}
                             style={{
                               borderColor: color,
                               backgroundColor: prayed ? color : excused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : "transparent",
-                              color: prayed ? "var(--color-paper)" : excused ? "var(--color-accent)" : "var(--color-ink-muted)",
+                              color: prayed ? "var(--color-paper)" : assumed ? color : excused ? "var(--color-accent)" : "var(--color-ink-muted)",
                             }}
-                            title={pr.charAt(0).toUpperCase() + pr.slice(1)}
+                            title={`${name} — ${stateLabel}`}
                           >
-                            {prayed ? <Check className="h-3.5 w-3.5" /> : excused ? "E" : pr.charAt(0)}
+                            {prayed || assumed ? <Check className="h-3.5 w-3.5" /> : excused ? "E" : pr.charAt(0)}
                           </span>
                         </div>
                       );
                     })}
                     <span className="ml-auto text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                      {salah.todayLogs.filter((l) => l.status === "prayed" || l.status === "assumed_prayed").length}/5
+                      {salah.todayLogs.filter((l) => statusMeetsObligation(l.status)).length}/5
                     </span>
                   </div>
                 ) : (
@@ -384,6 +428,19 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
                 </p>
               )}
             </div>
+          ) : salahFailed ? (
+            <div className="mt-2">
+              <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                Couldn&apos;t load their salah.
+              </p>
+              <button
+                onClick={() => { setSalah(undefined); fetchSalah(userId!); }}
+                className="mt-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-medium"
+                style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+              >
+                Try again
+              </button>
+            </div>
           ) : (
             <p className="mt-2 text-xs" style={{ color: "var(--color-ink-muted)" }}>
               {salah === undefined ? "Loading…" : "Not friends yet — salah stats appear once you're connected."}
@@ -395,14 +452,21 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
       {/* League visibility — compact toggle, lives on the profile not the
           leaderboard row so cards stay clean on small screens. */}
       {userId && salah && (
-        <button
-          onClick={() => void toggleLeagueHide()}
-          className="mb-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed px-3 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
-          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
-        >
-          {salah.hiddenFromLeague ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-          {salah.hiddenFromLeague ? "Show in leaderboard" : "Hide from leaderboard"}
-        </button>
+        <>
+          <button
+            onClick={() => void toggleLeagueHide()}
+            className="mb-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed px-3 py-2 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}
+          >
+            {salah.hiddenFromLeague ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+            {salah.hiddenFromLeague ? "Show in leaderboard" : "Hide from leaderboard"}
+          </button>
+          {hideErr && (
+            <p role="status" className="-mt-3 mb-4 text-center text-[11px]" style={{ color: "var(--color-warmth)" }}>
+              Couldn&apos;t update — try again.
+            </p>
+          )}
+        </>
       )}
 
       {/* Rank card — medallion wears the progress ring */}
@@ -474,7 +538,7 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
             className="inline-flex items-center gap-1.5 text-xs font-semibold transition-colors hover:text-[var(--color-accent)]"
             style={{ color: "var(--color-ink-soft)" }}
           >
-            <Swords className="h-3.5 w-3.5" /> {userId ? "Challenge in a match" : "Enter Elite"}
+            <Swords className="h-3.5 w-3.5" /> {userId ? "Open the Quran arena" : "Enter Elite"}
             <span aria-hidden="true">→</span>
           </Link>
         </div>
@@ -561,7 +625,7 @@ export default function ProfileClient({ userId }: { userId?: string } = {}) {
                   onClick={() => void unfriend()}
                   disabled={unfriendBusy}
                   className="flex-1 rounded-xl px-3 py-2 text-sm font-semibold text-white transition-opacity enabled:hover:opacity-90 disabled:opacity-50"
-                  style={{ backgroundColor: "#b42318" }}
+                  style={{ backgroundColor: "var(--color-error)" }}
                 >
                   {unfriendBusy ? "Removing…" : "Yes, unfriend"}
                 </button>

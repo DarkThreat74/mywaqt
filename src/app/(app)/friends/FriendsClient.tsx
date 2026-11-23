@@ -269,7 +269,9 @@ export default function FriendsClient() {
   });
   const [syncedBirthdays, setSyncedBirthdays] = useState<Array<{ friendId: string | null; birthMonth: number; birthDay: number; birthYear: number | null }>>([]);
   const [loaded, setLoaded] = useState(false);
-  const [netErr, setNetErr] = useState(false); // fetch failed — not "no friends"
+  // Distinguish states honestly: "offline" = no network, "server" = reached
+  // but failed. Neither means "no friends".
+  const [netErr, setNetErr] = useState<null | "offline" | "server">(null);
   const [sheet, setSheet] = useState<null | Friend | "new" | "self">(null);
   const [editing, setEditing] = useState(false); // view card → edit form
   const [me, setMe] = useState<{ name: string; avatarUrl: string | null } | null>(null);
@@ -291,29 +293,43 @@ export default function FriendsClient() {
   const [crewSheet, setCrewSheet] = useState<{ id: string; name: string; hiddenFromAll: boolean } | null>(null);
   const [crewDraft, setCrewDraft] = useState("");
   const [crewBusy, setCrewBusy] = useState(false);
-  const [importReport, setImportReport] = useState<{ name: string; linked: boolean }[] | null>(null);
+  const [importReport, setImportReport] = useState<{ rows: { name: string; linked: boolean; failed: boolean }[]; truncated: number } | null>(null);
   const [importing, setImporting] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
+  const [shareConsent, setShareConsent] = useState(false);
+  const [shareState, setShareState] = useState<{ active: boolean; createdAt: string | null; url: string | null } | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmPhotoDel, setConfirmPhotoDel] = useState<string | null>(null);
+  const [crewConfirmDel, setCrewConfirmDel] = useState(false);
+  const cleanSnap = useRef("");
   const openedDeepLink = useRef(false);
 
-  const refresh = () =>
-    fetch("/api/friends", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
+  const refresh = () => {
+    const run = async () => {
+      try {
+        const r = await fetch("/api/friends", { cache: "no-store" });
+        if (!r.ok) { setNetErr("server"); return; }
+        const d = await r.json().catch(() => null);
         if (d?.friends) {
           // Keep just-uploaded local pixels — the fresh server row's photo URL
           // would refetch and flash while loading.
           setFriends((prev) =>
             d.friends.map((nf: Friend) => ({ ...nf, localPhoto: prev.find((o) => o.id === nf.id)?.localPhoto ?? null })),
           );
-          setNetErr(false);
+          setNetErr(null);
           try { localStorage.setItem("friends:list", JSON.stringify(d.friends)); } catch {}
         } else {
-          setNetErr(true);
+          setNetErr("server");
         }
-      })
-      .catch(() => setNetErr(true))
-      .finally(() => setLoaded(true));
+      } catch {
+        setNetErr(typeof navigator !== "undefined" && !navigator.onLine ? "offline" : "server");
+      } finally {
+        setLoaded(true);
+      }
+    };
+    void run();
+  };
 
   useEffect(() => {
     void refresh();
@@ -409,6 +425,11 @@ export default function FriendsClient() {
     setContactHint(null);
     setPhoto({ data: "", mime: "", dirty: false });
     setPhotoHistory([]);
+    setConfirmRemove(false);
+    setConfirmDiscard(false);
+    setConfirmPhotoDel(null);
+    setShareConsent(false);
+    setShareState(null);
     if (f && f !== "new" && f !== "self") {
       const parts = f.name.split(" ");
       setFirstName(parts[0] ?? "");
@@ -431,6 +452,10 @@ export default function FriendsClient() {
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => { setHangouts(Array.isArray(d?.hangouts) ? d.hangouts : []); setHangoutStats(d?.stats ?? { total: 0, last30: 0, last90: 0, lastAt: null }); })
         .catch(() => { setHangouts([]); setHangoutStats({ total: 0, last30: 0, last90: 0, lastAt: null }); });
+      fetch(`/api/friends/${f.id}/share`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setShareState(d && typeof d.active === "boolean" ? { active: d.active, createdAt: d.createdAt ?? null, url: null } : { active: false, createdAt: null, url: null }))
+        .catch(() => setShareState(null));
     } else {
       setFirstName(""); setLastName("");
       setMetTag(null); setMetDetail(""); setFreq(null);
@@ -440,6 +465,23 @@ export default function FriendsClient() {
       setPhone(""); setNotes(""); setGroupLabels([]);
     }
   }
+
+  // ── Dirty-sheet guard — the edit form is ~20 fields; a stray backdrop
+  // tap must not silently discard it. Snapshot on open, confirm on dismiss.
+  const formSnap = () => JSON.stringify({
+    firstName, lastName, metTag, metDetail, phone, freq, years, trust, openness,
+    miss, tell, phase, vibe, sacrifice, loyalty, gap, plans, hangout, shortlist,
+    volition, attune, groupLabel, groupLabels, notes,
+  });
+  useEffect(() => {
+    if (sheet) cleanSnap.current = formSnap();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot only when the sheet identity changes
+  }, [sheet]);
+  const isDirty = () => photo.dirty || formSnap() !== cleanSnap.current;
+  const requestCloseSheet = () => {
+    if (isDirty()) setConfirmDiscard(true);
+    else openSheet(null);
+  };
 
   useEffect(() => {
     if (openedDeepLink.current || friends.length === 0) return;
@@ -495,14 +537,16 @@ export default function FriendsClient() {
       const existingNames = new Set(friends.map((f) => f.name.trim().toLowerCase()));
       // Dedupe first (also inside the batch itself), then create in parallel —
       // 25 sequential POSTs each with a photo-compress was the slow path.
+      const IMPORT_MAX = 25;
+      const truncated = Math.max(0, picked.length - IMPORT_MAX);
       const toCreate: { name: string; tel: string | null; icon?: Blob }[] = [];
-      const report: { name: string; linked: boolean }[] = [];
-      for (const c of picked.slice(0, 25)) {
+      const rows: { name: string; linked: boolean; failed: boolean }[] = [];
+      for (const c of picked.slice(0, IMPORT_MAX)) {
         const name = (c.name?.[0] ?? "").trim().slice(0, 80);
         if (!name) continue;
         const tel = c.tel?.[0]?.trim().slice(0, 40) ?? null;
         if ((tel && existing.has(norm(tel))) || existingNames.has(name.toLowerCase())) {
-          report.push({ name, linked: true });
+          rows.push({ name, linked: true, failed: false });
           continue;
         }
         toCreate.push({ name, tel, icon: c.icon?.[0] });
@@ -519,10 +563,12 @@ export default function FriendsClient() {
             ...(photo ? { photo: photo.data, photoMime: photo.mime } : {}),
           }),
         }).catch(() => null);
-        if (r?.ok) report.push({ name: c.name, linked: false });
+        // Failed POSTs are reported, not swallowed — silent drops read as
+        // "import worked" and that's a lie.
+        rows.push({ name: c.name, linked: false, failed: !r?.ok });
       }));
-      if (report.length) {
-        setImportReport(report);
+      if (rows.length || truncated > 0) {
+        setImportReport({ rows, truncated });
         void refresh();
       }
     } catch {
@@ -541,10 +587,15 @@ export default function FriendsClient() {
       const editing = sheet !== "new" && sheet !== "self" && sheet !== null;
       const payload: Record<string, unknown> = {
         name: n, metTag, metDetail: metDetail || null, talkFreq: freq,
-        knownYears: metTag === "childhood" ? "y7p" : years,
+        // Never fabricate duration — a childhood friend isn't automatically
+        // "7+ years"; unanswered stays unanswered.
+        knownYears: years,
         trust, openness, miss, tell, phase, vibe,
         sacrifice, loyalty, gap, plans, hangout, shortlist, volition, attune,
-        groupLabel: groupLabels[0] || groupLabel.trim() || null, groupLabels, phone: phone || null, notes: notes || null,
+        groupLabel: groupLabels[0] || groupLabel.trim() || null, groupLabels,
+        // Normalize to digits + optional leading + so dedupe matching works.
+        phone: phone.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "") || null,
+        notes: notes || null,
       };
       if (photo.dirty) {
         payload.photo = photo.data || null;
@@ -604,27 +655,63 @@ export default function FriendsClient() {
 
   async function deleteHistoryPhoto(photoId: string) {
     if (!sheet || sheet === "new" || sheet === "self") return;
-    if (!window.confirm("Delete this saved photo?")) return;
     const res = await fetch(`/api/friends/${sheet.id}/photos?photoId=${encodeURIComponent(photoId)}`, { method: "DELETE" }).catch(() => null);
-    if (res?.ok) setPhotoHistory((photos) => photos.filter((photo) => photo.id !== photoId));
+    if (res?.ok) {
+      setPhotoHistory((photos) => photos.filter((photo) => photo.id !== photoId));
+      setConfirmPhotoDel(null);
+    } else {
+      setContactHint("Couldn't delete that photo — try again.");
+    }
   }
 
-  async function shareFriendProfile() {
+  // The link exposes name, crew, where-they-met tag, and photos — nothing
+  // else. The owner sees that list (and says yes) before a link exists.
+  async function createShareLink() {
     if (!sheet || sheet === "new" || sheet === "self") return;
     setShareBusy(true);
     try {
       const response = await fetch(`/api/friends/${sheet.id}/share`, { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.url) throw new Error("share");
+      setShareState({ active: true, createdAt: new Date().toISOString(), url: data.url });
+      setShareConsent(false);
       const nav = navigator as unknown as { share?: (data: ShareData) => Promise<void>; clipboard?: Clipboard };
       const shareFn = nav.share;
-      if (typeof shareFn === "function") await shareFn({ title: `${sheet.name} · Waqt`, url: data.url }).catch(() => {});
-      else await nav.clipboard?.writeText(data.url);
-      setContactHint(typeof shareFn === "function" ? "Share sheet opened." : "Share link copied.");
+      if (typeof shareFn === "function") {
+        await shareFn({ title: `${sheet.name} · Waqt`, url: data.url }).catch(() => {});
+        setContactHint("Share sheet opened — the link is also below.");
+      } else {
+        await copyShareLink(data.url);
+      }
     } catch {
-      setContactHint("Couldn't create the share link.");
+      setContactHint("Couldn't create the share link — check your connection.");
     } finally {
       setShareBusy(false);
+    }
+  }
+
+  // Claim "copied" only when the clipboard actually holds the link —
+  // otherwise the URL stays on screen so it can be copied by hand.
+  async function copyShareLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      const back = await navigator.clipboard.readText().catch(() => null);
+      setContactHint(back === url ? "Link copied." : "Link created — copy it below.");
+    } catch {
+      setContactHint("Link created — copy it below.");
+    }
+  }
+
+  async function revokeShareLink() {
+    if (!sheet || sheet === "new" || sheet === "self") return;
+    setShareBusy(true);
+    const res = await fetch(`/api/friends/${sheet.id}/share`, { method: "DELETE" }).catch(() => null);
+    setShareBusy(false);
+    if (res?.ok) {
+      setShareState((s) => ({ active: false, createdAt: s?.createdAt ?? null, url: null }));
+      setContactHint("Share link turned off — old links stop working.");
+    } else {
+      setContactHint("Couldn't turn the link off — check your connection.");
     }
   }
 
@@ -646,9 +733,14 @@ export default function FriendsClient() {
   async function remove() {
     if (sheet === "new" || sheet === "self" || !sheet) return;
     setSaving(true);
-    await fetch(`/api/friends?id=${sheet.id}`, { method: "DELETE" }).catch(() => {});
-    openSheet(null);
+    const res = await fetch(`/api/friends?id=${sheet.id}`, { method: "DELETE" }).catch(() => null);
     setSaving(false);
+    if (!res?.ok) {
+      // Failure stays on the sheet — never close and pretend it worked.
+      setError(`Couldn't remove ${sheet.name.split(" ")[0]} — check your connection and try again.`);
+      return;
+    }
+    openSheet(null);
     void refresh();
   }
 
@@ -782,7 +874,10 @@ export default function FriendsClient() {
         {/* ── The map ── */}
         {(friends.length > 0 || loaded) && (
           <div className="relative mx-auto mt-4 aspect-square w-full max-w-md">
-            <svg viewBox="0 0 100 100" className="h-full w-full">
+            {/* The orbit is decorative-fast for sighted users; every node is
+                also keyboard-focusable, and the tier lists below are the full
+                accessible equivalent. */}
+            <svg viewBox="0 0 100 100" className="h-full w-full" role="group" aria-label="Friend orbit map">
               {TIERS.map((t, i) => (
                 <circle key={i} cx="50" cy="50" r={t.r * 50} fill="none" stroke="var(--color-paper-3)" strokeWidth="0.3" />
               ))}
@@ -794,7 +889,13 @@ export default function FriendsClient() {
                 />
               ))}
               {/* You — tap opens your card */}
-              <g onClick={() => openSheet("self")} style={{ cursor: "pointer" }}>
+              <g
+                onClick={() => openSheet("self")}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSheet("self"); } }}
+                role="button" tabIndex={0} aria-label="Your card"
+                style={{ cursor: "pointer" }}
+              >
+                <circle cx="50" cy="50" r="6" fill="transparent" />
                 <clipPath id="self-clip"><circle cx="50" cy="50" r="4" /></clipPath>
                 {selfie ? (
                   <image href={selfie} x="46" y="46" width="8" height="8" clipPath="url(#self-clip)" preserveAspectRatio="xMidYMid slice" />
@@ -805,7 +906,15 @@ export default function FriendsClient() {
                 <text x="50" y="56.5" textAnchor="middle" fontSize="3" fill="var(--color-ink-muted)" fontWeight="600">you</text>
               </g>
               {nodes.map((n, i) => (
-                <g key={n.f.id} onClick={() => openSheet(n.f)} style={{ cursor: "pointer" }}>
+                <g
+                  key={n.f.id}
+                  onClick={() => openSheet(n.f)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSheet(n.f); } }}
+                  role="button" tabIndex={0} aria-label={`${n.f.name} — ${TIERS[n.tier].label}`}
+                  style={{ cursor: "pointer" }}
+                >
+                  {/* invisible 6-unit hit ring — the 3px glyph stays small, the target doesn't */}
+                  <circle cx={n.x} cy={n.y} r="6" fill="transparent" />
                   <clipPath id={`fc-${i}`}><circle cx={n.x} cy={n.y} r="3" /></clipPath>
                   {n.f.hasPhoto ? (
                     <image href={photoSrc(n.f)} x={n.x - 3} y={n.y - 3} width="6" height="6" clipPath={`url(#fc-${i})`} preserveAspectRatio="xMidYMid slice" />
@@ -878,14 +987,37 @@ export default function FriendsClient() {
           );
         })}
 
+        {/* First-load skeleton — mirrors the orbit + tier rows it replaces */}
+        {!loaded && friends.length === 0 && (
+          <div aria-hidden="true" className="animate-pulse">
+            <div className="mx-auto mt-4 aspect-square w-full max-w-md rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }} />
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="mt-7">
+                <div className="mb-2 h-3 w-24 rounded" style={{ backgroundColor: "var(--color-paper-2)" }} />
+                <div className="flex items-center gap-3 py-3">
+                  <div className="h-10 w-10 rounded-full" style={{ backgroundColor: "var(--color-paper-2)" }} />
+                  <div className="flex-1">
+                    <div className="h-3 w-32 rounded" style={{ backgroundColor: "var(--color-paper-2)" }} />
+                    <div className="mt-1.5 h-2 w-20 rounded" style={{ backgroundColor: "var(--color-paper-2)" }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {loaded && netErr && friends.length === 0 && (
           <div className="flex flex-col items-center pt-6 pb-14 text-center">
-            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Couldn&rsquo;t reach the server</p>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+              {netErr === "offline" ? "You\u2019re offline" : "Couldn\u2019t reach the server"}
+            </p>
             <p className="mt-1 max-w-52 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              Check your connection and try again — your friends are still there.
+              {netErr === "offline"
+                ? "Your friends will be here when you\u2019re back online."
+                : "Something went wrong on our side — your friends are still there. Try again in a moment."}
             </p>
             <button
-              onClick={() => { setLoaded(false); void refresh(); }}
+              onClick={() => { setLoaded(false); refresh(); }}
               className="mt-4 rounded-full px-5 py-2 text-xs font-bold"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
             >
@@ -895,7 +1027,7 @@ export default function FriendsClient() {
         )}
         {loaded && netErr && friends.length > 0 && (
           <p className="mt-3 text-center text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-            Offline — showing your saved friends.
+            {netErr === "offline" ? "Offline — showing your saved friends." : "Couldn\u2019t refresh — showing your saved friends."}
           </p>
         )}
         {loaded && !netErr && friends.length === 0 && (
@@ -940,7 +1072,7 @@ export default function FriendsClient() {
           <div
             className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center"
             style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 45%, transparent)" }}
-            onClick={() => setCrewSheet(null)}
+            onClick={() => { setCrewSheet(null); setCrewConfirmDel(false); }}
           >
             <div
               className="w-full max-w-md rounded-t-3xl px-5 pb-8 pt-4 sm:rounded-3xl"
@@ -957,7 +1089,7 @@ export default function FriendsClient() {
                   className="min-w-0 flex-1 rounded-xl px-3 py-2 text-base font-bold tracking-tight outline-none"
                   style={inputStyle}
                 />
-                <button onClick={() => setCrewSheet(null)} className="flex items-center justify-center rounded-full" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close">
+                <button onClick={() => { setCrewSheet(null); setCrewConfirmDel(false); }} className="flex items-center justify-center rounded-full" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -970,7 +1102,8 @@ export default function FriendsClient() {
                   {members.map((f) => (
                     <button
                       key={f.id}
-                      onClick={() => openSheet(f)}
+                      // One overlay deep ever — swap sheets, don't stack them.
+                      onClick={() => { setCrewSheet(null); setCrewConfirmDel(false); openSheet(f); }}
                       className="rounded-full px-3 py-1.5 text-xs font-semibold"
                       style={{ backgroundColor: "var(--color-paper-2)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink)" }}
                     >
@@ -1005,23 +1138,49 @@ export default function FriendsClient() {
                 </span>
               </button>
 
-              <button
-                onClick={async () => {
-                  if (!window.confirm(`Delete “${crewSheet.name}”? The people stay — just the crew is removed.`)) return;
-                  setCrewBusy(true);
-                  await fetch(`/api/crews?id=${crewSheet.id}`, { method: "DELETE" }).catch(() => null);
-                  setCrews((cs) => cs.filter((c) => c.id !== crewSheet.id));
-                  setFriends((fs) => fs.map((f) => (f.groupLabel === crewSheet.name ? { ...f, groupLabel: null } : f)));
-                  if (groupFilter === crewSheet.name) setGroupFilter(null);
-                  setCrewBusy(false);
-                  setCrewSheet(null);
-                }}
-                disabled={crewBusy}
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-semibold disabled:opacity-50"
-                style={{ color: "var(--color-red, #b91c1c)", border: "1px solid var(--color-paper-3)" }}
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Delete crew
-              </button>
+              {crewConfirmDel ? (
+                <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                  <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Delete “{crewSheet.name}”?</p>
+                  <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>The people stay — just the crew is removed.</p>
+                  <div className="mt-2.5 flex gap-2">
+                    <button
+                      onClick={() => setCrewConfirmDel(false)}
+                      disabled={crewBusy}
+                      className="flex-1 rounded-lg py-2 text-xs font-bold"
+                      style={{ backgroundColor: "var(--color-paper)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink)" }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setCrewBusy(true);
+                        const res = await fetch(`/api/crews?id=${crewSheet.id}`, { method: "DELETE" }).catch(() => null);
+                        setCrewBusy(false);
+                        if (!res?.ok) { setContactHint(`Couldn't delete “${crewSheet.name}” — try again.`); return; }
+                        setCrews((cs) => cs.filter((c) => c.id !== crewSheet.id));
+                        setFriends((fs) => fs.map((f) => (f.groupLabel === crewSheet.name ? { ...f, groupLabel: null } : f)));
+                        if (groupFilter === crewSheet.name) setGroupFilter(null);
+                        setCrewConfirmDel(false);
+                        setCrewSheet(null);
+                      }}
+                      disabled={crewBusy}
+                      className="flex-1 rounded-lg py-2 text-xs font-bold disabled:opacity-50"
+                      style={{ backgroundColor: "var(--color-error, #b42318)", color: "var(--color-paper)" }}
+                    >
+                      {crewBusy ? "Deleting…" : "Delete crew"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setCrewConfirmDel(true)}
+                  disabled={crewBusy}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-semibold disabled:opacity-50"
+                  style={{ color: "var(--color-error, #b42318)", border: "1px solid var(--color-paper-3)" }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Delete crew
+                </button>
+              )}
             </div>
           </div>
         );
@@ -1042,18 +1201,22 @@ export default function FriendsClient() {
             <div className="mx-auto mb-4 h-1 w-9 rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }} />
             <h2 className="mb-1 text-base font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>Imported from contacts</h2>
             <p className="mb-4 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-              {importReport.filter((r) => !r.linked).length} added · {importReport.filter((r) => r.linked).length} already on your map
+              {importReport.rows.filter((r) => !r.linked && !r.failed).length} added
+              {" · "}{importReport.rows.filter((r) => r.linked).length} already on your map
+              {importReport.rows.some((r) => r.failed) && ` · ${importReport.rows.filter((r) => r.failed).length} couldn't be added`}
+              {importReport.truncated > 0 && ` — only the first 25 were imported (${importReport.truncated} left out)`}
             </p>
-            {importReport.map((r, i) => (
-              <div key={i} className="flex items-center gap-2.5 border-b py-2.5 last:border-b-0" style={{ borderColor: "var(--color-paper-3)" }}>
+            {importReport.rows.map((r, i) => (
+              <div key={`${r.name}-${i}`} className="flex items-center gap-2.5 border-b py-2.5 last:border-b-0" style={{ borderColor: "var(--color-paper-3)" }}>
                 <span
                   className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: r.linked ? "var(--color-paper-3)" : "var(--color-accent)" }}
+                  style={{ backgroundColor: r.failed ? "var(--color-error, #b42318)" : r.linked ? "var(--color-paper-3)" : "var(--color-accent)" }}
                 />
-                <span className="flex-1 truncate text-sm font-medium" style={{ color: r.linked ? "var(--color-ink-muted)" : "var(--color-ink)" }}>
+                <span className="flex-1 truncate text-sm font-medium" style={{ color: r.linked || r.failed ? "var(--color-ink-muted)" : "var(--color-ink)" }}>
                   {r.name}
                 </span>
                 {r.linked && <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-ink-muted)" }}>linked</span>}
+                {r.failed && <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-error, #b42318)" }}>failed</span>}
               </div>
             ))}
             <button
@@ -1067,12 +1230,13 @@ export default function FriendsClient() {
         </div>
       )}
 
-      {/* ── Add/edit sheet ── */}
-      {sheet && (
+      {/* ── Add/edit sheet ── (hidden while lightbox/cropper is up — one
+          overlay deep ever; form state survives in React state) */}
+      {sheet && !crop && !lightbox && (
         <div
           className="fixed inset-0 z-[110] flex items-end justify-center sm:items-center"
           style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 45%, transparent)" }}
-          onClick={() => openSheet(null)}
+          onClick={requestCloseSheet}
         >
           <div
             role="dialog"
@@ -1087,20 +1251,70 @@ export default function FriendsClient() {
               </p>
               <div className="flex items-center gap-1">
                 {sheet !== "new" && sheet !== "self" && !editing && (
-                  <button type="button" onClick={() => void shareFriendProfile()} disabled={shareBusy} className="flex items-center justify-center rounded-full disabled:opacity-50" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Share friend profile">
+                  <button type="button" onClick={() => setShareConsent(true)} disabled={shareBusy} className="flex items-center justify-center rounded-full disabled:opacity-50" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Share friend profile">
                     <Share2 className="h-4 w-4" />
                   </button>
                 )}
                 {sheet !== "new" && sheet !== "self" && editing && (
-                  <button onClick={remove} disabled={saving} className="flex items-center justify-center rounded-full" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Remove friend">
+                  <button onClick={() => setConfirmRemove(true)} disabled={saving} className="flex items-center justify-center rounded-full" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Remove friend">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 )}
-                <button onClick={() => openSheet(null)} className="flex items-center justify-center rounded-full" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close">
+                <button onClick={requestCloseSheet} className="flex items-center justify-center rounded-full" style={{ color: "var(--color-ink-muted)", minHeight: 36, minWidth: 36 }} aria-label="Close">
                   <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
+
+            {/* Discard guard — names the stakes before ~20 fields vanish */}
+            {confirmDiscard && (
+              <div className="mb-4 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Discard your changes?</p>
+                <div className="mt-2.5 flex gap-2">
+                  <button
+                    onClick={() => setConfirmDiscard(false)}
+                    className="flex-1 rounded-lg py-2 text-xs font-bold"
+                    style={{ backgroundColor: "var(--color-paper)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink)" }}
+                  >
+                    Keep editing
+                  </button>
+                  <button
+                    onClick={() => openSheet(null)}
+                    className="flex-1 rounded-lg py-2 text-xs font-bold"
+                    style={{ backgroundColor: "var(--color-error, #b42318)", color: "var(--color-paper)" }}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Remove confirm — names the friend, cancel-first */}
+            {confirmRemove && sheet !== "new" && sheet !== "self" && (
+              <div className="mb-4 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Remove {sheet.name.split(" ")[0]}?</p>
+                <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>Their photo history and hangout tags go with them.</p>
+                <div className="mt-2.5 flex gap-2">
+                  <button
+                    onClick={() => { setConfirmRemove(false); setError(null); }}
+                    disabled={saving}
+                    className="flex-1 rounded-lg py-2 text-xs font-bold"
+                    style={{ backgroundColor: "var(--color-paper)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink)" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={remove}
+                    disabled={saving}
+                    className="flex-1 rounded-lg py-2 text-xs font-bold disabled:opacity-50"
+                    style={{ backgroundColor: "var(--color-error, #b42318)", color: "var(--color-paper)" }}
+                  >
+                    {saving ? "Removing…" : `Remove ${sheet.name.split(" ")[0]}`}
+                  </button>
+                </div>
+                {error && <p className="mt-2 text-xs" style={{ color: "var(--color-error, #b42318)" }}>{error}</p>}
+              </div>
+            )}
 
             {/* ── Self card ── */}
             {sheet === "self" && (
@@ -1243,6 +1457,64 @@ export default function FriendsClient() {
                       </div>
                     </div>
 
+                  {/* ── Sharing — scope is disclosed before any link exists ── */}
+                  {shareConsent ? (
+                    <div className="mb-4 rounded-xl border p-3" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                      <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Share {f.name.split(" ")[0]}&rsquo;s profile?</p>
+                      <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+                        Anyone with the link sees: <b style={{ color: "var(--color-ink-soft)" }}>name, crew, where-you-met tag, and photos</b>.
+                        Never shared: your notes, phone, birthday, or details.
+                      </p>
+                      <div className="mt-2.5 flex gap-2">
+                        <button
+                          onClick={() => setShareConsent(false)}
+                          disabled={shareBusy}
+                          className="flex-1 rounded-lg py-2 text-xs font-bold"
+                          style={{ backgroundColor: "var(--color-paper)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink)" }}
+                        >
+                          Not now
+                        </button>
+                        <button
+                          onClick={() => void createShareLink()}
+                          disabled={shareBusy}
+                          className="flex-1 rounded-lg py-2 text-xs font-bold disabled:opacity-50"
+                          style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
+                        >
+                          {shareBusy ? "Creating…" : "Create link"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mb-4 rounded-xl border px-3 py-2.5" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}>
+                      {shareState === null ? (
+                        <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>Checking share link…</p>
+                      ) : shareState.active ? (
+                        <>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>
+                              Share link is live{shareState.createdAt ? ` since ${new Date(shareState.createdAt).toLocaleDateString()}` : ""}
+                            </p>
+                            <button onClick={() => void revokeShareLink()} disabled={shareBusy} className="text-[11px] font-semibold disabled:opacity-50" style={{ color: "var(--color-error, #b42318)" }}>
+                              Turn off
+                            </button>
+                          </div>
+                          {shareState.url && (
+                            <>
+                              <p className="mt-1.5 select-all break-all rounded-lg px-2 py-1.5 font-mono text-[11px]" style={{ backgroundColor: "var(--color-paper)", color: "var(--color-ink-soft)" }}>{shareState.url}</p>
+                              <button onClick={() => void copyShareLink(shareState.url!)} className="mt-1.5 text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>Copy link</button>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs" style={{ color: "var(--color-ink-muted)" }}>No live share link</p>
+                          <button onClick={() => setShareConsent(true)} className="text-[11px] font-semibold" style={{ color: "var(--color-accent)" }}>Share profile</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {contactHint && <p className="mb-4 -mt-2 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{contactHint}</p>}
+
                   <div className="flex gap-2">
                     <button
                       onClick={() => setEditing(true)}
@@ -1252,7 +1524,7 @@ export default function FriendsClient() {
                       <Pencil className="h-3.5 w-3.5" /> Edit
                     </button>
                     <button
-                      onClick={remove}
+                      onClick={() => setConfirmRemove(true)}
                       disabled={saving}
                       className="flex items-center justify-center rounded-xl px-4"
                       style={{ backgroundColor: "var(--color-paper-2)", border: "1px solid var(--color-paper-3)", color: "var(--color-ink-muted)" }}
@@ -1326,7 +1598,14 @@ export default function FriendsClient() {
                       </div>
                       <div className="mt-1 flex gap-1">
                         <button type="button" onClick={() => void editHistoryPhoto(savedPhoto.id)} className="flex-1 rounded-md border px-1 py-1 text-[10px] font-semibold" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>Edit</button>
-                        <button type="button" onClick={() => void deleteHistoryPhoto(savedPhoto.id)} className="rounded-md border px-2 py-1 text-[10px] font-semibold" style={{ borderColor: "var(--color-paper-3)", color: "var(--color-error)" }} aria-label="Delete photo">×</button>
+                        <button
+                          type="button"
+                          onClick={() => confirmPhotoDel === savedPhoto.id ? void deleteHistoryPhoto(savedPhoto.id) : setConfirmPhotoDel(savedPhoto.id)}
+                          onBlur={() => setConfirmPhotoDel((cur) => (cur === savedPhoto.id ? null : cur))}
+                          className="rounded-md border px-2 py-1 text-[10px] font-semibold"
+                          style={{ borderColor: "var(--color-paper-3)", color: "var(--color-error)" }}
+                          aria-label={confirmPhotoDel === savedPhoto.id ? "Confirm delete photo" : "Delete photo"}
+                        >{confirmPhotoDel === savedPhoto.id ? "Sure?" : "×"}</button>
                       </div>
                       <p className="mt-1 truncate text-[9px]" style={{ color: "var(--color-ink-muted)" }}>{new Date(savedPhoto.createdAt).toLocaleDateString()}</p>
                     </div>
@@ -1439,6 +1718,8 @@ export default function FriendsClient() {
               value={phone}
               onChange={(e) => setPhone(e.target.value.slice(0, 40))}
               placeholder="Number — imported via “From contacts”"
+              type="tel"
+              autoComplete="tel"
               inputMode="tel"
               className="mb-4 w-full rounded-xl px-3 py-2.5 text-sm outline-none"
               style={inputStyle}

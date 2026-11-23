@@ -130,14 +130,15 @@ export async function getAudioCacheCount(): Promise<number> {
  * Evict oldest-played entries until the total cache size is under the limit.
  * Uses LRU (least recently used) based on lastPlayedAt.
  */
-async function evictLRUIfNeeded(): Promise<void> {
+async function evictLRUIfNeeded(): Promise<{ talkId: string; title: string }[]> {
+  const evicted: { talkId: string; title: string }[] = [];
   try {
     const db = getOfflineDB();
     const cache = await caches.open(AUDIO_CACHE_NAME);
     let totalSize = await getAudioCacheSize();
     const maxBytes = getDownloadLimitBytes();
 
-    if (totalSize <= maxBytes) return;
+    if (totalSize <= maxBytes) return evicted;
 
     // Sort by lastPlayedAt ascending (oldest first) and evict until under limit
     const entries = await db.talkDownloads.orderBy("lastPlayedAt").toArray();
@@ -152,11 +153,13 @@ async function evictLRUIfNeeded(): Promise<void> {
       );
       // Delete from manifest
       await db.talkDownloads.delete(entry.cacheKey);
+      evicted.push({ talkId: entry.talkId, title: entry.title });
       totalSize -= entry.size || 0;
     }
   } catch {
     // non-critical — eviction is best-effort
   }
+  return evicted;
 }
 
 /**
@@ -213,7 +216,40 @@ export async function saveAudioOffline(
   const proxyUrl = url + (url.includes("?") ? "&" : "?") + "proxy=1";
   const res = await fetch(proxyUrl, { redirect: "follow" });
   if (!res.ok) throw new Error(`Download failed (${res.status})`);
-  await cache.put(new Request(url), res);
+
+  // Stream the body so the UI gets REAL download progress, then cache the
+  // reassembled bytes. Headers are copied minus encoding/length — the body
+  // here is already decoded, so stale values would corrupt range slicing.
+  let responseToCache = res;
+  if (res.body) {
+    const total = Number(res.headers.get("content-length")) || metadata?.fileSize || 0;
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let done = 0;
+    try {
+      for (;;) {
+        const { done: finished, value } = await reader.read();
+        if (finished) break;
+        if (value) {
+          chunks.push(value);
+          done += value.byteLength;
+          if (metadata?.talkId) {
+            window.dispatchEvent(new CustomEvent("waqt:audio-download-progress", {
+              detail: { talkId: metadata.talkId, done, total },
+            }));
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const blob = new Blob(chunks as BlobPart[]);
+    const headers = new Headers(res.headers);
+    headers.delete("content-encoding");
+    headers.set("content-length", String(blob.size));
+    responseToCache = new Response(blob, { status: res.status, headers });
+  }
+  await cache.put(new Request(url), responseToCache);
 
   // Get the actual cached size. The stream endpoint returns a 307 redirect
   // to a cross-origin R2 URL, so the cached response is often opaque.
@@ -254,8 +290,12 @@ export async function saveAudioOffline(
     }
   }
 
-  // Evict old entries if over the limit
-  await evictLRUIfNeeded();
+  // Evict old entries if over the limit — and SAY so. Silent eviction left
+  // "Offline" badges lying about a copy that no longer exists.
+  const evicted = await evictLRUIfNeeded();
+  if (evicted.length) {
+    window.dispatchEvent(new CustomEvent("waqt:audio-evicted", { detail: { evicted } }));
+  }
 
   // Notify listeners (e.g. settings page) that the download manifest changed
   window.dispatchEvent(new CustomEvent("waqt:audio-cache-changed"));

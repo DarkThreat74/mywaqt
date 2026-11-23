@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { AdminShell } from "./AdminShell";
 import { AdminOverview } from "./AdminOverview";
 import { AdminUsers, AdminUserDetail } from "./AdminUsers";
@@ -9,11 +8,6 @@ import { AdminTalks } from "./AdminTalks";
 import { AdminRecite } from "./AdminRecite";
 import { AdminSettings } from "./AdminSettings";
 import { AdminFeedback } from "./AdminFeedback";
-
-interface AdminStats {
-  users: number;
-  talks: number;
-}
 
 interface AdminUser {
   id: string;
@@ -31,28 +25,13 @@ interface AdminUser {
 }
 
 export default function AdminPortal() {
-  const [stats, setStats] = useState<AdminStats | null>(null);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
-  const router = useRouter();
 
-  useEffect(() => {
-    fetch("/api/admin/stats")
-      .then((r) => {
-        if (r.status === 401 || r.status === 403) {
-          router.push("/admin/login");
-          return null;
-        }
-        return r.json().catch(() => null);
-      })
-      .then((data) => {
-        if (data) setStats(data);
-      })
-      .catch(() => router.push("/admin/login"));
-  }, [router]);
-
+  // Stats come from AdminShell's single auth+stats fetch — this page used to
+  // fire an identical request in parallel (doubled again under StrictMode).
   return (
     <AdminShell>
-      {({ tab, setTab }) => {
+      {({ tab, setTab, stats }) => {
         // When a user is selected, show detail view regardless of tab
         if (selectedUser) {
           return (

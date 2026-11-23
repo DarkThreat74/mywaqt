@@ -52,6 +52,13 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
   const [modelState, setModelState] = useState<"loading" | "ready" | "failed">("loading");
   const modelOk = modelState === "ready";
   const [camError, setCamError] = useState("");
+  // Frozen frame preview after a successful shot — Retake/Use before commit.
+  const [preview, setPreview] = useState<CaptureResult | null>(null);
+  // Escape hatch: pose model works but the score never reaches the bar — let
+  // the user take the shot unguided rather than dead-end on the shutter.
+  const [escapeGuide, setEscapeGuide] = useState(false);
+  const escapeRef = useRef(false);
+  useEffect(() => { escapeRef.current = escapeGuide; }, [escapeGuide]);
   const [score, setScore] = useState(0);
   const [worstHint, setWorstHint] = useState<string | null>(null);
   const [shirtOn, setShirtOn] = useState<boolean | null>(null); // true = fabric detected
@@ -70,6 +77,8 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
   useEffect(() => { targetWorldRef.current = targetWorldPose ?? null; }, [targetWorldPose]);
   const onCaptureRef = useRef(onCapture);
   useEffect(() => { onCaptureRef.current = onCapture; }, [onCapture]);
+  // The shutter button calls through a ref — no window-global capture hook.
+  const captureRef = useRef<() => void>(() => {});
   const personalRef = useRef(!!personalTarget);
   useEffect(() => { personalRef.current = !!personalTarget; }, [personalTarget]);
   const ghostRef = useRef<HTMLImageElement | null>(null);
@@ -274,7 +283,7 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
     const capture = () => {
       if (capturing.current || !video.videoWidth) return;
       if (modelLoading) return; // never allow an unguided shot mid-load
-      if (poseModelOk && !alignedRef.current) return;
+      if (poseModelOk && !alignedRef.current && !escapeRef.current) return;
       capturing.current = true;
       const vw = video.videoWidth, vh = video.videoHeight;
       const z = zoomRef.current;
@@ -333,15 +342,14 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
           matchScore = scorePose(use3D ? tp3! : tp, use3D ? cw! : ck);
         }
       }
-      onCaptureRef.current({
+      // Freeze on a preview first — the user confirms or retakes before the
+      // photo commits. capturing stays latched until they choose Use photo.
+      setPreview({
         dataUrl, photoMime: mime, pose, worldPose,
         analysis: { shirtless, skinRatio, matchScore },
       });
-      // Keep capturing latched — the parent unmounts us on save; a second
-      // tap before that render must not mint a duplicate photo.
-      // (Reset happens at effect start on the next mount.)
     };
-    (window as unknown as { __guidedCapture?: () => void }).__guidedCapture = capture;
+    captureRef.current = capture;
 
     (async () => {
       // Shared singleton — parsed once per session, reused across angles.
@@ -357,7 +365,15 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
         });
       } catch (err) {
         console.error("[GuidedCamera] camera", err);
-        setCamError(err instanceof DOMException ? err.name : "unknown");
+        // Honest copy — DOMException names mean nothing to users.
+        const name = err instanceof DOMException ? err.name : "";
+        setCamError(
+          name === "NotAllowedError" ? "Camera access was denied — allow it in your browser settings and try again."
+          : name === "NotFoundError" || name === "OverconstrainedError" ? "No camera was found on this device."
+          : name === "NotReadableError" ? "The camera is busy in another app — close it and try again."
+          : name === "SecurityError" ? "The browser blocked camera access on this page."
+          : "The camera could not start."
+        );
         if (!cancelled) setStatus("error");
         return;
       }
@@ -391,7 +407,7 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       ro.disconnect();
       stream?.getTracks().forEach((t) => t.stop());
       // landmarker is a session-wide singleton — never close it here.
-      delete (window as unknown as { __guidedCapture?: () => void }).__guidedCapture;
+      captureRef.current = () => {};
     };
   }, [angle]); // targetPose/onCapture/personalTarget read via refs — no restart
 
@@ -415,6 +431,29 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
     if (pointers.current.size < 2) pinch.current = null;
   };
 
+  // If the pose model is up but the match bar never fills after ~8s, the
+  // shutter is effectively dead — surface an explicit escape instead of
+  // leaving the user guessing.
+  const [escapeOffered, setEscapeOffered] = useState(false);
+  useEffect(() => {
+    if (!modelOk || aligned || escapeOffered || escapeGuide) return;
+    const t = setTimeout(() => setEscapeOffered(true), 8000);
+    return () => clearTimeout(t);
+  }, [modelOk, aligned, escapeOffered, escapeGuide]);
+
+  const confirmPreview = () => {
+    if (!preview) return;
+    onCaptureRef.current(preview);
+    // Keep capturing latched — the parent unmounts us on save; a second
+    // tap before that render must not mint a duplicate photo.
+    // (Reset happens at effect start on the next mount.)
+  };
+  const retakePreview = () => {
+    setPreview(null);
+    capturing.current = false;
+    setEscapeGuide(false);
+  };
+
   return (
     <div className="relative overflow-hidden rounded-2xl" style={{ backgroundColor: "#111", touchAction: "none" }}
       onPointerDown={onPtrDown} onPointerMove={onPtrMove} onPointerUp={onPtrUp} onPointerCancel={onPtrUp}>
@@ -428,8 +467,29 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
       )}
       {status === "error" && (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-xs" style={{ color: "#e8ddc8" }}>
-          Camera failed to start{camError ? ` (${camError})` : ""}.{" "}
-          {onCancel && <button type="button" onClick={onCancel} className="underline">Go back</button>}
+          <span>
+            {camError || "The camera could not start."}{" "}
+            {onCancel && <button type="button" onClick={onCancel} className="underline">Go back</button>}
+          </span>
+        </div>
+      )}
+      {preview && (
+        <div className="absolute inset-0 z-10 flex flex-col" style={{ backgroundColor: "#111" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview.dataUrl} alt="Captured photo preview" className="min-h-0 w-full flex-1 object-contain" />
+          {preview.analysis.matchScore != null && (
+            <p className="pt-2 text-center text-[10px] tabular-nums" style={{ color: "#e8ddc8" }}>
+              {preview.analysis.matchScore}% pose match
+            </p>
+          )}
+          <div className="flex gap-2 p-4">
+            <button type="button" onClick={retakePreview}
+              className="flex-1 rounded-xl border py-3 text-sm"
+              style={{ borderColor: "rgba(255,255,255,0.35)", color: "#e8ddc8" }}>Retake</button>
+            <button type="button" onClick={confirmPreview}
+              className="flex-1 rounded-xl py-3 text-sm font-semibold"
+              style={{ backgroundColor: "#e8a04c", color: "#111" }}>Use photo</button>
+          </div>
         </div>
       )}
       {status === "ready" && (
@@ -442,7 +502,7 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
           {modelOk && (
             <>
               <div className="mx-auto mt-2 h-1.5 w-40 overflow-hidden rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.2)" }}>
-                <div className="h-full rounded-full transition-all" style={{ width: `${score}%`, backgroundColor: score >= (personalTarget ? 68 : 58) ? "#8fce6e" : "#e8a04c" }} />
+                <div className="h-full rounded-full transition-[width]" style={{ width: `${score}%`, backgroundColor: score >= (personalTarget ? 68 : 58) ? "#8fce6e" : "#e8a04c" }} />
               </div>
               <p className="mt-1 text-center text-[10px] tabular-nums" style={{ color: "#e8ddc8" }}>
                 {aligned ? "Hold still — capturing…" : worstHint ? `check your ${worstHint}` : `${score}% match`}
@@ -461,18 +521,29 @@ export default function GuidedCamera({ angle, targetPose, targetWorldPose, perso
               className="h-1 flex-1 cursor-pointer accent-[#e8a04c]" aria-label="Camera zoom" />
           </div>
           <button type="button"
-            onClick={() => (window as unknown as { __guidedCapture?: () => void }).__guidedCapture?.()}
-            disabled={modelState === "loading" || (modelOk && !aligned)}
+            onClick={() => captureRef.current()}
+            disabled={modelState === "loading" || (modelOk && !aligned && !escapeGuide)}
             className="mx-auto mt-3 flex h-16 w-16 items-center justify-center rounded-full border-4 text-lg"
             style={{
-              borderColor: modelOk && aligned ? "#e8a04c" : "rgba(255,255,255,0.3)",
-              backgroundColor: modelOk && aligned ? "#e8a04c" : "rgba(255,255,255,0.15)",
+              borderColor: (modelOk && aligned) || escapeGuide ? "#e8a04c" : "rgba(255,255,255,0.3)",
+              backgroundColor: (modelOk && aligned) || escapeGuide ? "#e8a04c" : "rgba(255,255,255,0.15)",
               color: "#111",
-              opacity: modelState === "loading" || (modelOk && !aligned) ? 0.5 : 1,
+              opacity: modelState === "loading" || (modelOk && !aligned && !escapeGuide) ? 0.5 : 1,
             }}
             aria-label="Capture photo">
             ●
           </button>
+          {modelOk && !aligned && escapeOffered && !escapeGuide && (
+            <button type="button" onClick={() => setEscapeGuide(true)}
+              className="mx-auto mt-2 block text-[10px] underline" style={{ color: "#e8ddc8" }}>
+              Guide won&apos;t match? Capture anyway
+            </button>
+          )}
+          {escapeGuide && (
+            <p className="mt-1 text-center text-[9px]" style={{ color: "#e8a04c" }}>
+              Guide off — frame yourself and tap the shutter
+            </p>
+          )}
         </div>
       )}
     </div>

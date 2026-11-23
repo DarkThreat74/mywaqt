@@ -7,6 +7,7 @@ import PrayerCheckinPopup from "@/components/prayer-checkin-popup";
 import { layoutOverlap } from "@/lib/calendar/overlap";
 import { useUISFX } from "@/components/uisfx-provider";
 import { getDisplayAsrTime, isFridayDate, sanitizeTimings, type PrayerKey } from "@/lib/prayer/checkin";
+import { prayerStatusVisual } from "@/lib/prayer/statusDisplay";
 import { invalidateApiCache, removeOutboxItem } from "@/lib/sw-helpers";
 import { getOfflineDB } from "@/lib/offline/db";
 import { getCachedPrayerSettings, setCachedPrayerSettings, getCachedHaydPeriods, setCachedHaydPeriods } from "@/lib/offline/settings-cache";
@@ -258,6 +259,71 @@ function getReminderColor(title: string, chosenColor?: string | null): string {
   return REMINDER_COLORS[Math.abs(hash) % REMINDER_COLORS.length];
 }
 
+// Escape-to-close + focus trap + focus-restore for the hand-rolled dialogs.
+// `active` gates the effect; `onEscape` is read through a ref so callers can
+// pass a fresh closure each render without re-running the trap.
+function useModalA11y(
+  active: boolean,
+  containerRef: React.RefObject<HTMLElement | null>,
+  onEscape: () => void,
+) {
+  const escapeRef = useRef(onEscape);
+  useEffect(() => {
+    escapeRef.current = onEscape;
+  });
+  const restoreRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    restoreRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const root = containerRef.current;
+    const focusables = () =>
+      Array.from(
+        root?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+    // Move focus into the dialog — prefer the first field, else first control.
+    const t = window.setTimeout(() => {
+      const first =
+        root?.querySelector<HTMLElement>("input, textarea") ?? focusables()[0] ?? root;
+      first?.focus?.();
+    }, 0);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        escapeRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !root) return;
+      const items = focusables();
+      if (items.length === 0) {
+        e.preventDefault();
+        root.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && (activeEl === first || activeEl === root)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && activeEl === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("keydown", onKey, true);
+      restoreRef.current?.focus?.();
+      restoreRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+}
+
 export default function DayViewClient({ date }: { date: string }) {
   const { play } = useUISFX();
   // Dhuhr displays as Jumu'ah on Fridays — same log row, just a label.
@@ -428,6 +494,22 @@ export default function DayViewClient({ date }: { date: string }) {
   const [planOpen, setPlanOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [pickMode, setPickMode] = useState(false); // tap-a-slot-on-the-calendar mode
+  const [saving, setSaving] = useState(false); // in-flight add/update guard
+  // Loading dots wait 300ms — a fast fetch never shows them (CRAFT G8).
+  const [showLoading, setShowLoading] = useState(false);
+  useEffect(() => {
+    if (!loading) return;
+    const t = window.setTimeout(() => setShowLoading(true), 300);
+    return () => window.clearTimeout(t);
+  }, [loading]);
+
+  // Dialog refs for Escape/focus-trap (useModalA11y)
+  const formDialogRef = useRef<HTMLFormElement>(null);
+  const deleteDialogRef = useRef<HTMLDivElement>(null);
+  const peekEventRef = useRef<HTMLDivElement>(null);
+  const peekBlockRef = useRef<HTMLDivElement>(null);
+  const friendProfileRef = useRef<HTMLDivElement>(null);
+  const placeProfileRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!pickMode) return;
@@ -1103,6 +1185,44 @@ export default function DayViewClient({ date }: { date: string }) {
   const nowMin = isToday ? timeToMinutes(isoToLocalTime(new Date(nowTick).toISOString())) : null;
   const planDayStart = nowMin === null ? studyStartMin : Math.max(studyStartMin, nowMin);
 
+  // The next upcoming prayer today — its pill/card also carries a relative
+  // "in 2h 14m" label alongside the absolute time (CRAFT D1).
+  const nextPrayerMin = useMemo(() => {
+    if (!isToday || !prayerTimes || nowMin === null) return null;
+    for (const p of PRAYER_NAMES) {
+      if (!p.isPrayer) continue;
+      const raw = prayerTimes[p.key];
+      if (!raw) continue;
+      const t = timeToMinutes(adjTimeStr(p.key === "asr" ? getDisplayAsrTime(raw) : raw));
+      if (t > nowMin) return t;
+    }
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isToday, prayerTimes, nowMin]);
+
+  function relUntil(minutes: number): string | null {
+    if (nowMin === null) return null;
+    const diff = minutes - nowMin;
+    if (diff <= 0) return null;
+    const h = Math.floor(diff / 60);
+    const m = diff % 60;
+    return h > 0 ? `in ${h}h ${String(m).padStart(2, "0")}m` : `in ${m}m`;
+  }
+
+  // "Now" anchor: when the collapsed grid opens on today, start one hour
+  // before the now-line instead of a fixed 5 AM. Other days keep 5 AM.
+  const collapsedStart = useMemo(() => {
+    if (isToday && nowMin !== null) {
+      const nowHour = Math.floor(nowMin / 60);
+      return Math.min(Math.max(nowHour - 1, DEFAULT_START_HOUR), HOURS.length - 3);
+    }
+    return DEFAULT_START_HOUR;
+  }, [isToday, nowMin]);
+
+  function formatHourFull(hour: number): string {
+    return `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
+  }
+
   const gaps = useMemo(
     () => freeGaps(busyIntervals, planDayStart, studyEndMin),
     [busyIntervals, planDayStart, studyEndMin],
@@ -1129,6 +1249,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
   async function handleAddEvent(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return; // double-tap guard — one POST per submit
     if (!newTitle.trim()) return;
 
     // For blocks/tasks, validate end > start
@@ -1200,6 +1321,7 @@ export default function DayViewClient({ date }: { date: string }) {
       }
     }
 
+    setSaving(true);
     try {
       const res = await fetch("/api/events", {
         method: "POST",
@@ -1296,6 +1418,8 @@ export default function DayViewClient({ date }: { date: string }) {
     } catch {
       setError("Network error.");
       play("error");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1347,6 +1471,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
   async function handleUpdateEvent(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
     if (!editingEvent || !newTitle.trim()) return;
 
     if (newType !== "reminder" && timeToMinutes(newEnd) <= timeToMinutes(newStart)) {
@@ -1358,6 +1483,7 @@ export default function DayViewClient({ date }: { date: string }) {
     const startISO = localInputToIso(date, newStart, userTimezone);
     const endISO = localInputToIso(date, newType === "reminder" ? newStart : newEnd, userTimezone);
 
+    setSaving(true);
     // Bulk update — update all events in the recurring series
     if (editAllInSeries && editingEvent.seriesId) {
       try {
@@ -1420,6 +1546,8 @@ export default function DayViewClient({ date }: { date: string }) {
         }
       } catch {
         setError("Network error.");
+      } finally {
+        setSaving(false);
       }
       return;
     }
@@ -1501,6 +1629,8 @@ export default function DayViewClient({ date }: { date: string }) {
       }
     } catch {
       setError("Network error.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1546,6 +1676,43 @@ export default function DayViewClient({ date }: { date: string }) {
         })
         .catch(() => { /* non-critical */ });
     }
+  }
+
+  // Reset + open the "new event" form. `startMin` prefills the time when the
+  // user tapped an empty hour slot on the grid.
+  function openNewEventForm(startMin?: number) {
+    setNewTitle("");
+    setNewDetails("");
+    if (typeof startMin === "number") {
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const s = Math.max(0, Math.min(startMin, 23 * 60));
+      const eMin = Math.min(s + 60, 1439);
+      setNewStart(`${pad(Math.floor(s / 60))}:${pad(s % 60)}`);
+      setNewEnd(`${pad(Math.floor(eMin / 60))}:${pad(eMin % 60)}`);
+    } else {
+      const [start, end] = roundedCurrentEventRange(userTimezone);
+      setNewStart(start);
+      setNewEnd(end);
+    }
+    setNewType("block");
+    setHangoutWith("");
+    setHangoutFriendId(null);
+    setHangoutFriendIds([]);
+    setTagPlace(null);
+    setTagType("menu");
+    setTagMenuOpen(false);
+    setNewColor(null);
+    setNewNotify(true);
+    setNewSharePublic(true);
+    setEnableRecurrence(false);
+    setRecurrenceEndDate("");
+    setRecurrenceDays([]);
+    setEditingEvent(null);
+    setEventKind("event");
+    setFormStep(1);
+    setShowAddForm(true);
+    setPlusOpen(false);
+    play("open");
   }
 
   function closeForm() {
@@ -1648,6 +1815,29 @@ export default function DayViewClient({ date }: { date: string }) {
     }
   }
 
+  // Dirty-check for the add/edit form — a half-filled form confirms before
+  // any dismissal path (backdrop, X, Escape) discards it.
+  const formDirty = Boolean(
+    newTitle.trim() ||
+      newDetails.trim() ||
+      hangoutFriendIds.length > 0 ||
+      tagPlace ||
+      enableRecurrence ||
+      (formStep === 2 && eventKind !== "event"),
+  );
+  function requestCloseForm() {
+    if (formDirty && !window.confirm("Discard this event?")) return;
+    closeForm();
+  }
+
+  // Escape + focus trap + focus restore on every hand-rolled dialog.
+  useModalA11y(showAddForm || !!editingEvent, formDialogRef, requestCloseForm);
+  useModalA11y(!!deleteConfirm, deleteDialogRef, () => setDeleteConfirm(null));
+  useModalA11y(!!peekEvent, peekEventRef, () => setPeekEvent(null));
+  useModalA11y(!!peekBlock, peekBlockRef, () => { setPeekBlock(null); setExpiredPick(null); });
+  useModalA11y(!!friendProfile, friendProfileRef, () => setFriendProfile(null));
+  useModalA11y(!!placeProfile, placeProfileRef, () => setPlaceProfile(null));
+
   return (
     <div className="mx-auto w-full max-w-5xl overflow-x-hidden px-3 py-3 sm:px-6 sm:py-6">
       {/* Offline banner — only show after mount to avoid hydration mismatch */}
@@ -1688,8 +1878,11 @@ export default function DayViewClient({ date }: { date: string }) {
               // at the same size.
               const time = rawTime ? adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime) : null;
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
-              const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
-              const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
+              const pvis = prayerStatusVisual(log?.status, haydDay);
+              const isPrayed = pvis === "confirmed";
+              const isAssumed = pvis === "assumed";
+              const isExcused = pvis === "excused";
+              const isUnmarked = pvis === "unmarked";
               const isClickable = prayer.isPrayer && !haydDay;
               if (!prayer.isPrayer) {
                 // Non-prayer markers (sunrise) render as a slim divider — a
@@ -1722,16 +1915,24 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="flex min-w-[54px] flex-1 flex-col items-center justify-center rounded-lg border px-1 py-1.5 transition-colors"
                   style={{
                     minHeight: 44,
-                    borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
-                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
+                    borderColor: isPrayed ? "var(--color-success)" : isAssumed ? "var(--color-ink-muted)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
+                    borderStyle: isAssumed ? "dashed" : "solid",
+                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isAssumed ? "color-mix(in oklab, var(--color-ink-muted) 6%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
                     cursor: isClickable ? "pointer" : "default",
                   }}
-                  disabled={!isClickable}
+                  aria-disabled={!isClickable || undefined}
                 >
                   <span className="flex items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none" style={{ color: prayer.color }}>
                     {prayerLabel(prayer.key, prayer.label)}
                     {isPrayed && <Check className="h-2.5 w-2.5 shrink-0" style={{ color: "var(--color-success)" }} />}
-                    {isExcused && <span className="text-[8px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
+                    {isAssumed && (
+                      <span className="inline-flex items-center" title="Assumed — auto-marked when the window closed">
+                        <Check className="h-2.5 w-2.5 shrink-0 opacity-60" style={{ color: "var(--color-ink-muted)" }} />
+                        <span className="sr-only">assumed</span>
+                      </span>
+                    )}
+                    {isExcused && <span className="text-[8px] font-bold" style={{ color: "var(--color-accent)" }} role="img" aria-label="Excused">E<span className="sr-only">xcused</span></span>}
+                    {isUnmarked && <span className="sr-only">unmarked</span>}
                   </span>
                   <span className="mt-0.5 text-[10px] tabular-nums leading-none" style={{ color: "var(--color-ink-muted)" }}>
                     {(time ? formatTimeCompact(time) : "—")}
@@ -1751,8 +1952,11 @@ export default function DayViewClient({ date }: { date: string }) {
               // at the same size.
               const time = rawTime ? adjTimeStr(prayer.key === "asr" ? getDisplayAsrTime(rawTime) : rawTime) : null;
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
-              const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
-              const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
+              const pvis = prayerStatusVisual(log?.status, haydDay);
+              const isPrayed = pvis === "confirmed";
+              const isAssumed = pvis === "assumed";
+              const isExcused = pvis === "excused";
+              const isUnmarked = pvis === "unmarked";
               const isClickable = prayer.isPrayer && !haydDay;
               if (!prayer.isPrayer) {
                 return (
@@ -1781,19 +1985,29 @@ export default function DayViewClient({ date }: { date: string }) {
                   className="flex flex-col items-center gap-0 rounded-lg border px-3 py-1.5 transition-colors"
                   style={{
                     minHeight: 44,
-                    borderColor: isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
-                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
+                    borderColor: isPrayed ? "var(--color-success)" : isAssumed ? "var(--color-ink-muted)" : isExcused ? "var(--color-accent)" : "var(--color-paper-3)",
+                    borderStyle: isAssumed ? "dashed" : "solid",
+                    backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 8%, var(--color-paper))" : isAssumed ? "color-mix(in oklab, var(--color-ink-muted) 6%, var(--color-paper))" : isExcused ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-paper))" : "var(--color-paper)",
                     cursor: isClickable ? "pointer" : "default",
                   }}
-                  disabled={!isClickable}
+                  aria-disabled={!isClickable || undefined}
                 >
                   <span className="flex items-center gap-0.5 text-xs font-medium leading-tight" style={{ color: prayer.color }}>
                     {prayerLabel(prayer.key, prayer.label)}
                     {isPrayed && <Check className="h-3 w-3" style={{ color: "var(--color-success)" }} />}
-                    {isExcused && <span className="text-[9px] font-bold" style={{ color: "var(--color-accent)" }}>E</span>}
+                    {isAssumed && (
+                      <span className="ml-0.5 inline-flex items-center gap-0.5 text-[9px] font-normal" style={{ color: "var(--color-ink-muted)" }} title="Assumed — auto-marked when the window closed">
+                        <Check className="h-3 w-3 opacity-60" /> assumed
+                      </span>
+                    )}
+                    {isExcused && <span className="text-[9px] font-bold" style={{ color: "var(--color-accent)" }} role="img" aria-label="Excused">E<span className="sr-only">xcused</span></span>}
+                    {isUnmarked && <span className="ml-1 text-[9px] font-normal" style={{ color: "var(--color-ink-muted)" }}>unmarked</span>}
                   </span>
                   <span className="text-xs tabular-nums leading-tight" style={{ color: "var(--color-ink-muted)" }}>
                     {(time ? formatTime(time) : "—")}
+                    {time && timeToMinutes(time) === nextPrayerMin && relUntil(timeToMinutes(time)) && (
+                      <span style={{ color: "var(--color-accent)" }}> · {relUntil(timeToMinutes(time))}</span>
+                    )}
                   </span>
                 </button>
               );
@@ -1850,6 +2064,7 @@ export default function DayViewClient({ date }: { date: string }) {
       {/* Success message */}
       {successMsg && (
         <div
+          role="status"
           className="mb-3 rounded-xl border p-3 text-sm sm:mb-4"
           style={{ borderColor: "var(--color-success)", backgroundColor: "color-mix(in oklab, var(--color-success) 10%, transparent)", color: "var(--color-success)" }}
         >
@@ -1861,23 +2076,18 @@ export default function DayViewClient({ date }: { date: string }) {
       {(dayHomeworkCount > 0 || dailyGoals.length > 0 || !isPastDay || goalEvents.length > 0) && (
         <div className="relative z-40 pointer-events-auto mt-2 -mb-4 flex justify-end">
           <div
-            className="pointer-events-auto flex cursor-pointer items-stretch overflow-hidden rounded-full border text-[10px] font-medium shadow-sm backdrop-blur-md"
-            onClick={() => setHomeworkOpen(true)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setHomeworkOpen(true); } }}
-            aria-label="Open today's assignments and goals"
+            className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border text-[10px] font-medium shadow-sm backdrop-blur-md"
             style={{
               borderColor: "var(--color-paper-3)",
               backgroundColor: "color-mix(in oklab, var(--color-paper) 76%, transparent)",
               color: "var(--color-ink)",
             }}
           >
-            {(!isPastDay || dayHomeworkCount > 0) && (
+            {dayHomeworkCount > 0 && (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setHomeworkOpen((open) => !open); }}
-                className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                className="flex items-center gap-1 px-2 py-1 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-warmth)", minHeight: 28 }}
               >
                 <BookOpen className="h-3 w-3 shrink-0" />
@@ -1887,19 +2097,19 @@ export default function DayViewClient({ date }: { date: string }) {
             {(!isPastDay || goalTotalCount > 0) && (
               <button
                 onClick={(e) => { e.stopPropagation(); setGoalsOpen((o) => !o); }}
-                className="flex items-center gap-1 px-2 py-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                className="flex items-center gap-1 px-2 py-1 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 style={{
                   color: "var(--color-ink)",
                   minHeight: 28,
-                  // Translucent red that fades as goals complete — the pill
-                  // itself carries the "nothing done yet" signal.
+                  // Translucent accent that fades as goals complete — progress
+                  // signal, not a shame gradient (D2).
                   backgroundColor: goalTotalCount > 0
-                    ? `color-mix(in oklab, var(--color-error) ${Math.round(16 * (1 - goalDoneCount / goalTotalCount))}%, transparent)`
+                    ? `color-mix(in oklab, var(--color-accent) ${Math.round(16 * (1 - goalDoneCount / goalTotalCount))}%, transparent)`
                     : "transparent",
                 }}
                 aria-label={goalTotalCount > 0 ? `Goals — ${goalDoneCount} of ${goalTotalCount} done${goalEvents.length > 0 ? ", includes planned" : ""}` : "Goals"}
               >
-                <Check className="h-3 w-3 shrink-0" style={{ color: goalTotalCount > 0 && goalDoneCount === goalTotalCount ? "var(--color-success)" : goalTotalCount > 0 ? "var(--color-error)" : "var(--color-ink-muted)" }} />
+                <Check className="h-3 w-3 shrink-0" style={{ color: goalTotalCount > 0 && goalDoneCount === goalTotalCount ? "var(--color-success)" : goalTotalCount > 0 ? "var(--color-accent)" : "var(--color-ink-muted)" }} />
                 {goalTotalCount > 0 ? `${goalDoneCount}/${goalTotalCount} goals` : "Goals"}
                 {goalEvents.length > 0 && (
                   <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-accent)" }} title="Planned goal events today" aria-hidden />
@@ -1943,7 +2153,7 @@ export default function DayViewClient({ date }: { date: string }) {
                           void fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: goal.id, status: next }) });
                           setDailyGoals((items) => items.map((item) => item.id === goal.id ? { ...item, progressCurrent: next === "done" ? (item.progressTarget || 1) : 0 } : item));
                           syncChecksForGoal(goal.id, next === "done");
-                        }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
+                        }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-xs [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
                           <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border" style={{ borderColor: done ? "var(--color-success)" : "var(--color-paper-3)", backgroundColor: done ? "var(--color-success)" : "transparent" }}>{done && <Check className="h-3 w-3" style={{ color: "var(--color-paper)" }} />}</span>
                           <span className={done ? "line-through opacity-60" : ""}>{goal.title}</span>
                         </button>
@@ -1961,7 +2171,7 @@ export default function DayViewClient({ date }: { date: string }) {
                           key={ev.id}
                           type="button"
                           onClick={() => toggleGoalCheck(ev)}
-                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-xs transition-colors hover:bg-[var(--color-paper-2)]"
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-xs transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                           style={{ color: "var(--color-ink)", minHeight: 40 }}
                         >
                           <span
@@ -2020,29 +2230,39 @@ export default function DayViewClient({ date }: { date: string }) {
           {showEarlyHours ? (
             <>
               <ChevronUp className="h-3 w-3" />
-              Hide 12 AM – 4 AM
+              Hide hours before {formatHourFull(collapsedStart)}
             </>
           ) : (
             <>
               <ChevronDown className="h-3 w-3" />
-              Show 12 AM – 4 AM
+              Show 12 AM – {formatHourFull(collapsedStart - 1)}
             </>
           )}
         </button>
-        {/* Grid container — clips early hours when collapsed */}
+        {/* Grid container — clips early hours when collapsed; on today the
+            collapsed start anchors to the now-line, not a fixed 5 AM */}
         <div
           className="relative overflow-hidden"
           style={{
             height: showEarlyHours
               ? HOURS.length * HOUR_HEIGHT
-              : (HOURS.length - DEFAULT_START_HOUR) * HOUR_HEIGHT,
+              : (HOURS.length - collapsedStart) * HOUR_HEIGHT,
           }}
         >
           <div
             className="relative"
+            onClick={(e) => {
+              // Tap-to-add on empty grid space. Interactive children
+              // (events, pills, chips) stopPropagation before this fires.
+              const rect = e.currentTarget.getBoundingClientRect();
+              if (e.clientX - rect.left < TIME_COL) return;
+              const minutes = Math.round(((e.clientY - rect.top) / HOUR_HEIGHT) * 60);
+              const startMin = Math.max(0, Math.min(1380, Math.floor(minutes / 15) * 15));
+              openNewEventForm(startMin);
+            }}
             style={{
               height: HOURS.length * HOUR_HEIGHT,
-              transform: showEarlyHours ? "none" : `translateY(-${DEFAULT_START_HOUR * HOUR_HEIGHT}px)`,
+              transform: showEarlyHours ? "none" : `translateY(-${collapsedStart * HOUR_HEIGHT}px)`,
             }}
           >
           {/* Hour lines + labels */}
@@ -2130,8 +2350,11 @@ export default function DayViewClient({ date }: { date: string }) {
               if (minutes < HOURS[0] * 60 || minutes > (HOURS[HOURS.length - 1] + 1) * 60) return null;
               const top = minutesToTop(minutes);
               const log = prayerLogs.find((l) => l.prayerName === prayer.key);
-              const isPrayed = log?.status === "prayed" || log?.status === "assumed_prayed";
-              const isExcused = log?.status === "excused" || (haydDay && !isPrayed);
+              const pvis = prayerStatusVisual(log?.status, haydDay);
+              const isPrayed = pvis === "confirmed";
+              const isAssumed = pvis === "assumed";
+              const isExcused = pvis === "excused";
+              const isUnmarked = pvis === "unmarked";
               const isClickable = prayer.isPrayer && !haydDay;
               return (
                 <div
@@ -2141,21 +2364,34 @@ export default function DayViewClient({ date }: { date: string }) {
                 >
                   <div className="h-px flex-1" style={{ backgroundColor: prayer.color, opacity: 0.3 }} />
                   <button
-                    onClick={isClickable ? (e: React.MouseEvent) => { e.stopPropagation(); setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayerLabel(prayer.key, prayer.label) }); } : undefined}
-                    className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium backdrop-blur-[2px] transition-transform sm:px-2 sm:text-[10px] pointer-events-auto"
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      if (isClickable) setCheckinPopup({ prayer: prayer.key as PrayerKey, label: prayerLabel(prayer.key, prayer.label) });
+                    }}
+                    className="relative shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium backdrop-blur-[2px] transition-transform sm:px-2 sm:text-[10px] pointer-events-auto before:absolute before:-inset-x-2 before:-inset-y-3 before:content-['']"
                     style={{
                       backgroundColor: isPrayed ? "color-mix(in oklab, var(--color-success) 12%, transparent)" : isExcused ? "color-mix(in oklab, var(--color-accent) 12%, transparent)" : "color-mix(in oklab, var(--color-paper) 65%, transparent)",
                       color: prayer.color,
-                      border: `1px solid ${isPrayed ? "var(--color-success)" : isExcused ? "var(--color-accent)" : prayer.color}`,
+                      border: `1px ${isAssumed ? "dashed" : "solid"} ${isPrayed ? "var(--color-success)" : isAssumed ? "var(--color-ink-muted)" : isExcused ? "var(--color-accent)" : prayer.color}`,
                       cursor: isClickable ? "pointer" : "default",
                     }}
+                    aria-disabled={!isClickable || undefined}
                   >
                     {prayerLabel(prayer.key, prayer.label)} {(time ? formatTime(time) : "—")}
                     {iqamahFor(prayer.key) && (
                       <span className="opacity-70"> · IQ {formatTime(iqamahFor(prayer.key)!)}</span>
                     )}
+                    {minutes === nextPrayerMin && relUntil(minutes) && (
+                      <span className="opacity-80"> · {relUntil(minutes)}</span>
+                    )}
                     {isPrayed && " ✓"}
-                    {isExcused && " E"}
+                    {isAssumed && (
+                      <span className="opacity-80" style={{ color: "var(--color-ink-muted)" }} title="Assumed — auto-marked when the window closed">
+                        {" "}✓ assumed
+                      </span>
+                    )}
+                    {isUnmarked && <span className="opacity-70" style={{ color: "var(--color-ink-muted)" }}> · unmarked</span>}
+                    {isExcused && " · excused"}
                   </button>
                 </div>
               );
@@ -2215,7 +2451,7 @@ export default function DayViewClient({ date }: { date: string }) {
               const top = minutesToTop(minutes);
               return (
                 <div
-                  key={i}
+                  key={`jummah-${j}`}
                   className="absolute z-30 flex items-center pr-1 pointer-events-none"
                   style={{ top: top - 7, left: TIME_COL, right: 0 }}
                 >
@@ -2252,7 +2488,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 <div className="h-0.5 flex-1" style={{ backgroundColor: color, opacity: 0.7 }} />
                 <button
                   onClick={(e: React.MouseEvent) => { e.stopPropagation(); setPeekEvent(event); }}
-                  className={`shrink-0 ${event.details ? "flex flex-col items-start rounded-lg px-2 py-1" : "rounded-full px-1.5 py-0.5 sm:px-2"} text-left text-[11px] font-medium transition-opacity hover:opacity-80 sm:text-[10px]`}
+                  className={`shrink-0 ${event.details ? "flex flex-col items-start rounded-lg px-2 py-1" : "rounded-full px-1.5 py-0.5 sm:px-2"} text-left text-[11px] font-medium transition-opacity [@media(hover:hover)]:hover:opacity-80 sm:text-[10px]`}
                   style={{
                     backgroundColor: "var(--color-paper)",
                     color: color,
@@ -2271,11 +2507,13 @@ export default function DayViewClient({ date }: { date: string }) {
                   )}
                 </button>
                 <div className="h-0.5 w-3 sm:w-4" style={{ backgroundColor: color, opacity: 0.7 }} />
-                {/* Delete button — appears on hover */}
+                {/* Delete — same confirm flow as event blocks; reveals on
+                    hover OR keyboard focus (focus-within keeps it visible
+                    while the button itself is focused). */}
                 <button
-                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleDeleteEvent(event.id); }}
-                  className="ml-1 hidden shrink-0 rounded-full p-0.5 opacity-0 transition-opacity group-hover:opacity-100 sm:block"
-                  aria-label="Delete reminder"
+                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); setDeleteConfirm(event); }}
+                  className="ml-1 shrink-0 rounded-full p-1.5 opacity-0 transition-opacity focus:opacity-100 [@media(hover:hover)]:group-hover:opacity-100 group-focus-within:opacity-100"
+                  aria-label={`Delete reminder ${event.title}`}
                   style={{ color: "var(--color-ink-muted)" }}
                 >
                   <X className="h-3 w-3" />
@@ -2335,8 +2573,18 @@ export default function DayViewClient({ date }: { date: string }) {
             return (
               <div
                 key={event.id}
-                onClick={() => setPeekEvent(event)}
-                className="absolute z-20 cursor-pointer overflow-hidden rounded-lg border transition-opacity hover:opacity-80"
+                role="button"
+                tabIndex={0}
+                aria-label={`${event.title}${endStr ? `, ${formatTime(startStr)} to ${formatTime(endStr)}` : `, ${formatTime(startStr)}`}`}
+                onClick={(e) => { e.stopPropagation(); setPeekEvent(event); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPeekEvent(event);
+                  }
+                }}
+                className="absolute z-20 cursor-pointer overflow-hidden rounded-lg border transition-opacity [@media(hover:hover)]:hover:opacity-80"
                 style={{
                   top,
                   height,
@@ -2389,7 +2637,7 @@ export default function DayViewClient({ date }: { date: string }) {
                                   setFriendProfile(list.find((f) => f.id === friendId) || { id: friendId, name });
                                 }).catch(() => setFriendProfile({ id: friendId, name }));
                               }}
-                              className="max-w-full break-words rounded-full border px-1.5 py-0.5 text-center leading-tight transition-colors hover:brightness-95"
+                              className="max-w-full break-words rounded-full border px-1.5 py-0.5 text-center leading-tight transition-colors [@media(hover:hover)]:hover:brightness-95"
                               style={{ borderColor: "color-mix(in oklab, var(--color-warmth) 38%, transparent)", backgroundColor: "color-mix(in oklab, var(--color-warmth) 12%, var(--color-paper))", color: "var(--color-warmth)" }}
                               aria-label={`Open ${name}'s friend profile`}
                               title={`Open ${name}'s friend profile`}
@@ -2508,7 +2756,7 @@ export default function DayViewClient({ date }: { date: string }) {
               <button
                 key={`gap-${g.start}`}
                 onClick={(e) => { e.stopPropagation(); setPlanGap(g); setPlanOpen(true); }}
-                className="absolute z-10 flex items-center justify-center rounded-lg text-[10px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                className="absolute z-10 flex items-center justify-center rounded-lg text-[10px] font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 style={{
                   top: minutesToTop(g.start) + 2,
                   height: 32,
@@ -2526,14 +2774,32 @@ export default function DayViewClient({ date }: { date: string }) {
         </div>
       </div>
 
-
+      {/* Empty-day state — one sentence + one action (G8) */}
+      {!loading && events.length === 0 && dayBlocks.length === 0 && (
+        <div
+          className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5"
+          style={{ borderColor: "var(--color-paper-3)" }}
+        >
+          <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>
+            Nothing scheduled yet — tap a time on the grid to add one.
+          </p>
+          <button
+            type="button"
+            onClick={() => openNewEventForm()}
+            className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold"
+            style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 32 }}
+          >
+            Add an event
+          </button>
+        </div>
+      )}
 
       {/* Pick mode — big X + hint */}
       {pickMode && (
         <>
           <button
             onClick={() => setPickMode(false)}
-            className="fixed right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-105"
+            className="fixed right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform [@media(hover:hover)]:hover:scale-105"
             style={{
               top: "calc(env(safe-area-inset-top, 0px) + 64px)",
               backgroundColor: "var(--color-ink)",
@@ -2560,7 +2826,7 @@ export default function DayViewClient({ date }: { date: string }) {
       {/* Floating action button — sits above mobile bottom nav, top-right on desktop */}
       <button
         onClick={() => setPlusOpen((open) => !open)}
-        className="fixed right-5 bottom-20 z-30 flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-105 lg:bottom-6"
+        className="fixed right-5 bottom-20 z-30 flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-transform [@media(hover:hover)]:hover:scale-105 lg:bottom-6"
         style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}
         aria-label="Add to calendar"
         aria-expanded={plusOpen}
@@ -2571,31 +2837,8 @@ export default function DayViewClient({ date }: { date: string }) {
       {plusOpen && (
         <div className="fixed bottom-36 right-5 z-30 flex w-52 flex-col gap-1 rounded-xl border p-1.5 shadow-xl lg:bottom-20"
           style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
-          <button type="button" onClick={() => {
-          setNewTitle("");
-          setNewDetails("");
-          const [start, end] = roundedCurrentEventRange(userTimezone);
-          setNewStart(start);
-          setNewEnd(end);
-          setNewType("block");
-          setHangoutWith("");
-    setHangoutFriendId(null);
-    setHangoutFriendIds([]);
-    setTagPlace(null);
-    setTagType("menu");
-          setTagMenuOpen(false);
-          setNewColor(null);
-          setNewNotify(true);
-          setNewSharePublic(true);
-          setEnableRecurrence(false);
-          setRecurrenceEndDate("");
-          setRecurrenceDays([]);
-          setEditingEvent(null);
-          setShowAddForm(true);
-          setPlusOpen(false);
-          play("open");
-        }}
-            className="rounded-lg px-3 py-2.5 text-left text-xs font-semibold hover:bg-[var(--color-paper-2)]"
+          <button type="button" onClick={() => openNewEventForm()}
+            className="rounded-lg px-3 py-2.5 text-left text-xs font-semibold [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
             style={{ color: "var(--color-ink)" }}>
             <Plus className="mr-2 inline h-3.5 w-3.5" style={{ color: "var(--color-accent)" }} />
             Add event or class
@@ -2603,7 +2846,7 @@ export default function DayViewClient({ date }: { date: string }) {
         </div>
       )}
 
-      {loading && (
+      {loading && showLoading && (
         <div className="mt-4 flex items-center gap-2" role="status" aria-label="Loading calendar">
           <span className="flex gap-1" aria-hidden>
             {[0, 1, 2].map((d) => (
@@ -2619,12 +2862,12 @@ export default function DayViewClient({ date }: { date: string }) {
         </div>
       )}
       {error && !showAddForm && !editingEvent && (
-        <p className="mt-4 text-sm" style={{ color: "var(--color-error)" }}>{error}</p>
+        <p role="alert" className="mt-4 text-sm" style={{ color: "var(--color-error)" }}>{error}</p>
       )}
 
       {friendProfile && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-3 sm:items-center" onClick={() => setFriendProfile(null)}>
-          <div className="w-full max-w-sm rounded-2xl border p-5 shadow-xl" onClick={(e) => e.stopPropagation()} style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-3 sm:items-center" role="dialog" aria-modal="true" aria-label={`${friendProfile.name} — friend profile`} onClick={() => setFriendProfile(null)}>
+          <div ref={friendProfileRef} tabIndex={-1} className="w-full max-w-sm rounded-2xl border p-5 shadow-xl" onClick={(e) => e.stopPropagation()} style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
             <div className="flex items-center gap-3">
               {friendsList?.find((friend) => friend.id === friendProfile.id)?.hasPhoto ? (
                 // eslint-disable-next-line @next/next/no-img-element -- private friend photo endpoint
@@ -2650,8 +2893,8 @@ export default function DayViewClient({ date }: { date: string }) {
       )}
 
       {placeProfile && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-3 sm:items-center" onClick={() => setPlaceProfile(null)}>
-          <div className="w-full max-w-sm rounded-2xl border p-5 shadow-xl" onClick={(e) => e.stopPropagation()} style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-3 sm:items-center" role="dialog" aria-modal="true" aria-label={`${placeProfile.name} — place profile`} onClick={() => setPlaceProfile(null)}>
+          <div ref={placeProfileRef} tabIndex={-1} className="w-full max-w-sm rounded-2xl border p-5 shadow-xl" onClick={(e) => e.stopPropagation()} style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
             <div className="flex items-center gap-3">
               <span className="flex h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: "color-mix(in oklab, var(--color-accent) 14%, transparent)", color: "var(--color-accent)" }}><MapPin className="h-5 w-5" /></span>
               <div className="min-w-0">
@@ -2670,9 +2913,11 @@ export default function DayViewClient({ date }: { date: string }) {
       {(showAddForm || editingEvent) && (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center"
-          onClick={closeForm}
+          onClick={requestCloseForm}
         >
           <form
+            ref={formDialogRef}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-label={editingEvent ? "Edit event" : "New event"}
@@ -2687,8 +2932,8 @@ export default function DayViewClient({ date }: { date: string }) {
               </div>
               <button
                 type="button"
-                onClick={closeForm}
-                className="flex -mr-1 -mt-1 h-11 w-11 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-paper-2)]"
+                onClick={requestCloseForm}
+                className="flex -mr-1 -mt-1 h-11 w-11 items-center justify-center rounded-full transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 aria-label="Close"
               >
                 <X className="h-5 w-5" style={{ color: "var(--color-ink-muted)" }} />
@@ -2730,7 +2975,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       }
                       setFormStep(2);
                     }}
-                    className="flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors hover:bg-[var(--color-paper-2)]"
+                    className="flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                     style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", minHeight: 52 }}
                   >
                     <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{opt.label}</span>
@@ -2745,7 +2990,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 <button
                   type="button"
                   onClick={() => setFormStep(1)}
-                  className="self-start rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  className="self-start rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                   style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 32 }}
                 >
                   ← Back · {eventKind === "event" ? (newType === "reminder" ? "Reminder" : "Event") : eventKind === "class" ? "New class" : eventKind === "goal" ? "Plan goal" : eventKind === "quran" ? "Read quran" : eventKind}
@@ -2788,7 +3033,7 @@ export default function DayViewClient({ date }: { date: string }) {
                               setHangoutFriendIds(next);
                               setHangoutFriendId(next[0] || null);
                               setHangoutWith(next.map((friendId) => friendsList?.find((friend) => friend.id === friendId)?.name || "").filter(Boolean).join(", "));
-                            }} className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-[color-mix(in_oklab,var(--color-warmth)_18%,transparent)]" aria-label={`Remove ${name}`}>
+                            }} className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full [@media(hover:hover)]:hover:bg-[color-mix(in_oklab,var(--color-warmth)_18%,transparent)]" aria-label={`Remove ${name}`}>
                               <X className="h-2.5 w-2.5" />
                             </button>
                           </span>
@@ -2844,7 +3089,7 @@ export default function DayViewClient({ date }: { date: string }) {
                         </div>
                         <div className="mt-2 max-h-48 overflow-y-auto">
                           {placeList.filter((p) => (p.kind || "D") === placeCategory && `${p.name} ${p.address}`.toLowerCase().includes(placeSearch.toLowerCase())).slice(0, 120).map((place) => (
-                            <button key={place.id} type="button" onClick={() => { setTagPlace(place); setTagMenuOpen(false); }} className="flex w-full flex-col rounded-lg px-2 py-2 text-left hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
+                            <button key={place.id} type="button" onClick={() => { setTagPlace(place); setTagMenuOpen(false); }} className="flex w-full flex-col rounded-lg px-2 py-2 text-left [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]" style={{ color: "var(--color-ink)" }}>
                               <span className="truncate text-xs font-medium">{place.name}</span><span className="truncate text-[10px]" style={{ color: "var(--color-ink-muted)" }}>{place.address}</span>
                             </button>
                           ))}
@@ -2873,7 +3118,7 @@ export default function DayViewClient({ date }: { date: string }) {
                                   setHangoutFriendIds(next);
                                   setHangoutFriendId(next[0] || null);
                                   setHangoutWith(next.map((id) => friendsList.find((candidate) => candidate.id === id)?.name || "").filter(Boolean).join(", "));
-                                }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-[var(--color-paper-2)]" style={{ backgroundColor: hangoutFriendIds.includes(friend.id) ? "color-mix(in oklab, var(--color-warmth) 8%, transparent)" : "transparent", color: "var(--color-ink)" }}>
+                                }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]" style={{ backgroundColor: hangoutFriendIds.includes(friend.id) ? "color-mix(in oklab, var(--color-warmth) 8%, transparent)" : "transparent", color: "var(--color-ink)" }}>
                                   <span className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold" style={{ backgroundColor: "color-mix(in oklab, var(--color-warmth) 16%, transparent)", color: "var(--color-warmth)" }}>{friend.name.slice(0, 1).toUpperCase()}</span>
                                   <span className="truncate">{friend.name}</span>
                                   {hangoutFriendIds.includes(friend.id) && <Check className="ml-auto h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warmth)" }} />}
@@ -3176,7 +3421,7 @@ export default function DayViewClient({ date }: { date: string }) {
                 type="button"
                 onClick={() => setNewSharePublic(!newSharePublic)}
                 aria-pressed={newSharePublic}
-                className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-[var(--color-paper-2)]"
+                className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 title="Show this on your shared public calendar"
               >
                 <span className="flex items-center gap-1.5" style={{ color: "var(--color-ink-muted)" }}>
@@ -3394,7 +3639,7 @@ export default function DayViewClient({ date }: { date: string }) {
                                 {!isCurrent && (
                                   <Link
                                     href={`/calendar/day?date=${evDateStr}`}
-                                    className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                                    className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                                     style={{ color: "var(--color-accent)" }}
                                     onClick={() => closeForm()}
                                   >
@@ -3405,7 +3650,7 @@ export default function DayViewClient({ date }: { date: string }) {
                                 <button
                                   type="button"
                                   onClick={() => deleteSingleEvent(ev.id, evDateStr)}
-                                  className="shrink-0 rounded-md p-1 transition-colors hover:bg-[var(--color-paper-2)]"
+                                  className="shrink-0 rounded-md p-1 transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                                   style={{ color: "var(--color-error)" }}
                                   aria-label="Delete this event"
                                 >
@@ -3426,15 +3671,15 @@ export default function DayViewClient({ date }: { date: string }) {
 
               {/* Error message inside modal */}
               {error && (showAddForm || editingEvent) && (
-                <p className="text-xs" style={{ color: "var(--color-error)" }}>{error}</p>
+                <p role="alert" className="text-xs" style={{ color: "var(--color-error)" }}>{error}</p>
               )}
 
               {/* Action buttons */}
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  disabled={enableRecurrence && (recurrenceDays.length === 0 || !recurrenceEndDate)}
-                  className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-40"
+                  disabled={saving || (enableRecurrence && (recurrenceDays.length === 0 || !recurrenceEndDate))}
+                  className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-opacity [@media(hover:hover)]:hover:opacity-90 disabled:opacity-40"
                   style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
                 >
                   {editingEvent ? (editAllInSeries ? "Save all" : "Save") : enableRecurrence ? "Add recurring" : "Add"}
@@ -3443,7 +3688,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   <button
                     type="button"
                     onClick={() => setDeleteConfirm(editingEvent)}
-                    className="rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors hover:opacity-80"
+                    className="rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors [@media(hover:hover)]:hover:opacity-80"
                     style={{ borderColor: "var(--color-error)", color: "var(--color-error)", minHeight: 44 }}
                   >
                     Delete
@@ -3463,6 +3708,8 @@ export default function DayViewClient({ date }: { date: string }) {
           onClick={() => setDeleteConfirm(null)}
         >
           <div
+            ref={deleteDialogRef}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-label="Delete event"
@@ -3591,7 +3838,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
       {/* Event peek — tap shows details + actions, never jumps straight to edit */}
       {peekEvent && (
-        <div className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Event">
+        <div ref={peekEventRef} tabIndex={-1} className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Event">
           <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }} onClick={() => setPeekEvent(null)} aria-label="Close" />
           <div
             className="relative w-full max-w-sm rounded-t-2xl border-t p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:border sm:pb-4"
@@ -3629,7 +3876,7 @@ export default function DayViewClient({ date }: { date: string }) {
                   <Link
                     href={cta.href}
                     onClick={() => setPeekEvent(null)}
-                    className="mt-3 block rounded-lg border px-3 py-2.5 text-center text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                    className="mt-3 block rounded-lg border px-3 py-2.5 text-center text-sm font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                     style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
                   >
                     {cta.label}
@@ -3640,14 +3887,14 @@ export default function DayViewClient({ date }: { date: string }) {
             <div className="mt-3 flex gap-2">
               <button
                 onClick={() => { const ev = peekEvent; setPeekEvent(null); openEditForm(ev); }}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity [@media(hover:hover)]:hover:opacity-90"
                 style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)", minHeight: 44 }}
               >
                 <Pencil className="h-3.5 w-3.5" /> Edit
               </button>
               <button
                 onClick={() => { const ev = peekEvent; setPeekEvent(null); setDeleteConfirm(ev); }}
-                className="rounded-full px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                className="rounded-full px-4 py-2.5 text-sm font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                 style={{ color: "var(--color-error)", minHeight: 44 }}
                 aria-label="Delete event"
               >
@@ -3660,7 +3907,7 @@ export default function DayViewClient({ date }: { date: string }) {
 
       {/* Study-block peek — Edit or launch a Vox session */}
       {peekBlock && (
-        <div className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Study block">
+        <div ref={peekBlockRef} tabIndex={-1} className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Study block">
           <button className="absolute inset-0" style={{ backgroundColor: "color-mix(in oklab, var(--color-ink) 35%, transparent)" }} onClick={() => { setPeekBlock(null); setExpiredPick(null); }} aria-label="Close" />
           <div
             className="relative w-full max-w-sm rounded-t-2xl border-t p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:border sm:pb-4"
@@ -3682,7 +3929,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       resumeSession();
                       setOverlayOpen(true);
                     }}
-                    className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                    className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity [@media(hover:hover)]:hover:opacity-90"
                     style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
                   >
                     <Play className="h-4 w-4" /> {studySession.pausedAt ? "Resume paused session" : "Return to session"}
@@ -3697,7 +3944,7 @@ export default function DayViewClient({ date }: { date: string }) {
                         b.id,
                       );
                     }}
-                    className="flex items-center justify-center gap-1.5 rounded-full border py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                    className="flex items-center justify-center gap-1.5 rounded-full border py-2.5 text-sm font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                     style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
                   >
                     Start a new session
@@ -3757,7 +4004,7 @@ export default function DayViewClient({ date }: { date: string }) {
                               b.id,
                             );
                           }}
-                          className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                          className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity [@media(hover:hover)]:hover:opacity-90"
                           style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
                         >
                           <Play className="h-4 w-4" /> Use {fmtMin(s)}–{fmtMin(e)} · {fmtDur(dur)}
@@ -3771,14 +4018,14 @@ export default function DayViewClient({ date }: { date: string }) {
                     <div className="flex gap-2">
                       <button
                         onClick={() => { const b = peekBlock; setPeekBlock(null); setExpiredPick(null); setPlanBlock(b); setPlanOpen(true); }}
-                        className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-2.5 text-sm font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
                       >
                         Pick on calendar
                       </button>
                       <button
                         onClick={() => setExpiredPick(null)}
-                        className="flex items-center justify-center rounded-full border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                        className="flex items-center justify-center rounded-full border px-4 py-2.5 text-sm font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                         style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)", minHeight: 44 }}
                       >
                         Back
@@ -3803,7 +4050,7 @@ export default function DayViewClient({ date }: { date: string }) {
                         const pad = (n: number) => String(n).padStart(2, "0");
                         setExpiredPick({ from: `${pad(Math.floor(s / 60))}:${pad(s % 60)}`, to: `${pad(Math.floor(e / 60))}:${pad(e % 60)}` });
                       }}
-                      className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                      className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity [@media(hover:hover)]:hover:opacity-90"
                       style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
                     >
                       <Play className="h-4 w-4" /> Plan my session
@@ -3832,7 +4079,7 @@ export default function DayViewClient({ date }: { date: string }) {
                       b.id,
                     );
                   }}
-                  className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+                  className="flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-medium transition-opacity [@media(hover:hover)]:hover:opacity-90"
                   style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)", minHeight: 44 }}
                 >
                   <Play className="h-4 w-4" /> Start studying
@@ -3841,7 +4088,7 @@ export default function DayViewClient({ date }: { date: string }) {
               <div className="flex gap-2">
                 <button
                   onClick={() => { const b = peekBlock; setPeekBlock(null); setPlanBlock(b); setPlanOpen(true); }}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full border py-2.5 text-sm font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                   style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", minHeight: 44 }}
                 >
                   <Pencil className="h-3.5 w-3.5" /> Edit block
@@ -3857,7 +4104,7 @@ export default function DayViewClient({ date }: { date: string }) {
                         body: JSON.stringify({ id: b.id, status: "worked" }),
                       }).then(() => void refreshBlocks()).catch(() => {});
                     }}
-                    className="flex items-center justify-center gap-1.5 rounded-full border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-paper-2)]"
+                    className="flex items-center justify-center gap-1.5 rounded-full border px-4 py-2.5 text-sm font-medium transition-colors [@media(hover:hover)]:hover:bg-[var(--color-paper-2)]"
                     style={{ borderColor: "var(--color-paper-3)", color: "var(--color-success)", minHeight: 44 }}
                   >
                     <Check className="h-4 w-4" /> Worked

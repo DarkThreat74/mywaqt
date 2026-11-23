@@ -83,7 +83,7 @@ async function fromIslamicApp(lat: number, lng: number, radiusKm: number): Promi
     iqamaOffsets: null,
     iqamaFixed: null,
     jummah: null,
-    hasIqama: true, // detail fetch needed for actual times
+    hasIqama: false, // unverified — enrich() sets it after the detail fetch
     image: null,
     phone: null,
     website: null,
@@ -239,8 +239,8 @@ function merge(a: MasjidEntry[], b: MasjidEntry[]): MasjidEntry[] {
     // Same mosque in two sources: keep the one that can actually produce
     // iqamah — a Mawaqit/OSM pin must not hide a registry iqamah endpoint.
     const existing = merged[i];
-    const oRich = o.hasIqama || !!o.fetchUrl;
-    const eRich = existing.hasIqama || !!existing.fetchUrl;
+    const oRich = o.hasIqama || !!o.fetchUrl || !!o.slug; // slug = islamic.app detail fetch can still produce iqamah
+    const eRich = existing.hasIqama || !!existing.fetchUrl || !!existing.slug;
     if (oRich && !eRich) {
       // Swap in the iqamah-capable entry, but graft display fields the
       // replaced entry had (Mawaqit photo/address/url) that the registry
@@ -501,8 +501,7 @@ export async function GET(request: NextRequest) {
         delete copy.fetchUrl;
         delete copy.srcId;
         delete copy.iqamahCache;
-        delete copy.iqamahCheckedAt;
-        return copy;
+        return copy; // iqamahCheckedAt stays — client shows "checked {date}" honesty
       });
       return NextResponse.json({ mosques: out, total: unique.length, hasMore: false });
     }
@@ -543,7 +542,7 @@ export async function GET(request: NextRequest) {
           // Nightly-scraped iqamah applies with no network — map stays instant.
           applyCachedIqamah(e);
           const pub: Record<string, unknown> = { ...e };
-          delete pub.srcId; delete pub.iqamahCache; delete pub.iqamahCheckedAt; delete pub.fetchUrl;
+          delete pub.srcId; delete pub.iqamahCache; delete pub.fetchUrl; // iqamahCheckedAt kept — client stamps freshness
           return pub;
         }),
         // Community rows overlapping a registry masjid (~11m) would pin twice
@@ -673,8 +672,7 @@ export async function GET(request: NextRequest) {
       delete copy.fetchUrl;
       delete copy.srcId;
       delete copy.iqamahCache;
-      delete copy.iqamahCheckedAt;
-      return copy;
+      return copy; // iqamahCheckedAt stays — Date serializes to ISO, client shows "checked {date}"
     });
     return NextResponse.json({
       mosques: out,

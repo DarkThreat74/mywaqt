@@ -653,7 +653,7 @@ function showPanel(id,focus){openPanel=id;$('#scrim').classList.toggle('lite',id
 function closePanel(fromPop){if(!openPanel)return;$('#'+openPanel).classList.remove('on');$('#scrim').classList.remove('on');const wasF=filterOpen;openPanel=null;filterOpen=false;
  if(wasF&&!wide())tweenVis(VIS[snap]);if(!fromPop)hpop('p');render(false);draw()}
 $('#scrim').addEventListener('click',()=>closePanel());
-$('#bHome').addEventListener('click',()=>{window.location.href='/'});
+$('#bHome').addEventListener('click',()=>{try{window.top.location.href='/'}catch(e){window.location.href='/'}});
 $('#bInfo').addEventListener('click',()=>{buildInfo();showPanel('pInfo')});
 $('#iClose').addEventListener('click',()=>closePanel());
 $('#fDone').addEventListener('click',()=>closePanel());

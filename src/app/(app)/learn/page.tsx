@@ -17,6 +17,7 @@ export default async function LearnPage() {
   // Fetch the user's madhab to pass to the client.
   // Wrapped in try/catch so Neon cold-starts don't crash the page.
   let settings: { madhab: string | null } | undefined;
+  let madhabLoadFailed = false;
   try {
     [settings] = await db
       .select({ madhab: schema.prayerSettings.madhab })
@@ -24,12 +25,13 @@ export default async function LearnPage() {
       .where(eq(schema.prayerSettings.userId, session.userId))
       .limit(1);
   } catch {
-    // DB error — default to hanafi madhab
+    // DB error — surface it; don't silently assume a madhab
+    madhabLoadFailed = true;
   }
 
   const madhab = (settings?.madhab === "standard" ? "standard" : "hanafi") as
     | "standard"
     | "hanafi";
 
-  return <LearnClient madhab={madhab} />;
+  return <LearnClient madhab={madhab} madhabLoadFailed={madhabLoadFailed} />;
 }

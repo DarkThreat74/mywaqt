@@ -46,12 +46,17 @@ export default function WorkoutProfilePage() {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [backHint, setBackHint] = useState(false);
   const [stats, setStats] = useState<{ tonnage: number; tonWeek: number; prs: number; sessions: number; lifts: { name: string; ratio: number; level: string; nextLevel: string | null; nextKg: number | null; pctToNext: number | null; e1: number; gainPct: number | null }[]; score: number | null; scoreLabel: string | null; comparisonBand: string | null; matchedLifts: number; total: number; wilks: number | null; pushPull: number | null; upperLower: number | null; muscleSets: { muscle: string; sets: number }[] } | null>(null);
   const [growth, setGrowth] = useState<{ name: string; first: number; last: number; gainPct: number | null; points: { e1: number }[] }[]>([]);
   const [forecasts, setForecasts] = useState<{ name: string; status: string; change: number | null; range: [number, number] | null; confidence: number; limiting: string[] }[]>([]);
   const router = useRouter();
 
-  useEffect(() => {
+  const load = () => {
+    setLoaded(false);
+    setLoadError(null);
     void fetch("/api/settings/prefs").then((r) => (r.ok ? r.json() : null)).then(async (d) => {
       const p = d?.prefs;
       const wu: WUnit = p?.unitWeight === "lb" ? "lb" : "kg";
@@ -165,21 +170,26 @@ export default function WorkoutProfilePage() {
         setLoadError("Progress could not be loaded. Your saved body details are still available.");
       }
       setLoaded(true);
-    }).catch(() => { setLoadError("Profile data could not be loaded. Try again."); setLoaded(true); });
-  }, []);
+    }).catch(() => { setLoadError("Profile data could not be loaded — check your connection."); setLoaded(true); });
+  };
+  useEffect(() => { Promise.resolve().then(load); }, []);
 
-  const saveAll = () => {
+  const saveAll = async () => {
     const disp = parseFloat(weight);
     const bw = wUnit === "lb" ? Math.round(disp / 2.205 * 10) / 10 : disp;
     const cm = hUnit === "cm" ? parseFloat(cmVal) : Math.round(((parseFloat(ftVal) || 0) * 12 + (parseFloat(inVal) || 0)) * 2.54);
-    if (bw > 0 && cm > 0) {
-      save({ bodyWeightKg: bw, heightCm: cm, unitWeight: wUnit, unitHeight: hUnit, sex, bodyfatPct: parseFloat(bodyfat) || null, weightUpdatedAt: new Date().toISOString() });
-      router.push("/workout");
-    }
+    if (!(bw > 0 && cm > 0)) return;
+    setSaving(true);
+    setSaveError(null);
+    const ok = await save({ bodyWeightKg: bw, heightCm: cm, unitWeight: wUnit, unitHeight: hUnit, sex, bodyfatPct: parseFloat(bodyfat) || null, weightUpdatedAt: new Date().toISOString() });
+    setSaving(false);
+    if (ok) router.push("/workout");
+    else setSaveError("Could not save — check your connection and try again.");
   };
 
-  const save = (body: Record<string, unknown>) => {
-    void fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
+  const save = async (body: Record<string, unknown>): Promise<boolean> => {
+    const res = await fetch("/api/settings/prefs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    return !!res?.ok;
   };
 
   const dispW = parseFloat(weight);
@@ -201,7 +211,12 @@ export default function WorkoutProfilePage() {
         const disp = (kg: number) => wUnit === "lb" ? Math.round(kg * 2.205) : Math.round(kg);
         return (
         <div className="mt-4 space-y-3">
-          {loadError && <p className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>{loadError}</p>}
+          {loadError && (
+            <p className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "var(--color-warmth)", color: "var(--color-warmth)" }}>
+              {loadError}
+              <button type="button" onClick={load} className="shrink-0 underline">Try again</button>
+            </p>
+          )}
           <Link href="/workout/photos" className="flex items-center justify-between rounded-xl border px-4 py-3 text-sm"
             style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
             Progress photos
@@ -242,7 +257,7 @@ export default function WorkoutProfilePage() {
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <div className="grid grid-cols-3 gap-2 text-center">
               <div>
-                <p className="text-[10px] uppercase tracking-wider" title="A simple comparison level based on your main-lift estimated maxes and bodyweight." style={{ color: "var(--color-ink-muted)" }}>Strength level</p>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Strength level</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.score ?? "—"}</p>
                 <p className="text-[10px] font-medium capitalize" style={{ color: "var(--color-accent)" }}>{stats?.comparisonBand ?? stats?.scoreLabel ?? ""}</p>
                 <p className="text-[9px]" style={{ color: "var(--color-ink-muted)" }}>{stats ? `${stats.matchedLifts}/5 lifts logged` : ""}</p>
@@ -253,11 +268,14 @@ export default function WorkoutProfilePage() {
                 <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>squat + press + deadlift · {wUnit} total</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider" title="A bodyweight-adjusted comparison number. It is not a lift weight or a school grade." style={{ color: "var(--color-ink-muted)" }}>Bodyweight score</p>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Bodyweight score</p>
                 <p className="mt-0.5 text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>{stats?.wilks ?? "—"}</p>
                 <p className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>comparison points · placement: {stats?.comparisonBand ?? "not enough data"}</p>
               </div>
             </div>
+            <p className="mt-3 text-[9px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
+              Strength level compares your main-lift estimated maxes against your bodyweight. The bodyweight score is a comparison number, not a lift weight or a grade.
+            </p>
           </div>
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-paper-3)" }}>
             <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>How your main lifts compare</p>
@@ -369,7 +387,7 @@ export default function WorkoutProfilePage() {
             <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-muted)" }}>Progress since your first workout</p>
             {growth.length === 0 && <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Log sets to start your trend lines.</p>}
             {(() => { const g = growth.filter((x) => x.gainPct != null).sort((a, b) => (b.gainPct ?? 0) - (a.gainPct ?? 0))[0]; return g && g.gainPct! > 0 ? (
-              <p className="mt-1 text-[10px]" style={{ color: "var(--color-success)" }}>Biggest gainer: {g.name} +{g.gainPct}%</p>
+              <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink)" }}>Biggest gainer: {g.name} +{g.gainPct}%</p>
             ) : null; })()}
             <div className="mt-2 space-y-1.5">
               {growth.map((g) => {
@@ -387,7 +405,7 @@ export default function WorkoutProfilePage() {
                       {disp(g.first)}→{disp(g.last)}{wUnit} estimated max
                     </span>
                     <span className="w-12 text-right text-[9px] font-semibold tabular-nums"
-                      style={{ color: g.gainPct === null ? "var(--color-ink-muted)" : g.gainPct >= 0 ? "var(--color-success)" : "var(--color-error)" }}>
+                      style={{ color: g.gainPct === null ? "var(--color-ink-muted)" : g.gainPct < 0 ? "var(--color-warmth)" : "var(--color-ink)" }}>
                       {g.gainPct !== null ? `${g.gainPct > 0 ? "+" : ""}${g.gainPct}%` : "—"}
                     </span>
                   </div>
@@ -405,7 +423,7 @@ export default function WorkoutProfilePage() {
               {forecasts.map((f) => (
                 <div key={f.name} className="flex items-center gap-2">
                   <span className="w-28 truncate text-[10px] capitalize" style={{ color: "var(--color-ink)" }}>{f.name}</span>
-                  <span className="flex-1 text-[9px]" style={{ color: f.status === "forecast" ? "var(--color-success)" : "var(--color-ink-muted)" }}>
+                  <span className="flex-1 text-[9px]" style={{ color: f.status === "forecast" ? "var(--color-ink)" : "var(--color-ink-muted)" }}>
                     {f.change !== null && f.range ? `${f.change >= 0 ? "+" : ""}${f.change}% per month · likely ${f.range[0]}–${f.range[1]}%` : f.status === "insufficient-data" ? "Need more workouts" : "Still learning your trend"}
                     {f.limiting[0] ? ` · ${f.limiting[0]}` : ""}
                   </span>
@@ -415,8 +433,8 @@ export default function WorkoutProfilePage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-            <span title="Total weight × reps across completed loaded sets since your first workout">lifetime volume <b style={{ color: "var(--color-ink)" }}>{stats?.tonnage ? `${(stats.tonnage / 1000).toFixed(1)}t` : "—"}</b></span>
-            <span title="Total weight × reps across completed loaded sets in the last seven days">last 7 days <b style={{ color: "var(--color-ink)" }}>{stats?.tonWeek ? `${(stats.tonWeek / 1000).toFixed(1)}t` : "—"}</b></span>
+            <span>lifetime volume <b style={{ color: "var(--color-ink)" }}>{stats?.tonnage ? `${(stats.tonnage / 1000).toFixed(1)}t` : "—"}</b></span>
+            <span>last 7 days <b style={{ color: "var(--color-ink)" }}>{stats?.tonWeek ? `${(stats.tonWeek / 1000).toFixed(1)}t` : "—"}</b></span>
             <span>Exercises tracked <b style={{ color: "var(--color-ink)" }}>{stats?.prs || "—"}</b></span>
           </div>
           <p className="px-1 text-[9px]" style={{ color: "var(--color-ink-muted)" }}>Volume is workload, not strength: weight × reps. It helps show training consistency and fatigue, while estimated max describes a single-lift effort.</p>
@@ -431,7 +449,7 @@ export default function WorkoutProfilePage() {
                 // Convert the typed value so the number stays correct across units.
                 const d = parseFloat(weight);
                 if (d > 0 && v !== wUnit) setWeight(v === "lb" ? String(Math.round(d * 2.205)) : String(Math.round(d / 2.205 * 10) / 10));
-                setWUnit(v as WUnit); save({ unitWeight: v });
+                setWUnit(v as WUnit); void save({ unitWeight: v });
               }} />
             </div>
             <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Updates weekly — it drifts.</p>
@@ -454,7 +472,7 @@ export default function WorkoutProfilePage() {
                   if (v === "ft") { setFtVal(String(Math.floor(cm / 30.48))); setInVal(String(Math.round((cm / 2.54) % 12))); }
                   else setCmVal(String(cm));
                 }
-                setHUnit(v as HUnit); save({ unitHeight: v });
+                setHUnit(v as HUnit); void save({ unitHeight: v });
               }} />
             </div>
             <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Asked once — it doesn&apos;t change.</p>
@@ -496,18 +514,30 @@ export default function WorkoutProfilePage() {
             <p className="mt-1 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Optional — enables FFMI (lean mass per height²).</p>
           </div>
           <div className="flex gap-2">
-            <button type="button" onClick={() => { const bw = parseFloat(weight); if (bw > 0) setEditing(false); }}
+            <button type="button" onClick={() => {
+              const bw = parseFloat(weight);
+              if (bw > 0) { setEditing(false); setBackHint(false); }
+              else setBackHint(true);
+            }}
               className="rounded-xl border px-4 py-3 text-sm"
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-muted)" }}>
               Back
             </button>
-            <button type="button" onClick={saveAll}
-              disabled={!(dispW > 0 && ht > 0)}
+            <button type="button" onClick={() => void saveAll()}
+              disabled={saving || !(dispW > 0 && ht > 0)}
               className="flex-1 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-40"
               style={{ backgroundColor: "var(--color-ink)", color: "var(--color-paper)" }}>
-              Save & continue →
+              {saving ? "Saving…" : "Save & continue →"}
             </button>
           </div>
+          {backHint && (
+            <p className="text-[11px]" style={{ color: "var(--color-warmth)" }}>
+              Enter your weight first — it&apos;s needed for the strength comparisons.
+            </p>
+          )}
+          {saveError && (
+            <p role="alert" className="text-[11px]" style={{ color: "var(--color-error)" }}>{saveError}</p>
+          )}
         </div>
       )}
     </div>

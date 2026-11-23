@@ -49,6 +49,9 @@ export async function GET(request: NextRequest) {
       plannedEndTime: schema.homeworks.plannedEndTime,
       estimatedMinutes: schema.homeworks.estimatedMinutes,
       plannedEventId: schema.homeworks.plannedEventId,
+      // Recurring-series membership — the client can't warn that delete/edit
+      // forks one occurrence without it.
+      seriesId: schema.homeworks.seriesId,
       notified3dAt: schema.homeworks.notified3dAt,
       notified1dAt: schema.homeworks.notified1dAt,
       notifiedMorningAt: schema.homeworks.notifiedMorningAt,

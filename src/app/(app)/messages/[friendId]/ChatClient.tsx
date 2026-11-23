@@ -16,6 +16,7 @@ type Msg = {
   readAt: string | null;
   createdAt: string;
   optimistic?: boolean;
+  failed?: boolean;
 };
 
 type Friend = { id: string; name: string; avatarUrl: string | null };
@@ -32,6 +33,9 @@ export default function ChatClient({ friendId }: { friendId: string }) {
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [sending, setSending] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [sendErr, setSendErr] = useState(false);
+  const [unseen, setUnseen] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -56,6 +60,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
       const data = await res.json() as { friend: Friend; messages: Msg[]; me: string; unreadIncoming: number };
       setFriend(data.friend);
       setMe(data.me);
+      setLoaded(true);
       const newest = data.messages[data.messages.length - 1];
       if (newest) lastTs.current = newest.createdAt;
       setMessages((prev) => {
@@ -75,6 +80,11 @@ export default function ChatClient({ friendId }: { friendId: string }) {
       // Since-polls return only the delta — play on any new incoming row.
       if (lastIncoming.current >= 0 ? newIncoming > 0 : false) play("notification");
       lastIncoming.current = Math.max(0, lastIncoming.current) + newIncoming;
+      // New messages landing below the fold are silent — surface a
+      // jump-to-latest affordance instead of pretending nothing arrived.
+      if (newIncoming > 0 && !stickToBottom.current) {
+        setUnseen((n) => n + newIncoming);
+      }
       if (data.unreadIncoming > 0 && document.visibilityState === "visible") markRead();
     } catch {
       // poll failure — next tick retries
@@ -114,6 +124,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
     const el = listRef.current;
     if (!el) return;
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (stickToBottom.current) setUnseen(0);
   };
 
   useEffect(() => {
@@ -139,7 +150,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
     if (!content || sending) return;
     setSending(true);
     const optimistic: Msg = {
-      id: `optimistic-${Date.now()}`,
+      id: `optimistic-${crypto.randomUUID()}`,
       senderId: me,
       content,
       deleted: false,
@@ -156,20 +167,42 @@ export default function ChatClient({ friendId }: { friendId: string }) {
     stickToBottom.current = true;
     play("send");
     try {
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ friendId, content, replyToId: optimistic.replyToId }),
-      });
-      if (!res.ok) throw new Error();
-      const { message } = await res.json() as { message: Msg };
-      message.replyToContent = optimistic.replyToContent;
-      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? message : m)));
+      await deliver(optimistic);
+      setSendErr(false);
     } catch {
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-      play("error");
+      markFailed(optimistic.id);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function deliver(msg: Msg) {
+    const res = await fetch("/api/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ friendId, content: msg.content, replyToId: msg.replyToId }),
+    });
+    if (!res.ok) throw new Error();
+    const { message } = await res.json() as { message: Msg };
+    message.replyToContent = msg.replyToContent;
+    setMessages((prev) => prev.map((m) => (m.id === msg.id ? message : m)));
+  }
+
+  function markFailed(id: string) {
+    // Keep the text in a failed bubble with a retry — never silently
+    // destroy what the user wrote.
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, failed: true } : m)));
+    setSendErr(true);
+    play("error");
+  }
+
+  async function retry(m: Msg) {
+    setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, failed: false } : x)));
+    try {
+      await deliver(m);
+      setSendErr(false);
+    } catch {
+      markFailed(m.id);
     }
   }
 
@@ -229,9 +262,17 @@ export default function ChatClient({ friendId }: { friendId: string }) {
       </header>
 
       {/* Thread — a correspondence ledger, not a bubble wall */}
-      <div ref={listRef} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain">
+      <div ref={listRef} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain"
+        role="log" aria-live="polite" aria-label={`Conversation with ${friend?.name ?? "friend"}`}>
         <div className="mx-auto w-full max-w-3xl px-4 py-4 sm:px-6">
-          {messages.length === 0 && (
+          {!loaded ? (
+            <div className="space-y-3 py-6" aria-hidden="true">
+              {[40, 65, 30, 55].map((w, i) => (
+                <div key={i} className={`h-10 animate-pulse rounded-2xl ${i % 2 ? "ml-auto" : ""}`}
+                  style={{ width: `${w}%`, backgroundColor: "var(--color-paper-2)", border: "1px solid var(--color-paper-3)" }} />
+              ))}
+            </div>
+          ) : messages.length === 0 && (
             <div className="py-20 text-center">
               <p className="text-xl italic leading-snug" style={{ color: "var(--color-ink)" }}>
                 Say salaam.
@@ -259,7 +300,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
                 <div className={`group mb-2 flex ${own ? "justify-end" : "justify-start"}`}>
                   {!own && (
                     <button onClick={() => setReplyTo(m)} aria-label="Reply"
-                      className="mr-1.5 self-center opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-40"
+                      className="mr-1.5 flex h-6 w-6 items-center justify-center self-center opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-40"
                       style={{ color: "var(--color-ink-muted)" }}>
                       <CornerUpLeft className="h-3.5 w-3.5" />
                     </button>
@@ -298,18 +339,47 @@ export default function ChatClient({ friendId }: { friendId: string }) {
                   </div>
                   {own && !m.optimistic && (
                     <button onClick={() => setReplyTo(m)} aria-label="Reply"
-                      className="ml-1.5 self-center opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-40"
+                      className="ml-1.5 flex h-6 w-6 items-center justify-center self-center opacity-0 transition-opacity group-hover:opacity-100 max-lg:opacity-40"
                       style={{ color: "var(--color-ink-muted)" }}>
                       <CornerUpLeft className="h-3.5 w-3.5" />
                     </button>
                   )}
                 </div>
+                {m.failed && (
+                  <div className="mb-2 flex items-center justify-end gap-2" role="alert">
+                    <span className="text-[11px] italic" style={{ color: "var(--color-warmth)" }}>
+                      Couldn&rsquo;t send — kept your words.
+                    </span>
+                    <button onClick={() => void retry(m)}
+                      className="rounded-lg border px-2.5 py-1 text-[11px] font-medium"
+                      style={{ borderColor: "var(--color-paper-3)", color: "var(--color-accent)" }}>
+                      Retry
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
           <div ref={bottomRef} />
         </div>
       </div>
+
+      {sendErr && (
+        <p role="alert" className="sr-only">
+          Couldn&rsquo;t send — your message was kept. Use Retry on the failed bubble.
+        </p>
+      )}
+
+      {/* New messages below the fold — jump to latest instead of silence */}
+      {unseen > 0 && (
+        <button
+          onClick={() => { stickToBottom.current = true; setUnseen(0); bottomRef.current?.scrollIntoView({ block: "end" }); }}
+          className="absolute bottom-28 left-1/2 z-10 -translate-x-1/2 rounded-full border px-3.5 py-1.5 text-xs font-medium shadow-sm"
+          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-accent)" }}
+        >
+          ↓ {unseen} new {unseen === 1 ? "message" : "messages"}
+        </button>
+      )}
 
       {/* Composer — a writing desk, not a chat pill */}
       <div className="border-t" style={{ borderColor: "var(--color-paper-3)" }}>
@@ -339,7 +409,7 @@ export default function ChatClient({ friendId }: { friendId: string }) {
               style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)", fieldSizing: "content" } as React.CSSProperties}
             />
             <button onClick={() => void send()} disabled={!draft.trim() || sending} aria-label="Send"
-              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all enabled:hover:-translate-y-0.5 disabled:opacity-30"
+              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-[transform,opacity] enabled:hover:-translate-y-0.5 disabled:opacity-30"
               style={{ backgroundColor: "var(--color-accent)", color: "var(--color-paper)" }}>
               <SendHorizonal className="h-4 w-4" />
             </button>
