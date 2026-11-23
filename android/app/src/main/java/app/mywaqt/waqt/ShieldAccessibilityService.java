@@ -253,11 +253,18 @@ public class ShieldAccessibilityService extends AccessibilityService {
     // Last window-state change — scrolls within 500ms of a transition are
     // usually layout settles / keyboard animations, not real swipes.
     private long lastWindowChangeAt = 0;
+    // Nested scrolling fires the same delta on child + parent in one frame —
+    // count identical deltas within a frame-window once, not twice.
+    private int lastDistPx = 0;
+    private long lastDistAt = 0;
+    // WebViews/long-text report absolute position, not deltas or items —
+    // diff successive scrollY per app (Scrollmeter's third measurement tier).
+    private final java.util.Map<String, Integer> lastScrollYByPkg = new java.util.HashMap<>();
 
     /** Pixel distance this event moved, or 0. API 28+ reports exact deltas;
-     *  older/other toolkits fall back to item-index × quarter-screen.
-     *  Jumps larger than ~4 screens are feed resets — not scrolling. */
-    private int scrollDistancePx(AccessibilityEvent event) {
+     *  WebViews report position (scrollY diff); other toolkits fall back to
+     *  item-index × quarter-screen. Jumps >~4 screens are feed resets. */
+    private int scrollDistancePx(String pkg, AccessibilityEvent event) {
         int screenH = getResources().getDisplayMetrics().heightPixels;
         if (android.os.Build.VERSION.SDK_INT >= 28) {
             try {
@@ -272,6 +279,15 @@ public class ShieldAccessibilityService extends AccessibilityService {
         if (from >= 0 && to >= 0 && to != from) {
             int items = Math.min(Math.abs(to - from), 8);
             return items * (screenH / 4);
+        }
+        int y = event.getScrollY();
+        if (y >= 0) {
+            Integer last = lastScrollYByPkg.get(pkg);
+            lastScrollYByPkg.put(pkg, y);
+            if (last != null) {
+                int d = Math.abs(y - last);
+                return d <= screenH * 4 ? d : 0;
+            }
         }
         return 0;
     }
@@ -305,8 +321,13 @@ public class ShieldAccessibilityService extends AccessibilityService {
             JSONObject day = todayStats();
             // ── Distance: every event carries real pixels (API 28+) — the
             // lead metric. No debounce: deltas are exact, not events. ──
-            int dist = scrollDistancePx(event);
+            int dist = scrollDistancePx(pkg, event);
+            if (dist > 0 && dist == lastDistPx && now - lastDistAt < 50) {
+                dist = 0; // same frame, nested child+parent — counted once
+            }
             if (dist > 0) {
+                lastDistPx = dist;
+                lastDistAt = now;
                 JSONObject px = day.optJSONObject("px");
                 if (px == null) { px = new JSONObject(); day.put("px", px); }
                 px.put(pkg, px.optLong(pkg) + dist);

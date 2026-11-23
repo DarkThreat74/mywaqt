@@ -57,6 +57,13 @@ export default function ScrollClient() {
   const [localHist, setLocalHist] = useState<Record<string, ScrollDayStats>>({});
   const [serverDays, setServerDays] = useState<ServerDay[]>([]);
   const [stamp, setStamp] = useState<Date | null>(null);
+  const [targetM, setTargetM] = useState<number | null>(() => {
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem("waqt.scrollTargetM") : null;
+      return raw != null && +raw > 0 ? +raw : null;
+    } catch { return null; }
+  });
+  const [editingTarget, setEditingTarget] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -135,6 +142,20 @@ export default function ScrollClient() {
   const anyDist = days.some((d) => meters(d) != null);
   const cmp = todayM != null && todayM >= 2 ? comparison(todayM) : null;
 
+  // Pace: project today's distance over a 24h day. Honest — labels itself.
+  const paceM = todayM != null && todayM >= 5
+    ? (todayM / Math.max(60, stamp ? stamp.getHours() * 60 + stamp.getMinutes() : new Date().getHours() * 60 + new Date().getMinutes())) * 1440
+    : null;
+
+  const saveTarget = (v: number | null) => {
+    setTargetM(v);
+    setEditingTarget(false);
+    try {
+      if (v == null) localStorage.removeItem("waqt.scrollTargetM");
+      else localStorage.setItem("waqt.scrollTargetM", String(v));
+    } catch { /* private mode */ }
+  };
+
   if (native === false) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center px-6 text-center" style={{ color: "var(--color-ink)" }}>
@@ -187,6 +208,39 @@ export default function ScrollClient() {
             </div>
           ))}
         </div>
+
+        {/* Daily target — the tape fills toward it. Stored on this device only. */}
+        {todayM != null && (
+          <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--color-paper-3)" }}>
+            {editingTarget ? (
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Daily distance target">
+                {[25, 50, 100, 200].map((v) => (
+                  <button key={v} onClick={() => saveTarget(v)}
+                    className="rounded-md border px-2.5 py-1 text-[11px] tabular-nums"
+                    style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink)" }}>
+                    {v} m
+                  </button>
+                ))}
+                <button onClick={() => saveTarget(null)} className="px-2 py-1 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>off</button>
+              </div>
+            ) : (
+              <button onClick={() => setEditingTarget(true)} className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                {targetM ? `Daily target · ${fmtM(targetM)}` : "Set a daily target"}
+              </button>
+            )}
+            {targetM != null && !editingTarget && (
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: "var(--color-paper-3)" }}
+                role="progressbar" aria-valuenow={Math.round(Math.min(100, (todayM / targetM) * 100))} aria-valuemin={0} aria-valuemax={100} aria-label="Daily target progress">
+                <div className="h-full rounded-full" style={{ width: `${Math.min(100, (todayM / targetM) * 100)}%`, background: "var(--color-accent)" }} />
+              </div>
+            )}
+            {paceM != null && (
+              <p className="mt-2 text-[10px]" style={{ color: "var(--color-ink-muted)" }}>
+                On pace for ≈{fmtM(paceM)} by midnight{targetM != null ? (paceM > targetM ? " — over your target" : " — under your target") : ""}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Time of day */}
