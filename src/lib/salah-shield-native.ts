@@ -225,6 +225,11 @@ export interface ScrollDayStats {
   sec: Record<string, number>;
   hours?: Record<string, number>;
   sessions?: { p: string; t: number; c: number; d: number }[];
+  /** Real scrolled distance in px per app (API 28+ deltas, estimated elsewhere). */
+  px?: Record<string, number>;
+  pxTotal?: number;
+  /** Device density (dpi) — convert px → metres: px / (dpi * 39.3701). */
+  dpi?: number;
 }
 
 export function isScrollCounterEnabled(): boolean {
@@ -249,6 +254,9 @@ export async function getScrollStats(): Promise<{ today: ScrollDayStats | null; 
           apps: d.apps ?? {}, sec: d.sec ?? {},
           hours: d.hours ?? undefined,
           sessions: Array.isArray(d.sessions) ? d.sessions : undefined,
+          px: d.px ?? undefined,
+          pxTotal: typeof d.pxTotal === "number" ? d.pxTotal : undefined,
+          dpi: typeof d.dpi === "number" ? d.dpi : undefined,
         };
       } catch { return null; }
     };
@@ -262,6 +270,9 @@ export async function getScrollStats(): Promise<{ today: ScrollDayStats | null; 
           apps: d.apps ?? {}, sec: d.sec ?? {},
           hours: d.hours ?? undefined,
           sessions: Array.isArray(d.sessions) ? d.sessions : undefined,
+          px: d.px ?? undefined,
+          pxTotal: typeof d.pxTotal === "number" ? d.pxTotal : undefined,
+          dpi: typeof d.dpi === "number" ? d.dpi : undefined,
         };
       }
     } catch { /* empty */ }

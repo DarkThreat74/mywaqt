@@ -14,6 +14,9 @@ type DayPayload = {
   sec?: Record<string, number>;
   hours?: Record<string, number>;
   sessions?: { p: string; t: number; c: number; d: number }[];
+  px?: Record<string, number>;
+  pxTotal?: number;
+  dpi?: number;
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -54,6 +57,9 @@ export async function POST(request: NextRequest) {
         sec: mapNums(d.sec),
         hours: mapNums(d.hours),
         sessions,
+        px: mapNums(d.px),
+        pxTotal: typeof d.pxTotal === "number" ? num(d.pxTotal) : null,
+        dpi: typeof d.dpi === "number" && d.dpi > 0 && d.dpi < 2000 ? Math.floor(d.dpi) : null,
         updatedAt: new Date(),
       };
       await db.insert(schema.scrollDays).values(values)
@@ -61,7 +67,9 @@ export async function POST(request: NextRequest) {
           target: [schema.scrollDays.userId, schema.scrollDays.date],
           set: {
             total: values.total, apps: values.apps, sec: values.sec,
-            hours: values.hours, sessions: values.sessions, updatedAt: values.updatedAt,
+            hours: values.hours, sessions: values.sessions,
+            px: values.px, pxTotal: values.pxTotal, dpi: values.dpi,
+            updatedAt: values.updatedAt,
           },
         });
     }

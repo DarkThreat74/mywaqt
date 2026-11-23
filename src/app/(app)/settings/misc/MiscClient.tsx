@@ -693,9 +693,18 @@ function ScrollCounterPanel() {
   }, [today, history]);
 
   const maxDay = Math.max(1, ...week.map((d) => d.total));
+  const metersOf = (d: { pxTotal?: number; dpi?: number } | null | undefined) =>
+    d?.pxTotal && d.dpi ? d.pxTotal / (d.dpi * 39.3701) : null;
+  const fmtM = (m: number | null) =>
+    m == null ? null : m >= 1000 ? `${(m / 1000).toFixed(2)} km` : m >= 10 ? `${Math.round(m)} m` : `${m.toFixed(1)} m`;
+  const todayM = metersOf(today);
   const appRows = useMemo(() => Object.entries(today?.apps ?? {})
-    .map(([pkg, n]) => ({ name: SCROLL_APP_NAMES[pkg] ?? pkg, n, sec: today?.sec?.[pkg] ?? 0 }))
-    .sort((a, b) => b.n - a.n), [today]);
+    .map(([pkg, n]) => ({
+      name: SCROLL_APP_NAMES[pkg] ?? pkg, n,
+      sec: today?.sec?.[pkg] ?? 0,
+      m: today?.px?.[pkg] && today.dpi ? today.px[pkg] / (today.dpi * 39.3701) : null,
+    }))
+    .sort((a, b) => (b.m ?? b.n) - (a.m ?? a.n)), [today]);
   const totalSec = Object.values(today?.sec ?? {}).reduce((s, v) => s + v, 0);
   const fmtSec = (s: number) => s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`;
 
@@ -709,7 +718,7 @@ function ScrollCounterPanel() {
         <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>Scroll counter</p>
       </div>
       <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-        Counts every feed scroll inside Instagram, TikTok, YouTube, and the rest —
+        Measures how far you actually scroll inside Instagram, TikTok, YouTube, and the rest —
         with a small counter floating over the app.{" "}
         {native && <Link href="/scroll" style={{ color: "var(--color-accent)" }}>Open full stats →</Link>}
       </p>
@@ -742,12 +751,12 @@ function ScrollCounterPanel() {
         <div className="rounded-xl border px-3 py-3" style={{ borderColor: "var(--color-paper-3)" }}>
           <div className="flex items-baseline justify-between">
             <p className="text-2xl font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
-              {today ? today.total : "—"}
+              {today ? (fmtM(todayM) ?? String(today.total)) : "—"}
             </p>
             {today && <p className="text-[11px]" style={{ color: "var(--color-ink-muted)" }}>{stage}</p>}
           </div>
           <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
-            {today ? <>scrolls today{totalSec > 0 ? ` · ${fmtSec(totalSec)} in feed apps` : ""}</> : "counting…"}
+            {today ? <>{todayM != null ? "scrolled today" : "swipes today"}{totalSec > 0 ? ` · ${fmtSec(totalSec)} in feed apps` : ""} · {today.total} cards</> : "measuring…"}
           </p>
 
           {appRows.length > 0 && (
@@ -756,7 +765,7 @@ function ScrollCounterPanel() {
                 <div key={a.name} className="flex items-center justify-between text-[11px]">
                   <span style={{ color: "var(--color-ink)" }}>{a.name}</span>
                   <span className="tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-                    {a.n}{a.sec > 0 ? ` · ${fmtSec(a.sec)}` : ""}
+                    {a.m != null ? `${fmtM(a.m)} · ` : ""}{a.n}{a.sec > 0 ? ` · ${fmtSec(a.sec)}` : ""}
                   </span>
                 </div>
               ))}

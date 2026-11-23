@@ -1632,6 +1632,9 @@ export const scrollDays = pgTable('scroll_days', {
   sec: jsonb('sec').$type<Record<string, number>>(),
   hours: jsonb('hours').$type<Record<string, number>>(),
   sessions: jsonb('sessions').$type<{ p: string; t: number; c: number; d: number }[]>(),
+  px: jsonb('px').$type<Record<string, number>>(),
+  pxTotal: integer('px_total'),
+  dpi: integer('dpi'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   userDate: uniqueIndex('scroll_days_user_date_idx').on(table.userId, table.date),

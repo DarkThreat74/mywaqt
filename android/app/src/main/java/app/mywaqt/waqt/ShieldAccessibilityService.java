@@ -237,36 +237,85 @@ public class ShieldAccessibilityService extends AccessibilityService {
         } catch (Exception e) { return false; }
     }
 
+    // Last window-state change — scrolls within 500ms of a transition are
+    // usually layout settles / keyboard animations, not real swipes.
+    private long lastWindowChangeAt = 0;
+
+    /** Pixel distance this event moved, or 0. API 28+ reports exact deltas;
+     *  older/other toolkits fall back to item-index × quarter-screen.
+     *  Jumps larger than ~4 screens are feed resets — not scrolling. */
+    private int scrollDistancePx(AccessibilityEvent event) {
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            try {
+                int dy = event.getScrollDeltaY(), dx = event.getScrollDeltaX();
+                if (dy != -1 || dx != -1) {
+                    int d = Math.max(Math.abs(dy), Math.abs(dx));
+                    return d <= screenH * 4 ? d : 0;
+                }
+            } catch (Exception ignored) {}
+        }
+        int from = event.getFromIndex(), to = event.getToIndex();
+        if (from >= 0 && to >= 0 && to != from) {
+            int items = Math.min(Math.abs(to - from), 8);
+            return items * (screenH / 4);
+        }
+        return 0;
+    }
+
+    /** px → metres, using this device's real density. */
+    private float pxToMeters(long px) {
+        float dpi = getResources().getDisplayMetrics().densityDpi;
+        return px / (dpi * 39.3701f);
+    }
+
     private void countScroll(String pkg, AccessibilityEvent event) {
         long now = System.currentTimeMillis();
         // Feed surfaces only: the foreground screen must not be a non-feed
         // activity (kills DM-thread counting), either the app is always a
         // feed or the scrolled surface looks like one, and the swipe moved
         // a meaningful distance — micro-scrolls/bounces aren't content.
-        final boolean feed = inFeedContext()
+        final boolean feedCtx = inFeedContext()
                 && (FEED_ALWAYS.contains(pkg) || looksLikeFeed(pkg, event))
-                && meaningfulScroll(event);
+                && now - lastWindowChangeAt > 500;
+        // meaningfulScroll gates the item count only — sub-90px deltas are
+        // still real distance and belong in px accumulation.
+        final boolean feed = feedCtx && meaningfulScroll(event);
         // Presence-anchored: once it appears on a real feed scroll it stays
         // until the user actually leaves the feed — no inactivity timer.
-        if (feed && counterEnabled()) {
+        if (feedCtx && counterEnabled()) {
             try { showCounter(todayStats().optInt("total")); } catch (Exception ignored) {}
             handler.removeCallbacks(evaluateHide);
         }
-        if (!feed || now - lastScrollAt < SCROLL_DEBOUNCE_MS) return;
-        lastScrollAt = now;
+        if (!feedCtx) return;
         try {
             JSONObject day = todayStats();
-            day.put("total", day.optInt("total") + 1);
-            JSONObject apps = day.optJSONObject("apps");
-            if (apps != null) apps.put(pkg, apps.optInt(pkg) + 1);
-            // Hour-of-day bucket for the time-of-day chart.
-            JSONObject hours = day.optJSONObject("hours");
-            if (hours == null) { hours = new JSONObject(); day.put("hours", hours); }
-            String h = String.valueOf(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY));
-            hours.put(h, hours.optInt(h) + 1);
-            // Sessions: a burst of counted scrolls in one app with gaps under
-            // 45s. Powers "how many at a time" + session-length stats.
-            trackSession(day, pkg, now);
+            // ── Distance: every event carries real pixels (API 28+) — the
+            // lead metric. No debounce: deltas are exact, not events. ──
+            int dist = scrollDistancePx(event);
+            if (dist > 0) {
+                JSONObject px = day.optJSONObject("px");
+                if (px == null) { px = new JSONObject(); day.put("px", px); }
+                px.put(pkg, px.optLong(pkg) + dist);
+                day.put("pxTotal", day.optLong("pxTotal") + dist);
+                // Ship density once so the web UI can convert px → metres.
+                if (!day.has("dpi")) day.put("dpi", getResources().getDisplayMetrics().densityDpi);
+            }
+            // ── Items: debounced count ≈ cards passed — secondary metric. ──
+            if (now - lastScrollAt >= SCROLL_DEBOUNCE_MS) {
+                lastScrollAt = now;
+                day.put("total", day.optInt("total") + 1);
+                JSONObject apps = day.optJSONObject("apps");
+                if (apps != null) apps.put(pkg, apps.optInt(pkg) + 1);
+                // Hour-of-day bucket for the time-of-day chart.
+                JSONObject hours = day.optJSONObject("hours");
+                if (hours == null) { hours = new JSONObject(); day.put("hours", hours); }
+                String h = String.valueOf(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY));
+                hours.put(h, hours.optInt(h) + 1);
+                // Sessions: a burst of counted scrolls in one app with gaps
+                // under 45s. Powers "how many at a time" + session length.
+                trackSession(day, pkg, now);
+            }
             saveToday(day);
             updateCounter(day.optInt("total"));
         } catch (Exception ignored) {}
@@ -448,8 +497,13 @@ public class ShieldAccessibilityService extends AccessibilityService {
         if (counterText == null) return;
         String appLabel = "";
         int sec = 0;
+        String dist = "";
         try {
             JSONObject day = todayStats();
+            float m = pxToMeters(day.optLong("pxTotal"));
+            dist = m >= 1000 ? String.format(Locale.US, "%.1f km", m / 1000f)
+                    : m >= 1 ? String.format(Locale.US, "%.0f m", m)
+                    : total + "";
             if (fgPkg != null) {
                 String known = SCROLL_APP_NAMES.get(fgPkg);
                 appLabel = known != null ? known : fgPkg.substring(fgPkg.lastIndexOf('.') + 1);
@@ -458,12 +512,11 @@ public class ShieldAccessibilityService extends AccessibilityService {
         } catch (Exception ignored) {}
         if (counterExpanded && fgPkg != null) {
             String t = sec >= 60 ? (sec / 60) + "m" : sec > 0 ? sec + "s" : "";
-            counterText.setText(total + " today · " + appLabel + (t.isEmpty() ? "" : " · " + t));
+            counterText.setText(dist + " today · " + appLabel + (t.isEmpty() ? "" : " · " + t));
         } else {
-            counterText.setText(total + " today");
+            counterText.setText(dist + " today");
         }
-        int color = total < 30 ? 0xff7fbf6b : total < 100 ? 0xffd4a843 : 0xffc96b45;
-        counterText.setTextColor(color);
+        counterText.setTextColor(0xffefe8dd);
     }
 
     private void hideCounter() {
@@ -505,6 +558,7 @@ public class ShieldAccessibilityService extends AccessibilityService {
 
         // Scroll counter bookkeeping — foreground time + feed scrolls.
         if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            lastWindowChangeAt = System.currentTimeMillis();
             trackForeground(pkg, event);
             tickCounter(pkg);
         } else if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED && SCROLL_APPS.contains(pkg)) {
