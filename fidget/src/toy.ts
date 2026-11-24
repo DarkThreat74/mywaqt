@@ -1,6 +1,6 @@
 import { findToy, worldOf, TOYS, type Toy } from "./registry";
 import { sfx } from "./sfx";
-import { applySoundPref, haptic, prefs, savePrefs } from "./settings";
+import { applySoundPref, haptic, hushAllAudio, prefs, savePrefs } from "./settings";
 import { KeepAwake } from "@capacitor-community/keep-awake";
 
 // Strip value readouts inside open shadow roots — pure feel, no numbers.
@@ -323,6 +323,7 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
     const old = stage.firstElementChild as HTMLElement | null;
     dispose?.(); dispose = null;
     killMedia(stage);
+    hushAllAudio(); // dead toy's looping contexts go silent before the next mounts
     if (old) {
       old.style.transition = "transform .18s ease, opacity .18s ease";
       old.style.transform = `translateX(${dir * -60}px)`;
@@ -365,6 +366,7 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
     dispose?.();
     if (prefs.keepAwake) void KeepAwake.allowSleep().catch(() => {});
     killMedia(scr);
+    hushAllAudio();
     stage.replaceChildren(); // disconnect the element → its own cleanup fires
     scr.remove();
     document.body.style.overflow = prevOverflow;

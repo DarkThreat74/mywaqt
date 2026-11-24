@@ -100,6 +100,7 @@ export default function QiblaCompassClient() {
   const rafRef = useRef<number | null>(null);
   const bearingRef = useRef(0);
   const coordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const locSourceRef = useRef<LocSource | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const hasAbsoluteRef = useRef(false);
   const sawAnyEventRef = useRef(false);
@@ -112,6 +113,7 @@ export default function QiblaCompassClient() {
 
   // ── Bearing + distance from a coordinate — pure offline math ──
   const applyCoords = useCallback((lat: number, lng: number, src: LocSource) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
     const c = { latitude: lat, longitude: lng };
     const b = calculateQiblaBearing(lat, lng);
     setCoords(c);
@@ -120,6 +122,7 @@ export default function QiblaCompassClient() {
     bearingRef.current = b;
     setDistance(calculateDistance(lat, lng));
     setLocSource(src);
+    locSourceRef.current = src;
     setLoading(false);
     setNoLocation(false);
   }, []);
@@ -166,8 +169,9 @@ export default function QiblaCompassClient() {
     Promise.resolve().then(() => { if (!cancelled) void refreshLocation(); });
     // 3. API refinement only (never the source of truth).
     fetch("/api/qibla").then((r) => (r.ok ? r.json() : null)).then((json) => {
-      if (cancelled || !json || locSource === "gps") return;
-      if (json.userLocation) applyCoords(json.userLocation.latitude, json.userLocation.longitude, "network");
+      // locSourceRef — the state var is stale inside this effect's closure.
+      if (cancelled || !json || locSourceRef.current === "gps") return;
+      if (json.userLocation) applyCoords(Number(json.userLocation.latitude), Number(json.userLocation.longitude), "network");
     }).catch(() => {});
     const done = setTimeout(() => {
       if (!cancelled) {
@@ -234,12 +238,15 @@ export default function QiblaCompassClient() {
       let removeH: (() => void) | null = null;
       let removeA: (() => void) | null = null;
       void native.addListener("heading", (r) => {
-        lastReadingRef.current = Date.now();
-        setSensorState(r.sensorAccuracy === 0 ? "unavailable" : "live");
-        setAccuracyLow(r.sensorAccuracy === 1);
-        if (typeof r.headingErrorDeg === "number") setHeadingErr(r.headingErrorDeg);
-        if (typeof r.declination === "number") setDeclination(r.declination);
-        updateHeading(headingRefs, r.heading);
+        try {
+          if (typeof r.heading !== "number" || Number.isNaN(r.heading)) return;
+          lastReadingRef.current = Date.now();
+          setSensorState(r.sensorAccuracy === 0 ? "unavailable" : "live");
+          setAccuracyLow(r.sensorAccuracy === 1);
+          if (typeof r.headingErrorDeg === "number" && !Number.isNaN(r.headingErrorDeg)) setHeadingErr(r.headingErrorDeg);
+          if (typeof r.declination === "number" && !Number.isNaN(r.declination)) setDeclination(r.declination);
+          updateHeading(headingRefs, r.heading);
+        } catch { /* a bad sensor payload must never take the page down */ }
       }).then((h) => { removeH = () => void h.remove(); }).catch(() => {});
       void native.addListener("accuracy", (d) => {
         setAccuracyLow((d.sensorAccuracy ?? 3) <= 1);

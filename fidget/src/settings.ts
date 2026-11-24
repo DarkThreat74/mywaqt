@@ -68,6 +68,12 @@ export function applySoundPref() {
   });
 }
 
+// Called when a toy is swapped or closed — the dead toy's contexts keep
+// looping otherwise. The next toy's context is created fresh and un-suspended.
+export function hushAllAudio() {
+  eachCtx((c) => { if (c.state === "running") void c.suspend(); });
+}
+
 export function haptic(level: "light" | "medium" | "heavy" | "success" | "error" | "warn") {
   if (!prefs.haptics) return;
   void import("@capacitor/haptics").then(({ Haptics, ImpactStyle, NotificationType }) => {
