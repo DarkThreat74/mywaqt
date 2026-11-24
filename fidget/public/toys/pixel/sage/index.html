@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sage</title>
+<style>
+  :root { --ink: #26221c; --page: #efe8d8; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--page); color: var(--ink); font: 15px/1.45 -apple-system, "Helvetica Neue", "Segoe UI", sans-serif; }
+  main { width: min(720px, 100vw - 32px); padding: 40px 0 60px; }
+  h1 { font: 700 22px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 6px; margin: 0; }
+  .sub { margin: 4px 0 30px; color: #685f50; }
+  sage-status { display: block; }
+  .hint { margin: 26px 4px 8px; color: #685f50; }
+  .embed body { place-items: start center; min-height: 0; } .embed main { width: calc(100vw - 8px); padding: 6px 0 0; } .embed h1, .embed .sub, .embed .hint { display: none; } .embed .states { margin-top: 22px; }
+  .states { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 4px; }
+  .states button { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SAGE</h1>
+  <p class="sub">Thinking states for an agent. Whatever it is doing, the wizard is doing.</p>
+  <sage-status id="sage" demo></sage-status>
+  <p class="hint">It is playing a made-up run. Pick a state to hold it there.</p>
+  <p class="states">
+    <button type="button" data-state="thinking">Thinking</button>
+    <button type="button" data-state="searching">Searching</button>
+    <button type="button" data-state="reading">Reading</button>
+    <button type="button" data-state="running">Running</button>
+    <button type="button" data-state="writing">Writing</button>
+    <button type="button" data-state="waiting">Needs you</button>
+    <button type="button" data-state="done">Done</button>
+    <button type="button" data-state="failed">Failed</button>
+    <button type="button" data-state="run">Play the run</button>
+  </p>
+</main>
+<script src="sage.js"></script>
+<script>
+// This page's own wiring. The component is all in sage.js.
+const Q = new URLSearchParams(location.search), sage = document.getElementById('sage');
+if (Q.get('embed') === '1') document.documentElement.classList.add('embed');   // inside the gallery: no heading of its own
+if (Q.get('state')) sage.set(Q.get('state'), '', Q.get('detail') || '');
+for (const b of document.querySelectorAll('[data-state]')) b.addEventListener('click', () => (b.dataset.state === 'run' ? sage.play() : sage.set(b.dataset.state)));
+if (Q.get('film') === '1') {   // stop the clock and step it a frame at a time
+  customElements.get('sage-status').paused = true;
+  let t = 0; const step = (fps) => { t += 1 / fps; sage.advance(1 / fps); };
+  window.__film = { duration: sage.runLength, step, seek(to, fps = 60) { while (t < to) step(fps); } };
+  window.__film.seek(parseFloat(Q.get('seek')) || 1 / 60);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cockpit UI / Agent state</title>
+<style>
+  :root { --bg: #000; --ink: #e8ecf2; --dim: #8791a3; --gold: #ffc93a; --cyan: #5fe6ff; }
+  * { box-sizing: border-box; }
+  html { overflow-x: clip; background: var(--bg); }
+  body { margin: 0; color: var(--ink); font: 14px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow-x: clip; }
+  a { color: var(--cyan); } :focus-visible { outline: 2.5px solid #fff; outline-offset: 3px; }
+  .pill { min-height: 32px; padding: 4px 13px; border: 2px solid #3a4558; border-radius: 6px; background: #121824; color: var(--ink); font: inherit; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; text-decoration: none; cursor: pointer; }
+  .pill:hover { border-color: var(--gold); } .pill:active { translate: 0 1px; }
+  body { min-height: 100vh; display: grid; place-items: center; }
+  main { width: min(640px, 100vw - 30px); padding: 26px 0 46px; }
+  .cap { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 2px 12px; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .cap h1 { margin: 0; color: var(--gold); font-size: 12.5px; letter-spacing: .12em; white-space: nowrap; } .cap span { text-align: right; }
+  .stage { display: grid; justify-items: center; padding: 6% 0; }
+  .said { margin: 14px 0 0; min-height: 40px; font-size: 12.5px; line-height: 19px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); text-align: center; }
+  .hint { margin: 10px 0 0; color: var(--dim); font-size: 12.5px; text-align: center; }
+  .embed body { place-items: start center; min-height: 0; } .embed .cap, .embed .hint { display: none; } .embed main { padding: 0 0 8px; } .embed .stage { padding: 4% 0; }
+</style>
+</head>
+<body>
+<main>
+  <div class="cap"><h1>Agent state</h1><span>status display / &lt;cockpit-agent&gt;</span></div>
+  <div class="stage">
+    <cockpit-agent id="el"></cockpit-agent>
+  </div>
+  <p class="said" aria-hidden="true"></p>
+  <p class="hint">Press the button on the base to step through the six states.</p>
+  <p class="hint back"><a href="../gallery/">All eleven</a> · <a href="https://github.com/finktheartist/cockpit-ui/blob/main/agent/README.md">Docs</a></p>
+</main>
+<script src="agent.js"></script>
+<script>
+// This page's own wiring. The control is all in agent.js.
+// ?embed=1 hides the heading and the hints.
+const Q = new URLSearchParams(location.search), el = document.getElementById('el'), said = document.querySelector('.said');
+if (Q.get('embed') === '1') { document.documentElement.classList.add('embed'); document.querySelector('.back').hidden = true; }
+const say = (t) => { said.textContent = t; };
+el.addEventListener('cockpit:line', (e) => say(e.detail.text)); if (el.line) say(el.line);
+</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zen Sand Slider</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --page: #e9e4da; --card: #f1ede5; --ink: #2b2a27; --mute: #7c766b; --line: #d3cbbd; }
+  html { overflow-x: clip; background: var(--page); }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; color: var(--ink); font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow-x: clip; }
+  main { width: min(560px, 100vw - 32px); padding: 40px 0 56px; text-align: center; }
+  h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -.01em; }
+  .sub { margin: 4px 0 0; color: var(--mute); }
+  .stage { display: grid; justify-items: center; gap: 12px; padding: 28px 0 18px; }
+  .stage > :is(sand-slider, sand-signature) { width: 100%; }
+  .stage > sand-toggle { width: min(220px, 60%); } .stage > sand-thinking { width: min(320px, 80%); }
+  .field { width: 100%; display: flex; justify-content: space-between; font-weight: 500; } .field output { color: var(--mute); font-variant-numeric: tabular-nums; }
+  .readout { margin: 0; color: var(--mute); }
+  .row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .hint { margin: 0 4px; color: var(--mute); font-size: 14px; }
+  .pill { font: inherit; font-size: 14px; padding: 6px 15px; border-radius: 99px; border: 1px solid #cfc8bb; background: none; color: inherit; cursor: pointer; }
+  .pill.on { background: #3a3631; border-color: #3a3631; color: #f1ede5; }
+  #ink { max-width: 100%; border-bottom: 1px solid var(--line); }
+  a { color: inherit; } :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  code { font: 13px ui-monospace, monospace; padding: 1px 5px; border-radius: 5px; background: var(--card); border: 1px solid var(--line); }
+  .embed body { place-items: start center; min-height: 0; } .embed h1, .embed .sub, .embed .hint, .embed .back { display: none; } .embed main { padding: 8px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Slider</h1>
+  <p class="sub">A rake in a tray of sand. <code>&lt;sand-slider&gt;</code></p>
+  <div class="stage">
+    <div class="field"><span class="lab">Volume</span><output id="out"></output></div>
+    <sand-slider id="el" value="40" label="Volume"></sand-slider>
+  </div>
+  <p class="hint">Drag the rake and let go, then pull it back. Double-click to rake the tray flat.</p>
+  <p class="hint back"><button class="pill" type="button" id="snd">Sound on</button> · <a href="../gallery/">All four</a> · <a href="https://github.com/finktheartist/zen-sand-ui/blob/main/slider/README.md">Docs</a></p>
+</main>
+<script src="slider.js"></script>
+<script>
+// This page's own wiring. The control is all in slider.js.
+// ?embed=1 hides the heading and the hint.
+const Q = new URLSearchParams(location.search), el = document.getElementById('el');
+if (Q.get('embed') === '1') document.documentElement.classList.add('embed');
+document.getElementById('snd').onclick = (e) => { ZenSand.Sound.wake(); e.target.textContent = ZenSand.Sound.toggle() ? 'Sound on' : 'Sound off'; };
+const out = document.getElementById('out'); const show = () => out.textContent = el.value + '%'; el.addEventListener('input', show); show();
+</script>
+</body>
+</html>

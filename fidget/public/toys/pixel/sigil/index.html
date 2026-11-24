@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sigil</title>
+<style>
+  :root { --ink: #26221c; --page: #efe8d8; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--page); color: var(--ink); font: 15px/1.45 -apple-system, "Helvetica Neue", "Segoe UI", sans-serif; }
+  main { width: min(720px, 100vw - 32px); padding: 40px 0 60px; }
+  h1 { font: 700 22px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 6px; margin: 0; }
+  .sub { margin: 4px 0 30px; color: #685f50; }
+  .hint { margin: 26px 4px 0; color: #685f50; }
+  .stage { display: flex; justify-content: center; margin: 0 0 28px; }
+  .stage sigil-spinner { width: 194px; }   /* twice its own size, so the pixels stay even */
+  /* the same element at its other size, in a card beside a button, the way it would be in an interface */
+  .card { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border: 1px solid #d8cfba; border-radius: 12px; background: #fbf7ec; }
+  .card sigil-spinner { width: 97px; flex: none; }
+  .card .text { flex: 1; min-width: 0; }
+  .card b { display: block; font-weight: 600; }
+  .card span { display: block; color: #685f50; font-size: 14px; }
+  .card button { flex: none; height: 36px; padding: 0 14px; border: 1px solid #cfc5ae; border-radius: 8px; background: #fff; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; }
+  .card button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .dark { --ink: #e9eaed; --page: #0b0c10; } .dark .sub, .dark .hint, .dark .card span { color: #8d919a; } .dark .card { background: #15171d; border-color: #2a2d36; } .dark .card button { background: #1c1f27; border-color: #2a2d36; color: var(--ink); }   /* ?bg=dark: the same page on a dark ground */
+  .clip body { min-height: 100vh; place-items: center; } .clip main { width: 500px; padding: 0; } .clip h1, .clip .sub, .clip .hint { display: none; } .clip .stage { margin-bottom: 24px; }   /* ?zoom=2: for recording, centred on the page */
+  .embed body { place-items: start center; min-height: 0; } .embed main { width: calc(100vw - 16px); padding: 10px 0 0; } .embed h1, .embed .sub, .embed .hint { display: none; } .embed .stage { margin-bottom: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SIGIL</h1>
+  <p class="sub">A loading spinner that is a summoning circle with a wisp for a light. The runes charge as the task loads.</p>
+  <div class="stage"><sigil-spinner id="sigil" label="Summoning"></sigil-spinner></div>
+  <div class="card">
+    <sigil-spinner id="small" label="Preparing your export"></sigil-spinner>
+    <div class="text"><b>Preparing your export</b><span id="status">Working on it&hellip;</span></div>
+    <button type="button">Cancel</button>
+  </div>
+  <p class="hint">It plays a made-up task on a loop: first with no number, so the wisp only circles and leaves a fading comet; then with a number, so the arc and the runes fill behind the wisp; then a stall in the middle, where the wisp waits and sends out rings; then the answer.</p>
+</main>
+<script src="sigil.js"></script>
+<script>
+// This page's own wiring. The component is all in sigil.js.
+const Q = new URLSearchParams(location.search), big = document.getElementById('sigil'), small = document.getElementById('small'), status = document.getElementById('status'), both = [big, small];
+if (Q.get('embed') === '1') document.documentElement.classList.add('embed');   // inside the gallery: no heading of its own
+if (Q.get('bg') === 'dark') document.documentElement.classList.add('dark');
+if (Q.get('zoom')) { document.querySelector('main').style.zoom = parseFloat(Q.get('zoom')) || 1; document.documentElement.classList.add('clip'); }   // for recording a clip: ?zoom=2 doubles the page, so the pixels stay even
+small.addEventListener('sigil:done', () => { status.textContent = 'Done. Your export is ready.'; });
+small.addEventListener('sigil:fail', () => { status.textContent = 'Failed. Try again.'; });
+// A made-up task, as keyframes: [seconds, progress]. Before the first one there is no number at all, so it is a plain spinner. It stalls in the middle.
+const TASK = [[3, 0], [3.8, 0.18], [4.6, 0.42], [7.4, 0.42], [7.5, 0.7], [8.3, 0.9], [8.9, 1]], LEN = 17.5;
+function drive(t) {
+  if (t < TASK[0][0]) { for (const el of both) el.set(null); status.textContent = 'Working on it…'; return; }
+  let v = 1; for (let i = 1; i < TASK.length; i++) if (t <= TASK[i][0]) { const [t0, v0] = TASK[i - 1], [t1, v1] = TASK[i]; v = v0 + (v1 - v0) * (t - t0) / (t1 - t0); break; }
+  for (const el of both) el.set(v);
+  if (v < 1) status.textContent = Math.round(v * 100) + '% done…';
+}
+const hold = Q.get('p');
+if (hold !== null) {   // ?p=0.4 holds it at 40%, ?p=spin is a plain spinner, ?p=1 is the settled answer
+  if (hold === 'fail') for (const el of both) { el.set(0.55, true); el.fail(); } else if (hold === 'spin') for (const el of both) el.set(null); else for (const el of both) el.set(parseFloat(hold) || 0, true);
+  status.textContent = hold === 'fail' ? 'Failed. Try again.' : hold === 'spin' ? 'Working on it\u2026' : hold === '1' ? 'Done. Your export is ready.' : Math.round((parseFloat(hold) || 0) * 100) + '% done\u2026';
+  document.querySelector('.hint').textContent = hold === 'fail' ? 'A task that failed.' : hold === 'spin' ? 'A plain spinner, with no value.' : `Held at ${Math.round((parseFloat(hold) || 0) * 100)}%.`;
+} else if (Q.get('film') === '1') {   // stop the clock and step the task a frame at a time
+  customElements.get('sigil-spinner').paused = true;
+  let t = 0; const step = (fps = 60) => { t += 1 / fps; drive(t); for (const el of both) el.advance(1 / fps); };
+  drive(0);
+  window.__film = { duration: LEN, step, seek(to, fps = 60) { while (t < to) step(fps); } };
+  if (Q.get('seek')) window.__film.seek(parseFloat(Q.get('seek')));
+} else {   // live: the task runs, the answer is shown for a while, and it starts again
+  let start = performance.now(), running = true;
+  (function tick(now) {
+    if (running) { const t = (now - start) / 1000; drive(Math.min(t, LEN)); if (t > LEN) { for (const el of both) el.reset(); start = now; } }
+    requestAnimationFrame(tick);
+  })(start);
+  // the gallery drives it through these: a number stops the demo, and demo() starts it again
+  window.sigil = { set(n) { running = false; for (const el of both) el.set(n); if (n < 1) status.textContent = n === null ? 'Working on it\u2026' : Math.round(n * 100) + '% done\u2026'; }, demo() { for (const el of both) el.reset(); status.textContent = 'Working on it\u2026'; start = performance.now(); running = true; } };
+}
+</script>
+</body>
+</html>

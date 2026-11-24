@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raven</title>
+<style>
+  :root { --ink: #26221c; --page: #efe8d8; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--page); color: var(--ink); font: 15px/1.45 -apple-system, "Helvetica Neue", "Segoe UI", sans-serif; }
+  main { width: min(720px, 100vw - 32px); padding: 40px 0 60px; }
+  h1 { font: 700 22px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 6px; margin: 0; }
+  .sub { margin: 4px 0 30px; color: #685f50; }
+  .hint { margin: 26px 4px 0; color: #685f50; }
+  .again { margin: 10px 4px 0; }
+  .again button { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .embed body { place-items: start center; min-height: 0; } .embed main { width: calc(100vw - 8px); padding: 6px 0 0; text-align: center; } .embed h1, .embed .sub, .embed .hint { display: none; } .embed .again { margin-top: 22px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>RAVEN</h1>
+  <p class="sub">A send button with a raven in it.</p>
+  <raven-send id="raven"></raven-send>
+  <p class="hint">Click the button, or Tab to it and press Space or Enter. The raven takes the message to the tower.</p>
+  <p class="again" hidden><button type="button">Send another</button></p>
+</main>
+<script src="raven.js"></script>
+<script>
+// This page's own wiring. The component is all in raven.js.
+const Q = new URLSearchParams(location.search), raven = document.getElementById('raven'), again = document.querySelector('.again');
+if (Q.get('embed') === '1') document.documentElement.classList.add('embed');   // inside the gallery: no heading of its own
+raven.addEventListener('raven:sent', () => setTimeout(() => { again.hidden = false; }, 500));   // this is where a real page would say the message has gone
+again.querySelector('button').addEventListener('click', () => { raven.reset(); again.hidden = true; raven.focus({ preventScroll: true }); });
+if (Q.get('film') === '1') {   // a scripted take, stepped a frame at a time: idle, hover, press, the whole flight, sent, hold
+  customElements.get('raven-send').paused = true;
+  const SCRIPT = [[1.0, 'hover', true], [1.5, 'down', true], [1.7, 'down', false], [4.8, 'hover', false]];
+  let t = 0; const step = (fps = 60) => { for (const [at, key, val] of SCRIPT) if (t < at && t + 1 / fps >= at) raven.input[key] = val; t += 1 / fps; raven.advance(1 / fps); };
+  window.__film = { duration: 6.5, step, seek(to, fps = 60) { while (t < to) step(fps); } };
+  if (Q.get('seek')) window.__film.seek(parseFloat(Q.get('seek')));
+}
+</script>
+</body>
+</html>

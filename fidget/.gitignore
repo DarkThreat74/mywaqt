@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# vite build output
+dist/
+
+# Capacitor native build artifacts (source is committed, outputs are not)
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+android/.idea/
+android/app/src/main/assets/public/
+
+# raw vendored source repos — regenerable via scripts/vendor.*
+# the built toys live in public/toys/ and ARE committed
+vendor-src/
+
+*.keystore
+*.jks
+.DS_Store

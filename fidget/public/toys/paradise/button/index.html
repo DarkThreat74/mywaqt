@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%223%22 y=%225%22 width=%2226%22 height=%2222%22 fill=%22%23E9E4DC%22 stroke=%22%23222%22 stroke-width=%222%22/%3E%3Crect x=%223%22 y=%225%22 width=%2226%22 height=%226%22 fill=%22%23C79BF2%22/%3E%3Ccircle cx=%2216%22 cy=%2219%22 r=%225%22 fill=%22%2356EFE8%22/%3E%3C/svg%3E">
+<title>Paradise OS Cascade button</title>
+<link rel="stylesheet" href="../gallery/desktop.css">
+<style>
+  .demo { width: min(620px, 100vw - 24px); margin: 0 auto; padding: 40px 0 56px; display: grid; gap: 14px; }
+  .demo .win-well { display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; overflow: hidden; padding: 16px 8px; }
+  .demo .stage { display: grid; place-items: center; width: 100%; max-width: 100%; }
+  .demo .links { text-align: center; font: 600 12px/1.4 var(--mono); }
+  .demo .links a { color: inherit; }
+  html { overflow-x: clip; }
+  .embed body { background: #F4F1EA; min-height: 0; overflow-x: clip; } .embed .palm-wash, .embed .titlebar, .embed .win-toolbar, .embed .win-status, .embed .links { display: none; }
+  .embed .demo { padding: 0; width: auto; } .embed .win95, .embed .win95::before, .embed .win95::after { border: 0; box-shadow: none; background: transparent; } .embed .win95::before, .embed .win95::after { display: none; } .embed .win-well { border: 0; background: transparent; box-shadow: none; }
+</style>
+</head>
+<body>
+<main class="demo">
+  <section class="win95">
+    <div class="titlebar"><div class="titlebar-left"><i class="win-ico" aria-hidden="true"></i><h1 class="titlebar-title">ERROR_95.EXE — Cascade button</h1></div></div>
+    <div class="win-toolbar"><div class="w95-tabs" style="gap:4px; flex-wrap:wrap;"><button class="w95-btn compact" id="clear">Clear</button></div></div>
+    <div class="win-well">
+      <div class="stage"><paradise-cascade-button id="el" label="Still dreaming?"></paradise-cascade-button></div>
+    </div>
+    <div class="win-status"><span class="status-cell grow">Click it, then hold it for about a second and let go.</span><span class="status-cell said" aria-live="polite"></span></div>
+  </section>
+  <p class="links"><a href="../gallery/">All seven</a> · <a href="https://github.com/finktheartist/paradise-os-ui/blob/main/button/README.md">Docs</a> · <code>&lt;paradise-cascade-button&gt;</code></p>
+</main>
+<script src="button.js"></script>
+<script>
+// This page's own wiring. The component is all in button.js.
+// ?embed=1 shows the control alone.
+const Q = new URLSearchParams(location.search), el = document.getElementById('el'), said = document.querySelector('.said');
+if (Q.get('embed') === '1') document.documentElement.classList.add('embed');
+const say = (t) => { said.textContent = t; };
+// the control draws at a fixed size; on a narrow screen it is zoomed down to fit its window
+const fit = () => { el.style.zoom = ''; const room = el.closest('.win-well').clientWidth - 16, w = Math.max(el.offsetWidth, el.scrollWidth); if (w > room) el.style.zoom = (room / w).toFixed(3); };
+new ResizeObserver(fit).observe(el.closest('.win-well')); new ResizeObserver(fit).observe(el); fit();
+el.addEventListener('charge', (e) => say(`CHARGE · ${Math.round(e.detail.charge * 100)}%`));
+el.addEventListener('action', (e) => say(e.detail.cleared ? 'COMBO ×0' : `${e.detail.mega ? 'MEGA' : 'COMBO'} ×${e.detail.combo}`));
+document.getElementById('clear').addEventListener('click', () => el.clearCascade());
+say('COMBO ×0');
+</script>
+</body>
+</html>

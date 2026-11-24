@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Round</title>
+<style>
+  :root { --ink: #26221c; --page: #efe8d8; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--page); color: var(--ink); font: 15px/1.45 -apple-system, "Helvetica Neue", "Segoe UI", sans-serif; }
+  main { width: min(720px, 100vw - 32px); padding: 40px 0 60px; }
+  h1 { font: 700 22px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 6px; margin: 0; }
+  .sub { margin: 4px 0 30px; color: #685f50; }
+  .hint { margin: 26px 4px 0; color: #685f50; }
+  .embed main { width: 100vw; padding: 0; } .embed h1, .embed .sub, .embed .hint { display: none; } .embed round-bar::part(bar) { margin: 0 auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ROUND</h1>
+  <p class="sub">A loading bar that is the bar of a tavern. Seven regulars empty their cups as it loads.</p>
+  <round-bar id="round"></round-bar>
+  <p class="hint">It is playing a made-up load on a loop. Click the bar to start it again.</p>
+</main>
+<script src="round.js"></script>
+<script>
+// This page's own wiring. The component is all in round.js.
+const Q = new URLSearchParams(location.search), bar = document.getElementById('round');
+window.round = bar;   // round.set(0.4), round.demo() and round.value work from the console, and from a page that embeds this one
+if (Q.get('embed') === '1') document.documentElement.classList.add('embed');   // inside the gallery: no heading of its own, and the bar in the middle
+if (Q.get('p') !== null) {   // ?p=0.4 holds it at 40%
+  bar.set(parseFloat(Q.get('p')) || 0, true);
+  document.querySelector('.hint').textContent = `Held at ${Math.round(bar.value * 100)}%.`;
+}
+if (Q.get('film') === '1') {   // stop the clock and step the demo load a frame at a time
+  customElements.get('round-bar').paused = true;
+  let t = 0; const step = (fps = 60) => { t += 1 / fps; bar.advance(1 / fps); return t; };
+  window.__film = { duration: bar.demoLength, step, seek(to, fps = 60) { while (t < to) step(fps); } };
+  if (Q.get('seek')) window.__film.seek(parseFloat(Q.get('seek')));
+}
+</script>
+</body>
+</html>

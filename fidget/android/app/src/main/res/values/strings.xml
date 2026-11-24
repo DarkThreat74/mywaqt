@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fidget</string>
+    <string name="title_activity_main">Fidget</string>
+    <string name="package_name">app.waqt.fidget</string>
+    <string name="custom_url_scheme">app.waqt.fidget</string>
+</resources>
