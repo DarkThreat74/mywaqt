@@ -6,13 +6,17 @@ let previewIO: IntersectionObserver | null = null;
 function observeLiveCard(card: HTMLElement, t: Toy) {
   previewIO ??= new IntersectionObserver((entries) => {
     for (const e of entries) {
-      if (!e.isIntersecting) continue;
       const c = e.target as HTMLElement;
-      previewIO!.unobserve(c);
-      const toy = TOYS.find((x) => x.id === c.dataset.toy);
-      if (toy) mountPreview(c, toy);
+      if (e.isIntersecting) {
+        const toy = TOYS.find((x) => x.id === c.dataset.toy);
+        if (toy) mountPreview(c, toy);
+      } else {
+        // Offscreen previews are torn down — live elements run rAF/video
+        // forever otherwise, which freezes the shelf.
+        c.querySelector(".card-live:not([data-hover])")?.remove();
+      }
     }
-  }, { rootMargin: "100px" });
+  }, { rootMargin: "80px" });
   card.dataset.toy = t.id;
   previewIO.observe(card);
 }

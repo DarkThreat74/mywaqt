@@ -48,6 +48,25 @@ export function mountEl(t: Toy): AnyEl {
   return el;
 }
 
+// Deep cleanup before a toy screen dies — elements keep videos decoding
+// and WebGL buffers alive inside shadow roots unless we kill them first.
+function killMedia(root: HTMLElement) {
+  const walk = (node: Element | ShadowRoot) => {
+    for (const v of node.querySelectorAll("video")) {
+      v.pause();
+      if (v.src.startsWith("blob:")) URL.revokeObjectURL(v.src);
+      v.removeAttribute("src");
+      v.load();
+    }
+    for (const c of node.querySelectorAll("canvas")) {
+      const gl = (c.getContext("webgl") ?? c.getContext("webgl2")) as WebGLRenderingContext | null;
+      gl?.getExtension("WEBGL_lose_context")?.loseContext();
+    }
+    for (const el of node.querySelectorAll("*")) if (el.shadowRoot) walk(el.shadowRoot);
+  };
+  walk(root);
+}
+
 // Universal reset: a fresh node resets every internal state.
 function recreate(host: HTMLElement, t: Toy): AnyEl {
   const el = mountEl(t);
@@ -169,8 +188,8 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
   scr.style.color = w.ink;
   scr.innerHTML = `
     <div class="toy-top">
+      <button class="toy-close" aria-label="Back to shelf">‹ Shelf</button>
       <span class="toy-name"><span class="world-dot" style="background:${w.accent}"></span>${t.title}</span>
-      <button class="toy-close" aria-label="Close">&#10005;</button>
     </div>
     <div class="toy-stage"></div>
     <button class="toy-mute" aria-label="Toggle sound" aria-pressed="${prefs.sound}"></button>`;
@@ -178,11 +197,27 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
   stage.addEventListener("pointerdown", () => sfx(w.id, "down"));
   stage.addEventListener("pointerup", () => sfx(w.id, "up"));
   root.append(scr);
+  // Lock the shelf behind the toy — wheel/scroll must not move it.
+  const prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  scr.addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
   const prevFocus = document.activeElement as HTMLElement | null;
   const closeBtn = scr.querySelector(".toy-close") as HTMLElement;
 
+  // Per-toy loading: blurred card still (or accent glow) + name + spinner.
+  const loadScreen = (msg: string, retry = false) => `
+    <div class="toy-load" style="--toy-accent:${w.accent}">
+      <img class="toy-load-still" src="toys/${t.id}/card.png" alt="" onerror="this.remove()" />
+      <div class="toy-load-card">
+        ${retry ? "" : '<span class="toy-load-spin"></span>'}
+        <p class="toy-load-name">${t.title}</p>
+        <p class="toy-load-msg">${msg}</p>
+        ${retry ? '<button class="toy-retry">Try again</button>' : ""}
+      </div>
+    </div>`;
+
   const mount = async () => {
-    stage.innerHTML = `<p class="toy-loading">winding up…</p>`;
+    stage.innerHTML = loadScreen(`winding up the ${w.name}…`);
     await loadPiece(t);
     stage.innerHTML = "";
     const el = mountEl(t);
@@ -198,7 +233,7 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
   try {
     await mount();
   } catch (err) {
-    stage.innerHTML = `<p class="toy-loading">This toy didn't load.<br><button class="toy-retry">Try again</button></p>`;
+    stage.innerHTML = loadScreen("this toy didn't load.", true);
     stage.querySelector(".toy-retry")!.addEventListener("click", () => { void mount().catch(() => {}); });
     void err;
   }
@@ -213,7 +248,10 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
     document.removeEventListener("keydown", esc);
     dispose?.();
     if (prefs.keepAwake) void KeepAwake.allowSleep().catch(() => {});
+    killMedia(scr);
+    stage.replaceChildren(); // disconnect the element → its own cleanup fires
     scr.remove();
+    document.body.style.overflow = prevOverflow;
     tintBars("#17140f");
     prevFocus?.focus?.();
     onClose();

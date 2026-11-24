@@ -15,8 +15,16 @@ export function savePrefs() {
 
 // ── Sound gate: elements own their audio internals, so we gate at the
 // platform seam — AudioContext stays suspended and media play() no-ops. ──
-const ctxs = new Set<AudioContext>();
+// Weak refs — contexts from closed toys must stay GC-able; a strong Set
+// leaks them forever and every pointerdown would resume dead contexts.
+const ctxs = new Set<WeakRef<AudioContext>>();
 let origResumeFn: ((this: AudioContext) => Promise<void>) | null = null;
+function eachCtx(fn: (c: AudioContext) => void) {
+  for (const r of [...ctxs]) {
+    const c = r.deref();
+    if (!c) ctxs.delete(r); else fn(c);
+  }
+}
 
 export function installSoundGate() {
   const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -31,7 +39,7 @@ export function installSoundGate() {
     const Wrapped = new Proxy(Orig, {
       construct(target, args) {
         const c = new target(...args) as AudioContext;
-        ctxs.add(c);
+        ctxs.add(new WeakRef(c));
         return c;
       },
     });
@@ -47,17 +55,17 @@ export function installSoundGate() {
   // Every user gesture unlocks every context (WebView autoplay policy).
   window.addEventListener("pointerdown", () => {
     if (!prefs.sound) return;
-    for (const c of ctxs) if (c.state === "suspended") void origResumeFn?.call(c);
+    eachCtx((c) => { if (c.state === "suspended") void origResumeFn?.call(c); });
   }, { capture: true, passive: true });
 }
 
 // Called when the Sound toggle flips: off silences in-flight audio, on
 // re-unlocks at the next gesture via the gate above.
 export function applySoundPref() {
-  for (const c of ctxs) {
+  eachCtx((c) => {
     if (prefs.sound) { if (c.state === "suspended") void origResumeFn?.call(c); }
     else if (c.state === "running") void c.suspend();
-  }
+  });
 }
 
 export function haptic(level: "light" | "medium" | "heavy" | "success" | "error" | "warn") {
