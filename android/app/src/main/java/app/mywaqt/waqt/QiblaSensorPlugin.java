@@ -165,16 +165,24 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
         }
         latitude = lat;
         longitude = lng;
-        if (!listening) {
-            if (rotation != null) {
-                sensors.registerListener(this, rotation, SensorManager.SENSOR_DELAY_GAME);
-            } else {
-                sensors.registerListener(this, accel, SensorManager.SENSOR_DELAY_GAME);
-                sensors.registerListener(this, magneto, SensorManager.SENSOR_DELAY_GAME);
+        // Plugin methods run on a Capacitor worker thread with no Looper —
+        // registerListener() without a Handler silently returns false there.
+        // Register on the main thread (also where events get delivered).
+        final Handler main = new Handler(Looper.getMainLooper());
+        main.post(() -> {
+            if (!listening) {
+                boolean ok;
+                if (rotation != null) {
+                    ok = sensors.registerListener(this, rotation, SensorManager.SENSOR_DELAY_GAME, main);
+                } else {
+                    ok = sensors.registerListener(this, accel, SensorManager.SENSOR_DELAY_GAME, main);
+                    ok = sensors.registerListener(this, magneto, SensorManager.SENSOR_DELAY_GAME, main) && ok;
+                }
+                listening = ok;
             }
-            listening = true;
-        }
-        call.resolve();
+            if (listening) call.resolve();
+            else call.reject("sensor registration failed");
+        });
     }
 
     @PluginMethod
