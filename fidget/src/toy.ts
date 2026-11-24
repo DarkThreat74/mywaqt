@@ -29,7 +29,7 @@ export function loadPiece(t: Toy): Promise<void> {
     // via document.currentScript.src, which is null inside a module load.
     p = new Promise<void>((res, rej) => {
       const s = document.createElement("script");
-      s.src = `/toys/${t.id}/${t.file}`;
+      s.src = `toys/${t.id}/${t.file}`;
       s.onload = () => res();
       s.onerror = () => { loading.delete(t.id); rej(new Error(`toy load failed: ${t.id}`)); };
       document.head.appendChild(s);
@@ -42,7 +42,7 @@ export function loadPiece(t: Toy): Promise<void> {
 export function mountEl(t: Toy): AnyEl {
   const el = document.createElement(t.tag) as AnyEl;
   // Piece attrs that need to exist before connect
-  if (t.id === "paradise/cd-dial") el.setAttribute("tracks", "/toys/paradise/audio/");
+  if (t.id === "paradise/cd-dial") el.setAttribute("tracks", "toys/paradise/audio/");
   if (t.id === "pinball/drain") el.setAttribute("window", "5000");
   return el;
 }

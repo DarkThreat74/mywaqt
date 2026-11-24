@@ -240,6 +240,17 @@ export function SiratArt() {
   );
 }
 
+export function FidgetArt() {
+  return (
+    <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
+      <circle cx="16" cy="18" r="7" />
+      <circle cx="33" cy="18" r="7" opacity="0.55" />
+      <circle cx="24.5" cy="31" r="7" opacity="0.35" />
+      <circle cx="24.5" cy="31" r="2" fill="currentColor" stroke="none" opacity="0.8" />
+    </svg>
+  );
+}
+
 export function QuranTesterArt() {
   return (
     <svg viewBox="0 0 48 48" {...STROKE} aria-hidden="true">
@@ -270,6 +281,7 @@ export const ALL_APPS: AppDef[] = [
   { key: "/dhikr", href: "/dhikr", label: "Dhikr", arabic: "ذكر", description: "Tasbih counter with sequences", art: DhikrArt },
   { key: "/masjids", href: "/masjids", label: "Masjids", arabic: "مساجد", description: "Nearby masjids & iqamah times", art: MasjidArt },
   { key: "/myapps/sirat/index.html", href: "/myapps/sirat/index.html", label: "Sirat", arabic: "سير", description: "Offline-first halal places, masjids and things to do", art: SiratArt },
+  { key: "/myapps/fidget/index.html", href: "/myapps/fidget/index.html", label: "Fidget", description: "57 pocket toys — pinball, zen sand, launch bays", art: FidgetArt },
 
   { key: "/quran", href: "/quran", label: "AyaTrace", arabic: "قرآن", description: "Name the surah from a verse", art: QuranArt, ranked: true },
   { key: "/quran-tester", href: "/quran-tester", label: "Quran Tester", arabic: "تلاوة", description: "Recite from memory — it follows and catches mistakes", art: QuranTesterArt },
@@ -294,7 +306,7 @@ export const CATEGORIES: { title: string; keys: string[] }[] = [
   { title: "Prayer", keys: ["/qibla", "/dhikr", "/masjids", "/myapps/sirat/index.html"] },
   { title: "Quran", keys: ["/quran", "/quran-tester", "/recite", "/mutashabihat", "/names"] },
   { title: "Study", keys: ["/study", "/learn", "/talks", "/nasheeds"] },
-  { title: "Life", keys: ["/workout", "/subscriptions", "/birthdays"] },
+  { title: "Life", keys: ["/workout", "/subscriptions", "/birthdays", "/myapps/fidget/index.html"] },
   { title: "Social", keys: ["messages", "/friends"] },
   { title: "Help", keys: ["/guide"] },
 ];

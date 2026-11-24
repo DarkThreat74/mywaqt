@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keep</title>
+<style>
+  :root { --ink: #26221c; --page: #efe8d8; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--page); color: var(--ink); font: 15px/1.45 -apple-system, "Helvetica Neue", "Segoe UI", sans-serif; }
+  main { width: min(744px, 100vw - 32px); padding: 40px 0 60px; }
+  h1 { font: 700 22px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 6px; margin: 0; }
+  h1, .sub, .hint { padding: 0 1.6%; }   /* the card is drawn 12 of the element's 744 pixels in from its edge; the words line up with it */
+  .sub { margin: 4px 0 26px; color: #685f50; }
+  .hint { margin: 14px 0 0; color: #685f50; }
+  .embed main { width: min(744px, 100vw - 16px, (100vh - 8px) * 744 / 608); padding: 0; } .embed h1, .embed .sub, .embed .hint { display: none; }
+  .take body { overflow: hidden; } .take main { height: 0; padding: 0; overflow: hidden; } .take h1, .take .sub, .take .hint { display: none; }   /* the scripted take fills the window; nothing else is on the page */
+</style>
+</head>
+<body>
+<main>
+  <h1>KEEP</h1>
+  <p class="sub">A password field where strength is a castle. When you stop typing, a raccoon tests what you built.</p>
+  <keep-field id="keep"></keep-field>
+  <p class="hint">Click the field and type. The eye shows or hides the characters. Nothing is stored or sent anywhere.</p>
+</main>
+<script src="keep.js"></script>
+<script>
+// This page's own wiring. The component is all in keep.js.
+const Q = new URLSearchParams(location.search), keep = document.getElementById('keep');
+if (Q.get('embed') === '1') document.documentElement.classList.add('embed');   // inside the gallery: no heading of its own, and small enough to fit the frame both ways
+if (Q.get('film') === '1' || Q.get('demo') === '1') {
+  // The scripted take the clips were made from. ?demo=1 plays it live. ?film=1 stops the clock so it can be stepped a frame at a time.
+  // Either way the element is asked to paint the whole page the clips were filmed on: see film() in keep.js.
+  const filming = Q.get('film') === '1';
+  document.documentElement.classList.add('take');
+  if (filming) customElements.get('keep-field').paused = true;
+  const duration = keep.film(Q.get('take') || '', { live: !filming, loop: Q.get('loop') === '1' });   // &take=chbs is the second take
+  const step = (fps = 60) => { keep.advance(1 / fps); return keep.clock; };
+  if (filming) window.__film = { duration, step, seek(to, fps = 60) { while (keep.clock < to) step(fps); } };
+} else if (Q.get('pw') !== null) {   // ?pw=Sunny!day42 starts with that typed in, showing
+  keep.value = Q.get('pw'); keep.shown = true; keep.focus({ preventScroll: true });
+}
+if (Q.get('seek')) { const to = parseFloat(Q.get('seek')) || 0; while (keep.clock < to) keep.advance(1 / 60); }   // &seek=6.5 starts that far in
+</script>
+</body>
+</html>
