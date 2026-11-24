@@ -93,6 +93,7 @@ export default function QiblaCompassClient() {
   const [aligned, setAligned] = useState(false);
   const [headingDeg, setHeadingDeg] = useState<number | null>(null);
   const [turnDelta, setTurnDelta] = useState<number | null>(null);
+  const [sensorDiag, setSensorDiag] = useState<string | null>(null);
 
   const filteredHeadingRef = useRef<number | null>(null);
   const currentHeadingRef = useRef(0);
@@ -254,8 +255,26 @@ export default function QiblaCompassClient() {
       }).then((h) => { removeA = () => void h.remove(); }).catch(() => {});
       void native.start({ latitude: coords.latitude, longitude: coords.longitude })
         .then(() => { nativeStartedRef.current = true; })
-        .catch(() => setSensorState("unavailable"));
-      } catch { queueMicrotask(() => setSensorState("unavailable")); } // sync throws from the bridge must not reach the boundary
+        .catch((e) => {
+          queueMicrotask(() => {
+            setSensorState("unavailable");
+            setSensorDiag(e instanceof Error ? e.message : String(e));
+          });
+        });
+      } catch (e) {
+        // sync throws from the bridge must not reach the boundary
+        queueMicrotask(() => {
+          setSensorState("unavailable");
+          setSensorDiag(e instanceof Error ? e.message : String(e));
+        });
+      }
+      const silentProbe = setTimeout(() => {
+        if (lastReadingRef.current === 0) {
+          void native.getStatus?.().then((s) => {
+            queueMicrotask(() => setSensorDiag(`started, silent — fusion: ${s.fusion}`));
+          }).catch(() => {});
+        }
+      }, 4000);
       const staleTimer = setInterval(() => {
         setStale(Date.now() - lastReadingRef.current > 3000 && lastReadingRef.current > 0);
       }, 2000);
@@ -263,6 +282,7 @@ export default function QiblaCompassClient() {
         void native.stop().catch(() => {});
         nativeStartedRef.current = false;
         removeH?.(); removeA?.();
+        clearTimeout(silentProbe);
         clearInterval(staleTimer);
       };
       return cleanupRef.current;
@@ -566,7 +586,7 @@ export default function QiblaCompassClient() {
                 ? "Motion access was denied — enable it in browser settings for the live compass. The bearing below still works."
                 : sensorState === "relative-only"
                   ? "This browser can't find true north. Use the bearing below with a physical compass."
-                  : "No live compass sensor detected. Use the bearing below with a physical compass."
+                  : `No live compass sensor detected. Use the bearing below with a physical compass.${sensorDiag ? ` (${sensorDiag})` : ""}`
             }
           />
         )}
