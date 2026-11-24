@@ -22,6 +22,14 @@ export default function Error({
       <p className="mt-2 text-sm" style={{ color: "var(--color-ink-soft)" }}>
         Your data is safe. Please try again.
       </p>
+      {error?.message && (
+        <p
+          className="mt-3 max-w-sm break-words rounded-lg px-3 py-2 font-mono text-[11px]"
+          style={{ color: "var(--color-ink-muted)", backgroundColor: "var(--color-paper-2)" }}
+        >
+          {error.message}
+        </p>
+      )}
       <button
         onClick={reset}
         className="mt-4 rounded-lg px-4 py-2 text-sm font-medium"

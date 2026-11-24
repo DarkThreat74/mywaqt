@@ -237,6 +237,7 @@ export default function QiblaCompassClient() {
     if (native && coords) {
       let removeH: (() => void) | null = null;
       let removeA: (() => void) | null = null;
+      try {
       void native.addListener("heading", (r) => {
         try {
           if (typeof r.heading !== "number" || Number.isNaN(r.heading)) return;
@@ -254,6 +255,7 @@ export default function QiblaCompassClient() {
       void native.start({ latitude: coords.latitude, longitude: coords.longitude })
         .then(() => { nativeStartedRef.current = true; })
         .catch(() => setSensorState("unavailable"));
+      } catch { queueMicrotask(() => setSensorState("unavailable")); } // sync throws from the bridge must not reach the boundary
       const staleTimer = setInterval(() => {
         setStale(Date.now() - lastReadingRef.current > 3000 && lastReadingRef.current > 0);
       }, 2000);
