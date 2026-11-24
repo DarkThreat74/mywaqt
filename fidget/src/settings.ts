@@ -15,35 +15,49 @@ export function savePrefs() {
 
 // ── Sound gate: elements own their audio internals, so we gate at the
 // platform seam — AudioContext stays suspended and media play() no-ops. ──
+const ctxs = new Set<AudioContext>();
+let origResumeFn: ((this: AudioContext) => Promise<void>) | null = null;
+
 export function installSoundGate() {
-  let ctxRef: AudioContext | null = null;
   const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (Ctx) {
-    const orig = Ctx.prototype.resume;
+    origResumeFn = Ctx.prototype.resume;
     Ctx.prototype.resume = function (this: AudioContext) {
-      ctxRef = this; liveCtx = this;
-      return prefs.sound ? orig.call(this) : Promise.resolve();
+      return prefs.sound ? origResumeFn!.call(this) : Promise.resolve();
     };
+    // Register every context an element creates — most worlds never call
+    // resume() themselves, so without this they stay suspended (silent).
+    const Orig = Ctx;
+    const Wrapped = new Proxy(Orig, {
+      construct(target, args) {
+        const c = new target(...args) as AudioContext;
+        ctxs.add(c);
+        return c;
+      },
+    });
+    (window as { AudioContext?: typeof AudioContext }).AudioContext = Wrapped;
+    const w = window as unknown as { webkitAudioContext?: typeof AudioContext };
+    if (w.webkitAudioContext) w.webkitAudioContext = Wrapped;
   }
   const play = HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
     if (!prefs.sound) { this.pause(); return Promise.resolve(); }
     return play.call(this);
   };
-  // First user gesture unlocks audio (WebView autoplay policy).
+  // Every user gesture unlocks every context (WebView autoplay policy).
   window.addEventListener("pointerdown", () => {
-    if (prefs.sound && ctxRef && ctxRef.state === "suspended") void origResume(ctxRef);
+    if (!prefs.sound) return;
+    for (const c of ctxs) if (c.state === "suspended") void origResumeFn?.call(c);
   }, { capture: true, passive: true });
 }
-function origResume(ctx: AudioContext) { return ctx.resume(); }
 
 // Called when the Sound toggle flips: off silences in-flight audio, on
 // re-unlocks at the next gesture via the gate above.
-let liveCtx: AudioContext | null = null;
 export function applySoundPref() {
-  if (!liveCtx) return;
-  if (prefs.sound) { if (liveCtx.state === "suspended") void origResume(liveCtx); }
-  else if (liveCtx.state === "running") void liveCtx.suspend();
+  for (const c of ctxs) {
+    if (prefs.sound) { if (c.state === "suspended") void origResumeFn?.call(c); }
+    else if (c.state === "running") void c.suspend();
+  }
 }
 
 export function haptic(level: "light" | "medium" | "heavy" | "success" | "error" | "warn") {

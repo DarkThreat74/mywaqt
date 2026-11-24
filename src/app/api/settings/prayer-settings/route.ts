@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
       studyStartMin: schema.prayerSettings.studyStartMin,
       studyEndMin: schema.prayerSettings.studyEndMin,
       studyShowGapChips: schema.prayerSettings.studyShowGapChips,
+      dayViewStartHour: schema.prayerSettings.dayViewStartHour,
     })
     .from(schema.prayerSettings)
     .where(eq(schema.prayerSettings.userId, session.userId))
@@ -86,6 +87,7 @@ export async function PATCH(request: NextRequest) {
     studyStartMin?: number;
     studyEndMin?: number;
     studyShowGapChips?: boolean;
+    dayViewStartHour?: number;
   };
   try {
     body = await request.json();
@@ -188,6 +190,11 @@ export async function PATCH(request: NextRequest) {
     updates.studyEndMin = e;
   }
   if (typeof body.studyShowGapChips === "boolean") updates.studyShowGapChips = body.studyShowGapChips;
+  // Day-view collapsed start — needs ≥1 visible hour before midnight.
+  if (typeof body.dayViewStartHour === "number" && Number.isInteger(body.dayViewStartHour)
+      && body.dayViewStartHour >= 0 && body.dayViewStartHour <= 22) {
+    updates.dayViewStartHour = body.dayViewStartHour;
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });

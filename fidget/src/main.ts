@@ -33,6 +33,7 @@ if (m0) open(m0[1]);
 // Native chrome
 void App.addListener("backButton", () => {
   if (toyOpen) document.querySelector(".toy-close")?.dispatchEvent(new Event("click"));
+  else if (window.history.length > 1) window.history.back();
   else void App.exitApp();
 }).catch(() => {});
 void Keyboard.setResizeMode({ mode: KeyboardResize.Native }).catch(() => {});

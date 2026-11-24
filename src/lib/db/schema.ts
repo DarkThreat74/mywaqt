@@ -453,6 +453,8 @@ export const prayerSettings = pgTable('prayer_settings', {
   studyEndMin: integer('study_end_min').default(1320).notNull(),
   // Show the "+ plan · Nh free" ghost chips inside the day timeline's gaps
   studyShowGapChips: boolean('study_show_gap_chips').default(false).notNull(),
+  // Collapsed day-view start hour (0–22) — the grid hides everything before it
+  dayViewStartHour: integer('day_view_start_hour').default(5).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

@@ -18,6 +18,8 @@ export interface CachedPrayerSettings {
   studyEndMin?: number;
   // Show "+ plan" ghost chips in the day timeline's free gaps (default on)
   studyShowGapChips?: boolean;
+  // Collapsed day-view start hour (0–22)
+  dayViewStartHour?: number;
 }
 
 export function getCachedPrayerSettings(): CachedPrayerSettings | null {

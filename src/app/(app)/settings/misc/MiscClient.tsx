@@ -22,6 +22,7 @@ interface MiscSettings {
   studyStartMin: number;
   studyEndMin: number;
   studyShowGapChips: boolean;
+  dayViewStartHour: number;
 }
 
 export default function MiscClient() {
@@ -55,6 +56,7 @@ export default function MiscClient() {
         studyStartMin: cached.studyStartMin ?? 420,
         studyEndMin: cached.studyEndMin ?? 1320,
         studyShowGapChips: cached.studyShowGapChips === true,
+        dayViewStartHour: cached.dayViewStartHour ?? 5,
       });
       if (cached.latitude != null && cached.longitude != null && cached.timezone) {
         setFull({
@@ -77,6 +79,7 @@ export default function MiscClient() {
             studyStartMin: d.studyStartMin ?? 420,
             studyEndMin: d.studyEndMin ?? 1320,
             studyShowGapChips: d.studyShowGapChips === true,
+            dayViewStartHour: d.dayViewStartHour ?? 5,
           });
         }
       })
@@ -245,6 +248,34 @@ export default function MiscClient() {
                 ))}
               </select>
             </div>
+          </div>
+
+          {/* Day-view start hour */}
+          <div
+            className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3"
+            style={{ borderColor: "var(--color-paper-3)" }}
+          >
+            <div className="min-w-0">
+              <p className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>Day view starts at</p>
+              <p className="mt-0.5 text-[11px]" style={{ color: "var(--color-ink-muted)" }}>
+                Hours before this hide behind the &ldquo;Show 12 AM&rdquo; toggle on the calendar.
+              </p>
+            </div>
+            <select
+              value={settings?.dayViewStartHour ?? 5}
+              disabled={!settings || busy}
+              onChange={(e) => {
+                const v = parseInt(e.target.value);
+                patch({ dayViewStartHour: v }, { dayViewStartHour: v });
+              }}
+              className="shrink-0 rounded-md border px-2 py-1.5 text-xs disabled:opacity-50"
+              style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)", color: "var(--color-ink)" }}
+              aria-label="Day view start hour"
+            >
+              {Array.from({ length: 13 }, (_, i) => i).map((h) => (
+                <option key={h} value={h}>{hourLabel(h * 60)}</option>
+              ))}
+            </select>
           </div>
 
           {msg && (

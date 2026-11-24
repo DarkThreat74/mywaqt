@@ -1,5 +1,50 @@
 import { TOYS, WORLDS, worldOf, type Toy } from "./registry";
 
+// Toys whose capture stayed blank (cockpit set + toasts) get a live-mounted
+// preview when the card scrolls into view instead of a still frame.
+let previewIO: IntersectionObserver | null = null;
+function observeLiveCard(card: HTMLElement, t: Toy) {
+  previewIO ??= new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const c = e.target as HTMLElement;
+      previewIO!.unobserve(c);
+      const toy = TOYS.find((x) => x.id === c.dataset.toy);
+      if (toy) mountPreview(c, toy);
+    }
+  }, { rootMargin: "100px" });
+  card.dataset.toy = t.id;
+  previewIO.observe(card);
+}
+
+const NO_STILL = new Set([
+  "cockpit/checklist", "cockpit/dial", "cockpit/input", "cockpit/launch",
+  "cockpit/loading", "cockpit/lock", "cockpit/stepper", "cockpit/tabs",
+  "hose/toast", "paradise/slider", "sakuga/toast",
+]);
+
+function mountPreview(card: HTMLElement, t: Toy, hover = false) {
+  void import("./toy").then(async ({ loadPiece, mountEl }) => {
+    await loadPiece(t);
+    if (card.querySelector(".card-live")) return;
+    const live = document.createElement("span");
+    live.className = "card-live";
+    if (hover) live.dataset.hover = "1";
+    const el = mountEl(t);
+    live.append(el);
+    card.prepend(live);
+    // Toasts render nothing until fired — re-fire while the card is alive.
+    const show = (el as unknown as { show?: (m?: string) => void }).show;
+    if (typeof show === "function") {
+      show.call(el, t.title);
+      const iv = setInterval(() => {
+        if (!card.isConnected) { clearInterval(iv); return; }
+        show.call(el, t.title);
+      }, 4000);
+    }
+  }).catch(() => {});
+}
+
 // Desktop hover: mount the live element inside the card, one at a time.
 const finePointer = matchMedia("(min-width: 768px) and (pointer: fine)");
 let liveCard: HTMLElement | null = null;
@@ -8,18 +53,13 @@ function armPreview(card: HTMLElement, t: Toy) {
     if (!finePointer.matches || liveCard === card) return;
     liveCard?.querySelector(".card-live")?.remove();
     liveCard = card;
-    void import("./toy").then(async ({ loadPiece, mountEl }) => {
-      await loadPiece(t);
-      if (liveCard !== card || card.querySelector(".card-live")) return;
-      const live = document.createElement("span");
-      live.className = "card-live";
-      live.append(mountEl(t));
-      card.prepend(live);
-    }).catch(() => {});
+    void (async () => {
+      await new Promise((r) => setTimeout(r, 0));
+      if (liveCard === card) mountPreview(card, t, true);
+    })();
   });
   card.addEventListener("pointerleave", () => {
-    card.querySelector(".card-live")?.remove();
-    if (liveCard === card) liveCard = null;
+    if (liveCard === card) { card.querySelector(".card-live[data-hover]")?.remove(); liveCard = null; }
   });
 }
 
@@ -34,8 +74,11 @@ function toyCard(t: Toy, onOpen: (id: string) => void): HTMLElement {
   card.style.background = w.card;
   card.style.color = w.ink;
   card.setAttribute("aria-label", t.title);
+  const noStill = NO_STILL.has(t.id);
   card.innerHTML = `${pins.has(t.id) ? '<span class="card-pin" aria-hidden="true"></span>' : ""}
+    ${noStill ? "" : `<img class="card-still" src="toys/${t.id}/card.png" alt="" loading="lazy" onerror="this.remove()" />`}
     <span class="card-name">${t.title}</span>`;
+  if (noStill) observeLiveCard(card, t);
   // Long-press / right-click → pin. Suppress the click that follows release.
   let timer: ReturnType<typeof setTimeout> | null = null;
   let suppress = false;
@@ -104,6 +147,7 @@ export function renderShelf(root: HTMLElement, onOpen: (id: string) => void) {
   shelf.innerHTML = `
     <div class="shelf-head">
       <div>
+        ${location.pathname.includes("/myapps/") ? '<button class="shelf-back" id="back-btn" aria-label="Back to Waqt">‹ Waqt</button>' : ""}
         <h1 class="shelf-title">Fidget</h1>
         <p class="shelf-sub">${TOYS.length} toys · ${WORLDS.length} worlds · everything works offline</p>
       </div>
@@ -131,6 +175,9 @@ export function renderShelf(root: HTMLElement, onOpen: (id: string) => void) {
   }
   ensurePinRow();
 
+  shelf.querySelector("#back-btn")?.addEventListener("click", () => {
+    if (window.history.length > 1) window.history.back(); else location.href = "/";
+  });
   shelf.querySelector("#settings-btn")!.addEventListener("click", () => {
     import("./settingsSheet").then((m) => m.openSettingsSheet());
   });

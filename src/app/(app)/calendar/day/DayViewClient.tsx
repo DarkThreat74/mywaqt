@@ -549,6 +549,7 @@ export default function DayViewClient({ date }: { date: string }) {
   const [homeworkGoalDraft, setHomeworkGoalDraft] = useState("");
   // Study-block planning window — settings-controlled, defaults 7:00–22:00
   const [studyStartMin, setStudyStartMin] = useState(DAY_START);
+  const [dayStartHour, setDayStartHour] = useState(DEFAULT_START_HOUR);
   const [studyEndMin, setStudyEndMin] = useState(DAY_END);
   const [showGapChips, setShowGapChips] = useState(false);
   // Birthdays recur annually — the full list + category colours are fetched
@@ -575,6 +576,7 @@ export default function DayViewClient({ date }: { date: string }) {
         if (typeof cached.studyStartMin === "number") setStudyStartMin(cached.studyStartMin);
         if (typeof cached.studyEndMin === "number") setStudyEndMin(cached.studyEndMin);
         if (typeof cached.studyShowGapChips === "boolean") setShowGapChips(cached.studyShowGapChips);
+        if (typeof cached.dayViewStartHour === "number") setDayStartHour(cached.dayViewStartHour);
       });
     }
   }, []);
@@ -616,6 +618,7 @@ export default function DayViewClient({ date }: { date: string }) {
             if (typeof s.studyStartMin === "number") setStudyStartMin(s.studyStartMin);
             if (typeof s.studyEndMin === "number") setStudyEndMin(s.studyEndMin);
             if (typeof s.studyShowGapChips === "boolean") setShowGapChips(s.studyShowGapChips);
+            if (typeof s.dayViewStartHour === "number") setDayStartHour(s.dayViewStartHour);
             setCachedPrayerSettings({
               timezone: s.timezone,
               calculationMethod: s.calculationMethod,
@@ -625,6 +628,7 @@ export default function DayViewClient({ date }: { date: string }) {
               studyStartMin: s.studyStartMin,
               studyEndMin: s.studyEndMin,
               studyShowGapChips: s.studyShowGapChips,
+              dayViewStartHour: s.dayViewStartHour,
             });
             if (s.madhab) setUserMadhab(s.madhab);
           }
@@ -1210,15 +1214,7 @@ export default function DayViewClient({ date }: { date: string }) {
     return h > 0 ? `in ${h}h ${String(m).padStart(2, "0")}m` : `in ${m}m`;
   }
 
-  // "Now" anchor: when the collapsed grid opens on today, start one hour
-  // before the now-line instead of a fixed 5 AM. Other days keep 5 AM.
-  const collapsedStart = useMemo(() => {
-    if (isToday && nowMin !== null) {
-      const nowHour = Math.floor(nowMin / 60);
-      return Math.min(Math.max(nowHour - 1, DEFAULT_START_HOUR), HOURS.length - 3);
-    }
-    return DEFAULT_START_HOUR;
-  }, [isToday, nowMin]);
+  const collapsedStart = Math.min(Math.max(dayStartHour, 0), HOURS.length - 2);
 
   function formatHourFull(hour: number): string {
     return `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;

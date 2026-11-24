@@ -5,7 +5,9 @@
 // Usage: node scripts/capture-cards.mjs [toyId ...]
 import { createServer } from "node:http";
 import { readFileSync, mkdirSync, existsSync, copyFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFileP = promisify(execFile);
 import { extname, join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -47,11 +49,12 @@ for (const t of picked) {
   const tmp = join(tmpdir(), `fidget-card-${t.id.replace(/\//g, "-")}.png`);
   mkdirSync(join(ROOT, "public/toys", t.id), { recursive: true });
   try {
-    execFileSync(CHROME, ["--headless=new", "--no-first-run", "--no-default-browser-check",
+    await execFileP(CHROME, ["--headless=new", "--no-first-run", "--no-default-browser-check",
       `--user-data-dir=${join(tmpdir(), `fidget-capture-${process.pid}`)}`,
       `--screenshot=${tmp}`, "--window-size=440,440", "--hide-scrollbars",
+      "--virtual-time-budget=6000",
       url],
-      { stdio: "ignore", timeout: 45000 });
+      { timeout: 45000, killSignal: "SIGKILL" });
     copyFileSync(tmp, dest);
     console.log(`${existsSync(dest) ? "ok " : "FAIL"} ${t.id}`);
   } catch (e) { console.log(`FAIL ${t.id}: ${String(e).slice(0, 120)}`); }
