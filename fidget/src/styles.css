@@ -27,27 +27,32 @@ input, textarea, [contenteditable] { -webkit-user-select: text; user-select: tex
 .shelf-back { background: none; border: 0; color: var(--ink-dim); font-size: 15px;
   padding: 6px 10px 6px 0; cursor: pointer; margin-bottom: 4px; display: block; }
 
-.world { margin-top: 26px; }
-.world-head { display: flex; align-items: baseline; gap: 10px; padding: 0 clamp(16px, 4vw, 32px) 10px; }
-.world-name { font-size: 15px; font-weight: 650; margin: 0; }
+.world { margin-top: 30px; }
+.world-head { display: flex; align-items: baseline; gap: 10px; padding: 0 clamp(16px, 4vw, 32px) 12px; }
+.world-name { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .world-blurb { color: var(--ink-dim); font-size: 11px; }
-.world-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; }
+.world-dot { width: 9px; height: 9px; border-radius: 50%; align-self: center;
+  box-shadow: 0 0 10px 1px currentColor; }
 
 .row { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;
   padding: 4px clamp(16px, 4vw, 32px) 8px; scrollbar-width: none; touch-action: pan-x pan-y; }
 .row::-webkit-scrollbar { display: none; }
 
-.card { scroll-snap-align: start; flex: 0 0 auto; width: 148px; height: 148px;
-  border-radius: 20px; border: 1px solid rgba(0,0,0,.12); cursor: pointer;
-  display: flex; flex-direction: column; justify-content: flex-end; padding: 12px;
-  position: relative; transition: transform .15s ease; }
+.card { scroll-snap-align: start; flex: 0 0 auto; width: 156px; height: 156px;
+  border-radius: 22px; border: 1px solid rgba(255,255,255,.08); cursor: pointer;
+  display: flex; flex-direction: column; justify-content: flex-end; padding: 10px;
+  position: relative; overflow: hidden; transition: transform .15s ease;
+  box-shadow: 0 2px 14px rgba(0,0,0,.25); }
 .card:active { transform: scale(.96); }
-.card-name { font-size: 12px; font-weight: 600; }
+.card-name { font-size: 11.5px; font-weight: 650; align-self: flex-start;
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(0,0,0,.42); color: #fff;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .card-tag { font-size: 10px; opacity: .6; margin-top: 2px; }
-.card-pin { position: absolute; top: 10px; right: 10px; width: 8px; height: 8px;
-  border-radius: 50%; background: currentColor; opacity: .7; }
+.card-pin { position: absolute; top: 9px; right: 9px; width: 8px; height: 8px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
 .card-pin::after { content: ""; position: absolute; inset: -3px; border-radius: 50%;
-  border: 1.5px solid currentColor; opacity: .5; }
+  border: 1.5px solid #fff; opacity: .6; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 4px; }
 .card:focus-visible { outline-offset: 3px; }
@@ -55,10 +60,9 @@ input, textarea, [contenteditable] { -webkit-user-select: text; user-select: tex
 .toy-retry { margin-top: 10px; background: none; border: 1px solid currentColor; border-radius: 10px;
   color: inherit; padding: 8px 16px; font-size: 13px; cursor: pointer; opacity: .8; }
 .card-still { position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; border-radius: inherit; }
-.card:has(.card-still) .card-name { position: relative; z-index: 1;
-  text-shadow: 0 1px 6px rgba(0,0,0,.35); }
-.card-live { position: absolute; inset: 10px 10px 38px; display: flex;
+  object-fit: cover; }
+.card:has(.card-still) .card-name { position: relative; z-index: 1; }
+.card-live { position: absolute; inset: 8px 8px 42px; display: flex;
   align-items: center; justify-content: center; pointer-events: none; overflow: hidden; }
 .card-live > * { flex: none; transform: scale(.62); transform-origin: center; }
 
@@ -69,14 +73,25 @@ input, textarea, [contenteditable] { -webkit-user-select: text; user-select: tex
 }
 
 /* ── Toy screen ── */
-.toy { position: fixed; inset: 0; display: flex; flex-direction: column; }
+.toy { position: fixed; inset: 0; display: flex; flex-direction: column; z-index: 20; }
 .toy-top { display: flex; align-items: center; justify-content: space-between;
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 8px; z-index: 2; }
 .toy-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-.toy-close { background: none; border: 0; color: inherit; font-size: 22px; padding: 8px; cursor: pointer; opacity: .7; }
+.toy-close { background: rgba(128,128,128,.18); border: 0; color: inherit;
+  font-size: 15px; width: 34px; height: 34px; border-radius: 50%;
+  cursor: pointer; display: grid; place-items: center; }
 .toy-stage { flex: 1; display: grid; place-items: center; touch-action: none;
   padding: 0 12px calc(env(safe-area-inset-bottom, 0px) + 20px); overflow: hidden; }
 .toy-stage > * { max-width: min(92vw, 720px); }
+.toy-mute { position: absolute; right: 14px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  width: 38px; height: 38px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(128,128,128,.18); color: inherit; z-index: 2;
+  display: grid; place-items: center; }
+.toy-mute::before { content: ""; width: 16px; height: 16px;
+  background: currentColor; -webkit-mask: var(--spk) center / contain no-repeat;
+  mask: var(--spk) center / contain no-repeat; }
+.toy-mute { --spk: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 5 6 9H2v6h4l5 4z' fill='black'/%3E%3Cpath d='M15.5 8.5a5 5 0 0 1 0 7'/%3E%3C/svg%3E"); }
+.toy-mute[data-on="false"] { --spk: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 5 6 9H2v6h4l5 4z' fill='black'/%3E%3Cline x1='23' y1='9' x2='17' y2='15'/%3E%3Cline x1='17' y1='9' x2='23' y2='15'/%3E%3C/svg%3E"); opacity: .55; }
 
 /* ── Settings sheet ── */
 .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 10;

@@ -1,5 +1,6 @@
 import { findToy, worldOf, type Toy } from "./registry";
-import { haptic, prefs } from "./settings";
+import { sfx } from "./sfx";
+import { applySoundPref, haptic, prefs, savePrefs } from "./settings";
 import { KeepAwake } from "@capacitor-community/keep-awake";
 
 // Strip value readouts inside open shadow roots — pure feel, no numbers.
@@ -171,8 +172,11 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
       <span class="toy-name"><span class="world-dot" style="background:${w.accent}"></span>${t.title}</span>
       <button class="toy-close" aria-label="Close">&#10005;</button>
     </div>
-    <div class="toy-stage"></div>`;
+    <div class="toy-stage"></div>
+    <button class="toy-mute" aria-label="Toggle sound" aria-pressed="${prefs.sound}"></button>`;
   const stage = scr.querySelector(".toy-stage") as HTMLElement;
+  stage.addEventListener("pointerdown", () => sfx(w.id, "down"));
+  stage.addEventListener("pointerup", () => sfx(w.id, "up"));
   root.append(scr);
   const prevFocus = document.activeElement as HTMLElement | null;
   const closeBtn = scr.querySelector(".toy-close") as HTMLElement;
@@ -215,4 +219,16 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
     onClose();
   };
   scr.querySelector(".toy-close")!.addEventListener("click", close);
+
+  const muteBtn = scr.querySelector(".toy-mute") as HTMLButtonElement;
+  const paintMute = () => {
+    muteBtn.dataset.on = String(prefs.sound);
+    muteBtn.setAttribute("aria-pressed", String(prefs.sound));
+    muteBtn.title = prefs.sound ? "Sound on" : "Sound off";
+  };
+  paintMute();
+  muteBtn.addEventListener("click", () => {
+    prefs.sound = !prefs.sound;
+    savePrefs(); applySoundPref(); paintMute();
+  });
 }

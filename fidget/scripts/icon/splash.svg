@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" fill="#17140f"/>
+  <g>
+    <circle cx="40" cy="45" r="5" fill="#d9a441"/>
+    <circle cx="50" cy="45" r="5" fill="#e28bb4"/>
+    <circle cx="60" cy="45" r="5" fill="#c9a86a"/>
+    <circle cx="40" cy="55" r="5" fill="#6f8fd4"/>
+    <circle cx="50" cy="55" r="5" fill="#c22f2f"/>
+    <circle cx="60" cy="55" r="5" fill="#e0559a"/>
+  </g>
+  <text x="50" y="68" font-family="ui-sans-serif,system-ui" font-size="6" font-weight="700" fill="#ece5d8" text-anchor="middle">Fidget</text>
+</svg>
