@@ -36,6 +36,7 @@ type HeadingRefs = {
   filtered: React.MutableRefObject<number | null>;
   current: React.MutableRefObject<number>;
   lastReading: React.MutableRefObject<number>;
+  dropped: React.MutableRefObject<number>;
 };
 
 function updateHeading(refs: HeadingRefs, raw: number) {
@@ -45,9 +46,17 @@ function updateHeading(refs: HeadingRefs, raw: number) {
   if (prev === null) {
     refs.filtered.current = raw;
     refs.current.current = raw;
+    refs.dropped.current = 0;
   } else {
     const jump = angleDelta(prev, raw);
-    if (Math.abs(jump) > 90) return; // magnetometer spike — drop it
+    // >90° between readings is a magnetometer spike — drop it, unless every
+    // reading disagrees (a real fast turn): after 8 drops, trust the sensor
+    // again so the needle can't freeze forever.
+    if (Math.abs(jump) > 90 && refs.dropped.current < 8) {
+      refs.dropped.current += 1;
+      return;
+    }
+    refs.dropped.current = 0;
     refs.filtered.current = (prev + jump * SENSOR_ALPHA + 360) % 360;
   }
 }
@@ -109,6 +118,7 @@ export default function QiblaCompassClient() {
   const alignedRef = useRef(false);
   const lastReadoutRef = useRef(-1);
   const lastReadingRef = useRef(0);
+  const droppedRef = useRef(0);
   const reduceMotionRef = useRef(false);
   const nativeStartedRef = useRef(false);
 
@@ -188,6 +198,7 @@ export default function QiblaCompassClient() {
     filtered: filteredHeadingRef,
     current: currentHeadingRef,
     lastReading: lastReadingRef,
+    dropped: droppedRef,
   }).current;
 
   // ── rAF render loop ──
@@ -244,6 +255,7 @@ export default function QiblaCompassClient() {
           if (typeof r.heading !== "number" || Number.isNaN(r.heading)) return;
           lastReadingRef.current = Date.now();
           setSensorState(r.sensorAccuracy === 0 ? "unavailable" : "live");
+          setSensorDiag(null);
           setAccuracyLow(r.sensorAccuracy === 1);
           if (typeof r.headingErrorDeg === "number" && !Number.isNaN(r.headingErrorDeg)) setHeadingErr(r.headingErrorDeg);
           if (typeof r.declination === "number" && !Number.isNaN(r.declination)) setDeclination(r.declination);

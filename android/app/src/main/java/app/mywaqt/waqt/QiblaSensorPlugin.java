@@ -51,8 +51,11 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
     private boolean geoFallback = false;   // using GEOMAGNETIC_ROTATION_VECTOR
     private boolean amFallback = false;    // using raw accel+magnetometer
     private boolean listening = false;
+    private boolean wantListening = false; // guards start/stop racing on the main looper
     private double latitude;
     private double longitude;
+    private GeomagneticField geoField;     // declination model — rebuilt per fix, not per event
+    private long lastEmitMs = 0;           // throttle bridge traffic (~15 Hz)
     private final float[] lastAccel = new float[3];
     private final float[] lastMag = new float[3];
     private boolean haveAccel = false, haveMag = false;
@@ -96,18 +99,20 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
             requestPermissionForAlias("loc", call, "reply");
             return;
         }
-        deliverLocation(call, lm, true);
+        deliverLocation(call, lm);
     }
 
     @PermissionCallback
     private void reply(PluginCall call) {
         if (getBridge().getActivity() == null) { call.reject("no activity"); return; }
-        deliverLocation(call, (LocationManager) getContext().getSystemService(Context.LOCATION_SERVICE), false);
+        deliverLocation(call, (LocationManager) getContext().getSystemService(Context.LOCATION_SERVICE));
     }
 
-    private void deliverLocation(PluginCall call, LocationManager lm, boolean permitted) {
+    private void deliverLocation(PluginCall call, LocationManager lm) {
+        if (lm == null) { call.reject("no location manager"); return; }
         try {
-            boolean fine = permitted && ActivityCompat.checkSelfPermission(getContext(),
+            // Re-check here — the permission may have just been granted in reply().
+            boolean fine = ActivityCompat.checkSelfPermission(getContext(),
                     Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
             // Last-known first — instant and usually fresh enough for a bearing.
             Location best = null;
@@ -165,11 +170,14 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
         }
         latitude = lat;
         longitude = lng;
+        geoField = null; // declination model is location-dependent
         // Plugin methods run on a Capacitor worker thread with no Looper —
         // registerListener() without a Handler silently returns false there.
         // Register on the main thread (also where events get delivered).
         final Handler main = new Handler(Looper.getMainLooper());
+        wantListening = true;
         main.post(() -> {
+            if (!wantListening) { call.resolve(); return; } // stop() beat us here
             if (!listening) {
                 boolean ok;
                 if (rotation != null) {
@@ -187,6 +195,7 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
 
     @PluginMethod
     public void stop(PluginCall call) {
+        wantListening = false;
         stopListening();
         call.resolve();
     }
@@ -228,12 +237,20 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
         }
         if (!remappedOk) return;
 
+        // ~15 Hz is plenty for a compass needle; 50 Hz across the bridge is
+        // pure battery + JS churn.
+        long now = System.currentTimeMillis();
+        if (now - lastEmitMs < 66) return;
+        lastEmitMs = now;
+
         float[] orientation = new float[3];
         SensorManager.getOrientation(remapped, orientation);
         double magnetic = normalize(Math.toDegrees(orientation[0]));
-        GeomagneticField field = new GeomagneticField(
-                (float) latitude, (float) longitude, 0f, System.currentTimeMillis());
-        double declination = field.getDeclination();
+        if (geoField == null) {
+            geoField = new GeomagneticField(
+                    (float) latitude, (float) longitude, 0f, now);
+        }
+        double declination = geoField.getDeclination();
         double trueHeading = normalize(magnetic + declination);
 
         JSObject out = new JSObject();
