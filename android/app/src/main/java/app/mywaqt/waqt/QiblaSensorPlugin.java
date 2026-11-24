@@ -45,10 +45,11 @@ import com.getcapacitor.annotation.PermissionCallback;
 })
 public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
     private SensorManager sensors;
-    private Sensor rotation;      // TYPE_ROTATION_VECTOR or GEOMAGNETIC fallback
+    private Sensor rotation;      // TYPE_ROTATION_VECTOR
+    private Sensor geoRotation;   // TYPE_GEOMAGNETIC_ROTATION_VECTOR
     private Sensor accel;
     private Sensor magneto;
-    private boolean geoFallback = false;   // using GEOMAGNETIC_ROTATION_VECTOR
+    private Sensor activeSensor;          // whichever vector sensor won registration
     private boolean amFallback = false;    // using raw accel+magnetometer
     private boolean listening = false;
     private boolean wantListening = false; // guards start/stop racing on the main looper
@@ -66,23 +67,19 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
         sensors = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
         if (sensors != null) {
             rotation = sensors.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
-            if (rotation == null) {
-                rotation = sensors.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR);
-                geoFallback = rotation != null;
-            }
-            if (rotation == null) {
-                accel = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-                magneto = sensors.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
-                amFallback = accel != null && magneto != null;
-            }
+            geoRotation = sensors.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR);
+            accel = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+            magneto = sensors.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
         }
     }
 
     @PluginMethod
     public void getStatus(PluginCall call) {
         JSObject out = new JSObject();
-        out.put("available", rotation != null || amFallback);
-        out.put("fusion", rotation != null ? (geoFallback ? "geomagnetic" : "full") : (amFallback ? "accel-mag" : "none"));
+        out.put("available", rotation != null || geoRotation != null || (accel != null && magneto != null));
+        out.put("fusion", activeSensor == rotation ? "full"
+                : activeSensor == geoRotation ? "geomagnetic"
+                : amFallback ? "accel-mag" : "none");
         out.put("listening", listening);
         out.put("sensorEvents", sensorEvents);
         out.put("build", "v6-mainlooper");
@@ -167,7 +164,9 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
     public void start(PluginCall call) {
         Double lat = call.getDouble("latitude");
         Double lng = call.getDouble("longitude");
-        if (lat == null || lng == null || sensors == null || (rotation == null && !amFallback)) {
+        boolean noSensors = sensors == null ||
+                (rotation == null && geoRotation == null && !(accel != null && magneto != null));
+        if (lat == null || lng == null || noSensors) {
             call.reject("Orientation sensor or location unavailable");
             return;
         }
@@ -182,12 +181,19 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
         main.post(() -> {
             if (!wantListening) { call.resolve(); return; } // stop() beat us here
             if (!listening) {
-                boolean ok;
-                if (rotation != null) {
-                    ok = sensors.registerListener(this, rotation, SensorManager.SENSOR_DELAY_GAME, main);
-                } else {
-                    ok = sensors.registerListener(this, accel, SensorManager.SENSOR_DELAY_GAME, main);
-                    ok = sensors.registerListener(this, magneto, SensorManager.SENSOR_DELAY_GAME, main) && ok;
+                // Registration chain — some devices report TYPE_ROTATION_VECTOR
+                // but refuse to register it. Try geo-RV, then raw accel+mag.
+                boolean ok = false;
+                if (rotation != null && sensors.registerListener(this, rotation, SensorManager.SENSOR_DELAY_GAME, main)) {
+                    activeSensor = rotation;
+                    ok = true;
+                } else if (geoRotation != null && sensors.registerListener(this, geoRotation, SensorManager.SENSOR_DELAY_GAME, main)) {
+                    activeSensor = geoRotation;
+                    ok = true;
+                } else if (accel != null && magneto != null) {
+                    amFallback = sensors.registerListener(this, accel, SensorManager.SENSOR_DELAY_GAME, main)
+                            & sensors.registerListener(this, magneto, SensorManager.SENSOR_DELAY_GAME, main);
+                    ok = amFallback;
                 }
                 listening = ok;
             }
@@ -264,7 +270,7 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
         out.put("sensorAccuracy", event.accuracy);
         // Fused rotation vector carries the OS's own 95%-confidence heading
         // error (radians) in values[4] — the honest accuracy signal.
-        if (rotation != null && !geoFallback && event.values != null && event.values.length > 4) {
+        if (activeSensor == rotation && event.values != null && event.values.length > 4) {
             out.put("headingErrorDeg", Math.toDegrees(event.values[4]));
         }
         notifyListeners("heading", out);

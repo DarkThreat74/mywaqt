@@ -281,7 +281,8 @@ export default function QiblaCompassClient() {
         });
       }
       const silentProbe = setTimeout(() => {
-        if (lastReadingRef.current === 0) {
+        // Don't clobber a start() rejection message — that's the real error.
+        if (lastReadingRef.current === 0 && nativeStartedRef.current) {
           void native.getStatus?.().then((s) => {
             const st = s as { fusion?: string; listening?: boolean; sensorEvents?: number; build?: string };
             queueMicrotask(() => setSensorDiag(
