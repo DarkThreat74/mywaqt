@@ -1,4 +1,4 @@
-import { findToy, worldOf, type Toy } from "./registry";
+import { findToy, worldOf, TOYS, type Toy } from "./registry";
 import { sfx } from "./sfx";
 import { applySoundPref, haptic, prefs, savePrefs } from "./settings";
 import { KeepAwake } from "@capacitor-community/keep-awake";
@@ -74,7 +74,12 @@ function recreate(host: HTMLElement, t: Toy): AnyEl {
   return el;
 }
 
-const AMBIENT_STATES = ["thinking", "searching", "writing", "running", "reading", "done"];
+// Selectable states for the ambient (non-interactive) toys — shown as chips.
+const AMBIENT_OPTIONS: Record<string, string[]> = {
+  "paradise/agent-status": ["idle", "thinking", "searching", "tool", "writing", "error", "done"],
+  "sand/thinking": ["idle", "thinking", "searching", "tool", "writing"],
+  "cockpit/agent": ["standby", "thinking", "working", "waiting", "done", "error"],
+};
 
 // Per-toy shims — the tier-2 resets and tier-3 drivers.
 function attachBehavior(t: Toy, host: HTMLElement, getEl: () => AnyEl): () => void {
@@ -113,6 +118,21 @@ function attachBehavior(t: Toy, host: HTMLElement, getEl: () => AnyEl): () => vo
       });
       break;
     }
+    case "cockpit/stepper": {
+      // "Active time" — once a value is committed, count it down in real time.
+      on("change", () => {
+        let v = Number((getEl() as AnyEl & { value?: number }).value) || 0;
+        if (v <= 0) return;
+        const iv = setInterval(() => {
+          const cur = getEl() as AnyEl & { value?: number };
+          v -= 1;
+          cur.value = v;
+          if (v <= 0) { clearInterval(iv); haptic("success"); }
+        }, 1000);
+        timers.push(iv as unknown as ReturnType<typeof setTimeout>);
+      });
+      break;
+    }
     case "hose/toast": case "sakuga/toast": {
       // Verified: el.show(message) — self-dismisses, re-arms itself.
       const msgs = ["POP!", "Fresh toast!", "Done!", "Hot one!"];
@@ -144,21 +164,49 @@ function attachBehavior(t: Toy, host: HTMLElement, getEl: () => AnyEl): () => vo
     }
     default:
       if (t.ambient) {
-        // state-cycling driver: tap → next state, else idle cycle every 8s
-        let i = 0;
-        const cycle = () => {
-          const cur = getEl() as AnyEl & { state?: string; simulateRun?: () => void; demo?: () => void };
-          if (typeof cur.simulateRun === "function") { cur.simulateRun(); return; }
-          if (typeof cur.demo === "function") { cur.demo(); return; }
-          cur.state = AMBIENT_STATES[i++ % AMBIENT_STATES.length];
-          cur.setAttribute?.("state", String(cur.state));
+        const opts = AMBIENT_OPTIONS[t.id];
+        type AmbientEl = AnyEl & { state?: string; states?: string[]; set?: (s: string) => void; simulateRun?: () => void; demo?: () => void; play?: () => void };
+        const setState = (s: string) => {
+          const cur = getEl() as AmbientEl;
+          if (typeof cur.set === "function") cur.set(s);
+          else { cur.state = s; cur.setAttribute?.("state", s); }
         };
-        host.addEventListener("pointerdown", cycle);
-        if (!prefs.reduceMotion) {
-          const iv = setInterval(cycle, 8000);
-          timers.push(iv as unknown as ReturnType<typeof setTimeout>);
+        // Tap the toy itself → replay the current animation, never switch.
+        host.addEventListener("pointerdown", (e) => {
+          if ((e.target as HTMLElement).closest?.(".toy-opts")) return;
+          const cur = getEl() as AmbientEl;
+          const s = String(cur.state ?? cur.getAttribute?.("state") ?? "");
+          if (s) { cur.removeAttribute?.("state"); void cur.offsetWidth; cur.setAttribute?.("state", s); }
+          else if (typeof cur.simulateRun === "function") cur.simulateRun();
+          else if (typeof cur.play === "function") cur.play();
+          else if (typeof cur.demo === "function") cur.demo();
+        });
+        // Option chips: pick which animation/state plays.
+        const states = opts ?? (getEl() as AmbientEl).states;
+        if (states?.length) {
+          const bar = document.createElement("div");
+          bar.className = "toy-opts";
+          let active = String((getEl() as AmbientEl).state ?? "");
+          for (const s of states) {
+            const b = document.createElement("button");
+            b.className = "toy-opt";
+            b.textContent = s;
+            b.dataset.on = String(s === active);
+            b.addEventListener("click", () => {
+              active = s; setState(s); haptic("light");
+              bar.querySelectorAll(".toy-opt").forEach((x) => { (x as HTMLElement).dataset.on = String(x === b); });
+            });
+            bar.append(b);
+          }
+          host.append(bar);
+          bar.addEventListener("pointerdown", (e) => e.stopPropagation());
         }
-        cycle();
+        // Kick off a first animation so the screen isn't static.
+        const cur = getEl() as AmbientEl;
+        if (typeof cur.simulateRun === "function") cur.simulateRun();
+        else if (typeof cur.play === "function") cur.play();
+        else if (typeof cur.demo === "function") cur.demo();
+        else if (states?.length) setState(states.find((s) => s !== "idle") ?? states[0]);
       }
   }
 
@@ -177,9 +225,11 @@ function attachBehavior(t: Toy, host: HTMLElement, getEl: () => AnyEl): () => vo
 }
 
 export async function openToyScreen(root: HTMLElement, toyId: string, onClose: () => void) {
-  const t = findToy(toyId);
+  let t = findToy(toyId);
   if (!t) { onClose(); return; }
   const w = worldOf(t);
+  const worldToys = TOYS.filter((x) => worldOf(x).id === w.id);
+  let idx = worldToys.indexOf(t);
   tintBars(w.bg);
 
   const scr = document.createElement("div");
@@ -189,13 +239,15 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
   scr.innerHTML = `
     <div class="toy-top">
       <button class="toy-close" aria-label="Back to shelf">‹ Shelf</button>
-      <span class="toy-name"><span class="world-dot" style="background:${w.accent}"></span>${t.title}</span>
+      <span class="toy-name"><span class="world-dot" style="background:${w.accent}"></span><span class="toy-title">${t.title}</span></span>
     </div>
     <div class="toy-stage"></div>
-    <button class="toy-mute" aria-label="Toggle sound" aria-pressed="${prefs.sound}"></button>`;
+    <div class="toy-bar">
+      <button class="toy-nav" id="nav-prev" aria-label="Previous toy">‹</button>
+      <button class="toy-mute" aria-label="Toggle sound" aria-pressed="${prefs.sound}"></button>
+      <button class="toy-nav" id="nav-next" aria-label="Next toy">›</button>
+    </div>`;
   const stage = scr.querySelector(".toy-stage") as HTMLElement;
-  stage.addEventListener("pointerdown", () => sfx(w.id, "down"));
-  stage.addEventListener("pointerup", () => sfx(w.id, "up"));
   root.append(scr);
   // Lock the shelf behind the toy — wheel/scroll must not move it.
   const prevOverflow = document.body.style.overflow;
@@ -204,42 +256,106 @@ export async function openToyScreen(root: HTMLElement, toyId: string, onClose: (
   const prevFocus = document.activeElement as HTMLElement | null;
   const closeBtn = scr.querySelector(".toy-close") as HTMLElement;
 
-  // Per-toy loading: blurred card still (or accent glow) + name + spinner.
-  const loadScreen = (msg: string, retry = false) => `
+  // Per-toy loading: a contained card, blurred still + accent spinner.
+  const loadScreen = (toy: Toy, msg: string, retry = false) => `
     <div class="toy-load" style="--toy-accent:${w.accent}">
-      <img class="toy-load-still" src="toys/${t.id}/card.png" alt="" onerror="this.remove()" />
-      <div class="toy-load-card">
-        ${retry ? "" : '<span class="toy-load-spin"></span>'}
-        <p class="toy-load-name">${t.title}</p>
-        <p class="toy-load-msg">${msg}</p>
-        ${retry ? '<button class="toy-retry">Try again</button>' : ""}
+      <div class="toy-load-frame">
+        <img class="toy-load-still" src="toys/${toy.id}/card.png" alt="" onerror="this.remove()" />
+        <div class="toy-load-card">
+          ${retry ? "" : '<span class="toy-load-spin"></span>'}
+          <p class="toy-load-name">${toy.title}</p>
+          <p class="toy-load-msg">${msg}</p>
+          ${retry ? '<button class="toy-retry">Try again</button>' : ""}
+        </div>
       </div>
     </div>`;
 
-  const mount = async () => {
-    stage.innerHTML = loadScreen(`winding up the ${w.name}…`);
-    await loadPiece(t);
-    stage.innerHTML = "";
-    const el = mountEl(t);
-    stripReadouts(el);
-    stage.append(el);
-    if (prefs.keepAwake) void KeepAwake.keepAwake().catch(() => {});
-    // Read the live child — recreate() swaps the node after resets.
-    const current = () => { const c = stage.firstElementChild as AnyEl; if (c) stripReadouts(c); return c; };
-    dispose = attachBehavior(t, stage, current);
+  let curToy = t;
+  const wireSfx = () => {
+    stage.onpointerdown = () => sfx(w.id, "down", curToy.id);
+    stage.onpointerup = () => sfx(w.id, "up", curToy.id);
   };
+  wireSfx();
 
   let dispose: (() => void) | null = null;
+  const mount = async (dir = 0) => {
+    const toy = curToy;
+    stage.innerHTML = loadScreen(toy, `winding up the ${w.name}…`);
+    await loadPiece(toy);
+    const anim = document.createElement("div");
+    anim.className = "toy-anim";
+    const el = mountEl(toy);
+    stripReadouts(el);
+    anim.append(el);
+    if (dir !== 0) {
+      anim.style.transform = `translateX(${dir * 60}px)`;
+      anim.style.opacity = "0";
+    }
+    stage.innerHTML = "";
+    stage.append(anim);
+    // paradise/tabs: the CRT scene is a fixed 500px painting — shrink it
+    // to the stage so all three monitors stay on screen.
+    if (toy.id === "paradise/tabs") {
+      const fit = () => { el.style.zoom = String(Math.min(1, (stage.clientWidth - 16) / 500)); };
+      fit();
+      setTimeout(fit, 60);
+    }
+    if (dir !== 0) {
+      void anim.offsetHeight; // reflow → transition runs
+      anim.style.transform = "translateX(0)";
+      anim.style.opacity = "1";
+    }
+    if (prefs.keepAwake) void KeepAwake.keepAwake().catch(() => {});
+    // Read the live child — recreate() swaps the node after resets.
+    const current = () => { const c = anim.firstElementChild as AnyEl; if (c) stripReadouts(c); return c; };
+    dispose = attachBehavior(toy, anim, current);
+  };
+
+  // Slide out current toy, swap in the neighbor.
+  let navBusy = false;
+  const nav = async (dir: 1 | -1) => {
+    if (navBusy || worldToys.length < 2) return;
+    navBusy = true;
+    idx = (idx + dir + worldToys.length) % worldToys.length;
+    curToy = worldToys[idx];
+    location.replace(`#/toy/${curToy.id}`);
+    scr.querySelector(".toy-title")!.textContent = curToy.title;
+    const old = stage.firstElementChild as HTMLElement | null;
+    dispose?.(); dispose = null;
+    killMedia(stage);
+    if (old) {
+      old.style.transition = "transform .18s ease, opacity .18s ease";
+      old.style.transform = `translateX(${dir * -60}px)`;
+      old.style.opacity = "0";
+      await new Promise((r) => setTimeout(r, 180));
+    }
+    stage.innerHTML = "";
+    try { await mount(dir); } catch {
+      stage.innerHTML = loadScreen(curToy, "this toy didn't load.", true);
+      stage.querySelector(".toy-retry")!.addEventListener("click", () => { void mount(0).catch(() => {}); });
+    }
+    wireSfx();
+    navBusy = false;
+  };
+
+  navBusy = true;
   try {
     await mount();
   } catch (err) {
-    stage.innerHTML = loadScreen("this toy didn't load.", true);
-    stage.querySelector(".toy-retry")!.addEventListener("click", () => { void mount().catch(() => {}); });
+    stage.innerHTML = loadScreen(t, "this toy didn't load.", true);
+    stage.querySelector(".toy-retry")!.addEventListener("click", () => { void mount(0).catch(() => {}); });
     void err;
   }
+  navBusy = false;
   closeBtn.focus();
 
-  const esc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+  scr.querySelector("#nav-prev")!.addEventListener("click", () => void nav(-1));
+  scr.querySelector("#nav-next")!.addEventListener("click", () => void nav(1));
+  const esc = (e: KeyboardEvent) => {
+    if (e.key === "Escape") close();
+    else if (e.key === "ArrowLeft") void nav(-1);
+    else if (e.key === "ArrowRight") void nav(1);
+  };
   document.addEventListener("keydown", esc);
   let closed = false;
   const close = () => {

@@ -121,7 +121,7 @@ button { font: inherit; color: inherit; }
         const r = this.attachShadow({ mode: 'open', delegatesFocus: true });
         r.innerHTML = `<style>${CSS}\n.piece { ${vars} }\n${d.css}\n.say { position: absolute; margin: 0; min-height: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }</style><div class="piece">${d.html}<p class="say"><span class="txt" aria-hidden="true"></span><span class="sr" aria-live="polite"></span></p></div>`;
         for (const e of r.querySelectorAll('img[data-art]')) e.src = d.art[e.dataset.art];
-        for (const e of r.querySelectorAll('video[data-art]')) fetch(d.art[e.dataset.art]).then((x) => x.blob()).then((b) => { e.src = URL.createObjectURL(b); if (e.classList.contains('on') && !env.calm) e.play().catch(() => {}); });
+        for (const e of r.querySelectorAll('video[data-art]')) { e.src = d.art[e.dataset.art]; if (e.classList.contains('on') && !env.calm) e.play().catch(() => {}); }
         const sr = r.querySelector('.say .sr');
         new MutationObserver(() => { const text = sr.textContent; if (text === this.line) return; this.line = text; this.dispatchEvent(new CustomEvent('cockpit:line', { bubbles: true, detail: { text } })); }).observe(sr, { childList: true, characterData: true, subtree: true });
         this.piece = d.make(r, env, this); this.line = sr.textContent;

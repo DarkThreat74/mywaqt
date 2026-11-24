@@ -1,6 +1,7 @@
-// Synthesized fidget sounds for the worlds that ship no audio —
-// hose/sakuga get cartoon pops, cockpit gets a soft mechanical click,
-// pixel gets a chiptune blip. Honored by the global Sound toggle.
+// Synthesized fidget sounds for the worlds that ship no audio.
+// Every toy gets its own voice: a per-toy hash varies base pitch,
+// waveform and slide so no two pieces sound identical.
+// Honored by the global Sound toggle.
 import { prefs } from "./settings";
 
 let ctx: AudioContext | null = null;
@@ -38,18 +39,37 @@ function noise(c: AudioContext, dur: number, gain = 0.08) {
   n.start();
 }
 
-const PLAYERS: Record<string, (c: AudioContext, kind: "down" | "up") => void> = {
-  cartoon(c, kind) {
-    if (kind === "down") { tone(c, 220, 80, "sine", 0.12, 0.2); noise(c, 0.05, 0.05); }
-    else { tone(c, 90, 340, "sine", 0.16, 0.18); tone(c, 180, 520, "triangle", 0.1, 0.06); }
+// Per-toy character: hash of the id picks pitch (0.75–1.5×) and a
+// waveform, so hose/button ≠ hose/toggle ≠ sakuga/button.
+const WAVES: OscillatorType[] = ["sine", "triangle", "square", "sawtooth"];
+function voice(toyId: string) {
+  let h = 7;
+  for (const ch of toyId) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  h = Math.abs(h);
+  return { pitch: 0.75 + (h % 100) / 133, wave: WAVES[h % WAVES.length], spark: (h >> 8) % 3 };
+}
+
+const PLAYERS: Record<string, (c: AudioContext, kind: "down" | "up", toyId: string) => void> = {
+  cartoon(c, kind, id) {
+    const v = voice(id);
+    if (kind === "down") {
+      tone(c, 240 * v.pitch, 80, v.wave === "sawtooth" ? "triangle" : v.wave, 0.12, 0.2);
+      noise(c, 0.04 + v.spark * 0.015, 0.05);
+    } else {
+      tone(c, 90, 340 * v.pitch, "sine", 0.16, 0.18);
+      tone(c, 180 * v.pitch, 520, v.wave, 0.1, 0.06);
+    }
   },
-  click(c, kind) {
-    if (kind === "down") { tone(c, 1400, 900, "square", 0.03, 0.05); noise(c, 0.02, 0.03); }
-    else tone(c, 900, 1400, "square", 0.025, 0.04);
+  click(c, kind, id) {
+    const v = voice(id);
+    const f = (kind === "down" ? 1200 : 800) * v.pitch;
+    tone(c, f, f * (kind === "down" ? 0.6 : 1.5), v.wave, 0.025 + v.spark * 0.008, 0.05);
+    if (v.spark === 0) noise(c, 0.02, 0.03);
   },
-  chip(c, kind) {
-    if (kind === "down") tone(c, 880, 220, "square", 0.07, 0.08);
-    else tone(c, 440, 990, "square", 0.06, 0.06);
+  chip(c, kind, id) {
+    const v = voice(id);
+    if (kind === "down") tone(c, 880 * v.pitch, 220, v.wave, 0.07, 0.08);
+    else tone(c, 440 * v.pitch, 990, v.wave, 0.06, 0.06);
   },
 };
 
@@ -57,9 +77,9 @@ const WORLD_STYLE: Record<string, keyof typeof PLAYERS> = {
   hose: "cartoon", sakuga: "cartoon", cockpit: "click", pixel: "chip",
 };
 
-export function sfx(worldId: string, kind: "down" | "up") {
+export function sfx(worldId: string, kind: "down" | "up", toyId = "") {
   const style = WORLD_STYLE[worldId];
   if (!style) return;
   const c = ac();
-  if (c) PLAYERS[style](c, kind);
+  if (c) PLAYERS[style](c, kind, toyId);
 }

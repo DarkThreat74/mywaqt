@@ -1,158 +1,193 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Compass, MapPin, Navigation, AlertTriangle } from "lucide-react";
+import { Compass, MapPin, AlertTriangle, LocateFixed, RefreshCw } from "lucide-react";
 import { calculateQiblaBearing, calculateDistance, bearingToCardinal } from "@/lib/prayer/qibla";
 import { getCachedPrayerSettings } from "@/lib/offline/settings-cache";
 import Link from "next/link";
 
-interface QiblaData {
-  bearing: number;
-  distance: number;
-  cardinal: string;
-  userLocation: { latitude: number; longitude: number };
-}
-
-/** Capacitor Android fused rotation-vector + WMM declination. When present,
- *  browser orientation events must never be attached — mixing the two
- *  heading streams flashes a wrong needle while native warms up. */
+/** Capacitor Android: fused rotation-vector heading (magnetic → true north
+ *  via GeomagneticField) plus a GPS fix that needs no wifi/data. */
 type QiblaNative = {
   start: (args: { latitude: number; longitude: number }) => Promise<void>;
   stop: () => Promise<void>;
-  addListener: (event: string, cb: (data: { heading: number; declination?: number; sensorAccuracy?: number }) => void) => Promise<{ remove: () => Promise<void> }>;
+  getLocation: () => Promise<{ latitude: number; longitude: number; accuracy: number; ageMs: number }>;
+  getStatus: () => Promise<{ available: boolean; fusion: string }>;
+  addListener: (
+    event: string,
+    cb: (d: { heading: number; declination?: number; magneticHeading?: number; sensorAccuracy?: number; headingErrorDeg?: number }) => void,
+  ) => Promise<{ remove: () => Promise<void> }>;
 } | undefined;
 
-function getNativeSensor(): QiblaNative {
-  return (window as Window & {
-    Capacitor?: { Plugins?: { QiblaSensor?: NonNullable<QiblaNative> } };
-  }).Capacitor?.Plugins?.QiblaSensor;
+function angleDelta(from: number, to: number): number {
+  let d = ((to - from) % 360 + 360) % 360;
+  if (d > 180) d -= 360;
+  return d;
 }
 
+function screenAngle(): number {
+  const a = window.screen?.orientation?.angle;
+  if (typeof a === "number") return a;
+  const legacy = (window as unknown as { orientation?: number }).orientation;
+  return typeof legacy === "number" ? legacy : 0;
+}
+
+type HeadingRefs = {
+  filtered: React.MutableRefObject<number | null>;
+  current: React.MutableRefObject<number>;
+  lastReading: React.MutableRefObject<number>;
+};
+
+function updateHeading(refs: HeadingRefs, raw: number) {
+  const SENSOR_ALPHA = 0.22;
+  refs.lastReading.current = Date.now();
+  const prev = refs.filtered.current;
+  if (prev === null) {
+    refs.filtered.current = raw;
+    refs.current.current = raw;
+  } else {
+    const jump = angleDelta(prev, raw);
+    if (Math.abs(jump) > 90) return; // magnetometer spike — drop it
+    refs.filtered.current = (prev + jump * SENSOR_ALPHA + 360) % 360;
+  }
+}
+
+function getNative(): NonNullable<QiblaNative> | undefined {
+  return (window as Window & { Capacitor?: { Plugins?: { QiblaSensor?: NonNullable<QiblaNative> } } })
+    .Capacitor?.Plugins?.QiblaSensor;
+}
+
+type LocSource = "gps" | "settings" | "network";
+type SensorState = "idle" | "live" | "relative-only" | "unavailable" | "denied";
+
 /**
- * Qibla compass — v3 (rewrite).
+ * Qibla compass — v4 (full rewrite).
  *
- * Heading pipeline fixes vs v2:
- * 1. Screen-orientation compensation — alpha/webkitCompassHeading are measured
- *    against the device's physical top edge. screen.orientation.angle is added
- *    so rotating the phone to landscape doesn't swing the dial ~90°.
- * 2. Absolute vs relative events are separated. `deviceorientation` alpha is a
- *    relative frame (zero = whatever direction the phone faced at page load) —
- *    mixing it with true-north `deviceorientationabsolute` data corrupts the
- *    filter. Only absolute readings (e.absolute === true, or iOS
- *    webkitCompassHeading) feed the compass.
- * 3. Tilt gate — readings are ignored when the phone is rolled/pitched
- *    steeply (|beta| or |gamma| > 65°). The W3C tilt-compensated atan2
- *    formula was removed: it flips past ~60° roll and made the dial swing
- *    wildly when users tilted side-to-side. Flat-phone `360 − alpha`
- *    (same as production qibla apps like Falah) stays stable under tilt.
- * 4. Alignment detection — when the Qibla marker sits under the lubber line
- *    within ±4°, the UI signals "facing Qibla" and pulses the haptic motor.
+ * Data flow, all offline-capable:
+ *   1. Bearing seeds instantly from the cached profile location (pure math).
+ *   2. Native GPS fix refreshes it — satellites need no wifi/data.
+ *   3. /api/qibla is a background refinement only; nothing waits on network.
  *
- * Sensor reality check (why "is it even fixable"): phone magnetometers drift
- * ±10-20° near metal/magnets and need figure-8 calibration. That's a hardware
- * limit — the UI now says so instead of pretending to be exact.
+ * Heading flow:
+ *   Native rotation-vector (gyro+mag fused, screen-rotation remapped,
+ *   GeomagneticField declination → TRUE north) → browser absolute events
+ *   (web fallback) → explicit degraded states, never a quietly wrong needle.
+ *
+ * Accuracy is reported, not guessed: the fused sensor's own heading-error
+ * estimate (values[4], radians) drives the accuracy chip; the sensor status
+ * channel drives the figure-8 calibration prompt.
  */
 export default function QiblaCompassClient() {
-  const [data, setData] = useState<QiblaData | null>(null);
+  const [bearing, setBearing] = useState<number | null>(null);
+  const [distance, setDistance] = useState<number | null>(null);
+  const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locSource, setLocSource] = useState<LocSource | null>(null);
+  const [locBusy, setLocBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sensorState, setSensorState] = useState<"idle" | "live" | "relative-only" | "unavailable" | "denied">("idle");
-  const [accuracyLow, setAccuracyLow] = useState(false); // compass needs figure-8 calibration
-  const [stale, setStale] = useState(false); // live stream stopped delivering readings
+  const [noLocation, setNoLocation] = useState(false);
+  const [sensorState, setSensorState] = useState<SensorState>("idle");
+  const [accuracyLow, setAccuracyLow] = useState(false);
+  const [headingErr, setHeadingErr] = useState<number | null>(null);
+  const [declination, setDeclination] = useState<number | null>(null);
+  const [stale, setStale] = useState(false);
   const [aligned, setAligned] = useState(false);
   const [headingDeg, setHeadingDeg] = useState<number | null>(null);
-  // Signed delta from current heading to the Qibla: + = turn right, - = turn left
   const [turnDelta, setTurnDelta] = useState<number | null>(null);
 
-  // Refs for the rAF render loop — never trigger re-renders per frame
   const filteredHeadingRef = useRef<number | null>(null);
   const currentHeadingRef = useRef(0);
   const dialRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const bearingRef = useRef(0);
+  const coordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
   const hasAbsoluteRef = useRef(false);
   const sawAnyEventRef = useRef(false);
+  const [iosGranted, setIosGranted] = useState(false);
   const alignedRef = useRef(false);
-  const cleanupRef = useRef<(() => void) | null>(null);
   const lastReadoutRef = useRef(-1);
-  const hasDataRef = useRef(false);
-  const lastReadingRef = useRef(0); // timestamp of the last accepted reading — stale-needle detection
+  const lastReadingRef = useRef(0);
   const reduceMotionRef = useRef(false);
+  const nativeStartedRef = useRef(false);
 
-  // ── Fetch Qibla data ──
-  // The bearing is pure math — seed it instantly from the cached location so
-  // the compass works fully offline, then refresh from the API in the
-  // background (which also covers a location changed on another device).
-  useEffect(() => {
-    let cancelled = false;
-    Promise.resolve().then(() => {
-      const s = getCachedPrayerSettings();
-      const seedLat = Number(s?.latitude);
-      const seedLng = Number(s?.longitude);
-      if (cancelled || !Number.isFinite(seedLat) || !Number.isFinite(seedLng) || (seedLat === 0 && seedLng === 0)) return;
-      const bearing = Math.round(calculateQiblaBearing(seedLat, seedLng));
-      setData({
-        bearing,
-        distance: calculateDistance(seedLat, seedLng),
-        cardinal: bearingToCardinal(bearing),
-        userLocation: { latitude: seedLat, longitude: seedLng },
-      });
-      bearingRef.current = bearing;
-      hasDataRef.current = true;
-      setLoading(false);
-    });
-    const fetchData = async () => {
-      try {
-        const res = await fetch("/api/qibla").catch(() => null);
-        if (cancelled) return;
-        if (res?.ok) {
-          const json = await res.json().catch(() => null);
-          if (json) {
-            setData(json);
-            bearingRef.current = json.bearing;
-            hasDataRef.current = true;
-          } else if (!hasDataRef.current) {
-            setError("Failed to load Qibla data.");
-          }
-        } else if (res?.status === 400) {
-          setError("Location not set. Please set your location in Settings first.");
-        } else if (!hasDataRef.current) {
-          setError("Failed to load Qibla direction.");
-        }
-      } catch {
-        if (!cancelled && !hasDataRef.current) setError("Network error.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    fetchData();
-    const onPageShow = () => fetchData();
-    window.addEventListener("pageshow", onPageShow);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("pageshow", onPageShow);
-    };
+  // ── Bearing + distance from a coordinate — pure offline math ──
+  const applyCoords = useCallback((lat: number, lng: number, src: LocSource) => {
+    const c = { latitude: lat, longitude: lng };
+    const b = calculateQiblaBearing(lat, lng);
+    setCoords(c);
+    coordsRef.current = c;
+    setBearing(Math.round(b * 10) / 10);
+    bearingRef.current = b;
+    setDistance(calculateDistance(lat, lng));
+    setLocSource(src);
+    setLoading(false);
+    setNoLocation(false);
   }, []);
 
-  function angleDelta(from: number, to: number): number {
-    let d = ((to - from) % 360 + 360) % 360;
-    if (d > 180) d -= 360;
-    return d;
-  }
+  // ── Location chain: cached settings → native GPS → API refinement ──
+  const refreshLocation = useCallback(async () => {
+    const native = getNative();
+    if (native?.getLocation) {
+      try {
+        setLocBusy(true);
+        const l = await native.getLocation();
+        applyCoords(l.latitude, l.longitude, "gps");
+        return;
+      } catch { /* denied or no fix — keep what we have */ }
+      finally { setLocBusy(false); }
+    }
+    // Web GPS fallback (works offline once the browser permission is granted)
+    if (navigator.geolocation) {
+      try {
+        setLocBusy(true);
+        const pos = await new Promise<GeolocationPosition>((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 12000, maximumAge: 60000 }),
+        );
+        applyCoords(pos.coords.latitude, pos.coords.longitude, "gps");
+        return;
+      } catch { /* keep existing */ }
+      finally { setLocBusy(false); }
+    }
+  }, [applyCoords]);
 
-  // Current screen rotation — alpha is in the device frame, the screen's "up"
-  // rotates relative to it when the device is in landscape.
-  function screenAngle(): number {
-    const a = window.screen?.orientation?.angle;
-    if (typeof a === "number") return a;
-    const legacy = (window as unknown as { orientation?: number }).orientation;
-    return typeof legacy === "number" ? legacy : 0;
-  }
+  useEffect(() => {
+    let cancelled = false;
+    // 1. Instant seed from the profile's saved location — the compass is
+    //    never blocked on a network round-trip.
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      const s = getCachedPrayerSettings();
+      const lat = Number(s?.latitude), lng = Number(s?.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0)) {
+        applyCoords(lat, lng, "settings");
+      }
+    });
+    // 2. Native GPS — fresher than the profile if the user has moved.
+    Promise.resolve().then(() => { if (!cancelled) void refreshLocation(); });
+    // 3. API refinement only (never the source of truth).
+    fetch("/api/qibla").then((r) => (r.ok ? r.json() : null)).then((json) => {
+      if (cancelled || !json || locSource === "gps") return;
+      if (json.userLocation) applyCoords(json.userLocation.latitude, json.userLocation.longitude, "network");
+    }).catch(() => {});
+    const done = setTimeout(() => {
+      if (!cancelled) {
+        setLoading(false);
+        setNoLocation((prev) => prev || !coordsRef.current);
+      }
+    }, 1500);
+    return () => { cancelled = true; clearTimeout(done); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ── rAF render loop — lerps the dial toward the filtered heading ──
+  const headingRefs = useRef<HeadingRefs>({
+    filtered: filteredHeadingRef,
+    current: currentHeadingRef,
+    lastReading: lastReadingRef,
+  }).current;
+
+  // ── rAF render loop ──
   const RAF_ALPHA = 0.14;
   const DEADZONE = 0.25;
-
   useEffect(() => {
     reduceMotionRef.current =
       typeof window !== "undefined" &&
@@ -162,7 +197,6 @@ export default function QiblaCompassClient() {
       if (filtered !== null) {
         const dh = angleDelta(currentHeadingRef.current, filtered);
         if (Math.abs(dh) > DEADZONE) {
-          // Reduced motion: snap to the heading instead of lerping every frame.
           currentHeadingRef.current = reduceMotionRef.current
             ? filtered
             : (currentHeadingRef.current + dh * RAF_ALPHA + 360) % 360;
@@ -170,18 +204,13 @@ export default function QiblaCompassClient() {
         if (dialRef.current) {
           dialRef.current.style.transform = `rotate(${-currentHeadingRef.current}deg)`;
         }
-
-        // Alignment: Qibla marker sits at bearing on the dial; when the dial's
-        // rotation puts it under the top lubber line, the user faces Qibla.
         const deltaToQibla = angleDelta(currentHeadingRef.current, bearingRef.current);
-        const isAligned = Math.abs(deltaToQibla) <= 4;
+        const isAligned = Math.abs(deltaToQibla) <= 3;
         if (isAligned !== alignedRef.current) {
           alignedRef.current = isAligned;
           setAligned(isAligned);
-          if (isAligned && navigator.vibrate) navigator.vibrate(40);
+          if (isAligned && navigator.vibrate) navigator.vibrate([0, 40, 60, 40]);
         }
-
-        // Live readout — throttle state updates to ~4/sec
         const rounded = Math.round(currentHeadingRef.current);
         if (rounded !== lastReadoutRef.current) {
           lastReadoutRef.current = rounded;
@@ -192,171 +221,112 @@ export default function QiblaCompassClient() {
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    };
+    return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
   }, []);
 
-  // ── Sensor listeners ──
-  const startListening = useCallback(() => {
-    const SENSOR_ALPHA = 0.22; // low-pass on raw readings, kills sensor noise
+  // ── Sensor attach: native first, web fallback ──
+  useEffect(() => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    const native = getNative();
 
-    // Capacitor Android gets the fused rotation-vector sensor plus WMM-style
-    // magnetic declination from native code. Do not mix that true-north stream
-    // with browser alpha events — and don't attach browser listeners while
-    // we're merely waiting for `data`; that's the wrong-needle flash.
-    const native = getNativeSensor();
-    if (native && !data) return; // native will take over once the bearing lands
-    if (native && data) {
-      let removeListener: (() => void) | null = null;
-      let removeAccuracy: (() => void) | null = null;
-      void native.addListener("heading", (reading) => {
+    if (native && coords) {
+      let removeH: (() => void) | null = null;
+      let removeA: (() => void) | null = null;
+      void native.addListener("heading", (r) => {
         lastReadingRef.current = Date.now();
-        setSensorState(reading.sensorAccuracy === 0 ? "unavailable" : "live");
-        setAccuracyLow(reading.sensorAccuracy === 1); // Android SENSOR_STATUS_ACCURACY_LOW
-        updateHeading(reading.heading);
-      }).then((handle) => {
-        removeListener = () => { void handle.remove(); };
-      }).catch(() => {});
-      // The "accuracy" channel was dead — wire it so calibration prompts surface.
+        setSensorState(r.sensorAccuracy === 0 ? "unavailable" : "live");
+        setAccuracyLow(r.sensorAccuracy === 1);
+        if (typeof r.headingErrorDeg === "number") setHeadingErr(r.headingErrorDeg);
+        if (typeof r.declination === "number") setDeclination(r.declination);
+        updateHeading(headingRefs, r.heading);
+      }).then((h) => { removeH = () => void h.remove(); }).catch(() => {});
       void native.addListener("accuracy", (d) => {
         setAccuracyLow((d.sensorAccuracy ?? 3) <= 1);
-      }).then((handle) => {
-        removeAccuracy = () => { void handle.remove(); };
-      }).catch(() => {});
-      void native.start({ latitude: data.userLocation.latitude, longitude: data.userLocation.longitude }).catch(() => setSensorState("unavailable"));
+      }).then((h) => { removeA = () => void h.remove(); }).catch(() => {});
+      void native.start({ latitude: coords.latitude, longitude: coords.longitude })
+        .then(() => { nativeStartedRef.current = true; })
+        .catch(() => setSensorState("unavailable"));
+      const staleTimer = setInterval(() => {
+        setStale(Date.now() - lastReadingRef.current > 3000 && lastReadingRef.current > 0);
+      }, 2000);
       cleanupRef.current = () => {
         void native.stop().catch(() => {});
-        removeListener?.();
-        removeAccuracy?.();
+        nativeStartedRef.current = false;
+        removeH?.(); removeA?.();
+        clearInterval(staleTimer);
       };
-      return;
+      return cleanupRef.current;
     }
+    if (native && !coords) return; // wait for the bearing to land first
 
-    function updateHeading(raw: number) {
-      lastReadingRef.current = Date.now();
-      const prev = filteredHeadingRef.current;
-      if (prev === null) {
-        filteredHeadingRef.current = raw;
-        currentHeadingRef.current = raw;
-      } else {
-        const jump = angleDelta(prev, raw);
-        // Outlier rejection — magnetometer spikes (metal, motors, glitchy
-        // reads) can throw a single reading 90°+; drop it rather than swing.
-        if (Math.abs(jump) > 90) return;
-        filteredHeadingRef.current = (prev + jump * SENSOR_ALPHA + 360) % 360;
-      }
-    }
+    // ── Web fallback (desktop browser / iOS PWA) ──
+    const doe = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> };
+    const needsGesture = typeof doe?.requestPermission === "function";
+    if (needsGesture && !iosGranted) return; // iOS — wait for the Enable button
 
-    // True-north sources only. Anything else is ignored — a relative reading
-    // would corrupt the filter.
     const handler = (e: Event) => {
       const ev = e as DeviceOrientationEvent & { webkitCompassHeading?: number; webkitCompassAccuracy?: number };
       sawAnyEventRef.current = true;
-
-      // iOS Safari: already true compass heading, clockwise from north.
       if (typeof ev.webkitCompassHeading === "number" && !Number.isNaN(ev.webkitCompassHeading)) {
         hasAbsoluteRef.current = true;
-        // iOS reports accuracy in degrees; <0 = unreliable, >20 needs calibrating.
         if (typeof ev.webkitCompassAccuracy === "number") {
           setAccuracyLow(ev.webkitCompassAccuracy < 0 || ev.webkitCompassAccuracy > 20);
         }
-        updateHeading((ev.webkitCompassHeading + screenAngle() + 360) % 360);
+        updateHeading(headingRefs, (ev.webkitCompassHeading + screenAngle() + 360) % 360);
         return;
       }
-
-      // Absolute events only — e.absolute === false means alpha is relative
-      // to page load, which is useless for finding north.
       if (ev.absolute === true && ev.alpha !== null &&
           typeof ev.alpha === "number" && typeof ev.beta === "number" && typeof ev.gamma === "number") {
-        // Mark before the tilt gate — an upright phone still HAS a compass;
-        // we just filter its readings, not misreport it as "relative-only".
         hasAbsoluteRef.current = true;
-
-        // Tilt gate — a qibla compass is used flat. When the phone is rolled
-        // or pitched steeply, alpha's z-axis no longer points at the sky and
-        // the reading is meaningless; freeze the dial instead of swinging it.
+        // Qibla is used flat — steep pitch/roll makes alpha meaningless.
         if (Math.abs(ev.beta ?? 0) > 65 || Math.abs(ev.gamma ?? 0) > 65) return;
-
-        // heading = 360 − alpha + screen rotation. Deliberately NOT the W3C
-        // tilt-compensated atan2 formula: it flips past ~60° roll and caused
-        // the "messes up when I tilt side to side" bug. Flat-phone alpha is
-        // stable under roll — same approach as Falah's production qibla page.
-        updateHeading((360 - ev.alpha + screenAngle() + 360) % 360);
+        updateHeading(headingRefs, (360 - ev.alpha + screenAngle() + 360) % 360);
       }
     };
-
     window.addEventListener("deviceorientationabsolute", handler);
-    // iOS doesn't fire deviceorientationabsolute — webkitCompassHeading arrives
-    // on the plain event. On Android the plain event is relative and ignored.
     window.addEventListener("deviceorientation", handler);
-    // iOS fires this when the magnetometer needs the figure-8 — surface it.
-    const onNeedsCalibration = () => setAccuracyLow(true);
-    window.addEventListener("compassneedscalibration", onNeedsCalibration);
-
-    // If sensors only ever deliver relative data (or nothing), tell the user.
+    const onNeedsCal = () => setAccuracyLow(true);
+    window.addEventListener("compassneedscalibration", onNeedsCal);
     const stateTimer = setTimeout(() => {
-      if (!hasAbsoluteRef.current) {
-        setSensorState(sawAnyEventRef.current ? "relative-only" : "unavailable");
-      } else {
-        setSensorState("live");
-      }
+      setSensorState(hasAbsoluteRef.current ? "live" : sawAnyEventRef.current ? "relative-only" : "unavailable");
     }, 2500);
     const liveTimer = setInterval(() => {
       setSensorState(hasAbsoluteRef.current ? "live" : sawAnyEventRef.current ? "relative-only" : "unavailable");
-      // Stale-needle check: a "live" stream that stopped delivering readings
-      // must be labelled, not left silently frozen at the last heading.
       if (hasAbsoluteRef.current) setStale(Date.now() - lastReadingRef.current > 3000);
     }, 2000);
-
     cleanupRef.current = () => {
       window.removeEventListener("deviceorientationabsolute", handler);
       window.removeEventListener("deviceorientation", handler);
-      window.removeEventListener("compassneedscalibration", onNeedsCalibration);
+      window.removeEventListener("compassneedscalibration", onNeedsCal);
       clearTimeout(stateTimer);
       clearInterval(liveTimer);
     };
-  }, [data]);
+    return cleanupRef.current;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coords, iosGranted]);
 
-  // ── Enable compass (iOS needs a user-gesture permission request) ──
+  // iOS gesture gate — the one place a button press is truly required.
+  // Granting flips iosGranted, which re-runs the attach effect so iOS gets
+  // the same handler path (webkit heading + alpha fallback + tilt guard).
   const handleEnableCompass = useCallback(async () => {
-    if (cleanupRef.current) return; // already listening — don't double-register
-    const doe = typeof window !== "undefined" ? window.DeviceOrientationEvent : undefined;
-    if (!doe) {
-      setSensorState("unavailable");
-      return;
-    }
-    const requestPermission = (doe as unknown as { requestPermission?: () => Promise<string> }).requestPermission;
-    if (typeof requestPermission === "function") {
-      try {
-        const result = await requestPermission.call(doe);
-        if (result !== "granted") {
-          // A denial is not a missing sensor — say so and don't pretend.
-          setSensorState("denied");
-          return;
-        }
-      } catch {
-        setSensorState("unavailable");
+    const doe = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> } | undefined;
+    if (!doe?.requestPermission) { setSensorState("unavailable"); return; }
+    try {
+      if ((await doe.requestPermission.call(window.DeviceOrientationEvent)) !== "granted") {
+        setSensorState("denied");
         return;
       }
-    }
-    startListening();
-  }, [startListening]);
+    } catch { setSensorState("unavailable"); return; }
+    setIosGranted(true);
+  }, []);
 
-  // Auto-enable on platforms that don't gate orientation behind a permission
-  // (Android Chrome, desktop). iOS requires the button tap — it stays "idle"
-  // until then, which is what shows the enable button.
-  useEffect(() => {
-    // Native plugin present but bearing not fetched yet — defer entirely.
-    // Attaching browser listeners in the gap flashes a wrong needle before
-    // the true-north stream arrives.
-    if (getNativeSensor() && !data) return;
-    const doe = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> };
-    if (window.DeviceOrientationEvent && typeof doe.requestPermission !== "function") {
-      startListening();
-    }
-    return () => { cleanupRef.current?.(); };
-  }, [startListening, data]);
+  const needsIosGesture =
+    typeof window !== "undefined" &&
+    !getNative() &&
+    typeof (window.DeviceOrientationEvent as unknown as { requestPermission?: unknown })?.requestPermission === "function" &&
+    sensorState === "idle" &&
+    !iosGranted;
 
   // ── Loading ──
   if (loading) {
@@ -370,8 +340,8 @@ export default function QiblaCompassClient() {
     );
   }
 
-  // ── Error / no location ──
-  if (error || !data) {
+  // ── No location anywhere ──
+  if (noLocation || !coords || bearing === null) {
     return (
       <div className="mx-auto max-w-md py-8 sm:py-12">
         <div className="rounded-2xl border p-6 text-center" style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}>
@@ -380,31 +350,46 @@ export default function QiblaCompassClient() {
           </div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Qibla Direction</h1>
           <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-            {error || "Unable to determine Qibla direction."}
+            I need your location to point at the Kaaba — GPS works offline.
           </p>
-          <Link
-            href="/settings"
-            className="mt-5 inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors"
-            style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", backgroundColor: "var(--color-paper-2)", minHeight: 44 }}
-          >
-            <MapPin className="h-4 w-4" />
-            Go to Settings
-          </Link>
+          <div className="mt-5 flex flex-col gap-2">
+            <button
+              onClick={() => { setLoading(true); void refreshLocation().finally(() => setLoading(false)); }}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium"
+              style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 8%, transparent)", minHeight: 44 }}
+            >
+              <LocateFixed className="h-4 w-4" />
+              Use my GPS location
+            </button>
+            <Link
+              href="/settings"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium"
+              style={{ borderColor: "var(--color-paper-3)", color: "var(--color-ink-soft)", backgroundColor: "var(--color-paper-2)", minHeight: 44 }}
+            >
+              <MapPin className="h-4 w-4" />
+              Set location in Settings
+            </Link>
+          </div>
         </div>
       </div>
     );
   }
 
-  const size = "min(78vw, 300px)";
+  const size = "min(76vw, 300px)";
+  const accuracyChip =
+    sensorState !== "live" ? null
+    : headingErr !== null
+      ? headingErr < 8 ? { label: "high accuracy", good: true } : headingErr < 20 ? { label: "fair accuracy", good: false } : { label: "low — calibrate", good: false }
+      : accuracyLow ? { label: "low — calibrate", good: false } : { label: "live", good: true };
 
   return (
-    <div className="mx-auto w-full max-w-md px-4">
+    <div className="mx-auto w-full max-w-md px-4 pb-8">
       {/* ── Header ── */}
-      <div className="mb-6 flex items-start justify-between gap-3">
+      <div className="mb-5 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--color-ink)" }}>Qibla</h1>
           <p className="mt-0.5 text-xs" style={{ color: "var(--color-ink-muted)" }}>
-            {data.bearing}° {data.cardinal} · {kmToMi(data.distance).toLocaleString()} mi to the Kaaba
+            {bearing.toFixed(1)}° {bearingToCardinal(bearing)} · {distance !== null ? `${kmToMi(distance).toLocaleString()} mi` : "—"} to the Kaaba
           </p>
         </div>
         <p className="pt-0.5 text-xl leading-none" style={{ fontFamily: "var(--font-arabic)", color: "var(--color-accent)" }} aria-hidden="true">
@@ -412,32 +397,53 @@ export default function QiblaCompassClient() {
         </p>
       </div>
 
+      {/* ── Status chips ── */}
+      <div className="mb-5 flex flex-wrap items-center justify-center gap-2">
+        {accuracyChip && (
+          <span
+            className="rounded-full px-3 py-1 text-[11px] font-semibold"
+            style={{
+              backgroundColor: accuracyChip.good ? "color-mix(in oklab, var(--color-success) 14%, transparent)" : "color-mix(in oklab, var(--color-warmth, #c9a227) 16%, transparent)",
+              color: accuracyChip.good ? "var(--color-success)" : "var(--color-warmth, #c9a227)",
+            }}
+          >
+            {accuracyChip.label}
+            {headingErr !== null ? ` ±${headingErr.toFixed(0)}°` : ""}
+          </span>
+        )}
+        <span className="rounded-full px-3 py-1 text-[11px] font-semibold" style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-muted)" }}>
+          {locSource === "gps" ? "GPS fix" : locSource === "network" ? "saved location" : "profile location"}
+        </span>
+        <button
+          onClick={() => void refreshLocation()}
+          disabled={locBusy}
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold disabled:opacity-50"
+          style={{ backgroundColor: "var(--color-paper-2)", color: "var(--color-ink-soft)" }}
+        >
+          <RefreshCw className={`h-3 w-3 ${locBusy ? "animate-spin" : ""}`} />
+          {locBusy ? "locating…" : "refresh"}
+        </button>
+      </div>
+
       {/* ── Compass ── */}
       <div className="relative mx-auto" style={{ width: size, height: size }}>
-        {/* Fixed lubber line at top — the direction the phone's top edge faces */}
+        {/* Lubber line */}
         <div
           className="absolute left-1/2 top-0 z-10 h-5 w-1 -translate-x-1/2 rounded-b"
           style={{ backgroundColor: aligned ? "var(--color-success)" : "var(--color-ink)" }}
         />
 
-        {/* Rotating dial — the whole compass card turns opposite to heading so
-            screen-top points at real-world north */}
-        <div
-          ref={dialRef}
-          className="absolute inset-0 rounded-full"
-          style={{ willChange: "transform" }}
-        >
-          {/* Face */}
+        {/* Rotating dial */}
+        <div ref={dialRef} className="absolute inset-0 rounded-full" style={{ willChange: "transform" }}>
           <div
             className="absolute inset-0 rounded-full border"
             style={{
               borderColor: aligned ? "var(--color-success)" : "var(--color-paper-3)",
               backgroundColor: "var(--color-paper-2)",
-              transition: "border-color 0.3s ease",
+              boxShadow: aligned ? "0 0 0 4px color-mix(in oklab, var(--color-success) 25%, transparent), 0 0 40px color-mix(in oklab, var(--color-success) 20%, transparent)" : "none",
+              transition: "border-color .3s ease, box-shadow .3s ease",
             }}
           />
-
-          {/* Degree ticks — every 15°, major at cardinals */}
           {Array.from({ length: 24 }, (_, i) => {
             const deg = i * 15;
             const major = deg % 90 === 0;
@@ -454,8 +460,6 @@ export default function QiblaCompassClient() {
               />
             );
           })}
-
-          {/* Cardinal letters */}
           {(["N", "E", "S", "W"] as const).map((dir, i) => (
             <div
               key={dir}
@@ -469,15 +473,11 @@ export default function QiblaCompassClient() {
             </div>
           ))}
 
-          {/* Qibla marker — pinned on the dial at the true bearing, so it only
-              sits under the lubber line when the user faces Mecca */}
+          {/* Qibla marker + ray */}
           <div
             className="absolute left-1/2 top-1/2"
-            style={{
-              transform: `translate(-50%, -50%) rotate(${data.bearing}deg)`,
-            }}
+            style={{ transform: `translate(-50%, -50%) rotate(${bearing}deg)` }}
           >
-            {/* Ray from center toward the marker */}
             <div
               className="absolute left-1/2 top-1/2"
               style={{
@@ -486,16 +486,16 @@ export default function QiblaCompassClient() {
                 backgroundColor: aligned ? "var(--color-success)" : "var(--color-accent)",
                 transform: "translate(-50%, -100%)",
                 borderRadius: 2,
-                transition: "background-color 0.3s ease",
+                transition: "background-color .3s ease",
               }}
             />
             <div
               className="absolute left-1/2 flex h-11 w-11 items-center justify-center rounded-full border-2"
               style={{
-                transform: `translate(-50%, -50%) translateY(calc(${size} / -2 + 58px)) rotate(${-data.bearing}deg)`,
-                backgroundColor: "var(--color-ink)",
-                borderColor: aligned ? "var(--color-success)" : "var(--color-paper)",
-                transition: "border-color 0.3s ease",
+                transform: `translate(-50%, -50%) translateY(calc(${size} / -2 + 58px)) rotate(${-bearing}deg)`,
+                backgroundColor: aligned ? "var(--color-success)" : "var(--color-ink)",
+                borderColor: "var(--color-paper)",
+                transition: "background-color .3s ease",
               }}
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5" style={{ color: "var(--color-paper)" }} fill="currentColor" aria-label="Kaaba">
@@ -505,7 +505,7 @@ export default function QiblaCompassClient() {
           </div>
         </div>
 
-        {/* Center pivot + live heading readout (doesn't rotate) */}
+        {/* Center readout */}
         <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-center">
           <p className="text-2xl font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>
             {headingDeg !== null ? `${headingDeg}°` : "—"}
@@ -513,27 +513,21 @@ export default function QiblaCompassClient() {
           <p className="text-[10px] font-medium uppercase tracking-wider" style={{ color: aligned ? "var(--color-success)" : "var(--color-ink-muted)" }}>
             {aligned ? "Facing Qibla" : "heading"}
           </p>
-          {/* Turn hint — which way to rotate */}
           {!aligned && turnDelta !== null && sensorState === "live" && (
             <p className="mt-0.5 text-[11px] font-semibold tabular-nums" style={{ color: "var(--color-accent)" }}>
-              {turnDelta > 0 ? `↻ ${turnDelta}°` : `↺ ${-turnDelta}°`}
+              {turnDelta > 0 ? `turn ↻ ${turnDelta}°` : `turn ↺ ${-turnDelta}°`}
             </p>
           )}
         </div>
       </div>
 
-      {/* ── Status / CTA ── */}
+      {/* ── Guidance / states ── */}
       <div className="mt-6">
-        {sensorState === "idle" && (
+        {needsIosGesture && (
           <button
             onClick={handleEnableCompass}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-colors"
-            style={{
-              borderColor: "var(--color-accent)",
-              color: "var(--color-accent)",
-              backgroundColor: "color-mix(in oklab, var(--color-accent) 8%, transparent)",
-              minHeight: 48,
-            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium"
+            style={{ borderColor: "var(--color-accent)", color: "var(--color-accent)", backgroundColor: "color-mix(in oklab, var(--color-accent) 8%, transparent)", minHeight: 48 }}
           >
             <Compass className="h-5 w-5" />
             Enable live compass
@@ -543,108 +537,96 @@ export default function QiblaCompassClient() {
         {sensorState === "live" && !aligned && (
           <p className="text-center text-xs" style={{ color: "var(--color-ink-muted)" }}>
             Hold the phone flat and turn until the Kaaba marker reaches the top.
-            If it drifts, wave the phone in a figure-8 to calibrate.
           </p>
         )}
         {aligned && (
           <p className="text-center text-sm font-medium" style={{ color: "var(--color-success)" }}>
-            You are facing the Qibla
+            You are facing the Qibla — قبلة
           </p>
         )}
-
-        {/* Degraded live states — the dial is moving but must not LOOK fully
-            trustworthy: label low accuracy and a frozen stream. */}
         {sensorState === "live" && stale && (
-          <div
-            className="mt-3 flex items-start gap-2.5 rounded-xl border px-4 py-3 text-left"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
-          >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
-            <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              Compass readings stalled — move the phone or reopen the page if the needle is frozen.
-            </p>
-          </div>
+          <Warn text="Compass readings stalled — move the phone or reopen the page if the needle is frozen." />
         )}
         {sensorState === "live" && !stale && accuracyLow && (
-          <div
-            className="mt-3 flex items-start gap-2.5 rounded-xl border px-4 py-3 text-left"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
-          >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
-            <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              Compass accuracy is low — readings may be off. Wave the phone in a slow figure-8 to calibrate.
-            </p>
-          </div>
+          <Warn text="Compass accuracy is low — wave the phone in a slow figure-8 to calibrate." />
         )}
-
-        {(sensorState === "relative-only" || sensorState === "unavailable" || sensorState === "denied") && (
-          <div
-            className="flex items-start gap-2.5 rounded-xl border px-4 py-3 text-left"
-            style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
-          >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-warmth)" }} />
-            <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-              {sensorState === "denied"
-                ? "Motion access was denied — enable it for this site in your browser settings to use the live compass. The bearing below still works."
+        {(sensorState === "relative-only" || sensorState === "unavailable" || sensorState === "denied") && !needsIosGesture && (
+          <Warn
+            text={
+              sensorState === "denied"
+                ? "Motion access was denied — enable it in browser settings for the live compass. The bearing below still works."
                 : sensorState === "relative-only"
-                ? "This browser only provides relative orientation — it can't find true north. Use the bearing below with a physical compass."
-                : "No compass sensor detected. Use the bearing below with a physical compass."}
-            </p>
-          </div>
+                  ? "This browser can't find true north. Use the bearing below with a physical compass."
+                  : "No live compass sensor detected. Use the bearing below with a physical compass."
+            }
+          />
         )}
       </div>
 
       {/* ── Info panel ── */}
       <div className="mt-6 space-y-3">
-        <div
-          className="flex items-center justify-between rounded-xl border px-4 py-3"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
-        >
-          <div className="flex items-center gap-2">
-            <Navigation className="h-4 w-4" style={{ color: "var(--color-accent)" }} />
-            <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>Bearing from North</span>
-          </div>
-          <span className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>
-            {data.bearing}° {data.cardinal}
-          </span>
-        </div>
-
-        <div
-          className="flex items-center justify-between rounded-xl border px-4 py-3"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
-        >
-          <div className="flex items-center gap-2">
-            <MapPin className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
-            <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>Distance to Kaaba</span>
-          </div>
-          <span className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>
-            {kmToMi(data.distance).toLocaleString()} mi ({data.distance.toLocaleString()} km)
-          </span>
-        </div>
-
-        <div
-          className="flex items-center justify-between rounded-xl border px-4 py-3"
-          style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
-        >
-          <div className="flex items-center gap-2">
-            <Compass className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />
-            <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>Your location</span>
-          </div>
-          <span className="text-xs tabular-nums" style={{ color: "var(--color-ink-muted)" }}>
-            {data.userLocation.latitude.toFixed(4)}°, {data.userLocation.longitude.toFixed(4)}°
-          </span>
-        </div>
+        <InfoRow icon={<Navigation2Icon />} label="Bearing from true north" value={`${bearing.toFixed(1)}° ${bearingToCardinal(bearing)}`} />
+        {distance !== null && (
+          <InfoRow
+            icon={<MapPin className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />}
+            label="Distance to Kaaba"
+            value={`${kmToMi(distance).toLocaleString()} mi · ${distance.toLocaleString()} km`}
+          />
+        )}
+        {declination !== null && (
+          <InfoRow
+            icon={<Compass className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />}
+            label="Magnetic declination"
+            value={`${declination >= 0 ? "+" : ""}${declination.toFixed(1)}° corrected`}
+          />
+        )}
+        <InfoRow
+          icon={<LocateFixed className="h-4 w-4" style={{ color: "var(--color-ink-muted)" }} />}
+          label="Your location"
+          value={`${coords.latitude.toFixed(4)}°, ${coords.longitude.toFixed(4)}°`}
+        />
       </div>
 
       <p className="mt-5 text-center text-[11px] leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>
-        Phone compasses drift near metal and magnets. For precision, verify with
-        a physical compass or the sun&apos;s position.
+        Geodesic bearing on WGS84, corrected to true north — all computed on
+        device, works with no internet. Phone compasses drift near metal;
+        for certainty verify with a physical compass.
       </p>
     </div>
   );
 }
 
-/** km → miles */
+function Navigation2Icon() {
+  return <Compass className="h-4 w-4" style={{ color: "var(--color-accent)" }} />;
+}
+
+function Warn({ text }: { text: string }) {
+  return (
+    <div
+      className="mt-3 flex items-start gap-2.5 rounded-xl border px-4 py-3 text-left"
+      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper-2)" }}
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-warmth, #c9a227)" }} />
+      <p className="text-xs leading-relaxed" style={{ color: "var(--color-ink-muted)" }}>{text}</p>
+    </div>
+  );
+}
+
+function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div
+      className="flex items-center justify-between rounded-xl border px-4 py-3"
+      style={{ borderColor: "var(--color-paper-3)", backgroundColor: "var(--color-paper)" }}
+    >
+      <div className="flex items-center gap-2">
+        {icon}
+        <span className="text-sm font-medium" style={{ color: "var(--color-ink)" }}>{label}</span>
+      </div>
+      <span className="text-sm font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{value}</span>
+    </div>
+  );
+}
+
 function kmToMi(km: number): number {
   return Math.round(km * 0.621371);
 }

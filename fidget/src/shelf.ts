@@ -24,6 +24,7 @@ function observeLiveCard(card: HTMLElement, t: Toy) {
 const NO_STILL = new Set([
   "cockpit/checklist", "cockpit/dial", "cockpit/input", "cockpit/launch",
   "cockpit/loading", "cockpit/lock", "cockpit/stepper", "cockpit/tabs",
+  "cockpit/agent", "cockpit/mode", "cockpit/alert",
   "hose/toast", "paradise/slider", "sakuga/toast",
 ]);
 
@@ -37,15 +38,10 @@ function mountPreview(card: HTMLElement, t: Toy, hover = false) {
     const el = mountEl(t);
     live.append(el);
     card.prepend(live);
-    // Toasts render nothing until fired — re-fire while the card is alive.
+    // Toasts render nothing until fired — fire once so the card shows
+    // the pop, then stays put as the toaster's idle art.
     const show = (el as unknown as { show?: (m?: string) => void }).show;
-    if (typeof show === "function") {
-      show.call(el, t.title);
-      const iv = setInterval(() => {
-        if (!card.isConnected) { clearInterval(iv); return; }
-        show.call(el, t.title);
-      }, 4000);
-    }
+    if (typeof show === "function") show.call(el, t.title);
   }).catch(() => {});
 }
 
@@ -180,7 +176,8 @@ export function renderShelf(root: HTMLElement, onOpen: (id: string) => void) {
   ensurePinRow();
 
   shelf.querySelector("#back-btn")?.addEventListener("click", () => {
-    if (window.history.length > 1) window.history.back(); else location.href = "/";
+    // Same-origin, may be framed — always land on the Waqt home screen.
+    try { window.top!.location.href = "/"; } catch { location.href = "/"; }
   });
   shelf.querySelector("#settings-btn")!.addEventListener("click", () => {
     import("./settingsSheet").then((m) => m.openSettingsSheet());
