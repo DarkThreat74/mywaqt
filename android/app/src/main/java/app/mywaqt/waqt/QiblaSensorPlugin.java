@@ -56,6 +56,7 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
     private double longitude;
     private GeomagneticField geoField;     // declination model — rebuilt per fix, not per event
     private long lastEmitMs = 0;           // throttle bridge traffic (~15 Hz)
+    private int sensorEvents = 0;          // diagnostic: onSensorChanged invocations
     private final float[] lastAccel = new float[3];
     private final float[] lastMag = new float[3];
     private boolean haveAccel = false, haveMag = false;
@@ -83,6 +84,8 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
         out.put("available", rotation != null || amFallback);
         out.put("fusion", rotation != null ? (geoFallback ? "geomagnetic" : "full") : (amFallback ? "accel-mag" : "none"));
         out.put("listening", listening);
+        out.put("sensorEvents", sensorEvents);
+        out.put("build", "v6-mainlooper");
         call.resolve(out);
     }
 
@@ -202,6 +205,7 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
 
     @Override
     public void onSensorChanged(SensorEvent event) {
+        sensorEvents++;
         if (!listening) return;
         float[] matrix = new float[9];
         if (amFallback) {

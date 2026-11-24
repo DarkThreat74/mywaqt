@@ -283,7 +283,10 @@ export default function QiblaCompassClient() {
       const silentProbe = setTimeout(() => {
         if (lastReadingRef.current === 0) {
           void native.getStatus?.().then((s) => {
-            queueMicrotask(() => setSensorDiag(`started, silent — fusion: ${s.fusion}`));
+            const st = s as { fusion?: string; listening?: boolean; sensorEvents?: number; build?: string };
+            queueMicrotask(() => setSensorDiag(
+              `started, silent — fusion: ${st.fusion}, listening: ${st.listening}, events: ${st.sensorEvents}, ${st.build ?? "old-apk"}`,
+            ));
           }).catch(() => {});
         }
       }, 4000);
