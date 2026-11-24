@@ -240,15 +240,61 @@ export default function QiblaCompassClient() {
     return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
   }, []);
 
-  // ── Sensor attach: native first, web fallback ──
+  // ── Sensor attach: native first, WebView orientation fallback ──
   useEffect(() => {
     cleanupRef.current?.();
     cleanupRef.current = null;
     const native = getNative();
 
+    // WebView fallback — Chrome's own sensor stack, independent of the app
+    // process. This is what Capacitor's official Motion plugin uses entirely.
+    const attachWeb = () => {
+      const handler = (e: Event) => {
+        const ev = e as DeviceOrientationEvent & { webkitCompassHeading?: number; webkitCompassAccuracy?: number };
+        sawAnyEventRef.current = true;
+        if (typeof ev.webkitCompassHeading === "number" && !Number.isNaN(ev.webkitCompassHeading)) {
+          hasAbsoluteRef.current = true;
+          if (typeof ev.webkitCompassAccuracy === "number") {
+            setAccuracyLow(ev.webkitCompassAccuracy < 0 || ev.webkitCompassAccuracy > 20);
+          }
+          updateHeading(headingRefs, (ev.webkitCompassHeading + screenAngle() + 360) % 360);
+          return;
+        }
+        if (ev.absolute === true && ev.alpha !== null &&
+            typeof ev.alpha === "number" && typeof ev.beta === "number" && typeof ev.gamma === "number") {
+          hasAbsoluteRef.current = true;
+          // Qibla is used flat — steep pitch/roll makes alpha meaningless.
+          if (Math.abs(ev.beta ?? 0) > 65 || Math.abs(ev.gamma ?? 0) > 65) return;
+          updateHeading(headingRefs, (360 - ev.alpha + screenAngle() + 360) % 360);
+        }
+      };
+      window.addEventListener("deviceorientationabsolute", handler);
+      window.addEventListener("deviceorientation", handler);
+      const onNeedsCal = () => setAccuracyLow(true);
+      window.addEventListener("compassneedscalibration", onNeedsCal);
+      const stateTimer = setTimeout(() => {
+        setSensorState(hasAbsoluteRef.current ? "live" : sawAnyEventRef.current ? "relative-only" : "unavailable");
+      }, 2500);
+      const liveTimer = setInterval(() => {
+        setSensorState(hasAbsoluteRef.current ? "live" : sawAnyEventRef.current ? "relative-only" : "unavailable");
+        if (hasAbsoluteRef.current) setStale(Date.now() - lastReadingRef.current > 3000);
+      }, 2000);
+      return () => {
+        window.removeEventListener("deviceorientationabsolute", handler);
+        window.removeEventListener("deviceorientation", handler);
+        window.removeEventListener("compassneedscalibration", onNeedsCal);
+        clearTimeout(stateTimer);
+        clearInterval(liveTimer);
+      };
+    };
+
     if (native && coords) {
       let removeH: (() => void) | null = null;
       let removeA: (() => void) | null = null;
+      let webCleanup: (() => void) | null = null;
+      // If the app-process sensor stack fails, Chrome's may still work —
+      // they're independent paths to the same sensors.
+      const fallbackToWeb = () => { if (!webCleanup) webCleanup = attachWeb(); };
       try {
       void native.addListener("heading", (r) => {
         try {
@@ -268,27 +314,29 @@ export default function QiblaCompassClient() {
       void native.start({ latitude: coords.latitude, longitude: coords.longitude })
         .then(() => { nativeStartedRef.current = true; })
         .catch((e) => {
+          fallbackToWeb();
           queueMicrotask(() => {
-            setSensorState("unavailable");
             setSensorDiag(e instanceof Error ? e.message : String(e));
           });
         });
       } catch (e) {
         // sync throws from the bridge must not reach the boundary
+        fallbackToWeb();
         queueMicrotask(() => {
-          setSensorState("unavailable");
           setSensorDiag(e instanceof Error ? e.message : String(e));
         });
       }
       const silentProbe = setTimeout(() => {
-        // Don't clobber a start() rejection message — that's the real error.
-        if (lastReadingRef.current === 0 && nativeStartedRef.current) {
-          void native.getStatus?.().then((s) => {
-            const st = s as { fusion?: string; listening?: boolean; sensorEvents?: number; build?: string };
-            queueMicrotask(() => setSensorDiag(
-              `started, silent — fusion: ${st.fusion}, listening: ${st.listening}, events: ${st.sensorEvents}, ${st.build ?? "old-apk"}`,
-            ));
-          }).catch(() => {});
+        if (lastReadingRef.current === 0) {
+          fallbackToWeb(); // native silent → give Chrome's stack a shot
+          if (nativeStartedRef.current) {
+            void native.getStatus?.().then((s) => {
+              const st = s as { fusion?: string; listening?: boolean; sensorEvents?: number; build?: string; device?: string };
+              queueMicrotask(() => setSensorDiag(
+                `native silent — fusion: ${st.fusion}, listening: ${st.listening}, events: ${st.sensorEvents}, ${st.device ?? ""} ${st.build ?? "old-apk"}`,
+              ));
+            }).catch(() => {});
+          }
         }
       }, 4000);
       const staleTimer = setInterval(() => {
@@ -298,6 +346,7 @@ export default function QiblaCompassClient() {
         void native.stop().catch(() => {});
         nativeStartedRef.current = false;
         removeH?.(); removeA?.();
+        webCleanup?.();
         clearTimeout(silentProbe);
         clearInterval(staleTimer);
       };
@@ -305,48 +354,10 @@ export default function QiblaCompassClient() {
     }
     if (native && !coords) return; // wait for the bearing to land first
 
-    // ── Web fallback (desktop browser / iOS PWA) ──
+    // ── Web path (desktop browser / iOS PWA / no plugin) ──
     const doe = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> };
-    const needsGesture = typeof doe?.requestPermission === "function";
-    if (needsGesture && !iosGranted) return; // iOS — wait for the Enable button
-
-    const handler = (e: Event) => {
-      const ev = e as DeviceOrientationEvent & { webkitCompassHeading?: number; webkitCompassAccuracy?: number };
-      sawAnyEventRef.current = true;
-      if (typeof ev.webkitCompassHeading === "number" && !Number.isNaN(ev.webkitCompassHeading)) {
-        hasAbsoluteRef.current = true;
-        if (typeof ev.webkitCompassAccuracy === "number") {
-          setAccuracyLow(ev.webkitCompassAccuracy < 0 || ev.webkitCompassAccuracy > 20);
-        }
-        updateHeading(headingRefs, (ev.webkitCompassHeading + screenAngle() + 360) % 360);
-        return;
-      }
-      if (ev.absolute === true && ev.alpha !== null &&
-          typeof ev.alpha === "number" && typeof ev.beta === "number" && typeof ev.gamma === "number") {
-        hasAbsoluteRef.current = true;
-        // Qibla is used flat — steep pitch/roll makes alpha meaningless.
-        if (Math.abs(ev.beta ?? 0) > 65 || Math.abs(ev.gamma ?? 0) > 65) return;
-        updateHeading(headingRefs, (360 - ev.alpha + screenAngle() + 360) % 360);
-      }
-    };
-    window.addEventListener("deviceorientationabsolute", handler);
-    window.addEventListener("deviceorientation", handler);
-    const onNeedsCal = () => setAccuracyLow(true);
-    window.addEventListener("compassneedscalibration", onNeedsCal);
-    const stateTimer = setTimeout(() => {
-      setSensorState(hasAbsoluteRef.current ? "live" : sawAnyEventRef.current ? "relative-only" : "unavailable");
-    }, 2500);
-    const liveTimer = setInterval(() => {
-      setSensorState(hasAbsoluteRef.current ? "live" : sawAnyEventRef.current ? "relative-only" : "unavailable");
-      if (hasAbsoluteRef.current) setStale(Date.now() - lastReadingRef.current > 3000);
-    }, 2000);
-    cleanupRef.current = () => {
-      window.removeEventListener("deviceorientationabsolute", handler);
-      window.removeEventListener("deviceorientation", handler);
-      window.removeEventListener("compassneedscalibration", onNeedsCal);
-      clearTimeout(stateTimer);
-      clearInterval(liveTimer);
-    };
+    if (typeof doe?.requestPermission === "function" && !iosGranted) return; // iOS — wait for the Enable button
+    cleanupRef.current = attachWeb();
     return cleanupRef.current;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coords, iosGranted]);

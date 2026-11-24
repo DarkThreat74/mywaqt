@@ -82,7 +82,23 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
                 : amFallback ? "accel-mag" : "none");
         out.put("listening", listening);
         out.put("sensorEvents", sensorEvents);
-        out.put("build", "v6-mainlooper");
+        out.put("build", "v7-fallbackchain");
+        out.put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL);
+        // Sensor metadata — reporting mode / wake-up variants explain
+        // devices where getDefaultSensor returns a sensor that won't register.
+        com.getcapacitor.JSArray list = new com.getcapacitor.JSArray();
+        for (Sensor s : new Sensor[]{rotation, geoRotation, accel, magneto}) {
+            if (s == null) continue;
+            JSObject m = new JSObject();
+            m.put("type", s.getType());
+            m.put("name", s.getName());
+            m.put("vendor", s.getVendor());
+            m.put("reportingMode", s.getReportingMode());
+            m.put("wakeUp", s.isWakeUpSensor());
+            m.put("minDelay", s.getMinDelay());
+            list.put(m);
+        }
+        out.put("sensors", list);
         call.resolve(out);
     }
 
@@ -180,23 +196,7 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
         wantListening = true;
         main.post(() -> {
             if (!wantListening) { call.resolve(); return; } // stop() beat us here
-            if (!listening) {
-                // Registration chain — some devices report TYPE_ROTATION_VECTOR
-                // but refuse to register it. Try geo-RV, then raw accel+mag.
-                boolean ok = false;
-                if (rotation != null && sensors.registerListener(this, rotation, SensorManager.SENSOR_DELAY_GAME, main)) {
-                    activeSensor = rotation;
-                    ok = true;
-                } else if (geoRotation != null && sensors.registerListener(this, geoRotation, SensorManager.SENSOR_DELAY_GAME, main)) {
-                    activeSensor = geoRotation;
-                    ok = true;
-                } else if (accel != null && magneto != null) {
-                    amFallback = sensors.registerListener(this, accel, SensorManager.SENSOR_DELAY_GAME, main)
-                            & sensors.registerListener(this, magneto, SensorManager.SENSOR_DELAY_GAME, main);
-                    ok = amFallback;
-                }
-                listening = ok;
-            }
+            if (!listening) listening = tryRegister(main);
             if (listening) call.resolve();
             else call.reject("sensor registration failed");
         });
@@ -293,6 +293,43 @@ public class QiblaSensorPlugin extends Plugin implements SensorEventListener {
         if (listening && sensors != null) sensors.unregisterListener(this);
         listening = false;
         haveAccel = haveMag = false;
+    }
+
+    /**
+     * Registration chain for stubborn HALs. Order:
+     *   every ROTATION_VECTOR entry (default + wake-up variants),
+     *   every GEOMAGNETIC_ROTATION_VECTOR entry,
+     *   raw accel+mag.
+     * Each candidate is tried at every delay — a documented failure mode is
+     * SENSOR_DELAY_GAME being refused where NORMAL succeeds.
+     */
+    private boolean tryRegister(Handler h) {
+        final int[] delays = {
+            SensorManager.SENSOR_DELAY_GAME,
+            SensorManager.SENSOR_DELAY_NORMAL,
+            SensorManager.SENSOR_DELAY_UI,
+            SensorManager.SENSOR_DELAY_FASTEST,
+        };
+        java.util.List<Sensor> vectors = new java.util.ArrayList<>();
+        if (rotation != null) vectors.add(rotation);
+        if (geoRotation != null) vectors.add(geoRotation);
+        for (Sensor s : sensors.getSensorList(Sensor.TYPE_ROTATION_VECTOR)) if (s != rotation) vectors.add(s);
+        for (Sensor s : sensors.getSensorList(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)) if (s != geoRotation) vectors.add(s);
+        for (Sensor s : vectors) {
+            for (int d : delays) {
+                if (sensors.registerListener(this, s, d, h)) { activeSensor = s; return true; }
+            }
+        }
+        if (accel != null && magneto != null) {
+            for (int d : delays) {
+                boolean a = sensors.registerListener(this, accel, d, h);
+                boolean m = sensors.registerListener(this, magneto, d, h);
+                if (a && m) { amFallback = true; return true; }
+                if (a) sensors.unregisterListener(this, accel);
+                if (m) sensors.unregisterListener(this, magneto);
+            }
+        }
+        return false;
     }
 
     private static double normalize(double degrees) {
